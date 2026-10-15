@@ -1,0 +1,1232 @@
+{
+  "baseline_commit": "acd84f4c67509e10363c33850501eb8f4fc3ffa7",
+  "method": "Read-only current top-level payload census; excludes undo entries, regenerated geometry and untracked files. Counts aggregate example snapshots and are not unique project entities. Coordinate coincidence is not evidence of shared topological identity. Equal serialized overrides are redundancy candidates, not permission to discard all overrides. Child shapes compare prototype nesting only, not transforms or authored per-occurrence edits.",
+  "fixture_count": 60,
+  "totals": {
+    "prototypes": 656,
+    "nonidentity_definition_frames": 0,
+    "definitions_with_hotspots": 18,
+    "definitions_with_domain_and_stored_mesh": 98,
+    "stored_mesh_point_slots": 168849,
+    "distinct_coordinate_values_per_definition": 28561,
+    "placements": 3061,
+    "placements_with_children": 48,
+    "placements_with_nonempty_geometry_overrides": 2939,
+    "placements_with_hotspot_position_changes": 37,
+    "override_bundles_equal_to_definition_serialized_arrays": 2899,
+    "overrides_without_hotspot_position_changes": 2902,
+    "definitions_with_multiple_placements": 87,
+    "shared_definitions_with_different_child_prototype_shapes": 0,
+    "repeated_coordinate_slots": 140288
+  },
+  "fixtures": [
+    {
+      "path": "assets/glyphs/alphabet.octd",
+      "sha256": "db1f3838330cf0df604bcc959bee1b4e40ba1d60a8470a407ccaaae2bcecb1e5",
+      "counts": {
+        "prototypes": 99,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 1,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1190,
+        "distinct_coordinate_values_per_definition": 666,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 524
+      }
+    },
+    {
+      "path": "docs/tutorial/000_construction.octd",
+      "sha256": "e53b9d21e7c91b6ac91bc1759ba5e162a329336f84ff8f96a11c8a223de90f78",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 0,
+        "distinct_coordinate_values_per_definition": 0,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "docs/tutorial/000_interface.octd",
+      "sha256": "a101226095d9f9ec363ecdbce5558b2eb11dd0ae7d26b800ba8cfb178739e5db",
+      "counts": {
+        "prototypes": 5,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1626,
+        "distinct_coordinate_values_per_definition": 304,
+        "placements": 1281,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1280,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1280,
+        "overrides_without_hotspot_position_changes": 1280,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1322
+      }
+    },
+    {
+      "path": "examples/alphabet.octd",
+      "sha256": "55a00bc70009d57c57143f7f766798e5a95a86a4a9c29dfd941dc807d617d337",
+      "counts": {
+        "prototypes": 98,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 1,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1472,
+        "distinct_coordinate_values_per_definition": 926,
+        "placements": 96,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 95,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 95,
+        "overrides_without_hotspot_position_changes": 95,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 546
+      }
+    },
+    {
+      "path": "examples/arch_frame.octd",
+      "sha256": "22e13a3d849876fafbf0304d8e926d3f482e5e7a6c5b2457aab1a6dd629d03d4",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 24,
+        "distinct_coordinate_values_per_definition": 8,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 16
+      }
+    },
+    {
+      "path": "examples/architecture.2.k3d",
+      "sha256": "72869772a377bd4c69c61cd01850aad13616379c7b015e1930d88ccf82232436",
+      "counts": {
+        "prototypes": 19,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 16,
+        "stored_mesh_point_slots": 7662,
+        "distinct_coordinate_values_per_definition": 827,
+        "placements": 16,
+        "placements_with_children": 2,
+        "placements_with_nonempty_geometry_overrides": 14,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 14,
+        "overrides_without_hotspot_position_changes": 14,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 6835
+      }
+    },
+    {
+      "path": "examples/architecture.3.k3d",
+      "sha256": "07274070e852b6abc4d12ba09a9ce031492514f718a02b3c865764b7076bb8b9",
+      "counts": {
+        "prototypes": 8,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 7,
+        "stored_mesh_point_slots": 1948,
+        "distinct_coordinate_values_per_definition": 304,
+        "placements": 6,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 5,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 5,
+        "overrides_without_hotspot_position_changes": 5,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1644
+      }
+    },
+    {
+      "path": "examples/architecture.4.k3d",
+      "sha256": "0a5fa0f5257306741cdad73fd255befdfa55f16693793dc62e5639f6f5851d2d",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 3,
+        "stored_mesh_point_slots": 3776,
+        "distinct_coordinate_values_per_definition": 608,
+        "placements": 10,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 9,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 9,
+        "overrides_without_hotspot_position_changes": 9,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 3168
+      }
+    },
+    {
+      "path": "examples/architecture.demo.k3d",
+      "sha256": "9d43bafe64c90c57f2b4ee663d269cad4ccd38df5fa4da8e7f82eb4bdf96d888",
+      "counts": {
+        "prototypes": 29,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 23,
+        "stored_mesh_point_slots": 10006,
+        "distinct_coordinate_values_per_definition": 1286,
+        "placements": 24,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 21,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 21,
+        "overrides_without_hotspot_position_changes": 21,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 8720
+      }
+    },
+    {
+      "path": "examples/architecture.k3d",
+      "sha256": "71f3c5572560f82545fcf5db4e0b50288df62015d21124c81914c85a15851c2e",
+      "counts": {
+        "prototypes": 76,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 39,
+        "stored_mesh_point_slots": 15611,
+        "distinct_coordinate_values_per_definition": 2038,
+        "placements": 56,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 36,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 36,
+        "overrides_without_hotspot_position_changes": 36,
+        "definitions_with_multiple_placements": 5,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 13573
+      }
+    },
+    {
+      "path": "examples/carcass.octd",
+      "sha256": "cbda5bee23259766d27edcfbab864ee83e79102b305ca8ca8ae20f2d900dd0b9",
+      "counts": {
+        "prototypes": 18,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 7628,
+        "distinct_coordinate_values_per_definition": 1356,
+        "placements": 10,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 9,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 9,
+        "overrides_without_hotspot_position_changes": 9,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 6272
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.1.k3d",
+      "sha256": "c254dc17f37288311bedd00137f5953270d40c0d7a9906f7cacb4812dec041d7",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 1,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 371,
+        "distinct_coordinate_values_per_definition": 78,
+        "placements": 12,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 11,
+        "placements_with_hotspot_position_changes": 10,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 293
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.2.k3d",
+      "sha256": "55d913cd29c84884d9a271bd462e45f8aab379f27b1c4c0c82a848d5b54962ca",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 2,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 192,
+        "distinct_coordinate_values_per_definition": 23,
+        "placements": 6,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 5,
+        "placements_with_hotspot_position_changes": 4,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 2,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 169
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.3.k3d",
+      "sha256": "ef1b6ee27e02e155996e53b88879be157a7d6abaa955170d3a5771080199476d",
+      "counts": {
+        "prototypes": 4,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 3,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 792,
+        "distinct_coordinate_values_per_definition": 93,
+        "placements": 11,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 10,
+        "placements_with_hotspot_position_changes": 8,
+        "override_bundles_equal_to_definition_serialized_arrays": 2,
+        "overrides_without_hotspot_position_changes": 2,
+        "definitions_with_multiple_placements": 2,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 699
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.4.k3d",
+      "sha256": "b74d077cdaf9e8ade0691d46e30eccc84ced8809e9f656130e2d3cfc4ce8c6b2",
+      "counts": {
+        "prototypes": 6,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 412,
+        "distinct_coordinate_values_per_definition": 271,
+        "placements": 4,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 3,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 3,
+        "overrides_without_hotspot_position_changes": 3,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 141
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.5.k3d",
+      "sha256": "a07dbaeabff5a4ab2c86333ec09c54c0e1ed50636225ee76f197d684ae3d02fe",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 174,
+        "distinct_coordinate_values_per_definition": 24,
+        "placements": 9,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 8,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 8,
+        "overrides_without_hotspot_position_changes": 8,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 150
+      }
+    },
+    {
+      "path": "examples/hotspots.demo.k3d",
+      "sha256": "b98894f5e7ea6047cd143332e16a6718bc2e8f2f66ff52d76c82821e98dd7f80",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 0,
+        "distinct_coordinate_values_per_definition": 0,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "examples/house.k3d",
+      "sha256": "fd650246c8d927ac57f8cdc9dbaaaefe89d3f5e07b1962a19cc7801c44fe7f57",
+      "counts": {
+        "prototypes": 8,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 4204,
+        "distinct_coordinate_values_per_definition": 501,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 3703
+      }
+    },
+    {
+      "path": "examples/hvac.demo.k3d",
+      "sha256": "85266bb4a9061af602408630d144019c2273ae3d00cf955345e617e2158f47f3",
+      "counts": {
+        "prototypes": 8,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 2820,
+        "distinct_coordinate_values_per_definition": 478,
+        "placements": 17,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 4,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 2342
+      }
+    },
+    {
+      "path": "examples/logo.1.k3d",
+      "sha256": "83246163f04a347527a5e8acf75cc9904db2936a7b7e33735fed17ff69c15fac",
+      "counts": {
+        "prototypes": 9,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 660,
+        "distinct_coordinate_values_per_definition": 165,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 495
+      }
+    },
+    {
+      "path": "examples/logo.2.k3d",
+      "sha256": "f428174ca896995edc340edb83e9bc8310298d5cb4db420d93020774fdb6cebe",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 6,
+        "definitions_with_domain_and_stored_mesh": 2,
+        "stored_mesh_point_slots": 14894,
+        "distinct_coordinate_values_per_definition": 2767,
+        "placements": 12,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 11,
+        "placements_with_hotspot_position_changes": 7,
+        "override_bundles_equal_to_definition_serialized_arrays": 4,
+        "overrides_without_hotspot_position_changes": 4,
+        "definitions_with_multiple_placements": 4,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 12127
+      }
+    },
+    {
+      "path": "examples/logo.3.k3d",
+      "sha256": "e3344be49fb5965b80426fd813fb287c97d7b6aab0dd1e878a052af8fd75dd25",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 50,
+        "distinct_coordinate_values_per_definition": 20,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 30
+      }
+    },
+    {
+      "path": "examples/logo.4.k3d",
+      "sha256": "0efa0751266e207ff9e256b7369a4426711a9ac4161c92da450e5a1b6dbf718c",
+      "counts": {
+        "prototypes": 4,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 2228,
+        "distinct_coordinate_values_per_definition": 295,
+        "placements": 4,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 3,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 3,
+        "overrides_without_hotspot_position_changes": 3,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1933
+      }
+    },
+    {
+      "path": "examples/logo.4.octd",
+      "sha256": "31d0323575bc25ecc5d5ec430654e83f1ada91dc5982cc4be40ae479163a97fb",
+      "counts": {
+        "prototypes": 10,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 4794,
+        "distinct_coordinate_values_per_definition": 721,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 4073
+      }
+    },
+    {
+      "path": "examples/logo.5.octd",
+      "sha256": "f3dfd3c4ad61f1d0090bec83397ab4688f484c3ef1d89d6e8b0dca5ff729cca7",
+      "counts": {
+        "prototypes": 5,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 2,
+        "stored_mesh_point_slots": 24254,
+        "distinct_coordinate_values_per_definition": 3075,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 21179
+      }
+    },
+    {
+      "path": "examples/logo.k3d",
+      "sha256": "06697396ae11d9998f1971559047f12b961a8d10fd4308588d39576a8608b3eb",
+      "counts": {
+        "prototypes": 9,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 4088,
+        "distinct_coordinate_values_per_definition": 754,
+        "placements": 8,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 7,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 7,
+        "overrides_without_hotspot_position_changes": 7,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 3334
+      }
+    },
+    {
+      "path": "examples/mcp.demo.k3d",
+      "sha256": "50946d7798a76590963b828051d3ff217e1eca1a41d6deb16a9ff69d741ee2ea",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 854,
+        "distinct_coordinate_values_per_definition": 128,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 726
+      }
+    },
+    {
+      "path": "examples/mechanical.octo",
+      "sha256": "54049a8eac798bba6c48840b9c67633a11f4b7cc250979b765d535bb2822756b",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 5312,
+        "distinct_coordinate_values_per_definition": 1039,
+        "placements": 5,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 4,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 4,
+        "overrides_without_hotspot_position_changes": 4,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 4273
+      }
+    },
+    {
+      "path": "examples/rel-541.octd",
+      "sha256": "30a3447afc4cc408df118ab6c2627defc0b8a3b708792762d2003acda9a50d16",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 325,
+        "distinct_coordinate_values_per_definition": 66,
+        "placements": 9,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 8,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 8,
+        "overrides_without_hotspot_position_changes": 8,
+        "definitions_with_multiple_placements": 2,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 259
+      }
+    },
+    {
+      "path": "examples/rel-542.octd",
+      "sha256": "81c380a9dc0ec30748ff415d3a64bb1f55c5b5d6cf730a969222fcd514cca8b7",
+      "counts": {
+        "prototypes": 10,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1369,
+        "distinct_coordinate_values_per_definition": 340,
+        "placements": 13,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 12,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 12,
+        "overrides_without_hotspot_position_changes": 12,
+        "definitions_with_multiple_placements": 2,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1029
+      }
+    },
+    {
+      "path": "examples/rel-543.octd",
+      "sha256": "190eb4ed89e26a1979aab66253dc058198d962d5284f9fb91fc63120736bdd7d",
+      "counts": {
+        "prototypes": 10,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1561,
+        "distinct_coordinate_values_per_definition": 412,
+        "placements": 15,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 14,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 14,
+        "overrides_without_hotspot_position_changes": 14,
+        "definitions_with_multiple_placements": 4,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1149
+      }
+    },
+    {
+      "path": "examples/rel-544.octd",
+      "sha256": "06d9ccea69c2149302fbe94090336520284d86607b99e631aadf56196b944b09",
+      "counts": {
+        "prototypes": 10,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 2347,
+        "distinct_coordinate_values_per_definition": 603,
+        "placements": 15,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 14,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 14,
+        "overrides_without_hotspot_position_changes": 14,
+        "definitions_with_multiple_placements": 4,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1744
+      }
+    },
+    {
+      "path": "examples/rel-545.octd",
+      "sha256": "fd10e15671a530544fb5ddbadbd381e1f4f3b1a8a802d6d877736f1e6c456699",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 412,
+        "distinct_coordinate_values_per_definition": 96,
+        "placements": 6,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 5,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 5,
+        "overrides_without_hotspot_position_changes": 5,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 316
+      }
+    },
+    {
+      "path": "examples/rel-546.octd",
+      "sha256": "98be1a018346985ea48ba5b6f0280474899dbf29bef69d4b76f34e03b2e4d2f6",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 412,
+        "distinct_coordinate_values_per_definition": 96,
+        "placements": 6,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 5,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 5,
+        "overrides_without_hotspot_position_changes": 5,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 316
+      }
+    },
+    {
+      "path": "examples/rel-547.octd",
+      "sha256": "73d315c1a42b08f072524c3cc1349844c462e9ae1b1ef985cef54c019128216c",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 412,
+        "distinct_coordinate_values_per_definition": 96,
+        "placements": 26,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 25,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 25,
+        "overrides_without_hotspot_position_changes": 25,
+        "definitions_with_multiple_placements": 5,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 316
+      }
+    },
+    {
+      "path": "examples/rel-548.octd",
+      "sha256": "f272f82ea36e63f9073fce15724ae15de0012f756005307842f39b1dc9856c8c",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 816,
+        "distinct_coordinate_values_per_definition": 179,
+        "placements": 24,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 23,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 23,
+        "overrides_without_hotspot_position_changes": 23,
+        "definitions_with_multiple_placements": 5,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 637
+      }
+    },
+    {
+      "path": "examples/rel-549.octd",
+      "sha256": "cfdf2b00a0fdb0bb578561472edb2a23036ca18182c03099d015c636e1002fbe",
+      "counts": {
+        "prototypes": 12,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1028,
+        "distinct_coordinate_values_per_definition": 205,
+        "placements": 24,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 23,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 23,
+        "overrides_without_hotspot_position_changes": 23,
+        "definitions_with_multiple_placements": 5,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 823
+      }
+    },
+    {
+      "path": "examples/rel-550.octd",
+      "sha256": "ee170d591cb847484cb945a4a3186d65e4e9f6c2b8bfaa4e5e27544b72eb7c34",
+      "counts": {
+        "prototypes": 8,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1687,
+        "distinct_coordinate_values_per_definition": 357,
+        "placements": 3,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 2,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 2,
+        "overrides_without_hotspot_position_changes": 2,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1330
+      }
+    },
+    {
+      "path": "examples/sketch3d.demo.3.k3d",
+      "sha256": "7a00c18f1ef943580f4d0d513beb1599aa0d95167680e86c1d65d602ab5409ac",
+      "counts": {
+        "prototypes": 4,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 3,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 792,
+        "distinct_coordinate_values_per_definition": 93,
+        "placements": 11,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 10,
+        "placements_with_hotspot_position_changes": 8,
+        "override_bundles_equal_to_definition_serialized_arrays": 2,
+        "overrides_without_hotspot_position_changes": 2,
+        "definitions_with_multiple_placements": 2,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 699
+      }
+    },
+    {
+      "path": "examples/sketch3d.k3d",
+      "sha256": "7bfa5b184d7e0deaf87cbbeff644cd259a1538bf2f5e6be96984f2b2c138d253",
+      "counts": {
+        "prototypes": 17,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 5842,
+        "distinct_coordinate_values_per_definition": 697,
+        "placements": 72,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 71,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 71,
+        "overrides_without_hotspot_position_changes": 71,
+        "definitions_with_multiple_placements": 12,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 5145
+      }
+    },
+    {
+      "path": "examples/spaceship.octd",
+      "sha256": "60778498c8a3e1e5b19e0392574838d9d9dbc1710b1e6871e21298442dfd1211",
+      "counts": {
+        "prototypes": 11,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 5636,
+        "distinct_coordinate_values_per_definition": 957,
+        "placements": 951,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 950,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 950,
+        "overrides_without_hotspot_position_changes": 950,
+        "definitions_with_multiple_placements": 8,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 4679
+      }
+    },
+    {
+      "path": "examples/stretchable.octd",
+      "sha256": "ceadc8ca13c8a356e04b58cc382f0f2be2b6a1a3b8b57ebe23536fc2863f9b28",
+      "counts": {
+        "prototypes": 5,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 2124,
+        "distinct_coordinate_values_per_definition": 483,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 0,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1641
+      }
+    },
+    {
+      "path": "examples/test-save-as.k3d",
+      "sha256": "dfbbc294b49b2a235467fa587dcf038002bceb96e5fb2bf473af446731664f9b",
+      "counts": {
+        "prototypes": 16,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 4746,
+        "distinct_coordinate_values_per_definition": 567,
+        "placements": 23,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 6,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 4179
+      }
+    },
+    {
+      "path": "examples/test-shortcuts.0.octd",
+      "sha256": "e82fda561dc694edcfeec87e3dd7b059ef65bbf3d4ac4073ee817c8612cde131",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 1,
+        "stored_mesh_point_slots": 246,
+        "distinct_coordinate_values_per_definition": 36,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 210
+      }
+    },
+    {
+      "path": "examples/test-shortcuts.1.octd",
+      "sha256": "91a4d3f8b6cce493a6359b63ad66fb7d18c024e816f20472545685b6fb03209a",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 1,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 204,
+        "distinct_coordinate_values_per_definition": 50,
+        "placements": 25,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 24,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 24,
+        "overrides_without_hotspot_position_changes": 24,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 154
+      }
+    },
+    {
+      "path": "examples/test-shortcuts.octd",
+      "sha256": "e8b495a4e5d7fad5e136bfeb2448d96206ad3566ad5205de18ebcb83fe15c8bb",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 822,
+        "distinct_coordinate_values_per_definition": 292,
+        "placements": 2,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 1,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 1,
+        "overrides_without_hotspot_position_changes": 1,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 530
+      }
+    },
+    {
+      "path": "examples/test.0.k3d",
+      "sha256": "145c7c6b0054ecc020904ff7dda01867e5fe072cd6dd4a2b852b4a099eff8a6f",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1267,
+        "distinct_coordinate_values_per_definition": 166,
+        "placements": 3,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 2,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 2,
+        "overrides_without_hotspot_position_changes": 2,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1101
+      }
+    },
+    {
+      "path": "examples/test.1.k3d",
+      "sha256": "05e0b8dba492c198a202eef2a368ce04bbccfc731e436835c6add9125649b463",
+      "counts": {
+        "prototypes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "examples/test.2.k3d",
+      "sha256": "cfb2f581580a1f3e810989212dc32f84621fa9f818b44bf866ada4b5953f707d",
+      "counts": {
+        "prototypes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "examples/tutorial-basics.k3d",
+      "sha256": "4d983feb230356e365aefd6493c05beb3d84a96927ae99ca62ae68cdef3c4a4a",
+      "counts": {
+        "prototypes": 8,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1840,
+        "distinct_coordinate_values_per_definition": 269,
+        "placements": 7,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 6,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 6,
+        "overrides_without_hotspot_position_changes": 6,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 1571
+      }
+    },
+    {
+      "path": "examples/tutorial.001.octd",
+      "sha256": "ba2b63a5c46f8016ef8fa2924fa6c174f9abfa6e857b578db69de15f36df2e24",
+      "counts": {
+        "prototypes": 9,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 14920,
+        "distinct_coordinate_values_per_definition": 3174,
+        "placements": 6,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 5,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 5,
+        "overrides_without_hotspot_position_changes": 5,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 11746
+      }
+    },
+    {
+      "path": "examples/tutorial.002.octd",
+      "sha256": "ce6abe7b561a971cea861922cd55cb190eba7f8fee9045e3014ef46320003625",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 86,
+        "distinct_coordinate_values_per_definition": 32,
+        "placements": 73,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 72,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 72,
+        "overrides_without_hotspot_position_changes": 72,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 54
+      }
+    },
+    {
+      "path": "examples/tutorial.k3d",
+      "sha256": "2c8cfd84b326c6467846ef54e7ba1afd137ae9c434b8006f79c68b5d99af2686",
+      "counts": {
+        "prototypes": 7,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 867,
+        "distinct_coordinate_values_per_definition": 132,
+        "placements": 130,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 129,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 129,
+        "overrides_without_hotspot_position_changes": 129,
+        "definitions_with_multiple_placements": 4,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 735
+      }
+    },
+    {
+      "path": "examples/tutorial.octd",
+      "sha256": "790078ade136979a55bfe7bf1abdc080329d5a17b18fb67886b4f5c75cd42ec8",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 1058,
+        "distinct_coordinate_values_per_definition": 200,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 858
+      }
+    },
+    {
+      "path": "examples/xref_chair.octd",
+      "sha256": "df8101343a6c248b9b645e87a2543c69e1cf326679b174c182f4904ba38fc236",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 0,
+        "distinct_coordinate_values_per_definition": 0,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "examples/xrefs.octd",
+      "sha256": "98ef8a905ed8d7f6794d6fb65026335dabf0ad215e70b042b274cd67b952ebd7",
+      "counts": {
+        "prototypes": 3,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 0,
+        "distinct_coordinate_values_per_definition": 0,
+        "placements": 3,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 2,
+        "placements_with_hotspot_position_changes": 0,
+        "override_bundles_equal_to_definition_serialized_arrays": 0,
+        "overrides_without_hotspot_position_changes": 2,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "examples/xrefs_ARCH_CHAIR.octd",
+      "sha256": "d5005644a99e9712042899962364b0a82fad37074ad45167ec7212c46c1b9064",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 748,
+        "distinct_coordinate_values_per_definition": 157,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 591
+      }
+    },
+    {
+      "path": "examples/xrefs_ARCH_COLUMN.octd",
+      "sha256": "8005c78b4b2958b0e3f3251d4cdfc967a40ff8bdc4350de4cb8c4fbc963dfc15",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 90,
+        "distinct_coordinate_values_per_definition": 15,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 75
+      }
+    },
+    {
+      "path": "examples/xrefs_ref01.octd",
+      "sha256": "5f1cd3e15bc451a97b4fa59145400c27615c3a48c258d23b042a2b2cf6bc2fff",
+      "counts": {
+        "prototypes": 2,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 0,
+        "distinct_coordinate_values_per_definition": 0,
+        "placements": 4,
+        "placements_with_children": 1,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 1,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 0
+      }
+    },
+    {
+      "path": "octodraw.octd",
+      "sha256": "1d6134682e1755af0d709bb4bb59aa160146496a41dc5c62581c35c104662fed",
+      "counts": {
+        "prototypes": 1,
+        "nonidentity_definition_frames": 0,
+        "definitions_with_hotspots": 0,
+        "definitions_with_domain_and_stored_mesh": 0,
+        "stored_mesh_point_slots": 150,
+        "distinct_coordinate_values_per_definition": 36,
+        "placements": 1,
+        "placements_with_children": 0,
+        "placements_with_nonempty_geometry_overrides": 0,
+        "placements_with_hotspot_position_changes": 0,
+        "definitions_with_multiple_placements": 0,
+        "shared_definitions_with_different_child_prototype_shapes": 0,
+        "repeated_coordinate_slots": 114
+      }
+    }
+  ]
+}

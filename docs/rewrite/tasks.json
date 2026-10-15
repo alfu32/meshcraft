@@ -1,0 +1,2438 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "acd84f4c67509e10363c33850501eb8f4fc3ffa7",
+  "scope": {
+    "first_delivery": "desktop",
+    "later_delivery": "Independent browser and native JavaScriptCore-plugin deliveries after initial desktop",
+    "deferred": [
+      "Android application and packaging",
+      "Groovy/JVM plugin execution and binary compatibility",
+      "Developer Groovy REPL and CLI/TUI",
+      "Native self-updater replacement",
+      "OpenSCAD integration",
+      "Unimplemented tags/material UV/saved-scenes intentions"
+    ],
+    "plugin_runtime": "WebKit JavaScriptCore with a versioned handed-in application context"
+  },
+  "rules": [
+    "Dependencies must be complete before a task changes shared contracts; independent evidence gathering may proceed.",
+    "Each slices entry is a separately assignable work unit. Large tasks require slice-level handoff; do not ask a small-context agent to absorb an entire source module.",
+    "Every implemented command/tool adds menu, button/palette, enabled-state, transaction and applicable scenario coverage.",
+    "Source behavior wins; document deliberate improvements and unsupported subsets.",
+    "T46 ratifies normalized object ownership, identity, layouts and migration before T02/T03/T05/T16 contracts harden.",
+    "Later JavaScriptCore plugins are required final-product work, isolated from initial desktop and browser release gates; no Groovy/JVM or developer CLI/TUI prerequisite."
+  ],
+  "tasks": [
+    {
+      "id": "T00",
+      "title": "Capture legacy behavior, fixtures and measurement baseline",
+      "phase": "desktop",
+      "dependencies": [],
+      "requirements": [
+        "F02",
+        "F05",
+        "O04"
+      ],
+      "acceptance": [
+        "C01",
+        "C03",
+        "C04",
+        "C26"
+      ],
+      "targets": [
+        "fixtures/legacy/manifest.json",
+        "fixtures/scenarios/",
+        "docs/rewrite/baseline-results.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt",
+        "docs/automation/mcp_regression_suite.sh",
+        "docs-site/scripts/mcp_capture_examples.mjs"
+      ],
+      "source_symbols": [
+        "snapshot",
+        "encodeSnapshot",
+        "beginApplySnapshot"
+      ],
+      "slices": [
+        "Create a hashed fixture manifest from the 60 indexed model files; select small representatives for every payload family, gzip/history, glyphs and xref bundles. Keep large fixtures opt-in and reference originals by pinned hash.",
+        "Recover flat/rootGroup/prototype-only payloads from named historical commits using git show into isolated fixture files. Record actual writer/default assumptions; do not label absent version as v0.",
+        "Define canonical JSON comparison for geometry, transforms, IDs/colors/domain data and a scenario format for world pointer/key/command events. Capture legacy state/output where the existing app is runnable.",
+        "Record source-runtime launch/build prerequisites and reproducible performance setup. If the GUI cannot run, mark scenarios static-only or blocked with the exact reason; continue fixture/spec work."
+      ],
+      "done": [
+        "Baseline manifest and scenario schema are committed without editing the legacy checkout.",
+        "Captured results distinguish executed assertions, static evidence and manual visual checks; no fabricated baseline timings."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T01",
+      "title": "Prove the Rust rendering, menu and geometry stack",
+      "phase": "desktop",
+      "dependencies": [],
+      "requirements": [
+        "F02",
+        "U02",
+        "O01"
+      ],
+      "acceptance": [
+        "C01",
+        "C02",
+        "C23",
+        "C30"
+      ],
+      "targets": [
+        "Cargo.toml",
+        "rust-toolchain.toml",
+        "docs/decisions/",
+        "experiments/stack/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "web/component/README.md"
+      ],
+      "source_symbols": [
+        "addPolygon",
+        "cleanupCoplanarFaces"
+      ],
+      "slices": [
+        "Select and lock toolchain/MSRV and dependency versions after a tiny native window/GPU/egui menu experiment. Demonstrate keyboard focus, IME/text input, viewport offset and platform menu feasibility.",
+        "Run concave polygon, nested hole, union/polygonization and near-collinear fixtures against candidate clipping/triangulation libraries; record exact supported operations and browser implications.",
+        "Demonstrate core/IO-compatible WASM compilation without native filesystem/HTTP/JVM dependencies; browser product integration remains later.",
+        "Record ADR04/05/09 choices, native-menu strategy, platform prerequisites and fallback policy. Remove throwaway experiments only after retaining reproducible evidence."
+      ],
+      "done": [
+        "A buildable minimal workspace and evidence-backed ADRs exist.",
+        "Menus and polygon topology have proof cases before dependent tools are implemented; Android/Groovy/TUI are absent."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T02",
+      "title": "Implement numerical geometry and coordinate contracts",
+      "phase": "desktop",
+      "dependencies": [
+        "T01",
+        "T46"
+      ],
+      "requirements": [
+        "F01",
+        "F02",
+        "F03",
+        "F10"
+      ],
+      "acceptance": [
+        "C01",
+        "C02",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/geometry/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PlaneBasis.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MeshIntersectionMath.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/DimensionMath.kt"
+      ],
+      "source_symbols": [
+        "worldMatrix",
+        "toLocal",
+        "toWorld",
+        "planeBasisFromNormal"
+      ],
+      "slices": [
+        "Implement f64 vectors/planes/rays/affine transforms and separate point/vector/normal conversions, with named compatibility tolerances and quantization policies.",
+        "Implement plane projection, segment predicates, triangle queries, loop ordering/triangulation adapters and geometry diagnostics required by the selected kernel.",
+        "Freeze primitive math APIs, invalid/singular input handling and comparison policies; include small/large/local-parent cases."
+      ],
+      "done": [
+        "C01/C02 numerical fixtures pass without GPU/UI dependencies.",
+        "Kernel choice and tolerance policy have one owner and no feature-local epsilon replacement."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T03",
+      "title": "Build canonical document stores, IDs and revisioned derived data",
+      "phase": "desktop",
+      "dependencies": [
+        "T02",
+        "T46"
+      ],
+      "requirements": [
+        "F01",
+        "F03",
+        "F04",
+        "F10"
+      ],
+      "acceptance": [
+        "C02",
+        "C07",
+        "C08",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/",
+        "crates/meshcraft-core/src/selection/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftLineStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt"
+      ],
+      "source_symbols": [
+        "ObjectPrototype",
+        "GroupNode",
+        "appendTriangleRaw",
+        "contentVersion"
+      ],
+      "slices": [
+        "Implement the T46 canonical ownership/identity decision: shared definitions and geometry bundles, placements/shared child layouts with explicit occurrence addressing, stable IDs and affine frames. Retain sparse domain payloads without requiring generators.",
+        "Separate authored instance edits from resolved caches and inheritance from explicit empty replacement; keep selection/edit mode in the session and define one effective-content query view.",
+        "Implement derived adjacency/bounds/reverse membership/index services with revision invalidation and safe direct-query fallback. No-op placements share source geometry; raw insertion does not perform topology repair."
+      ],
+      "done": [
+        "Nested prototype/instance and raw insertion invariants pass.",
+        "Caches/session are excluded from canonical persistence and no UI/OS types enter core.",
+        "C32 ownership/no-op sharing cases pass; the Rust schema does not mirror duplicated legacy stores or per-occurrence cloned hierarchy."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T04",
+      "title": "Implement transactions and bounded undo",
+      "phase": "desktop",
+      "dependencies": [
+        "T03"
+      ],
+      "requirements": [
+        "F08"
+      ],
+      "acceptance": [
+        "C06"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/transactions/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/UndoRedoManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "commit",
+        "undo",
+        "redo",
+        "exportHistory",
+        "importHistory"
+      ],
+      "slices": [
+        "Create begin/preview/commit/cancel boundaries with one ChangeSet and history entry per completed operation; start with affected-state/snapshot-backed history.",
+        "Implement redo branching, bounded memory/entries, labels, revision reporting and injectable clock. Specify camera/settings undo policy explicitly.",
+        "Define lazy legacy-history adapter interface and opaque preservation; integrate actual decoding when T05 is ready without making core depend on codecs."
+      ],
+      "done": [
+        "Preview/cancel does not change history; failed operations publish no partial edits.",
+        "Legacy debounce divergence is documented and redo/cap tests pass."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T05",
+      "title": "Implement sparse legacy DTO reading and model/history containers",
+      "phase": "desktop",
+      "dependencies": [
+        "T03",
+        "T46"
+      ],
+      "requirements": [
+        "F05",
+        "F06",
+        "F10"
+      ],
+      "acceptance": [
+        "C03",
+        "C04",
+        "C06",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-io/src/legacy/",
+        "crates/meshcraft-io/src/project/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "ModelSnapshot",
+        "ObjectPrototypeDto",
+        "GroupInstanceDto",
+        "beginApplySnapshot",
+        "encodeSnapshot",
+        "decodeSnapshot"
+      ],
+      "slices": [
+        "Encode per-field defaults for all 32 DTO classes, preserving unknown nested fields and deferred/domain/instance override data. Decode current, prototype-only, rootGroup and fixture-proven flat layouts.",
+        "Read magic-detected gzip/JSON and base64/gzip undo snapshots with staged cancellation/progress; validate references and transforms off to the side.",
+        "Convert raw DTOs through the T46 normalized ownership/identity/layout rules without changing effective semantics. Collapse only proven no-op geometry snapshots, preserve authored/ambiguous differences and aliases, and provide schema-17-compatible export that re-expands content where required.",
+        "Run small fixture groups first, then all 60 and historical/error cases; record unsupported historical shapes precisely."
+      ],
+      "done": [
+        "C03/C04 payload round trips preserve fields even before domain generators ship.",
+        "Empty/sparse axes are handled according to the documented validation/new-document policy; bad loads leave the live document intact."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T06",
+      "title": "Create command registry and host-effect dispatch",
+      "phase": "desktop",
+      "dependencies": [
+        "T04",
+        "T46"
+      ],
+      "requirements": [
+        "A01"
+      ],
+      "acceptance": [
+        "C18"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/commands/",
+        "crates/meshcraft-desktop/src/host/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/CommandPalette.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "registerBuiltInToolCommands",
+        "registerToolbarVisibilityCommands",
+        "registerOrthographicViewCommand"
+      ],
+      "slices": [
+        "Define CommandId/descriptor/payload/result, enable/check queries, capability metadata and a deterministic application dispatcher.",
+        "Register canonical File/Edit/View/Render/selection actions for direct legacy UI callbacks plus preserved static/generated IDs; add typed setup/reset/camera/snapshot operations for tests.",
+        "Define host effects for dialogs/storage/capture/async jobs and action-tree metadata for menus/toolbars/palette/tutorials. Deferred commands are absent or explicitly unsupported."
+      ],
+      "done": [
+        "One registry drives every presentation and exposes versioned schemas.",
+        "Dispatch versus completion and mutation versus tool activation are distinct in tests."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T07",
+      "title": "Build desktop window and basic viewport",
+      "phase": "desktop",
+      "dependencies": [
+        "T01",
+        "T03",
+        "T06"
+      ],
+      "requirements": [
+        "I03",
+        "R01",
+        "O01"
+      ],
+      "acceptance": [
+        "C09",
+        "C10",
+        "C24"
+      ],
+      "targets": [
+        "crates/meshcraft-desktop/src/",
+        "crates/meshcraft-render/src/viewport/",
+        "crates/meshcraft-ui/src/input/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SceneSnapshot.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/ToolPointerProcessor.kt"
+      ],
+      "source_symbols": [
+        "render",
+        "resize",
+        "drawSelectionHighlights"
+      ],
+      "slices": [
+        "Integrate event loop, GPU surface and basic faces/edges/grid/selection overlays using immutable render data and instance transforms.",
+        "Define a drawable viewport rectangle and normalized input/focus ownership; resize/DPI/device changes update camera mapping and resources coherently.",
+        "Implement normal executable file/size/version startup plumbing with a valid new document; no REPL/TUI, plugin host or self-updater."
+      ],
+      "done": [
+        "A native desktop window renders a known transformed fixture and handles resize/close safely.",
+        "Core tests remain headless and platform services are isolated."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T08",
+      "title": "Implement shared desktop menus, button and hybrid workspaces",
+      "phase": "desktop",
+      "dependencies": [
+        "T06",
+        "T07"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "U04"
+      ],
+      "acceptance": [
+        "C17",
+        "C18",
+        "C23"
+      ],
+      "targets": [
+        "crates/meshcraft-ui/src/menus/",
+        "crates/meshcraft-ui/src/toolbars/",
+        "crates/meshcraft-ui/src/workspace/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/ToolController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/CommandPalette.kt"
+      ],
+      "source_symbols": [
+        "builtInToolbarCommandTargets",
+        "setBuiltInToolbarVisible",
+        "inToolOperators"
+      ],
+      "slices": [
+        "Implement the U02 menu tree from shared command metadata, initially exposing ready operations and capability-aware disabled entries; generate toolbar/palette views from the same registrations.",
+        "Implement Desktop Menus/Buttons/Hybrid preferences, toolbar/panel restoration and draft-preserving profile switches.",
+        "Implement keyboard menu navigation, focus/shortcut suppression/restoration, enabled/checked states, DPI/accessibility labels and selected native-menu adapter.",
+        "Verify viewport offsets and command parity with menu open/close/switch scenarios; add menu mapping coverage checks for every later registered tool."
+      ],
+      "done": [
+        "C23 passes for the first editing slice and remains a release gate.",
+        "No menu handler contains independent geometry or file-operation logic."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T09",
+      "title": "Implement desktop document service and safe storage",
+      "phase": "desktop",
+      "dependencies": [
+        "T04",
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "requirements": [
+        "F06",
+        "F07",
+        "O01"
+      ],
+      "acceptance": [
+        "C03",
+        "C05",
+        "C06"
+      ],
+      "targets": [
+        "crates/meshcraft-desktop/src/documents/",
+        "crates/meshcraft-io/src/project/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "saveModel",
+        "snapshotForPersistence",
+        "beginAsyncModelLoad",
+        "scheduleAutosave",
+        "flushAutosaveIfDue"
+      ],
+      "slices": [
+        "Connect File commands/dialogs to staged candidate-document loading, progress/cancel and safe document publication.",
+        "Implement serialized immutable-revision saves, threshold compression, autosave debounce, Save As/default naming and temporary-file/atomic-replace recovery.",
+        "Connect legacy history adapter to native undo and reopen paths; inject failure/cancellation at every storage stage and reopen Rust output in Kotlin when runnable."
+      ],
+      "done": [
+        "Last good file and current document survive load/save failure or cancellation.",
+        "Menu/button/typed command paths share storage behavior and successful saved revision."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T10",
+      "title": "Port orbit, orthographic and walkthrough cameras",
+      "phase": "desktop",
+      "dependencies": [
+        "T07"
+      ],
+      "requirements": [
+        "I01",
+        "I02"
+      ],
+      "acceptance": [
+        "C09"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/camera/",
+        "crates/meshcraft-ui/src/input/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ShiftCameraController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/OrthographicCameraController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/WalkthroughCameraController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "setOrthographicView",
+        "configureOrthoViewport",
+        "syncCameraModesAfterOrbitStateChange"
+      ],
+      "slices": [
+        "Port perspective orbit/pan/zoom and target synchronization against the declared viewport rectangle.",
+        "Implement six orthographic poses/projection/zoom and walkthrough movement/support/gravity/jump tuning.",
+        "Bind camera commands, profile-aware shortcuts and settings; preserve model camera versus runtime preference boundaries."
+      ],
+      "done": [
+        "C09 project/unproject/navigation tests pass in both menu and button layouts.",
+        "No camera mode silently uses the wrong projection for picking."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T11",
+      "title": "Implement snapping, permanent grid and guides",
+      "phase": "desktop",
+      "dependencies": [
+        "T02",
+        "T03",
+        "T10"
+      ],
+      "requirements": [
+        "I04",
+        "I05"
+      ],
+      "acceptance": [
+        "C10"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/snapping/",
+        "crates/meshcraft-core/src/tools/guides.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/Snapper.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/SnapType.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/GuideManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/GuidePlacementTool.kt"
+      ],
+      "source_symbols": [
+        "compute",
+        "pickBetter",
+        "addAxisGuide",
+        "addGridGuide"
+      ],
+      "slices": [
+        "Port candidate generation/comparison in screen pixels with correct depth/priority and transformed visible groups; use correct stale-index fallback.",
+        "Implement permanent/adaptive grids, oriented plane/axis helpers, visibility/orientation/extent/spacing controls and virtual-plane fallback.",
+        "Register guide tools and G/T actions plus previews; verify helper spacing and orthographic behavior."
+      ],
+      "done": [
+        "C10 covers every observed SnapType and visibility/local-context behavior.",
+        "Guides remain separate from authored geometry and do not become selectable ground."
+      ],
+      "tool_ids": [
+        "AXIAL_GRID",
+        "PLANAR_GRID"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T12",
+      "title": "Port mixed selection and semantic picking framework",
+      "phase": "desktop",
+      "dependencies": [
+        "T03",
+        "T10",
+        "T11"
+      ],
+      "requirements": [
+        "I06"
+      ],
+      "acceptance": [
+        "C11",
+        "C12"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/selection/",
+        "crates/meshcraft-core/src/tools/select.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/SelectTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "selectionMode",
+        "finalizeVolumeSelection",
+        "selectGroupsInVolume",
+        "recordPickSelection"
+      ],
+      "slices": [
+        "Implement click/add/remove, timed coplanar double/connected triple click, instance edit entry and independent screen-window/crossing/world-volume workflows.",
+        "Centralize per-type visibility/lock/wireframe and selectable-handle dispatch; support domain handle providers added by later tasks.",
+        "Expose consistent selection summaries/counts and result updates to commands/UI/automation."
+      ],
+      "done": [
+        "C11 passes under transformed/occluded geometry; domain providers have C12 contract tests.",
+        "Timing is injectable and window versus volume selection remains distinct."
+      ],
+      "tool_ids": [
+        "SELECT"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T13",
+      "title": "Implement tool protocol and line editing",
+      "phase": "desktop",
+      "dependencies": [
+        "T04",
+        "T06",
+        "T11"
+      ],
+      "requirements": [
+        "D01",
+        "I07",
+        "F03"
+      ],
+      "acceptance": [
+        "C02",
+        "C13"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tools/",
+        "crates/meshcraft-core/src/operations/drawing.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/Tool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/ToolController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/ToolInputProcessor.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/LineTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ConstructionLineTool.kt"
+      ],
+      "source_symbols": [
+        "onPointerDown",
+        "onKeyDown",
+        "commitInput"
+      ],
+      "slices": [
+        "Freeze ToolEvent/state/preview/measurement/operator contracts and numeric/copy/cancel dispatch, including separate hotspot action hook.",
+        "Implement chained Line and single Construction Line with local-space segment insertion, edge splits/collinear consolidation. Preserve the current lack of automatic face cutting/inference in this path; explicit cutters ship in their owning tasks.",
+        "Specify line-chain transaction boundaries and Enter/Escape/Backspace behavior; connect controls/shortcuts/menu registrations."
+      ],
+      "done": [
+        "C02/C13 line cases pass; raw loading remains unaffected.",
+        "Numeric popup and direct typed input have consistent previews/commits."
+      ],
+      "tool_ids": [
+        "LINE",
+        "CONSTRUCTION_LINE"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T14",
+      "title": "Implement basic planar shape tools",
+      "phase": "desktop",
+      "dependencies": [
+        "T13"
+      ],
+      "requirements": [
+        "D02"
+      ],
+      "acceptance": [
+        "C02",
+        "C13"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tools/shapes/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RectangleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/SurfaceRectangleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/QuadTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CircleTool.kt"
+      ],
+      "source_symbols": [
+        "onPointerDown",
+        "measurement"
+      ],
+      "slices": [
+        "Implement ground/reference-plane and surface-aligned rectangles with shared edge/cut/triangulation operations.",
+        "Implement the three-pick parallelogram Quad and configurable-resolution Circle, preserving winding and numeric meanings.",
+        "Register previews/operators/menu paths; exercise degeneracy, reversed picks and rotated contexts."
+      ],
+      "done": [
+        "All D02 tools pass C13 and cancel/undo semantics.",
+        "Quad is not implemented as an unrelated arbitrary four-point polygon."
+      ],
+      "tool_ids": [
+        "RECTANGLE",
+        "SURFACE_RECTANGLE",
+        "QUAD",
+        "CIRCLE"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T15",
+      "title": "Port transforms, stretch variants and painting",
+      "phase": "desktop",
+      "dependencies": [
+        "T12",
+        "T14"
+      ],
+      "requirements": [
+        "T01",
+        "T02"
+      ],
+      "acceptance": [
+        "C13",
+        "C15"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/transforms.rs",
+        "crates/meshcraft-core/src/tools/transforms/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MoveTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RotateTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ScaleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/StretchTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/StretchScaleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RotateStretchTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PaintTool.kt"
+      ],
+      "source_symbols": [
+        "supportsCopyMode",
+        "onPointerDown",
+        "ScaleConstraint"
+      ],
+      "slices": [
+        "Implement shared payload/source snapshot and coordinate transform operations; Move/Rotate/Scale reference stages, numeric control, axis constraints and copy mode.",
+        "Implement Stretch/Stretch Scale/Rotate Stretch as separate state machines with immutable previews and source-characterized boundary behavior.",
+        "Implement face RGBA paint/current-color flow and prepare semantic/voxel/hotspot transform adapters for later tasks."
+      ],
+      "done": [
+        "C13/C15 pass for raw mesh and annotations supported so far; object/domain adapters extend the same contracts later.",
+        "No cumulative preview drift, shared-vertex double transform or unintended drawing-time auto-cut."
+      ],
+      "tool_ids": [
+        "MOVE",
+        "ROTATE",
+        "SCALE",
+        "STRETCH",
+        "STRETCH_SCALE",
+        "ROTATE_STRETCH",
+        "PAINT"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T16",
+      "title": "Implement reusable objects, placement and explode",
+      "phase": "desktop",
+      "dependencies": [
+        "T12",
+        "T15",
+        "T46"
+      ],
+      "requirements": [
+        "F04",
+        "F10"
+      ],
+      "acceptance": [
+        "C07",
+        "C08",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/objects.rs",
+        "crates/meshcraft-core/src/tools/object_place.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ObjectPlaceTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "enterGroup",
+        "exitGroup",
+        "groupSelection",
+        "ungroupSelection",
+        "startObjectPlacement"
+      ],
+      "slices": [
+        "Implement grouping/create-prototype for source-supported payloads, shared child layouts, instance placement and occurrence-aware active-context/definition editing. Preserve legacy effective behavior through the T46 layout/identity decision.",
+        "Implement glue-to-surface alignment, nested transforms, duplication and definition deletion policy.",
+        "Implement explicit explode/materialization preserving parent-local coordinates, result selection and extensible domain/override resolution hooks."
+      ],
+      "done": [
+        "C07/C08 pass for two shared instances, nesting and transformed explode.",
+        "Definition geometry stays distinct from per-instance overrides and closed-context cuts."
+      ],
+      "tool_ids": [
+        "OBJECT_PLACE"
+      ],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Complete inspectors, settings, preferences and menu coverage",
+      "phase": "desktop",
+      "dependencies": [
+        "T08",
+        "T09",
+        "T10",
+        "T12",
+        "T16"
+      ],
+      "requirements": [
+        "U03",
+        "U04",
+        "U02"
+      ],
+      "acceptance": [
+        "C17",
+        "C23"
+      ],
+      "targets": [
+        "crates/meshcraft-ui/src/panels/",
+        "crates/meshcraft-ui/src/workspace/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/StatusModel.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "selectionInfo",
+        "groupInfo",
+        "modelUnitInfo",
+        "updateModelUnit"
+      ],
+      "slices": [
+        "Implement selection/object/prototype/model/tool settings and registry-based panel visibility; later domain panels plug into this model.",
+        "Separate model settings, session selection/camera state and application preferences; validate fields and emit transactions only for valid edits.",
+        "Persist profile/layout and recover offscreen panels; complete current command/menu mapping, status/measurement/context feedback and shortcut focus tests."
+      ],
+      "done": [
+        "Every ready operation is reachable in Desktop Menus and Buttons; no hidden-toolbar dependency.",
+        "C17/C23 pass after load, undo, field focus and profile switching."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T18",
+      "title": "Implement dimensions, bitmap text and vector glyph text",
+      "phase": "desktop",
+      "dependencies": [
+        "T11",
+        "T14",
+        "T17"
+      ],
+      "requirements": [
+        "D05",
+        "D06"
+      ],
+      "acceptance": [
+        "C03",
+        "C14"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/annotations/",
+        "crates/meshcraft-render/src/annotations/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftDimensionStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftTextStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/LinearDimensionTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/TextTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/VectorTextTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/VectorGlyphCatalog.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/EmbeddedVectorGlyphCatalog.kt"
+      ],
+      "source_symbols": [
+        "computeOffsetLine",
+        "onPointerDown",
+        "glyphCatalogForSource"
+      ],
+      "slices": [
+        "Implement dimension start/end/offset calculations/render/pick/edit and bitmap screen/plane text metadata.",
+        "Load the embedded alphabet model/catalog and external glyph source, implement vector text tracking/line spacing/plane placement and fallback behavior.",
+        "Extend selection/transform/copy/panel/persistence paths and menu entries for all annotation types."
+      ],
+      "done": [
+        "C14 annotations remain editable after copy/transform/reopen.",
+        "Glyph catalogs retain geometry and are not replaced with a bitmap font."
+      ],
+      "tool_ids": [
+        "LINEAR_DIMENSION",
+        "TEXT",
+        "VECTOR_TEXT"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T19",
+      "title": "Implement paths, offsets, outlines and mesh creation",
+      "phase": "desktop",
+      "dependencies": [
+        "T13",
+        "T14"
+      ],
+      "requirements": [
+        "D03",
+        "D04"
+      ],
+      "acceptance": [
+        "C14"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/paths/",
+        "crates/meshcraft-core/src/tools/paths/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PolylineTools.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PolylineSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MeshTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PolylineMeshTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/FaceOutlineTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/LineOffsetTool.kt"
+      ],
+      "source_symbols": [
+        "PolylineToolInternal",
+        "DoubleLineToolInternal",
+        "onPointerDown"
+      ],
+      "slices": [
+        "Implement sampled line/arc/circle path stages, point undo, finish/cancel and arc-length subdivision settings.",
+        "Implement Double Line offsets/joins and shared loop/boundary ordering; expose reusable path generation to sweeps/domains.",
+        "Implement Mesh/Polyline Mesh/Face Outline/Line Offset prerequisites, selection/result and numeric behavior with command/menu registration."
+      ],
+      "done": [
+        "C14 open/closed/concave path and boundary tests pass.",
+        "Face outlines do not emit every interior triangulation edge."
+      ],
+      "tool_ids": [
+        "POLYLINE",
+        "DOUBLE_LINE",
+        "MESH",
+        "POLYLINE_MESH",
+        "FACE_OUTLINE",
+        "LINE_OFFSET"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T20",
+      "title": "Implement region push/pull",
+      "phase": "desktop",
+      "dependencies": [
+        "T12",
+        "T14"
+      ],
+      "requirements": [
+        "T04"
+      ],
+      "acceptance": [
+        "C13",
+        "C19"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/extrude.rs",
+        "crates/meshcraft-core/src/tools/push_pull.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PushPullTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt"
+      ],
+      "source_symbols": [
+        "onPointerDown",
+        "collectCoplanarConnected"
+      ],
+      "slices": [
+        "Resolve selected/picked regions and shared boundaries, including holes and source-supported non-coplanar sets.",
+        "Implement signed extrusion with top/side faces, colors, previews, numeric distance and selection remapping.",
+        "Validate manifold prisms and no duplicate interior walls; add negative/zero/cancel/undo cases."
+      ],
+      "done": [
+        "C13/C19 region extrusion cases pass.",
+        "Valid holes remain open and unsupported inputs fail without partial loss."
+      ],
+      "tool_ids": [
+        "PUSH_PULL"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T21",
+      "title": "Port every copy and array state machine",
+      "phase": "desktop",
+      "dependencies": [
+        "T15",
+        "T16"
+      ],
+      "requirements": [
+        "T03"
+      ],
+      "acceptance": [
+        "C08",
+        "C15"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/copy.rs",
+        "crates/meshcraft-core/src/tools/arrays/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MultipleCopyTools.kt"
+      ],
+      "source_symbols": [
+        "CopyMultipleTool",
+        "PlanarTranslateMultipleTool",
+        "VolumetricTranslateMultipleTool",
+        "BaseRotateMultipleTool",
+        "Rotate2Tool",
+        "HelicalArrayTool",
+        "EqualizedRotationalArrayTool",
+        "EqualizedHelicalArrayTool"
+      ],
+      "slices": [
+        "Write a compact per-tool state/count/endpoint/payload matrix; implement shared mixed-payload cloning and translation patterns.",
+        "Implement Copy Multiple, planar and volumetric translation with exact count/extent/numeric semantics.",
+        "Implement planar/helicoidal rotate-multiple and Rotate2 reference stages separately from Rotate.",
+        "Implement fixed-step rotational/helical and equalized rotational/helical arrays; bound previews and retain result selection/undo behavior."
+      ],
+      "done": [
+        "All ten ToolIds have source-characterized state tables and C15 cases.",
+        "Fixed-step versus equalized and Rotate versus Rotate2 distinctions remain visible."
+      ],
+      "tool_ids": [
+        "COPY_MULTIPLE",
+        "PLANAR_TRANSLATE_MULTIPLE",
+        "VOLUMETRIC_TRANSLATE_MULTIPLE",
+        "PLANAR_ROTATE_MULTIPLE",
+        "HELICOIDAL_ROTATE_MULTIPLE",
+        "ROTATE_2",
+        "ROTATIONAL_ARRAY",
+        "HELICAL_ARRAY",
+        "ROTATIONAL_ARRAY_EQUALIZED",
+        "HELICAL_ARRAY_EQUALIZED"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T22",
+      "title": "Port hole/cutout algorithms and robust replacement",
+      "phase": "desktop",
+      "dependencies": [
+        "T19",
+        "T20"
+      ],
+      "requirements": [
+        "T06"
+      ],
+      "acceptance": [
+        "C02",
+        "C19"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/cuts.rs",
+        "crates/meshcraft-core/src/tools/cuts/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutHolesTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutHolesTool2.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutHoles2.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutOut3Tool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutOut3.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt"
+      ],
+      "source_symbols": [
+        "cutSelectedByPolyline",
+        "cutSelectedByPolygon",
+        "onEnter"
+      ],
+      "slices": [
+        "Characterize prerequisites and distinct outputs of both registered hole variants and Cutout using selected edge/face loops.",
+        "Implement shared plane projection/fragment/inside classification and identity/color/selection remapping with atomic replacement.",
+        "Register all three IDs and validate nested/concave/disconnected/touching/tolerance failure cases against legacy fixtures."
+      ],
+      "done": [
+        "C19 includes every cut variant and failure preservation.",
+        "No old ID is dropped just because another tool is named robust."
+      ],
+      "tool_ids": [
+        "CUT_HOLES",
+        "CUT_HOLES_2",
+        "CUT_OUT_3"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T23",
+      "title": "Port planar/spatial sweeps, ribbon and revolve",
+      "phase": "desktop",
+      "dependencies": [
+        "T19",
+        "T20"
+      ],
+      "requirements": [
+        "T05"
+      ],
+      "acceptance": [
+        "C19"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/sweep.rs",
+        "crates/meshcraft-core/src/tools/sweeps/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ExtrudeSwipeTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ExtrudeSwipe3dTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/Ribbon3dTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/Sweep3dSupport.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RevolveTool.kt"
+      ],
+      "source_symbols": [
+        "onPointerDown",
+        "feedbackLines"
+      ],
+      "slices": [
+        "Implement source profile/path selection and planar Extrude Swipe using shared path sampling.",
+        "Implement 3D frame transport and spatial swipe/ribbon corner/cap/seam behavior.",
+        "Implement revolve axis/angle/full-360/tessellation and typed inputs, with consistent winding/material/selection/undo."
+      ],
+      "done": [
+        "C19 elbows/nonplanar/closed-path/full-revolution tests pass.",
+        "Degenerate paths fail safely and no implicit external CAD runtime is introduced."
+      ],
+      "tool_ids": [
+        "EXTRUDE_SWIPE",
+        "EXTRUDE_SWIPE_3D",
+        "RIBBON_3D",
+        "REVOLVE"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T24",
+      "title": "Port plane section, plane cuts and mesh intersection",
+      "phase": "desktop",
+      "dependencies": [
+        "T22"
+      ],
+      "requirements": [
+        "T07"
+      ],
+      "acceptance": [
+        "C19",
+        "C20"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/intersection.rs",
+        "crates/meshcraft-core/src/tools/sections/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MeshIntersectionMath.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MeshIntersectionTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PlaneSectionTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/CutWithPlaneTool.kt"
+      ],
+      "source_symbols": [
+        "onPointerDown",
+        "onEnter"
+      ],
+      "slices": [
+        "Implement reusable triangle-plane and triangle-triangle intersection/fragment handling with stable tolerance policy.",
+        "Port each tool's source prerequisites, plane construction, keep-side/output rules and selected-result semantics.",
+        "Test transformed/no-hit/tangent/coplanar/open-surface cases and expose atomic fragment preparation for object booleans."
+      ],
+      "done": [
+        "C19/C20 intersection cases pass and preparation is reusable by T27.",
+        "No nondestructive viewport clipping feature is accidentally substituted for modeling cuts."
+      ],
+      "tool_ids": [
+        "PLANE_SECTION",
+        "MESH_INTERSECTION",
+        "CUT_WITH_PLANE"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T25",
+      "title": "Implement primitive mesh generators",
+      "phase": "desktop",
+      "dependencies": [
+        "T14"
+      ],
+      "requirements": [
+        "T09"
+      ],
+      "acceptance": [
+        "C19"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tools/primitives/",
+        "crates/meshcraft-core/src/operations/primitives.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PrimitiveTools.kt"
+      ],
+      "source_symbols": [
+        "SpherePrimitiveTool",
+        "CylinderPrimitiveTool",
+        "ConePrimitiveTool",
+        "PillPrimitiveTool"
+      ],
+      "slices": [
+        "Extract per-primitive center/radius/height/orientation/numeric stages and tessellation rules.",
+        "Implement sphere/cylinder/cone/pill mesh generation with caps/seams/normals and configurable resolution.",
+        "Register menus/operators and use the generators as deterministic solids for later regression fixtures."
+      ],
+      "done": [
+        "C19 ordinary primitives are closed/exportable under normal inputs.",
+        "Zero/negative dimensions and resolution bounds follow documented behavior."
+      ],
+      "tool_ids": [
+        "PRIMITIVE_SPHERE",
+        "PRIMITIVE_CYLINDER",
+        "PRIMITIVE_CONE",
+        "PRIMITIVE_PILL"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T26",
+      "title": "Implement built-in mechanical tools",
+      "phase": "desktop",
+      "dependencies": [
+        "T22",
+        "T23",
+        "T25"
+      ],
+      "requirements": [
+        "T10"
+      ],
+      "acceptance": [
+        "C19",
+        "C20"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tools/mechanical/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MechanicalTools.kt"
+      ],
+      "source_symbols": [
+        "MechScrewTool",
+        "MechCircularHoleTool",
+        "MechRoundWasherTool",
+        "MechCogWheelTool"
+      ],
+      "slices": [
+        "Record actual profile/pick/pitch/count/tooth interpretation for each tool and reject ungrounded engineering guarantees.",
+        "Implement screw and washer generation using matching shared sweep/revolve/primitive operations.",
+        "Implement circular-hole and cog-wheel workflows including source selection, cutting, numeric controls, previews and export fixtures."
+      ],
+      "done": [
+        "All four IDs pass mechanical C19/C20 cases and invalid-profile preservation.",
+        "Built-ins require no external plugin host or Groovy."
+      ],
+      "tool_ids": [
+        "MECH_SCREW",
+        "MECH_CIRCULAR_HOLE",
+        "MECH_ROUND_WASHER",
+        "MECH_COG_WHEEL"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T27",
+      "title": "Implement object cutting and booleans",
+      "phase": "desktop",
+      "dependencies": [
+        "T16",
+        "T24",
+        "T25"
+      ],
+      "requirements": [
+        "T08"
+      ],
+      "acceptance": [
+        "C20"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/booleans.rs",
+        "crates/meshcraft-core/src/tools/booleans/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ObjectCutTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/VolumeBooleanTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MeshIntersectionMath.kt"
+      ],
+      "source_symbols": [
+        "onEnter",
+        "prepareCutFaces",
+        "buildResult"
+      ],
+      "slices": [
+        "Enforce exactly two sibling mesh instance prerequisites, operand ordering, nonempty geometry and voxel rejection.",
+        "Reuse intersection/cut preparation then classify fragments for cut-all/union/intersection/subtraction, preserving colors and reversed surfaces.",
+        "Commit loose selected geometry in the parent and remove source instances only on successful atomic completion; document differences for disjoint/coincident/invalid meshes."
+      ],
+      "done": [
+        "C20 tests A−B/B−A, output context and source lifecycle explicitly.",
+        "Robustness limits and deliberate improvements are reported; no OpenSCAD dependency."
+      ],
+      "tool_ids": [
+        "OBJECT_CUT",
+        "SOLID_UNION",
+        "SOLID_INTERSECTION",
+        "SOLID_SUBTRACTION"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T28",
+      "title": "Implement voxel domain and tools",
+      "phase": "desktop",
+      "dependencies": [
+        "T16",
+        "T14"
+      ],
+      "requirements": [
+        "P01"
+      ],
+      "acceptance": [
+        "C15",
+        "C22"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/voxel/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/VoxelStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/VoxelTools.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [
+        "setVoxel",
+        "setVoxels",
+        "rebuildVoxelGeometry",
+        "createVoxelGroup"
+      ],
+      "slices": [
+        "Implement integer local cells/colors, canonical storage and revisioned surface generation with interior-face suppression.",
+        "Implement single/volume/frame tools, auto-context entry, selected cell actions and source-characterized range inclusion.",
+        "Integrate integer cell transforms, group transforms, selected-face voxelization, explode, panel/display filters and persistence regeneration."
+      ],
+      "done": [
+        "C22 voxels and C15 transform/explode cases pass.",
+        "Generated voxel meshes are not separately authoritative saved edits."
+      ],
+      "tool_ids": [
+        "VOXEL",
+        "VOXEL_VOLUME",
+        "VOXEL_FRAME"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T29",
+      "title": "Implement architecture walls, slabs and holes",
+      "phase": "desktop",
+      "dependencies": [
+        "T16",
+        "T19"
+      ],
+      "requirements": [
+        "P02"
+      ],
+      "acceptance": [
+        "C12",
+        "C22"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/architecture/",
+        "crates/meshcraft-ui/src/panels/architecture.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ArchitectureStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ArchitectureTools.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ArchitectureSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [
+        "ArchitectureWallTool",
+        "ArchitectureSlabTool",
+        "ArchitectureAddHoleTool",
+        "syncArchitectureGeometryAfterLoad"
+      ],
+      "slices": [
+        "Implement canonical wall/slab/hole parameters, generated mesh attribution and auto-create/edit architecture contexts.",
+        "Port wall chain/inclination/joins and oriented slabs/holes; preserve colors and exact defaults.",
+        "Integrate semantic selection, endpoint/hole corner/edge/center handles, deletion, parameter panels, explode and one-pass load regeneration."
+      ],
+      "done": [
+        "C12/C22 semantic edits affect parameters and correctly regenerated geometry.",
+        "Authored loose geometry survives save/reload without generated duplication."
+      ],
+      "tool_ids": [
+        "ARCH_WALL",
+        "ARCH_SLAB",
+        "ARCH_ADD_HOLE"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T30",
+      "title": "Implement stairs and free-form frames",
+      "phase": "desktop",
+      "dependencies": [
+        "T29"
+      ],
+      "requirements": [
+        "P03"
+      ],
+      "acceptance": [
+        "C03",
+        "C12",
+        "C22"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/architecture/",
+        "crates/meshcraft-ui/src/panels/architecture.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ArchitectureStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ArchitectureTools.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ArchitectureSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "ArchitectureStairTool",
+        "ArchitectureWindowFrameTool",
+        "ArchitectureDoorFrameTool",
+        "ArchitectureFrameDto"
+      ],
+      "slices": [
+        "Implement stair contour/walking-path/step/support/rail generation and source picking workflow.",
+        "Implement window/door free-form contour frames, width/depth/normal/glazing behavior and handle/panel controls.",
+        "Test new-tool versus persisted glazing defaults, regeneration, explode and canonical DTO round trips."
+      ],
+      "done": [
+        "C22 contour stair/frame cases pass with editable parameters after reopen.",
+        "Frames are not restricted to outdated rectangle-only intent."
+      ],
+      "tool_ids": [
+        "ARCH_STAIR",
+        "ARCH_WINDOW_FRAME",
+        "ARCH_DOOR_FRAME"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T31",
+      "title": "Implement HVAC plumbing and ventilation",
+      "phase": "desktop",
+      "dependencies": [
+        "T23",
+        "T29"
+      ],
+      "requirements": [
+        "P04"
+      ],
+      "acceptance": [
+        "C12",
+        "C22"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/hvac/",
+        "crates/meshcraft-ui/src/panels/hvac.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/HvacStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/HvacTools.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/HvacSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [
+        "HvacPlumbingTool",
+        "HvacVentilationTool",
+        "syncHvacGeometryAfterLoad"
+      ],
+      "slices": [
+        "Implement canonical plumbing paths/diameter/sides and ventilation endpoints/binormal/dimensions/join/hump parameters.",
+        "Port path/duct generators and supported turns/joins/crossings, keeping source semantic attribution.",
+        "Integrate control handles, selection/deletion, panels, transforms/explode and regeneration/load without inventing an on-disk HVAC prototype kind."
+      ],
+      "done": [
+        "C12/C22 HVAC cases pass with stored parameters and correct default values.",
+        "Built-in domain code remains independent of external plugin execution."
+      ],
+      "tool_ids": [
+        "HVAC_PLUMBING",
+        "HVAC_VENTILATION"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T32",
+      "title": "Implement hotspot definitions, IDs and attachment graph",
+      "phase": "desktop",
+      "dependencies": [
+        "T16",
+        "T21",
+        "T46"
+      ],
+      "requirements": [
+        "P05",
+        "F10"
+      ],
+      "acceptance": [
+        "C15",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/hotspot/",
+        "crates/meshcraft-ui/src/panels/hotspot.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/HotspotStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "Hotspot",
+        "attachSelectionToHotspot",
+        "beginHotspotReferencePick",
+        "addHotspotAtCursor"
+      ],
+      "slices": [
+        "Implement definitions for eight operations/five marker shapes, reference position, stable vertex/segment/triangle and hotspot attachments.",
+        "Port placement action/mode outside ToolId, attach/select-reference controls, panel defaults and selection/handle behavior.",
+        "Characterize attachment evaluation ordering, preserve legacy quantization fallback, and diagnose missing/cyclic references with bounded graph traversal."
+      ],
+      "done": [
+        "C15 graph/attachment/panel cases pass and stable references survive topology remapping.",
+        "No extra fabricated hotspot ToolId or accidental vertex re-identification is introduced."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T33",
+      "title": "Implement dynamic hotspot instance evaluation",
+      "phase": "desktop",
+      "dependencies": [
+        "T32",
+        "T15",
+        "T21"
+      ],
+      "requirements": [
+        "P06",
+        "F10"
+      ],
+      "acceptance": [
+        "C08",
+        "C15",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/domains/hotspot/runtime.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "GroupNode",
+        "HotspotPositionDto",
+        "HotspotSegmentAttachmentsDto",
+        "HotspotTriangleAttachmentsDto"
+      ],
+      "slices": [
+        "Implement deterministic resolve-from-prototype evaluation for transform operations and attached-hotspot cascades.",
+        "Implement multiplication operations through shared payload/copy generators, including per-instance attachment/position overrides.",
+        "Cache effective geometry/annotations by authored definition and occurrence-input revisions, sharing unchanged content. Integrate preview/cancel/undo/prototype changes/copy/explode and preserve genuine legacy authored or unexplained override snapshots."
+      ],
+      "done": [
+        "Two instances with different states remain independent and reopen correctly.",
+        "No cumulative preview mutation or stale derived geometry after definition edits."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T34",
+      "title": "Implement external prototype references",
+      "phase": "desktop",
+      "dependencies": [
+        "T09",
+        "T16",
+        "T33"
+      ],
+      "requirements": [
+        "F09",
+        "F10"
+      ],
+      "acceptance": [
+        "C16",
+        "C32"
+      ],
+      "targets": [
+        "crates/meshcraft-desktop/src/xrefs/",
+        "crates/meshcraft-io/src/legacy/xrefs.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "saveExternalObjectPrototypes",
+        "stripExternalObjectPrototypeGeometry",
+        "resolveXrefFile"
+      ],
+      "slices": [
+        "Define relative/absolute resolution and canonical link metadata, cycle/missing detection and refresh diagnostics.",
+        "Implement external definition load/save and container stripping rules while retaining instance hotspot overrides.",
+        "Integrate Objects panel/menu commands and atomic multi-file failure policy; test bundled current xrefs and unresolved preservation."
+      ],
+      "done": [
+        "C16 completes without empty external-file overwrite or loss of instance state.",
+        "No browser filesystem/Android URI emulation is added prematurely."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T35",
+      "title": "Implement random offset, surface scatter and both remesh modes",
+      "phase": "desktop",
+      "dependencies": [
+        "T12",
+        "T21",
+        "T25"
+      ],
+      "requirements": [
+        "T11"
+      ],
+      "acceptance": [
+        "C21"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tools/fuzzy/",
+        "crates/meshcraft-ui/src/panels/random.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RandomTools.kt"
+      ],
+      "source_symbols": [
+        "RandomToolSettings",
+        "RandomOffsetTool",
+        "RandomSurfaceArrayTool",
+        "MeshRegularizeTool"
+      ],
+      "slices": [
+        "Port shared-vertex normal offset and bounds/settings; add explicit seeded operation inputs for deterministic automation.",
+        "Implement payload/target face separation, area/sample distribution, normal alignment/scale/rotation fuzz and instance/raw payload support for scatter.",
+        "Implement planar regular-grid versus surface-remesh modes separately with tolerance/subdivision controls, source replacement and validation."
+      ],
+      "done": [
+        "C21 geometric/statistical invariants pass for all four IDs.",
+        "No tests assert exact unseeded legacy random output."
+      ],
+      "tool_ids": [
+        "RANDOM_OFFSET",
+        "RANDOM_SURFACE_ARRAY",
+        "MESH_REGULARIZE",
+        "SURFACE_REMESH"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "T36",
+      "title": "Implement OBJ/STL/DXF interchange and unit policy",
+      "phase": "desktop",
+      "dependencies": [
+        "T09",
+        "T16"
+      ],
+      "requirements": [
+        "X01",
+        "F02"
+      ],
+      "acceptance": [
+        "C27"
+      ],
+      "targets": [
+        "crates/meshcraft-io/src/mesh/",
+        "crates/meshcraft-ui/src/panels/interchange.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/export/MeshIo.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "parseObj",
+        "parseStlAscii",
+        "parseStlBinary",
+        "parseDxf",
+        "writeObj",
+        "writeDxf",
+        "importDxfGeometry"
+      ],
+      "slices": [
+        "Record supported OBJ/STL/DXF parser/entity subsets and scene/selection export semantics; choose independent example fixtures.",
+        "Implement OBJ geometry/normals, STL binary/ASCII/auto, DXF triangles/lines and physical-unit/coordinate scaling conversions.",
+        "Connect cancellable import/export commands/dialogs and diagnostics; compare legacy outputs and external fixtures, not only self round trips."
+      ],
+      "done": [
+        "C27 common-format/unit matrix passes with supported-loss reporting.",
+        "No double scaling or lost DXF line-only scenes."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T37",
+      "title": "Implement extended mesh formats",
+      "phase": "desktop",
+      "dependencies": [
+        "T36"
+      ],
+      "requirements": [
+        "X01"
+      ],
+      "acceptance": [
+        "C27"
+      ],
+      "targets": [
+        "crates/meshcraft-io/src/mesh/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/export/MeshIo.kt"
+      ],
+      "source_symbols": [
+        "parseFbx",
+        "parseGltfJson",
+        "parseGlb",
+        "parseCollada",
+        "parse3mf",
+        "parseAmf",
+        "writeFbxAscii",
+        "validateThreeMfMesh"
+      ],
+      "slices": [
+        "Write exact FBX/glTF/GLB/DAE/3MF/AMF support ledger from current parser branches, example files and nested/unit transforms.",
+        "Implement FBX ASCII output and supported FBX input, glTF/GLB buffers/accessors/geometry, DAE geometry/units with measured library adapters.",
+        "Implement ZIP/XML 3MF components/build transforms/unit handling and indexed-mesh validation, plus AMF; retain source-supported errors.",
+        "Run external/legacy fixtures for all formats and document unsupported animation/material/texture/semantic data rather than claiming complete format support."
+      ],
+      "done": [
+        "C27 extended-format matrix passes with explicit subset ledger.",
+        "3MF closure/edge diagnostics and component scaling are tested independently."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T38",
+      "title": "Implement IFC4 proxy export and supported geometry import",
+      "phase": "desktop",
+      "dependencies": [
+        "T29",
+        "T30",
+        "T31",
+        "T37"
+      ],
+      "requirements": [
+        "X02"
+      ],
+      "acceptance": [
+        "C27"
+      ],
+      "targets": [
+        "crates/meshcraft-io/src/ifc/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/export/IfcExporter.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/export/MeshIo.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "buildIfcData",
+        "collectGeometry",
+        "addMeshProduct",
+        "addLineProduct",
+        "parseIfc"
+      ],
+      "slices": [
+        "Characterize actual IFC geometry import subset and IFC4 project/site/building/storey/proxy output.",
+        "Implement world-resolved mesh/line/dimension chunks, names/spatial containment/units and source-equivalent representations.",
+        "Connect selection/model export paths and validate mixed-domain examples; document that semantic IfcWall/IfcSlab property modeling is future scope."
+      ],
+      "done": [
+        "C27 IFC classes/geometry/units assertions pass.",
+        "No inferred semantic BIM completeness is advertised."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T39",
+      "title": "Complete real-time lighting, shadows and view capture",
+      "phase": "desktop",
+      "dependencies": [
+        "T17",
+        "T16"
+      ],
+      "requirements": [
+        "R01",
+        "R02",
+        "R04"
+      ],
+      "acceptance": [
+        "C24"
+      ],
+      "targets": [
+        "crates/meshcraft-render/src/viewport/",
+        "crates/meshcraft-desktop/src/capture/",
+        "crates/meshcraft-ui/src/panels/lighting.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SketchDefaultShader.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SketchShaderProvider.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/LightingSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/ShadowSettings.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "applyLightingSettings",
+        "applyShadowSettings",
+        "exportSvgView",
+        "drawSelectionHighlights"
+      ],
+      "slices": [
+        "Implement directional/ambient/specular/alpha lighting and explicit conversion from persisted legacy shadow settings into the new pipeline.",
+        "Implement supported shadow filtering/quality controls, stable bounds/ground and readable overlay/transparent composition.",
+        "Implement model/UI inclusion-aware GPU PNG capture and current-view SVG output with completion notifications and fixed-camera comparisons."
+      ],
+      "done": [
+        "C24 covers lights/shadows/alpha/overlays and menu-dependent viewport offsets.",
+        "Capture dispatch success is distinct from a completed fresh output file."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T40",
+      "title": "Port progressive CPU offline rendering",
+      "phase": "desktop",
+      "dependencies": [
+        "T39"
+      ],
+      "requirements": [
+        "R03",
+        "R04"
+      ],
+      "acceptance": [
+        "C25"
+      ],
+      "targets": [
+        "crates/meshcraft-render/src/offline/",
+        "crates/meshcraft-ui/src/panels/rendering.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SceneSnapshot.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/CpuRenderers.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/ProgressiveTileScheduler.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/RenderController.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/RenderBuffer.kt"
+      ],
+      "source_symbols": [
+        "start",
+        "step",
+        "stop",
+        "savePng",
+        "workerLoop"
+      ],
+      "slices": [
+        "Implement immutable resolved scene/camera/light snapshots and deterministic tile scheduler/progress/cancel lifecycle.",
+        "Port raytrace then pathtrace shading/sampling, resolution/workers/pruning/transmission/light controls with numeric image tests.",
+        "Implement preview/composite/output buffers, safe stale-result policy and PNG save; leave platform scheduling injectable for later browser work."
+      ],
+      "done": [
+        "C25 cancellation/worker/progress/image export cases pass without UI freezes or model mutation.",
+        "Offline settings and menu/button controls share commands."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T41",
+      "title": "Implement structured automation and regression dispatcher",
+      "phase": "desktop",
+      "dependencies": [
+        "T06",
+        "T09",
+        "T10",
+        "T12"
+      ],
+      "requirements": [
+        "A02"
+      ],
+      "acceptance": [
+        "C18",
+        "C28"
+      ],
+      "targets": [
+        "crates/meshcraft-desktop/src/automation/",
+        "fixtures/scenarios/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/mcp/McpHttpServer.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/mcp/McpModels.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/mcp/StdoutTap.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt"
+      ],
+      "source_symbols": [
+        "mcpToolDefs",
+        "mcpResourceDefs",
+        "executeMcpMethod",
+        "handlePointerEvent"
+      ],
+      "slices": [
+        "Port supported loopback REST aliases and JSON-RPC discovery/command/pointer/status/resource schemas with application-owner dispatch.",
+        "Publish honest capability/protocol negotiation and unsupported Groovy-console behavior; retain supported k3d tool/resource names.",
+        "Expose typed reset/geometry/selection/camera/snapshot/save helpers and completion revisions for deterministic scenarios without REPL/Groovy.",
+        "Implement timeout/cancel/log/validation cases and run menu/button/HTTP equivalence regressions."
+      ],
+      "done": [
+        "C18/C28 retained subset passes and clients need no sleeps or JVM dependency.",
+        "Unsupported console/plugin tools are not advertised as functional."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T42",
+      "title": "Audit phase-specific capabilities and preserve migration boundaries",
+      "phase": "desktop",
+      "dependencies": [
+        "T05",
+        "T06",
+        "T17",
+        "T41"
+      ],
+      "requirements": [
+        "A03",
+        "A04"
+      ],
+      "acceptance": [
+        "C03",
+        "C18",
+        "C28"
+      ],
+      "targets": [
+        "docs/rewrite/deferred-capabilities.md",
+        "crates/meshcraft-core/src/commands/capabilities.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/console/ConsoleGroovyRuntime.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/Plugin.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginHost.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tui/ConsoleTui.kt",
+        "lwjgl3/src/main/kotlin/com/github/alfu32/sketch/lwjgl3/Lwjgl3Launcher.kt"
+      ],
+      "source_symbols": [
+        "Plugin",
+        "registerCommands",
+        "saveState"
+      ],
+      "slices": [
+        "Retain legacy Groovy/JAR/TUI entry points and sample metadata for source/API ports. Record required later JavaScriptCore plugin tasks and SDK direction without adding the runtime to initial desktop.",
+        "Check initial menus/launch help/automation omit or explain unavailable plugin/Groovy/console actions; capability reporting must distinguish planned JavaScriptCore plugins from unsupported Groovy compatibility.",
+        "Verify unknown/deferred nested document data survives editing/saving known fields and that domain built-ins do not accidentally depend on PluginHost."
+      ],
+      "done": [
+        "Initial desktop runtime needs no JVM/Groovy/plugin/TUI dependency.",
+        "Legacy/deferred data survives; final-product JavaScriptCore support is tracked as required later delivery rather than an unspecified optional plugin ABI."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/plugins.md"
+      ]
+    },
+    {
+      "id": "T43",
+      "title": "Implement desktop tutorial recorder/player and schema adapters",
+      "phase": "desktop",
+      "dependencies": [
+        "T08",
+        "T09",
+        "T41"
+      ],
+      "requirements": [
+        "A05"
+      ],
+      "acceptance": [
+        "C29"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/tutorials/",
+        "crates/meshcraft-ui/src/panels/tutorials.rs",
+        "docs/tutorials/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "docs-site/src/lib/tutorial/tutorial_schema.ts",
+        "docs-site/src/lib/tutorial/tutorial_runtime.ts",
+        "docs-site/scripts/validate_tutorial_json.mjs"
+      ],
+      "source_symbols": [
+        "TutorialScript",
+        "TutorialStep",
+        "observeAction",
+        "startRecording",
+        "startPlayback"
+      ],
+      "slices": [
+        "Implement desktop action observation/matching, recording, before/after previews and player navigation/pause/stop.",
+        "Keep separate typed adapters for desktop action schema and docs-site browser schema; preserve manual/pending flags.",
+        "Route menu/button/tool completions through shared tutorial action IDs and migrate representative tutorial workflows with explicit assertion status."
+      ],
+      "done": [
+        "C29 verifies matching and manual status without inventing full input replay.",
+        "Browser adapter has no dependency on desktop HTTP or Groovy."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T44",
+      "title": "Qualify desktop performance, complete UI coverage and package releases",
+      "phase": "desktop",
+      "dependencies": [
+        "T18",
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T26",
+        "T27",
+        "T28",
+        "T30",
+        "T31",
+        "T33",
+        "T34",
+        "T35",
+        "T37",
+        "T38",
+        "T39",
+        "T40",
+        "T42",
+        "T43"
+      ],
+      "requirements": [
+        "O03",
+        "O04",
+        "O01",
+        "U02",
+        "F10"
+      ],
+      "acceptance": [
+        "C03",
+        "C23",
+        "C26",
+        "C31",
+        "C32"
+      ],
+      "targets": [
+        "docs/rewrite/qualification/",
+        "crates/meshcraft-desktop/",
+        "packaging/",
+        ".github/workflows/"
+      ],
+      "source_paths": [
+        ".github/workflows/release.yml",
+        "build.gradle",
+        "lwjgl3/build.gradle",
+        "snapcraft.yaml",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/AsyncSpatialIndexing.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/SpatialHash3D.kt"
+      ],
+      "source_symbols": [
+        "query",
+        "updateFaceMesh"
+      ],
+      "slices": [
+        "Run whole feature/format/document matrices and complete menu mapping for all 74 built-ins plus non-tool actions; audit enabled/checked/focus behavior on each desktop OS.",
+        "Measure T00 scenarios and optimize demonstrated bottlenecks only: raw load, revisioned indexes, orthographic queries, frustum culling, incremental chunks, preview and undo memory.",
+        "Record deliberate differences, known unsupported subsets and executed versus manual results. Resolve release naming/app IDs/aliases without changing legacy file meaning.",
+        "Package Linux/Windows/macOS builds, provenance/assets/docs/command references and install/open/save/export/close smoke tests. Enforce no Android/Groovy/TUI requirement."
+      ],
+      "done": [
+        "All initial desktop requirements are mapped to passing evidence or explicitly reviewed limitations; no placeholder command counts as complete.",
+        "C23/C26/C31 report is concrete and desktop release is independent of browser delivery."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/object-model.md"
+      ]
+    },
+    {
+      "id": "T45",
+      "title": "Deliver browser runtime, component and docs integration",
+      "phase": "browser",
+      "dependencies": [
+        "T44"
+      ],
+      "requirements": [
+        "A06",
+        "O02"
+      ],
+      "acceptance": [
+        "C29",
+        "C30"
+      ],
+      "targets": [
+        "crates/meshcraft-web/",
+        "web/component/",
+        "docs-site-integration/"
+      ],
+      "source_paths": [
+        "web/component/octodraw-element.js",
+        "web/component/README.md",
+        "core/src/main/kotlin/com/github/alfu32/sketch/WebRuntimeBridge.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "docs-site/src/lib/components/OctodrawEmbed.svelte",
+        "docs-site/src/lib/components/TutorialRunner.svelte"
+      ],
+      "source_symbols": [
+        "pollEmbedCommandJson",
+        "resolveEmbedCommand",
+        "emitEmbedEvent"
+      ],
+      "slices": [
+        "Implement Rust/WASM platform adapter for file picker/download/storage and cooperative jobs with capability-aware UI.",
+        "Preserve custom-element methods/properties/events/command payloads, async correlation, focus/scroll/resize behavior and explicit single-editor scope.",
+        "Connect retained docs-site/tutorial adapters and generated tool/command references; validate actual browser/backends and record unsupported native capabilities.",
+        "Run standalone and embedded C30 plus browser tutorial checks; Android remains separate future work."
+      ],
+      "done": [
+        "Browser delivery meets its separate C30 gate and requires no local desktop HTTP/JVM service.",
+        "Existing component API consumers have a documented compatibility/migration report."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/rewrite/plugins.md"
+      ]
+    },
+    {
+      "id": "T46",
+      "title": "Ratify the normalized object model and migration contracts",
+      "phase": "desktop",
+      "dependencies": [
+        "T00"
+      ],
+      "requirements": [
+        "F01",
+        "F03",
+        "F04",
+        "F10"
+      ],
+      "acceptance": [
+        "C01",
+        "C03",
+        "C07",
+        "C15",
+        "C32"
+      ],
+      "targets": [
+        "docs/decisions/object-model.md",
+        "fixtures/scenarios/object-model/",
+        "crates/meshcraft-core/src/document/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftLineStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/HotspotStore.kt"
+      ],
+      "source_symbols": [
+        "ObjectPrototype",
+        "GroupNode",
+        "recomputeInstanceGeometryFromPrototype",
+        "ensureInstanceGeometryOverrides",
+        "syncPrototypeInstances",
+        "refreshPrototypeVertexIds",
+        "GroupInstanceDto"
+      ],
+      "design_docs": [
+        "docs/rewrite/object-model.md",
+        "docs/rewrite/plugins.md"
+      ],
+      "slices": [
+        "Use the completed object-model audit/census as input; produce a field/operation owner-lifetime-persistence table distinguishing authored definitions/occurrence edits, derived caches, UI session and legacy metadata. Confirm reachability rather than treating unused helpers as behavior.",
+        "Compare a per-bundle stable vertex/indexed-primitive representation with a minimal alternative on real/synthetic fixtures; specify coincident independent vertices, quantized aliases, topology remaps, face colors and optional nonidentity definition frames.",
+        "Specify shared child-layout/template identity and occurrence paths, differing child transforms/inputs and legacy instance-ID aliases. Demonstrate definition edits preserve unrelated per-occurrence changes without cloned mutable child trees.",
+        "Classify no-op versus authored/ambiguous geometry overrides, explicit empty replacements, domain output provenance and legacy export materialization. Preserve differing snapshots and unknown data.",
+        "Record selected canonical schema, effective-content query/edit contracts, migration examples and measured comparison; ratify C32 invariants before T02/T03/T05/T16 implementation. Public plugin context uses those identities rather than legacy stores."
+      ],
+      "done": [
+        "One authored owner per value; base geometry, actual instance edits and generated caches have distinct types and rules.",
+        "Schema/alias/migration examples cover no-op sharing, meaningful differences, empty overrides, hierarchy variants, domain provenance and nonidentity frames; coordinate coincidence alone never forces welding.",
+        "Decision and fixture assertions are concrete enough for small-context core/IO/object/plugin agents to consume without repeating the investigation."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T47",
+      "title": "Prove JavaScriptCore embedding, scheduling and native packaging",
+      "phase": "plugins",
+      "dependencies": [
+        "T44",
+        "T46"
+      ],
+      "requirements": [
+        "A04",
+        "A07"
+      ],
+      "acceptance": [
+        "C33"
+      ],
+      "targets": [
+        "crates/meshcraft-plugins-jsc/",
+        "docs/decisions/javascriptcore.md",
+        "packaging/javascriptcore/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/Plugin.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginContext.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginHost.kt"
+      ],
+      "source_symbols": [
+        "Plugin",
+        "PluginContext",
+        "loadCatalog"
+      ],
+      "design_docs": [
+        "docs/rewrite/plugins.md",
+        "docs/rewrite/object-model.md"
+      ],
+      "slices": [
+        "Select and pin the actual JavaScriptCore C binding/FFI boundary and reproducible engine artifacts for Linux/Windows/macOS. Prove packaged load/evaluate/native callback without assuming a Rust crate supplies distributable engines.",
+        "Demonstrate dedicated runtime ownership, retained callback GC protection/release, native promise/microtask delivery and asynchronous application-owner replies on the selected supported API.",
+        "Prove bundle/activation format and interruption/teardown behavior, including a blocking callback. If needed choose a process boundary using JSC; do not claim worker execution alone makes cancellation reliable.",
+        "Record supported host API/engine versions, linking/update/provenance responsibility and browser-plugin capability policy. Initial desktop/browser artifacts stay independent of native JSC."
+      ],
+      "done": [
+        "Native JSC proof and packaging matrix cover all supported desktop OSes with concrete artifacts/checks or recorded platform blockers.",
+        "SDK/bootstrap/promise/executor/lifetime policy is evidence-backed; no Groovy/JVM/Node/DOM or silent alternate native engine."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T48",
+      "title": "Implement JavaScriptCore runtime lifecycle and context facade",
+      "phase": "plugins",
+      "dependencies": [
+        "T47"
+      ],
+      "requirements": [
+        "A04",
+        "A07"
+      ],
+      "acceptance": [
+        "C33"
+      ],
+      "targets": [
+        "crates/meshcraft-plugins-jsc/src/runtime/",
+        "crates/meshcraft-plugins-jsc/src/context/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/Plugin.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginContext.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginHost.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginRegistry.kt"
+      ],
+      "source_symbols": [
+        "Plugin",
+        "PluginContext",
+        "onLoad",
+        "onEnable",
+        "onDisable",
+        "onUnload"
+      ],
+      "design_docs": [
+        "docs/rewrite/plugins.md"
+      ],
+      "slices": [
+        "Implement local manifest/API-range/capability validation, plugin context ownership, bundle evaluation and activation(ctx) under the selected JSC API.",
+        "Implement safe Rust FFI lifetime wrappers and host callback/value conversion, exception diagnostics and retained-callback rooting with balanced release.",
+        "Implement async request correlation/runtime executor delivery and document-close/unload behavior without transferring JS values or mutable model references across owners.",
+        "Implement activation rollback, deactivate/dispose/unregister/cancel/reload and plugin-scoped state; no duplicate registrations or stale callbacks after teardown."
+      ],
+      "done": [
+        "Context/lifecycle tests pass under GC, callback errors, reload and pending completion after close/unload.",
+        "The facade owns host-service handles and value DTOs, not mutable legacy/Rust object graph wrappers."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T49",
+      "title": "Connect the versioned JavaScript plugin SDK to normalized host services",
+      "phase": "plugins",
+      "dependencies": [
+        "T48"
+      ],
+      "requirements": [
+        "A07",
+        "F10",
+        "A01"
+      ],
+      "acceptance": [
+        "C18",
+        "C32",
+        "C33"
+      ],
+      "targets": [
+        "crates/meshcraft-plugins-jsc/src/sdk/",
+        "crates/meshcraft-core/src/extensions/",
+        "sdk/javascript/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginContext.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginResult.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/capabilities/PluginCommand.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/capabilities/PluginTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/capabilities/PluginUIElement.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/capabilities/PluginExporter.kt"
+      ],
+      "source_symbols": [
+        "PluginContext",
+        "SelectionSnapshot",
+        "PluginResult",
+        "PluginChange"
+      ],
+      "design_docs": [
+        "docs/rewrite/plugins.md",
+        "docs/rewrite/object-model.md"
+      ],
+      "slices": [
+        "Expose targeted/paged authored and effective-content queries, occurrence-aware selection, stable IDs, source attribution and revision-scoped generated handles. Avoid full-model copies on every event.",
+        "Expose shared command registration/execution and validated expected-revision edit batches; one atomic transaction/undo per batch, explicit conflicts and capability checks.",
+        "Expose plugin tool events/previews/operators/cancel through the common tool dispatcher, with plugin-local draft state and host-owned geometry edits.",
+        "Expose declarative panel and import/export adapter registrations through shared menu/UI/codec host services; enable/check state never depends on unbounded JS every frame.",
+        "Implement disposable/coalesced event subscriptions, versioned namespaced document state, separate app settings and SDK declarations/examples. Unknown plugin state survives absence; runtime JS heap is never persisted."
+      ],
+      "done": [
+        "C18/C32/C33 establish menu/command/undo equivalence, authored-versus-resolved identities, stale-revision rejection and absent-plugin state preservation.",
+        "Published ctx v1/schema and SDK types do not freeze canonical storage internals; custom plugin entity schemas are not invented implicitly."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T50",
+      "title": "Deliver JavaScriptCore plugin UX, samples and qualified desktop packages",
+      "phase": "plugins",
+      "dependencies": [
+        "T49"
+      ],
+      "requirements": [
+        "A04",
+        "A07",
+        "O03"
+      ],
+      "acceptance": [
+        "C18",
+        "C33"
+      ],
+      "targets": [
+        "crates/meshcraft-ui/src/panels/plugins.rs",
+        "plugins/examples/",
+        "docs/plugins/",
+        "packaging/javascriptcore/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/PluginManagerPanel.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/plugin/PluginHost.kt",
+        "docs/PLUGIN_DEVELOPMENT.md",
+        "assets/plugins/plugins.json",
+        "scripts/examplePlugins.groovy"
+      ],
+      "source_symbols": [
+        "PluginManagerPanel",
+        "pluginEntries"
+      ],
+      "design_docs": [
+        "docs/rewrite/plugins.md"
+      ],
+      "slices": [
+        "Implement local plugin install/discover/enable/disable/reload/remove and diagnostic UI using shared menus/panels; do not add an unrelated marketplace or REPL.",
+        "Ship JS sample command, two-pick preview/cancel tool, declarative panel/persistent state and exporter; document ports from the relevant legacy sample behaviors.",
+        "Run C33 lifecycle/GC/async/query/identity/transaction cases and package/load/reload smoke checks on Linux/Windows/macOS with the selected JSC artifacts.",
+        "Publish API/version/capability/plugin-state compatibility and supported-platform report, provenance/update ownership and browser limitations. Required native plugin delivery qualifies independently of browser release."
+      ],
+      "done": [
+        "Final-product native plugins use JavaScriptCore and the handed-in ctx; all supported platforms have packaged evidence.",
+        "Initial desktop has no mandatory runtime dependency; no Groovy/JVM binary compatibility or CLI/TUI is reintroduced."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    }
+  ]
+}
