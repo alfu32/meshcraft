@@ -49,6 +49,7 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 | File | Purpose |
 | --- | --- |
 | `evidence.md` | Baseline, source map, divergences, confidence limits |
+| `live-reference.md` | Supplemental screenshots and observed behavior from the running legacy UI/MCP build |
 | `spec/foundation.md` | Document, persistence, input, selection, commands |
 | `spec/modeling.md` | Every built-in tool family and domain system |
 | `spec/interface.md` | Both desktop interfaces, panels, rendering, external surfaces |

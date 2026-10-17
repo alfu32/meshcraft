@@ -149,7 +149,7 @@ fn area(shapes: &Shapes) -> f64 {
     shapes
         .iter()
         .flat_map(|shape| shape.iter())
-        .map(|contour| signed_area(contour))
+        .map(signed_area)
         .sum()
 }
 
@@ -165,7 +165,9 @@ fn signed_area(contour: &Contour) -> f64 {
 
 fn mesh_area(points: &[[f64; 2]], indices: &[u32]) -> f64 {
     indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|triangle| {
             let a = points[triangle[0] as usize];
             let b = points[triangle[1] as usize];

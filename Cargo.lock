@@ -1656,6 +1656,7 @@ name = "meshcraft-desktop"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "image",
  "serde",
  "wasm-bindgen",
  "wasm-bindgen-futures",

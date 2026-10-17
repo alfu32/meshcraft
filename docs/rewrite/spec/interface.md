@@ -10,7 +10,7 @@ Source: `K/ui/SketchUiOverlay.kt`: toolbar definitions, `builtInToolbarCommandTa
 
 ### U02 Conventional desktop menus
 
-**New: explicitly requested.** Provide three switchable profiles: **Desktop Menus** (desktop default), **Buttons**, and **Hybrid** (menus plus toolbars). All profiles retain viewport, status/measurement feedback, inspector access, shortcuts, and the command palette. Menu availability must not depend on whether a toolbar is visible. Switching profiles preserves the document, active context, selection, camera and current tool draft, and persists as an application preference.
+**New: explicitly requested.** Provide three switchable profiles: **Desktop Menus** (desktop default), **Buttons**, and **Hybrid** (menus plus toolbars). All profiles retain viewport, status/measurement feedback, inspector access, shortcuts, and the command palette. `Ctrl+Shift+P` opens the complete palette of available commands. Every enabled menu, toolbar, palette, automation and tutorial action routes through the same command registry; a toolbar's visibility never determines command availability. Switching profiles preserves the document, active context, selection, camera and current tool draft, and persists as an application preference.
 
 Proposed top-level organization:
 

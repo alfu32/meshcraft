@@ -1,6 +1,6 @@
 # Proposed Rust architecture
 
-This is a concrete implementation proposal. Settled user direction: menus alongside buttons; desktop first; Android/Groovy execution/developer CLI/TUI deferred; JavaScriptCore plugins with a handed-in context in the final product; thorough object-model normalization before core contracts harden. Graphics/library choices remain proposals for T01. The object-model decision is gated by T46; no Rust application implementation is claimed here.
+This is the architecture contract for the Rust implementation. Settled user direction: menus alongside buttons; desktop first; Android/Groovy execution/developer CLI/TUI deferred; JavaScriptCore plugins with a handed-in context in the final product; thorough object-model normalization before core contracts harden. A minimal eframe shell and geometry-stack experiment exist; normalized document and modeling operations remain to be built. Graphics/library choices remain proposals for T01. The object-model decision is gated by T46.
 
 ## Workspace boundaries
 
@@ -85,7 +85,7 @@ Precision proposal: f64 modeling coordinates, f32 GPU positions relative to a ch
 
 ## Shared UI model
 
-Define one action tree that maps commands into menu locations, toolbar groups, palette tags, shortcuts and tutorial action IDs. Tool registration supplies its label, category, command, parameter hints and enabled/checked state. Window menu/panel registry and toolbar visibility are similarly generated. File/render/selection callbacks become canonical commands before the second UI is built.
+Define one action tree that maps commands into menu locations, toolbar groups, palette tags, shortcuts and tutorial action IDs. `Ctrl+Shift+P` exposes every available command. Tool registration supplies its label, category, command, parameter hints and enabled/checked state. Window menu/panel registry and toolbar visibility are similarly generated. File/render/selection callbacks become canonical commands before the second UI is built.
 
 Desktop Menus, Buttons and Hybrid are presentations of the same session. Profile switching changes layout and visibility only. Use an explicit viewport rectangle after menu/panel layout; camera project/unproject, picking, overlays, HTTP screen input and captures all receive it. UI handles focus first; normalized input reaches the model only when unconsumed. Keep model commands separate from text-widget edit commands to avoid shortcut collisions.
 

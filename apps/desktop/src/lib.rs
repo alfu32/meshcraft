@@ -1,4 +1,5 @@
 mod app;
+mod assets;
 
 pub use app::MeshcraftApp;
 

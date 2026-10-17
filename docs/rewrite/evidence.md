@@ -83,6 +83,10 @@ The docs site is an existing SvelteKit application and can be retained when swap
 
 No live editor, renderer, MCP endpoint, Android device, browser component, or release artifact was exercised in this audit. Parser subsets, corner-case booleans, hotspot cascades, large-model performance, and exact UI focus behavior need characterization in T00 and feature-task scenarios. Do not label a generated screenshot or a manual tutorial checkpoint an automated assertion.
 
+### Supplemental live inspection (2026-10-18)
+
+The running desktop build was inspected separately after the static audit. It identifies itself as 5.7.1 (`5c97836026cf8274ad43d99542a3057b215231c4`), while the pinned source checkout remains 5.7.2 (`acd84f4c67509e10363c33850501eb8f4fc3ffa7`). Treat these as supplemental UI/runtime observations, not evidence about the pinned source or geometry parity. Screenshots, command-catalog counts and settings notes are recorded in [live-reference.md](live-reference.md). The editor MCP was reachable on port 8765; port 5678 had no listener during this inspection.
+
 No fixed older schema version range is promised yet. Recover representative older flat/rootGroup documents from history in T00, and record what each migration actually supports. Preserve source fixture hashes and avoid copying large embedded undo/base64 blobs into prompts.
 
 Licensing and naming metadata exist in `LICENSE.md`, `docs/CREDITS.md`, and store/build files. Carry their provenance into the release inventory; product-owner licensing and branding decisions are outside this technical audit. No license was changed here.

@@ -65,7 +65,7 @@
         "Captured results distinguish executed assertions, static evidence and manual visual checks; no fabricated baseline timings."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T01",
@@ -109,7 +109,7 @@
         "Menus and polygon topology have proof cases before dependent tools are implemented; Android/Groovy/TUI are absent."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T02",
