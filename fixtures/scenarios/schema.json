@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meshcraft-scenario-v1.schema.json",
+  "title": "Meshcraft behavior scenario",
+  "type": "object",
+  "required": ["schema_version", "id", "acceptance", "setup", "events", "assertions"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^C[0-9]{2}[-a-z0-9]*$" },
+    "acceptance": { "type": "string", "pattern": "^C[0-9]{2}$" },
+    "description": { "type": "string" },
+    "setup": {
+      "type": "object",
+      "required": ["fixture"],
+      "properties": {
+        "fixture": { "type": "string", "minLength": 1 },
+        "fixture_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "canonical_state": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "phase", "space", "position"],
+            "properties": {
+              "type": { "const": "pointer" },
+              "phase": { "enum": ["move", "down", "up", "cancel"] },
+              "space": { "enum": ["world", "screen"] },
+              "position": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 3 },
+              "normal": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+              "button": { "enum": ["primary", "secondary", "middle"] },
+              "modifiers": { "$ref": "#/$defs/modifiers" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "phase", "key"],
+            "properties": {
+              "type": { "const": "key" },
+              "phase": { "enum": ["down", "up"] },
+              "key": { "type": "string", "minLength": 1 },
+              "modifiers": { "$ref": "#/$defs/modifiers" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "value"],
+            "properties": {
+              "type": { "const": "text" },
+              "value": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "id"],
+            "properties": {
+              "type": { "const": "command" },
+              "id": { "type": "string", "minLength": 1 },
+              "arguments": { "type": "object" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["type", "condition"],
+            "properties": {
+              "type": { "const": "wait" },
+              "condition": { "enum": ["job-complete", "scene-revision"] },
+              "revision": { "type": "integer", "minimum": 0 },
+              "timeout_ms": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "expected"],
+        "properties": {
+          "kind": { "enum": ["equals", "count", "near", "unchanged", "diagnostic"] },
+          "path": { "type": "string", "minLength": 1 },
+          "expected": {},
+          "tolerance": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    }
+  },
+  "$defs": {
+    "modifiers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["shift", "control", "alt", "meta"] }
+    }
+  },
+  "additionalProperties": false
+}

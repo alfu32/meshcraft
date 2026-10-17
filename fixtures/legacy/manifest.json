@@ -1,0 +1,2192 @@
+{
+  "baseline_commit": "acd84f4c67509e10363c33850501eb8f4fc3ffa7",
+  "fixture_count": 60,
+  "fixtures": [
+    {
+      "bytes": 1272176,
+      "compressed": false,
+      "features": [
+        "glyph-catalog",
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": "fixtures/legacy/samples/assets/glyphs/alphabet.octd",
+      "opt_in": false,
+      "path": "assets/glyphs/alphabet.octd",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 99,
+      "root_keys": [
+        "cameraState",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "glyph-catalog"
+      ],
+      "sha256": "db1f3838330cf0df604bcc959bee1b4e40ba1d60a8470a407ccaaae2bcecb1e5",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1612,
+      "compressed": false,
+      "features": [
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": "fixtures/legacy/samples/docs/tutorial/000_construction.octd",
+      "opt_in": false,
+      "path": "docs/tutorial/000_construction.octd",
+      "payload_fields": [],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "sparse-current-document",
+        "geometry-lines"
+      ],
+      "sha256": "e53b9d21e7c91b6ac91bc1759ba5e162a329336f84ff8f96a11c8a223de90f78",
+      "version_field_present": false
+    },
+    {
+      "bytes": 49834288,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "docs/tutorial/000_interface.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 5,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "a101226095d9f9ec363ecdbce5558b2eb11dd0ae7d26b800ba8cfb178739e5db",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2550567,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/alphabet.octd",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 98,
+      "root_keys": [
+        "cameraState",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "55a00bc70009d57c57143f7f766798e5a95a86a4a9c29dfd941dc807d617d337",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2521,
+      "compressed": false,
+      "features": [
+        "external-reference",
+        "payload:externalReferencePath",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/arch_frame.octd",
+      "opt_in": false,
+      "path": "examples/arch_frame.octd",
+      "payload_fields": [
+        "externalReferencePath",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "modelUnit",
+        "prototypes",
+        "rootInstance"
+      ],
+      "selected_for": [
+        "external-reference-definition"
+      ],
+      "sha256": "22e13a3d849876fafbf0304d8e926d3f482e5e7a6c5b2457aab1a6dd629d03d4",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2617920,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/architecture.2.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureWalls",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 19,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "72869772a377bd4c69c61cd01850aad13616379c7b015e1930d88ccf82232436",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1300969,
+      "compressed": false,
+      "features": [
+        "payload:architectureWalls",
+        "payload:dimensions",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/architecture.3.k3d",
+      "payload_fields": [
+        "architectureWalls",
+        "dimensions",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 8,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "07274070e852b6abc4d12ba09a9ce031492514f718a02b3c865764b7076bb8b9",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1387170,
+      "compressed": false,
+      "features": [
+        "payload:architectureStairs",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/architecture.4.k3d",
+      "payload_fields": [
+        "architectureStairs",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "0a5fa0f5257306741cdad73fd255befdfa55f16693793dc62e5639f6f5851d2d",
+      "version_field_present": false
+    },
+    {
+      "bytes": 5229895,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureStairs",
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/architecture.demo.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureStairs",
+        "architectureWalls",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 29,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "9d43bafe64c90c57f2b4ee663d269cad4ccd38df5fa4da8e7f82eb4bdf96d888",
+      "version_field_present": false
+    },
+    {
+      "bytes": 8074289,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureStairs",
+        "payload:architectureWalls",
+        "payload:dimensions",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/architecture.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureStairs",
+        "architectureWalls",
+        "dimensions",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 76,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "71f3c5572560f82545fcf5db4e0b50288df62015d21124c81914c85a15851c2e",
+      "version_field_present": false
+    },
+    {
+      "bytes": 6283970,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/carcass.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 18,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "cbda5bee23259766d27edcfbab864ee83e79102b305ca8ca8ae20f2d900dd0b9",
+      "version_field_present": false
+    },
+    {
+      "bytes": 879519,
+      "compressed": false,
+      "features": [
+        "payload:architectureSlabs",
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/hotspots.demo.1.k3d",
+      "payload_fields": [
+        "architectureSlabs",
+        "architectureWalls",
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "c254dc17f37288311bedd00137f5953270d40c0d7a9906f7cacb4812dec041d7",
+      "version_field_present": false
+    },
+    {
+      "bytes": 346211,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/hotspots.demo.2.k3d",
+      "opt_in": false,
+      "path": "examples/hotspots.demo.2.k3d",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "hotspots"
+      ],
+      "sha256": "55d913cd29c84884d9a271bd462e45f8aab379f27b1c4c0c82a848d5b54962ca",
+      "version_field_present": false
+    },
+    {
+      "bytes": 6730007,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/hotspots.demo.3.k3d",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 4,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "ef1b6ee27e02e155996e53b88879be157a7d6abaa955170d3a5771080199476d",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2384433,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureStairs",
+        "payload:architectureWalls",
+        "payload:dimensions",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/hotspots.demo.4.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureStairs",
+        "architectureWalls",
+        "dimensions",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 6,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "b74d077cdaf9e8ade0691d46e30eccc84ced8809e9f656130e2d3cfc4ce8c6b2",
+      "version_field_present": false
+    },
+    {
+      "bytes": 137507,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/hotspots.demo.5.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "a07dbaeabff5a4ab2c86333ec09c54c0e1ed50636225ee76f197d684ae3d02fe",
+      "version_field_present": false
+    },
+    {
+      "bytes": 119303,
+      "compressed": false,
+      "features": [
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/hotspots.demo.k3d",
+      "payload_fields": [],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "b98894f5e7ea6047cd143332e16a6718bc2e8f2f66ff52d76c82821e98dd7f80",
+      "version_field_present": false
+    },
+    {
+      "bytes": 477234,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/house.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 8,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "fd650246c8d927ac57f8cdc9dbaaaefe89d3f5e07b1962a19cc7801c44fe7f57",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1549482,
+      "compressed": false,
+      "features": [
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:hvacVentilationDucts",
+        "payload:segments",
+        "payload:texts",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/hvac.demo.k3d",
+      "opt_in": false,
+      "path": "examples/hvac.demo.k3d",
+      "payload_fields": [
+        "architectureWalls",
+        "faces",
+        "hvacVentilationDucts",
+        "segments",
+        "texts"
+      ],
+      "prototype_count": 8,
+      "root_keys": [
+        "cameraState",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "hvac",
+        "text"
+      ],
+      "sha256": "85266bb4a9061af602408630d144019c2273ae3d00cf955345e617e2158f47f3",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1174898,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/logo.1.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 9,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "83246163f04a347527a5e8acf75cc9904db2936a7b7e33735fed17ff69c15fac",
+      "version_field_present": false
+    },
+    {
+      "bytes": 10943362,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureStairs",
+        "payload:architectureWalls",
+        "payload:dimensions",
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "payload:texts",
+        "payload:voxels",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/logo.2.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureStairs",
+        "architectureWalls",
+        "dimensions",
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments",
+        "texts",
+        "voxels"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "f428174ca896995edc340edb83e9bc8310298d5cb4db420d93020774fdb6cebe",
+      "version_field_present": false
+    },
+    {
+      "bytes": 213801,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/logo.3.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureWalls",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "e3344be49fb5965b80426fd813fb287c97d7b6aab0dd1e878a052af8fd75dd25",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1440468,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/logo.4.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 4,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "0efa0751266e207ff9e256b7369a4426711a9ac4161c92da450e5a1b6dbf718c",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2609639,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/logo.4.octd",
+      "payload_fields": [
+        "architectureFrames",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 10,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "31d0323575bc25ecc5d5ec430654e83f1ada91dc5982cc4be40ae479163a97fb",
+      "version_field_present": false
+    },
+    {
+      "bytes": 8200292,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "payload:texts",
+        "payload:voxels",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/logo.5.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments",
+        "texts",
+        "voxels"
+      ],
+      "prototype_count": 5,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "voxels"
+      ],
+      "sha256": "f3dfd3c4ad61f1d0090bec83397ab4688f484c3ef1d89d6e8b0dca5ff729cca7",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1556816,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/logo.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 9,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "06697396ae11d9998f1971559047f12b961a8d10fd4308588d39576a8608b3eb",
+      "version_field_present": false
+    },
+    {
+      "bytes": 477858,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureWalls",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/mcp.demo.k3d",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureWalls",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "50946d7798a76590963b828051d3ff217e1eca1a41d6deb16a9ff69d741ee2ea",
+      "version_field_present": false
+    },
+    {
+      "bytes": 8986340,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/mechanical.octo",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "54049a8eac798bba6c48840b9c67633a11f4b7cc250979b765d535bb2822756b",
+      "version_field_present": false
+    },
+    {
+      "bytes": 196880,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-541.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "30a3447afc4cc408df118ab6c2627defc0b8a3b708792762d2003acda9a50d16",
+      "version_field_present": false
+    },
+    {
+      "bytes": 843585,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-542.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 10,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "81c380a9dc0ec30748ff415d3a64bb1f55c5b5d6cf730a969222fcd514cca8b7",
+      "version_field_present": false
+    },
+    {
+      "bytes": 953464,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-543.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 10,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "190eb4ed89e26a1979aab66253dc058198d962d5284f9fb91fc63120736bdd7d",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1455304,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-544.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 10,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "06d9ccea69c2149302fbe94090336520284d86607b99e631aadf56196b944b09",
+      "version_field_present": false
+    },
+    {
+      "bytes": 633193,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-545.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "fd10e15671a530544fb5ddbadbd381e1f4f3b1a8a802d6d877736f1e6c456699",
+      "version_field_present": false
+    },
+    {
+      "bytes": 511463,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-546.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "98be1a018346985ea48ba5b6f0280474899dbf29bef69d4b76f34e03b2e4d2f6",
+      "version_field_present": false
+    },
+    {
+      "bytes": 446811,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-547.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "73d315c1a42b08f072524c3cc1349844c462e9ae1b1ef985cef54c019128216c",
+      "version_field_present": false
+    },
+    {
+      "bytes": 482050,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-548.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "f272f82ea36e63f9073fce15724ae15de0012f756005307842f39b1dc9856c8c",
+      "version_field_present": false
+    },
+    {
+      "bytes": 511063,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-549.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 12,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "cfdf2b00a0fdb0bb578561472edb2a23036ca18182c03099d015c636e1002fbe",
+      "version_field_present": false
+    },
+    {
+      "bytes": 964500,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/rel-550.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 8,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "ee170d591cb847484cb945a4a3186d65e4e9f6c2b8bfaa4e5e27544b72eb7c34",
+      "version_field_present": false
+    },
+    {
+      "bytes": 6730005,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/sketch3d.demo.3.k3d",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 4,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "7a00c18f1ef943580f4d0d513beb1599aa0d95167680e86c1d65d602ab5409ac",
+      "version_field_present": false
+    },
+    {
+      "bytes": 3093714,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/sketch3d.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 17,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "7bfa5b184d7e0deaf87cbbeff644cd259a1538bf2f5e6be96984f2b2c138d253",
+      "version_field_present": false
+    },
+    {
+      "bytes": 7502850,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/spaceship.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 11,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "gzip-and-undo-history"
+      ],
+      "sha256": "60778498c8a3e1e5b19e0392574838d9d9dbc1710b1e6871e21298442dfd1211",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1514461,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/stretchable.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 5,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "ceadc8ca13c8a356e04b58cc382f0f2be2b6a1a3b8b57ebe23536fc2863f9b28",
+      "version_field_present": false
+    },
+    {
+      "bytes": 344820,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:segments",
+        "prototype-instance"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/test-save-as.k3d",
+      "payload_fields": [
+        "faces",
+        "segments"
+      ],
+      "prototype_count": 16,
+      "root_keys": [
+        "cameraState",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon"
+      ],
+      "selected_for": [],
+      "sha256": "dfbbc294b49b2a235467fa587dcf038002bceb96e5fb2bf473af446731664f9b",
+      "version_field_present": false
+    },
+    {
+      "bytes": 119350,
+      "compressed": false,
+      "features": [
+        "payload:architectureFrames",
+        "payload:architectureSlabs",
+        "payload:architectureWalls",
+        "payload:dimensions",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/test-shortcuts.0.octd",
+      "opt_in": false,
+      "path": "examples/test-shortcuts.0.octd",
+      "payload_fields": [
+        "architectureFrames",
+        "architectureSlabs",
+        "architectureWalls",
+        "dimensions",
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon"
+      ],
+      "selected_for": [
+        "architecture",
+        "dimensions",
+        "faces",
+        "segments"
+      ],
+      "sha256": "e82fda561dc694edcfeec87e3dd7b059ef65bbf3d4ac4073ee817c8612cde131",
+      "version_field_present": false
+    },
+    {
+      "bytes": 389218,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:hotspots",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/test-shortcuts.1.octd",
+      "payload_fields": [
+        "faces",
+        "hotspots",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "91a4d3f8b6cce493a6359b63ad66fb7d18c024e816f20472545685b6fb03209a",
+      "version_field_present": false
+    },
+    {
+      "bytes": 618220,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/test-shortcuts.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "e8b495a4e5d7fad5e136bfeb2448d96206ad3566ad5205de18ebcb83fe15c8bb",
+      "version_field_present": false
+    },
+    {
+      "bytes": 213661,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/test.0.k3d",
+      "opt_in": false,
+      "path": "examples/test.0.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "prototype-instance-document"
+      ],
+      "sha256": "145c7c6b0054ecc020904ff7dda01867e5fe072cd6dd4a2b852b4a099eff8a6f",
+      "version_field_present": false
+    },
+    {
+      "bytes": 258,
+      "compressed": false,
+      "features": [],
+      "local_copy": "fixtures/legacy/samples/examples/test.1.k3d",
+      "opt_in": false,
+      "path": "examples/test.1.k3d",
+      "payload_fields": [],
+      "prototype_count": 0,
+      "root_keys": [
+        "cameraState",
+        "lightingState",
+        "shadowState"
+      ],
+      "selected_for": [
+        "empty-document"
+      ],
+      "sha256": "05e0b8dba492c198a202eef2a368ce04bbccfc731e436835c6add9125649b463",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1540,
+      "compressed": false,
+      "features": [
+        "root-group"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/test.2.k3d",
+      "opt_in": false,
+      "path": "examples/test.2.k3d",
+      "payload_fields": [],
+      "prototype_count": 0,
+      "root_keys": [
+        "cameraState",
+        "lightingState",
+        "rootGroup",
+        "shadowState"
+      ],
+      "selected_for": [
+        "root-group-document"
+      ],
+      "sha256": "cfb2f581580a1f3e810989212dc32f84621fa9f818b44bf866ada4b5953f707d",
+      "version_field_present": false
+    },
+    {
+      "bytes": 927511,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/tutorial-basics.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 8,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "4d983feb230356e365aefd6493c05beb3d84a96927ae99ca62ae68cdef3c4a4a",
+      "version_field_present": false
+    },
+    {
+      "bytes": 11498523,
+      "compressed": true,
+      "features": [
+        "gzip",
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/tutorial.001.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 9,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "ba2b63a5c46f8016ef8fa2924fa6c174f9abfa6e857b578db69de15f36df2e24",
+      "version_field_present": false
+    },
+    {
+      "bytes": 655292,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/tutorial.002.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "ce6abe7b561a971cea861922cd55cb190eba7f8fee9045e3014ef46320003625",
+      "version_field_present": false
+    },
+    {
+      "bytes": 2339707,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/tutorial.k3d",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 7,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "2c8cfd84b326c6467846ef54e7ba1afd137ae9c434b8006f79c68b5d99af2686",
+      "version_field_present": false
+    },
+    {
+      "bytes": 307401,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/tutorial.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "790078ade136979a55bfe7bf1abdc080329d5a17b18fb67886b4f5c75cd42ec8",
+      "version_field_present": false
+    },
+    {
+      "bytes": 1597,
+      "compressed": false,
+      "features": [
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/xref_chair.octd",
+      "payload_fields": [],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "df8101343a6c248b9b645e87a2543c69e1cf326679b174c182f4904ba38fc236",
+      "version_field_present": false
+    },
+    {
+      "bytes": 6291729,
+      "compressed": false,
+      "features": [
+        "external-reference",
+        "payload:externalReferencePath",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": true,
+      "path": "examples/xrefs.octd",
+      "payload_fields": [
+        "externalReferencePath"
+      ],
+      "prototype_count": 3,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [
+        "external-reference-bundle"
+      ],
+      "sha256": "98ef8a905ed8d7f6794d6fb65026335dabf0ad215e70b042b274cd67b952ebd7",
+      "version_field_present": false
+    },
+    {
+      "bytes": 51522,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/xrefs_ARCH_CHAIR.octd",
+      "opt_in": false,
+      "path": "examples/xrefs_ARCH_CHAIR.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "modelUnit",
+        "prototypes",
+        "rootInstance"
+      ],
+      "selected_for": [
+        "external-reference-companion"
+      ],
+      "sha256": "d5005644a99e9712042899962364b0a82fad37074ad45167ec7212c46c1b9064",
+      "version_field_present": false
+    },
+    {
+      "bytes": 5457,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance"
+      ],
+      "local_copy": "fixtures/legacy/samples/examples/xrefs_ARCH_COLUMN.octd",
+      "opt_in": false,
+      "path": "examples/xrefs_ARCH_COLUMN.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "modelUnit",
+        "prototypes",
+        "rootInstance"
+      ],
+      "selected_for": [
+        "external-reference-companion"
+      ],
+      "sha256": "8005c78b4b2958b0e3f3251d4cdfc967a40ff8bdc4350de4cb8c4fbc963dfc15",
+      "version_field_present": false
+    },
+    {
+      "bytes": 225061,
+      "compressed": false,
+      "features": [
+        "external-reference",
+        "payload:externalReferencePath",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "examples/xrefs_ref01.octd",
+      "payload_fields": [
+        "externalReferencePath"
+      ],
+      "prototype_count": 2,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "5f1cd3e15bc451a97b4fa59145400c27615c3a48c258d23b042a2b2cf6bc2fff",
+      "version_field_present": false
+    },
+    {
+      "bytes": 54783,
+      "compressed": false,
+      "features": [
+        "payload:faces",
+        "payload:prototypeVertices",
+        "payload:segments",
+        "prototype-instance",
+        "undo-history"
+      ],
+      "local_copy": null,
+      "opt_in": false,
+      "path": "octodraw.octd",
+      "payload_fields": [
+        "faces",
+        "prototypeVertices",
+        "segments"
+      ],
+      "prototype_count": 1,
+      "root_keys": [
+        "cameraState",
+        "circleSegments",
+        "gridSpacing",
+        "lightingState",
+        "modelUnit",
+        "prototypes",
+        "rootInstance",
+        "shadowState",
+        "snapEpsilon",
+        "undoHistory"
+      ],
+      "selected_for": [],
+      "sha256": "1d6134682e1755af0d709bb4bb59aa160146496a41dc5c62581c35c104662fed",
+      "version_field_present": false
+    }
+  ],
+  "historical_fixtures": [
+    {
+      "bytes": 1540,
+      "commit": "cf5f3c64819d246bbfb77c066a24fd8e63393459",
+      "features": [
+        "root-group"
+      ],
+      "local_path": "fixtures/legacy/historical/root-group-test-2.k3d",
+      "path": "examples/test.2.k3d",
+      "payload_fields": [],
+      "prototype_count": 0,
+      "role": "root-group-document",
+      "root_keys": [
+        "cameraState",
+        "lightingState",
+        "rootGroup",
+        "shadowState"
+      ],
+      "sha256": "cfb2f581580a1f3e810989212dc32f84621fa9f818b44bf866ada4b5953f707d"
+    }
+  ],
+  "large_fixture_policy": "Opt-in by source path and SHA-256; do not copy large undo histories into routine runs.",
+  "sample_copy_limit_bytes": 2000000,
+  "schema_version": 1,
+  "source_repository": "k3d (Octodraw legacy reference)",
+  "unavailable_historical_shapes": [
+    {
+      "inspected_commit": "2438532a507cc9931eb734a5e5628d5ff34779d2",
+      "reason": "The pre-scene-graph source is present, but its Git tree has no saved model fixture to recover.",
+      "role": "flat-top-level-segments-faces"
+    },
+    {
+      "inspected_commit": "c85b8b9fa1a4e5d2989bdacfdbbb15aeeaf683af",
+      "reason": "The prototype loader path is present, but its Git tree has no saved model fixture to recover.",
+      "role": "prototype-only-recovery"
+    }
+  ]
+}
