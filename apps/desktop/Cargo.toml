@@ -1,0 +1,22 @@
+[package]
+name = "meshcraft-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "meshcraft"
+path = "src/main.rs"
+
+[dependencies]
+eframe.workspace = true
+serde.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "=0.4.76"
+wasm-bindgen = "=0.2.126"
+web-sys = { version = "=0.3.103", features = ["Document", "HtmlCanvasElement", "Window"] }
