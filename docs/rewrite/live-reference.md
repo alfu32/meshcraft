@@ -1,6 +1,6 @@
 # Supplemental Legacy UI Reference
 
-These captures document a running desktop build inspected on 2026-10-18. Its MCP contract identifies Octodraw 5.7.1, commit `5c97836026cf8274ad43d99542a3057b215231c4`; the pinned source baseline is 5.7.2 at `acd84f4c67509e10363c33850501eb8f4fc3ffa7`. Use this page for visual layout and configuration clues only. It is not a geometry or parity oracle for the pinned source. Captures are 1882×1011 from a 1920×1080 desktop.
+These captures document a running desktop build inspected on 2026-10-18. Its MCP contract identifies Octodraw 5.7.1, commit `5c97836026cf8274ad43d99542a3057b215231c4`; the pinned source baseline is 5.7.2 at `acd84f4c67509e10363c33850501eb8f4fc3ffa7`. Use this page for visual layout and configuration clues only. It is not a geometry or parity oracle for the pinned source. The user-supplied settings-panel captures are 1920×1080; the earlier workspace and command-palette captures are 1882×1011.
 
 The app has twelve floating toolbar groups at the left, a vertically scrolling accordion panel at the right, and a status strip along the bottom. `Ctrl+Shift+P` opens the command palette. The visible palette reports 138 commands; searching `Rectangle` shows `Tool> Rectangle` and `Tool> Surface Rect`. MCP `/scene/listCommands` also returned 138 entries: Tools 74, View 52, Edit 7, Export 4, Import 1. The MCP exposed six tools and five resources. Palette search and display were observed; command activation was not verified in this inspection.
 
@@ -22,20 +22,20 @@ An additional live read on 2026-10-18 reported 16 groups, 460 faces, 524 edges, 
 
 ![Legacy command palette showing the 138-command count](references/live-5.7.1/command-palette.png)
 
-![Legacy model and UI settings](references/live-5.7.1/model-settings.png)
+![Selection counts, object information, object list and the cuboid array](references/live-5.7.1/object-array.png)
 
-![User-created cuboid array and object count](references/live-5.7.1/object-array.png)
+![Model settings including units, grid, circle segments and navigation values](references/live-5.7.1/model-settings.png)
 
-![UI and text settings](references/live-5.7.1/ui-settings-and-polyline.png)
+![UI settings followed by Help and About](references/live-5.7.1/ui-settings-help-about.png)
 
-![Legacy polyline, vector text and architecture settings](references/live-5.7.1/architecture-and-text-settings.png)
+![Polyline, vector text and the start of architecture wall settings](references/live-5.7.1/architecture-and-text-settings.png)
 
-![Architecture and HVAC controls](references/live-5.7.1/architecture-and-hvac-settings.png)
+![Architecture wall, slab, stair and frame settings, followed by HVAC](references/live-5.7.1/architecture-and-hvac-settings.png)
 
-![Legacy HVAC settings](references/live-5.7.1/hvac-settings.png)
+![HVAC and hotspot settings, followed by the Random Tools section](references/live-5.7.1/hvac-settings.png)
 
-![Legacy hotspot, random tool and lighting settings](references/live-5.7.1/hotspot-random-lighting-settings.png)
+![Random tool settings, tutorial controls and the Shader Settings heading](references/live-5.7.1/random-tools-tutorials.png)
 
-![Tutorial and shader settings](references/live-5.7.1/tutorials-and-shader-settings.png)
+![Tutorial playback controls and shader lighting settings](references/live-5.7.1/tutorials-and-shader-settings.png)
 
 Viewport lines and points in these captures include transient overlays; do not use these images to judge geometry rendering fidelity.
