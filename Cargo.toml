@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "experiments/stack"]
+members = ["apps/desktop", "crates/meshcraft-core", "experiments/stack"]
 default-members = ["apps/desktop"]
 resolver = "3"
 
@@ -21,3 +21,4 @@ eframe = { version = "=0.37.0", default-features = false, features = [
 ] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

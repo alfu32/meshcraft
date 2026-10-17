@@ -1,5 +1,8 @@
 use crate::assets::{self, IconRegion};
-use eframe::egui::{self, Align, Align2, Color32, FontId, Layout, Sense, Stroke, Vec2};
+use crate::viewport::{CuboidPreview, Viewport};
+use eframe::egui::{self, Align, Align2, Layout, Vec2};
+use meshcraft_core::document::{Document, OccurrenceRef};
+use meshcraft_core::geometry::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -29,6 +32,11 @@ impl UiProfile {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ShellAction {
     SelectTool(&'static str),
+    AddCuboid,
+    CopySelection,
+    CreateObject,
+    ArraySelection,
+    NewDocument,
     SetProfile(UiProfile),
     ToggleToolbars,
     About,
@@ -52,6 +60,54 @@ const SHELL_COMMANDS: &[ShellCommand] = &[
         keywords: "selection pointer",
         icon: Some("select"),
         action: ShellAction::SelectTool("Select"),
+    },
+    ShellCommand {
+        id: "tool.cuboid",
+        name: "Tool> Cuboid",
+        category: "Tools",
+        keywords: "box primitive draw solid",
+        icon: None,
+        action: ShellAction::SelectTool("Cuboid"),
+    },
+    ShellCommand {
+        id: "geometry.add_cuboid",
+        name: "Draw> Add Cuboid at Origin",
+        category: "Draw",
+        keywords: "box primitive create solid",
+        icon: None,
+        action: ShellAction::AddCuboid,
+    },
+    ShellCommand {
+        id: "edit.copy_selection",
+        name: "Edit> Copy Selection",
+        category: "Edit",
+        keywords: "duplicate clone",
+        icon: None,
+        action: ShellAction::CopySelection,
+    },
+    ShellCommand {
+        id: "object.create_from_selection",
+        name: "Objects> Create Object from Selection",
+        category: "Objects",
+        keywords: "group prototype",
+        icon: None,
+        action: ShellAction::CreateObject,
+    },
+    ShellCommand {
+        id: "object.array_selection",
+        name: "Objects> Array Selected Object",
+        category: "Objects",
+        keywords: "repeat copies distribute",
+        icon: None,
+        action: ShellAction::ArraySelection,
+    },
+    ShellCommand {
+        id: "file.new",
+        name: "File> New Document",
+        category: "File",
+        keywords: "clear reset",
+        icon: None,
+        action: ShellAction::NewDocument,
     },
     ShellCommand {
         id: "tool.line",
@@ -140,6 +196,13 @@ pub struct MeshcraftApp {
     command_search: String,
     command_selection: usize,
     focus_command_search: bool,
+    document: Document,
+    selection: Vec<OccurrenceRef>,
+    viewport: Viewport,
+    cuboid_first: Option<Vec3>,
+    cuboid_base: Option<(Vec3, Vec3)>,
+    array_count: usize,
+    array_spacing: f64,
 }
 
 impl MeshcraftApp {
@@ -155,7 +218,7 @@ impl MeshcraftApp {
             icon_regions: assets::icon_regions(),
             active_tool: "Select".to_owned(),
             input_probe: String::new(),
-            status: "Workspace shell ready · no document loaded".to_owned(),
+            status: "Empty document ready · choose Cuboid or Add Cuboid to begin.".to_owned(),
             pointer_in_viewport: None,
             viewport_size: Vec2::ZERO,
             open_file_menu: false,
@@ -163,6 +226,13 @@ impl MeshcraftApp {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
+            document: Document::new(),
+            selection: Vec::new(),
+            viewport: Viewport::default(),
+            cuboid_first: None,
+            cuboid_base: None,
+            array_count: 12,
+            array_spacing: 3.0,
         }
     }
 
@@ -175,7 +245,33 @@ impl MeshcraftApp {
         match command.action {
             ShellAction::SelectTool(tool) => {
                 self.active_tool = tool.to_owned();
-                self.status = format!("{tool} selected in the workspace shell.");
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.status = if tool == "Cuboid" {
+                    "Cuboid: click two ground-plane corners, then click the height.".to_owned()
+                } else {
+                    format!("{tool} tool selected.")
+                };
+            }
+            ShellAction::AddCuboid => {
+                if let Some(occurrence) = self.document.add_cuboid(
+                    "cuboid",
+                    Vec3::new(2.0, 2.0, 2.0),
+                    Vec3::new(-1.0, 0.0, -1.0),
+                ) {
+                    self.selection = vec![occurrence];
+                    self.status = "Created a 2 × 2 × 2 cuboid.".to_owned();
+                }
+            }
+            ShellAction::CopySelection => self.copy_selection(),
+            ShellAction::CreateObject => self.create_object_from_selection(),
+            ShellAction::ArraySelection => self.array_selection(),
+            ShellAction::NewDocument => {
+                self.document = Document::new();
+                self.selection.clear();
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.status = "New empty document.".to_owned();
             }
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
@@ -193,6 +289,163 @@ impl MeshcraftApp {
                 self.status = "Meshcraft · Rust rewrite · development build".to_owned();
             }
         }
+    }
+
+    fn copy_selection(&mut self) {
+        if self.selection.len() != 1 || self.selection[0].path.len() != 1 {
+            self.status = "Copy requires one selected root object.".to_owned();
+            return;
+        }
+        let source = self.selection[0].clone();
+        let Some(resolved) = self.document.resolve_occurrence(&source) else {
+            self.status = "The selected object no longer exists.".to_owned();
+            return;
+        };
+        let Some(geometry) = self.document.effective_geometry(&source) else {
+            self.status = "The selected object has no resolved geometry.".to_owned();
+            return;
+        };
+        let span_x = geometry
+            .vertices
+            .values()
+            .map(|vertex| resolved.world_transform.transform_point(vertex.position).x)
+            .fold(None, |span: Option<(f64, f64)>, x| {
+                Some(span.map_or((x, x), |(min, max)| (min.min(x), max.max(x))))
+            })
+            .map_or(1.0, |(min, max)| max - min);
+        let Some(copy) = self
+            .document
+            .copy_root_occurrence(&source, Vec3::new(span_x + 0.5, 0.0, 0.0))
+        else {
+            self.status = "Copy could not create a root object instance.".to_owned();
+            return;
+        };
+        self.selection = vec![copy];
+        self.status = "Copied the selected object; the copy shares its definition.".to_owned();
+    }
+
+    fn create_object_from_selection(&mut self) {
+        let Some(object) = self
+            .document
+            .create_object_from_root_occurrences(&self.selection, "Object")
+        else {
+            self.status = "Create Object requires one or more selected root objects.".to_owned();
+            return;
+        };
+        self.selection = vec![object];
+        self.status = "Created an object definition from the selected geometry.".to_owned();
+    }
+
+    fn array_selection(&mut self) {
+        if self.selection.len() != 1 || self.selection[0].path.len() != 1 {
+            self.status = "Array requires one selected root object.".to_owned();
+            return;
+        }
+        let source = self.selection[0].clone();
+        let Some(copies) = self.document.array_root_occurrence(
+            &source,
+            self.array_count,
+            Vec3::new(self.array_spacing, 0.0, 0.0),
+        ) else {
+            self.status = "Array could not create the requested object instances.".to_owned();
+            return;
+        };
+        self.selection = copies;
+        self.status = format!("Created {} array copies.", self.array_count);
+    }
+
+    fn handle_viewport_click(&mut self, rect: egui::Rect, position: egui::Pos2) {
+        if self.active_tool == "Cuboid" {
+            let ground = self.viewport.screen_to_ground(rect, position);
+            if self.cuboid_first.is_none() {
+                self.cuboid_first = Some(ground);
+                self.status = "Cuboid: choose the opposite corner of its base.".to_owned();
+                return;
+            }
+            if self.cuboid_base.is_none() {
+                let first = self.cuboid_first.unwrap();
+                let width = (ground.x - first.x).abs();
+                let depth = (ground.z - first.z).abs();
+                if width < 0.05 || depth < 0.05 {
+                    self.status =
+                        "Cuboid base must be at least 0.05 units wide and deep.".to_owned();
+                    return;
+                }
+                self.cuboid_base = Some((first, ground));
+                self.status = "Cuboid: click above the base to set its height.".to_owned();
+                return;
+            }
+
+            let (first, opposite) = self.cuboid_base.unwrap();
+            let center = Vec3::new(
+                (first.x + opposite.x) * 0.5,
+                0.0,
+                (first.z + opposite.z) * 0.5,
+            );
+            let height = self
+                .viewport
+                .height_from_screen_position(rect, center, position);
+            if height < 0.05 {
+                self.status = "Cuboid height must be at least 0.05 units.".to_owned();
+                return;
+            }
+            let origin = Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z));
+            let dimensions = Vec3::new(
+                (opposite.x - first.x).abs(),
+                height,
+                (opposite.z - first.z).abs(),
+            );
+            if let Some(occurrence) = self.document.add_cuboid("cuboid", dimensions, origin) {
+                self.selection = vec![occurrence];
+                self.active_tool = "Select".to_owned();
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.status = format!(
+                    "Created cuboid {:.2} × {:.2} × {:.2}.",
+                    dimensions.x, dimensions.y, dimensions.z
+                );
+            }
+            return;
+        }
+
+        if self.active_tool == "Select" {
+            self.selection = self
+                .viewport
+                .pick(rect, &self.document, position)
+                .into_iter()
+                .collect();
+            self.status = if self.selection.is_empty() {
+                "Selection cleared.".to_owned()
+            } else {
+                "Object selected.".to_owned()
+            };
+        }
+    }
+
+    fn cuboid_preview(
+        &self,
+        rect: egui::Rect,
+        pointer: Option<egui::Pos2>,
+    ) -> Option<CuboidPreview> {
+        let (first, opposite) = self.cuboid_base?;
+        let position = pointer?;
+        let center = Vec3::new(
+            (first.x + opposite.x) * 0.5,
+            0.0,
+            (first.z + opposite.z) * 0.5,
+        );
+        let height = self
+            .viewport
+            .height_from_screen_position(rect, center, position)
+            .max(0.05);
+        Some(CuboidPreview {
+            origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
+            dimensions: Vec3::new(
+                (opposite.x - first.x).abs(),
+                height,
+                (opposite.z - first.z).abs(),
+            ),
+        })
     }
 
     fn matching_commands(&self) -> Vec<&'static ShellCommand> {
@@ -306,7 +559,9 @@ impl MeshcraftApp {
 
         egui::MenuBar::new().ui(ui, |ui| {
             let file_menu = ui.menu_button("File", |ui| {
-                ui.add_enabled(false, egui::Button::new("New Document"));
+                if ui.button("New Document").clicked() {
+                    self.run_command("file.new");
+                }
                 ui.separator();
                 ui.add_enabled(false, egui::Button::new("Open…"));
                 ui.add_enabled(false, egui::Button::new("Save"));
@@ -328,6 +583,10 @@ impl MeshcraftApp {
                 ui.add_enabled(false, egui::Button::new("Redo"));
                 ui.add_enabled(false, egui::Button::new("Delete"));
                 ui.add_enabled(false, egui::Button::new("Clear Selection"));
+                ui.separator();
+                if ui.button("Copy Selection").clicked() {
+                    self.run_command("edit.copy_selection");
+                }
             });
 
             ui.menu_button("View", |ui| {
@@ -358,8 +617,22 @@ impl MeshcraftApp {
 
             for menu in ["Draw", "Modify", "Objects", "Tools", "Render"] {
                 ui.menu_button(menu, |ui| {
-                    ui.label("Actions will be connected to the shared command registry.");
-                    ui.add_enabled(false, egui::Button::new("No commands are enabled yet"));
+                    let commands = SHELL_COMMANDS
+                        .iter()
+                        .filter(|command| command.category == menu)
+                        .collect::<Vec<_>>();
+                    if commands.is_empty() {
+                        ui.label("No commands are registered in this menu yet.");
+                    }
+                    for command in commands {
+                        let label = command
+                            .name
+                            .split_once("> ")
+                            .map_or(command.name, |(_, label)| label);
+                        if ui.button(label).clicked() {
+                            self.run_command(command.id);
+                        }
+                    }
                 });
             }
 
@@ -370,7 +643,7 @@ impl MeshcraftApp {
             });
 
             ui.menu_button("Help", |ui| {
-                ui.label("Meshcraft development shell");
+                ui.label("Meshcraft development build");
                 ui.label("F10 or Alt+F opens the File menu.");
                 ui.label("Ctrl+Shift+P opens the Command Palette.");
                 if ui.button("About Meshcraft").clicked() {
@@ -384,7 +657,7 @@ impl MeshcraftApp {
         ui.horizontal(|ui| {
             ui.strong("Tools");
             ui.separator();
-            for tool in ["Select", "Line", "Rectangle", "Orbit"] {
+            for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
                 if self.show_tool_button(ui, tool) {
                     self.run_command(tool_command_id(tool));
                 }
@@ -397,75 +670,110 @@ impl MeshcraftApp {
             ui.set_width(148.0);
             ui.set_min_height(height);
             ui.heading("Tools");
-            ui.label("Shell controls");
+            ui.label("Modeling tools");
             ui.separator();
-            for tool in ["Select", "Line", "Rectangle", "Orbit"] {
+            for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
                 if self.show_tool_button(ui, tool) {
                     self.run_command(tool_command_id(tool));
                 }
             }
             ui.add_space(12.0);
-            ui.label("Modeling actions are added after the core model gate.");
+            if ui.button("Add Cuboid").clicked() {
+                self.run_command("geometry.add_cuboid");
+            }
+            if ui.button("Copy Selection").clicked() {
+                self.run_command("edit.copy_selection");
+            }
+            if ui.button("Create Object").clicked() {
+                self.run_command("object.create_from_selection");
+            }
+            if ui.button("Array Object").clicked() {
+                self.run_command("object.array_selection");
+            }
         });
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
-        let (response, painter) = ui.allocate_painter(size, Sense::hover());
-        let rect = response.rect;
-        self.viewport_size = rect.size();
-        painter.rect_filled(rect, 2.0, Color32::from_rgb(26, 31, 39));
-
-        let step = 32.0;
-        let first_x = (rect.left() / step).floor() * step;
-        let mut x = first_x;
-        while x <= rect.right() {
-            painter.line_segment(
-                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                Stroke::new(1.0, Color32::from_rgb(43, 50, 60)),
-            );
-            x += step;
+        let predicted_rect = egui::Rect::from_min_size(ui.cursor().min, size);
+        let pointer = ui
+            .ctx()
+            .pointer_interact_pos()
+            .filter(|position| predicted_rect.contains(*position));
+        let preview = (self.active_tool == "Cuboid")
+            .then(|| self.cuboid_preview(predicted_rect, pointer))
+            .flatten();
+        let input = self.viewport.show(
+            ui,
+            size,
+            &self.document,
+            &self.selection,
+            &self.active_tool,
+            preview,
+        );
+        self.viewport_size = input.rect.size();
+        self.pointer_in_viewport = input.pointer_local;
+        if let Some(position) = input.click {
+            self.handle_viewport_click(input.rect, position);
         }
-        let first_y = (rect.top() / step).floor() * step;
-        let mut y = first_y;
-        while y <= rect.bottom() {
-            painter.line_segment(
-                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                Stroke::new(1.0, Color32::from_rgb(43, 50, 60)),
-            );
-            y += step;
-        }
-
-        let center = rect.center();
-        painter.line_segment(
-            [
-                egui::pos2(rect.left(), center.y),
-                egui::pos2(rect.right(), center.y),
-            ],
-            Stroke::new(1.5, Color32::from_rgb(184, 89, 87)),
-        );
-        painter.line_segment(
-            [
-                egui::pos2(center.x, rect.top()),
-                egui::pos2(center.x, rect.bottom()),
-            ],
-            Stroke::new(1.5, Color32::from_rgb(101, 161, 114)),
-        );
-        painter.text(
-            rect.left_top() + egui::vec2(14.0, 14.0),
-            Align2::LEFT_TOP,
-            "Viewport work area",
-            FontId::proportional(15.0),
-            Color32::from_rgb(222, 227, 234),
-        );
-
-        self.pointer_in_viewport = response.hover_pos().map(|position| position - rect.min);
     }
 
     fn show_inspector(&mut self, ui: &mut egui::Ui, height: f32) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(228.0);
             ui.set_min_height(height);
-            ui.heading("Inspector");
+            ui.heading("Selection");
+            let occurrences = self.document.occurrence_refs().unwrap_or_default();
+            let root_objects = occurrences
+                .iter()
+                .filter(|occurrence| occurrence.path.len() == 1)
+                .collect::<Vec<_>>();
+            ui.label(format!("Objects: {}", root_objects.len()));
+            ui.label(format!("Selected: {}", self.selection.len()));
+            ui.separator();
+            ui.label("Objects");
+            egui::ScrollArea::vertical()
+                .id_salt("document-object-list")
+                .max_height(120.0)
+                .show(ui, |ui| {
+                    for occurrence in root_objects {
+                        let label = self
+                            .document
+                            .resolve_occurrence(occurrence)
+                            .map(|resolved| resolved.definition.name.as_str())
+                            .unwrap_or("Missing object");
+                        let selected = self.selection.contains(occurrence);
+                        if ui.selectable_label(selected, label).clicked() {
+                            self.selection = vec![occurrence.clone()];
+                        }
+                    }
+                });
+            ui.separator();
+            ui.label("Model Settings");
+            ui.label("Unit size: 1.0000 · Grid: 1.0000");
+            ui.label("Circle segments: 24");
+            ui.separator();
+            ui.label("Array");
+            ui.add(
+                egui::DragValue::new(&mut self.array_count)
+                    .range(1..=10_000)
+                    .prefix("Copies: "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.array_spacing)
+                    .speed(0.1)
+                    .prefix("Spacing: "),
+            );
+            if ui.button("Copy Selection").clicked() {
+                self.run_command("edit.copy_selection");
+            }
+            if ui.button("Create Object from Selection").clicked() {
+                self.run_command("object.create_from_selection");
+            }
+            if ui.button("Array Selected Object").clicked() {
+                self.run_command("object.array_selection");
+            }
+            ui.separator();
+            ui.label("Workspace profile");
             ui.label("UI profile");
             let selected_profile = self.preferences.profile;
             egui::ComboBox::from_id_salt("ui-profile")
@@ -497,9 +805,8 @@ impl MeshcraftApp {
                     self.input_probe.chars().count()
                 );
             }
-            ui.label(format!("Value: {}", self.input_probe));
             ui.add_space(12.0);
-            ui.label(format!("Active shell tool: {}", self.active_tool));
+            ui.label(format!("Active tool: {}", self.active_tool));
             ui.label(format!(
                 "Viewport area: {:.0} × {:.0} px",
                 self.viewport_size.x, self.viewport_size.y
@@ -596,7 +903,20 @@ impl MeshcraftApp {
         ui.horizontal(|ui| {
             ui.label(&self.status);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.weak("Drafting shell · no document model loaded");
+                let object_count = self
+                    .document
+                    .occurrence_refs()
+                    .map(|occurrences| {
+                        occurrences
+                            .iter()
+                            .filter(|item| item.path.len() == 1)
+                            .count()
+                    })
+                    .unwrap_or_default();
+                ui.weak(format!(
+                    "{} root objects · revision {}",
+                    object_count, self.document.revision
+                ));
             });
         });
 
@@ -607,6 +927,7 @@ impl MeshcraftApp {
 fn tool_command_id(tool: &str) -> &'static str {
     match tool {
         "Select" => "tool.select",
+        "Cuboid" => "tool.cuboid",
         "Line" => "tool.line",
         "Rectangle" => "tool.rectangle",
         "Orbit" => "view.orbit",
@@ -651,9 +972,28 @@ mod tests {
 
     #[test]
     fn every_visible_tool_has_a_registry_command() {
-        for tool in ["Select", "Line", "Rectangle", "Orbit"] {
+        for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
             let id = tool_command_id(tool);
             assert!(SHELL_COMMANDS.iter().any(|command| command.id == id));
+        }
+    }
+
+    #[test]
+    fn modeling_workflow_commands_are_searchable_in_the_palette() {
+        for (id, query) in [
+            ("geometry.add_cuboid", "cuboid"),
+            ("edit.copy_selection", "duplicate"),
+            ("object.create_from_selection", "prototype"),
+            ("object.array_selection", "array"),
+        ] {
+            let command = SHELL_COMMANDS
+                .iter()
+                .find(|command| command.id == id)
+                .unwrap_or_else(|| panic!("missing command {id}"));
+            assert!(
+                command_matches(command, query),
+                "command {id} misses {query}"
+            );
         }
     }
 

@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 eframe.workspace = true
 image.workspace = true
+meshcraft-core = { path = "../../crates/meshcraft-core" }
 serde.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

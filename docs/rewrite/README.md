@@ -32,6 +32,8 @@ Browser runtime and `<octodraw-editor>` compatibility follow desktop. Android ha
 
 The object model is now examined separately in [object-model.md](object-model.md): eliminate redundant ownership/copies before freezing core contracts. A measured census found 2,899 of 2,939 serialized geometry override bundles equal to their definitions across the 60 fixtures. These are normalization candidates, not permission to discard authored instance differences. T46 gates the core model; T47–T50 deliver JavaScriptCore plugins after initial desktop qualification.
 
+Implementation has started with a provisional `meshcraft-core` model, an isometric viewport, and an interactive cuboid plus copy/object/array workflow. This code proves an initial end-to-end slice; it does not complete persistence, undo, topology tools, or legacy compatibility. T00 and T46 remain open, so the current model is not a ratified schema and dependent task contracts must still follow the gate.
+
 ## What was found
 
 - 169 tracked application/runtime source files, 73,751 lines in the census scope; 559 reachable commits.
@@ -66,8 +68,8 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 | `scripts/handoff.py` | Small task-specific context packets and symbol lookup |
 | `scripts/verify_plan.py` | Cross-reference, dependency, catalog, link, and scope validation |
 
-## First execution
+## Current handoff
 
-Run `python3 docs/rewrite/scripts/handoff.py T00` and implement its baseline fixtures/oracle protocol. T01 evaluates the Rust stack and compatibility decisions in parallel. Proceed through ready tasks in `tasks.json`; do not begin by translating `Main.kt` wholesale.
+T00 and T01 are in progress. Continue the baseline fixture/oracle work and finish T46's ownership, identity, hierarchy, migration, and measured-comparison decisions before treating core APIs as stable. Use `python3 docs/rewrite/scripts/handoff.py --ready` to identify work whose dependencies are complete; do not begin by translating `Main.kt` wholesale.
 
 No legacy application was launched, no source-repository build was run, and no live API or screenshot comparison was performed during this audit. The plan explicitly budgets those checks. Existing examples were decoded read-only; original source files were not modified.

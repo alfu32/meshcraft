@@ -1,5 +1,6 @@
 mod app;
 mod assets;
+mod viewport;
 
 pub use app::MeshcraftApp;
 
