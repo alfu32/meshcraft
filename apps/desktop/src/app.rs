@@ -11,9 +11,10 @@ use meshcraft_core::commands::{
     CommandParameter, CommandPayload, CommandPresentation, CommandRegistry, CommandResult,
     CommandState, CommandStateQuery, CommandValueType,
 };
-use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef};
+use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8};
 use meshcraft_core::geometry::Vec3;
 use meshcraft_core::operations::drawing::{self, LineOwner};
+use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
     SelectionMode, SelectionSession, SelectionTarget,
@@ -22,6 +23,7 @@ use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
+    transforms::{TransformPick, TransformTool, TransformToolState},
 };
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
@@ -563,6 +565,9 @@ enum ShellAction {
     FocusToolDistance,
     FinishToolInput,
     UndoToolPoint,
+    ToggleTransformCopyMode,
+    PaintSelection,
+    SetPaintColor,
     CancelActiveTool,
     PlaceGuide(ConstructionGuideKind),
     RemoveGuide,
@@ -899,6 +904,30 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::FocusToolDistance,
             ),
             (
+                "tool.copy_mode",
+                "Tool> Toggle Copy Mode",
+                "Tools",
+                "move rotate copy duplicate transform mode",
+                None,
+                ShellAction::ToggleTransformCopyMode,
+            ),
+            (
+                "paint.apply_selection",
+                "Paint> Apply Current Color to Selection",
+                "Paint",
+                "paint color rgba selection faces edges",
+                None,
+                ShellAction::PaintSelection,
+            ),
+            (
+                "paint.set_color",
+                "Paint> Set Current Color",
+                "Paint",
+                "paint color rgba current picker",
+                None,
+                ShellAction::SetPaintColor,
+            ),
+            (
                 "tool.finish",
                 "Tool> Finish Current Input",
                 "Tools",
@@ -1188,6 +1217,13 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
                 "circle" => ShellAction::SelectToolAlias("Circle"),
+                "move" => ShellAction::SelectToolAlias("Move"),
+                "rotate" => ShellAction::SelectToolAlias("Rotate"),
+                "scale" => ShellAction::SelectToolAlias("Scale"),
+                "stretch" => ShellAction::SelectToolAlias("Stretch"),
+                "stretch_scale" => ShellAction::SelectToolAlias("Stretch Scale"),
+                "rotate_stretch" => ShellAction::SelectToolAlias("Rotate Stretch"),
+                "paint" => ShellAction::SelectToolAlias("Paint"),
                 _ => ShellAction::Unsupported,
             };
             register_shell_command(
@@ -1272,6 +1308,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
+        | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
         | ShellAction::ArraySelection
@@ -1300,6 +1337,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleToolbars
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::FocusToolDistance
+        | ShellAction::ToggleTransformCopyMode
+        | ShellAction::SetPaintColor
         | ShellAction::UndoToolPoint
         | ShellAction::CancelActiveTool
         | ShellAction::BeginHotspotPlacement
@@ -1422,6 +1461,8 @@ fn register_shell_command(
         | ShellAction::ResetCamera
         | ShellAction::SetCameraPose
         | ShellAction::FocusToolDistance
+        | ShellAction::ToggleTransformCopyMode
+        | ShellAction::SetPaintColor
         | ShellAction::FinishToolInput
         | ShellAction::UndoToolPoint
         | ShellAction::CancelActiveTool
@@ -1462,6 +1503,12 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("origin", CommandValueType::Array),
         ],
         "selection.set" => &[("paths", CommandValueType::Array)],
+        "paint.set_color" => &[
+            ("red", CommandValueType::Integer),
+            ("green", CommandValueType::Integer),
+            ("blue", CommandValueType::Integer),
+            ("alpha", CommandValueType::Integer),
+        ],
         "object.array_selection" => &[
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
@@ -1507,6 +1554,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             name: (*name).to_owned(),
             value_type: *value_type,
             required: (id == "selection.set" && *name == "paths")
+                || (id == "paint.set_color" && matches!(*name, "red" | "green" | "blue" | "alpha"))
                 || (id == "view.camera.set_pose" && matches!(*name, "position" | "target")),
         })
         .collect()
@@ -1661,6 +1709,8 @@ pub struct MeshcraftApp {
     drawing_tool: DrawingToolState,
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
+    transform_tool_state: TransformToolState,
+    current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
     pending_selection_volume: Option<Vec3>,
@@ -1796,6 +1846,8 @@ impl MeshcraftApp {
             drawing_tool: DrawingToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
+            transform_tool_state: TransformToolState::default(),
+            current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
             pending_selection_volume: None,
@@ -2900,6 +2952,8 @@ impl MeshcraftApp {
         }));
         self.shape_tool_state
             .activate(PlanarShapeTool::from_label(tool));
+        self.transform_tool_state
+            .activate(TransformTool::from_label(tool));
         self.status = match tool {
             "Cuboid" => "Cuboid: click two ground-plane corners, then click the height.".to_owned(),
             "Line" => {
@@ -2917,6 +2971,21 @@ impl MeshcraftApp {
             }
             "Quad" => "Quad: pick the origin, second point, then third point.".to_owned(),
             "Circle" => "Circle: pick a center, then a radius point.".to_owned(),
+            "Move" => "Move: pick a reference point, then its destination.".to_owned(),
+            "Rotate" => {
+                "Rotate: pick center, axis point, reference point, then final point.".to_owned()
+            }
+            "Scale" => "Scale: pick center, reference point, then final point.".to_owned(),
+            "Stretch" => "Stretch: pick a reference point, then its destination.".to_owned(),
+            "Stretch Scale" => {
+                "Stretch Scale: pick center, reference point, then final point.".to_owned()
+            }
+            "Rotate Stretch" => {
+                "Rotate Stretch: pick center, axis point, reference point, then final point."
+                    .to_owned()
+            }
+            "Paint" => "Paint: click an edge or face, or apply the current color to a selection."
+                .to_owned(),
             _ => format!("{tool} tool selected."),
         };
     }
@@ -2951,6 +3020,15 @@ impl MeshcraftApp {
                 self.status = "Hotspot placement canceled.".to_owned();
             }
             ShellAction::FocusToolDistance => {
+                if self.transform_tool_state.active().is_some() {
+                    if self.transform_tool_state.points().is_empty() {
+                        self.status = "Pick the transform reference point before entering a value."
+                            .to_owned();
+                    } else {
+                        self.status = "Transform input: type a distance, factor, or angle, move the pointer, then press Enter.".to_owned();
+                    }
+                    return CommandResult::completed();
+                }
                 if self.drawing_tool.anchor().is_none() {
                     self.status =
                         "Choose a Line start point before entering a distance.".to_owned();
@@ -2960,6 +3038,9 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::FinishToolInput => {
+                if self.transform_tool_state.active().is_some() {
+                    return self.finish_transform_input();
+                }
                 self.sync_drawing_tool_state();
                 let effect = self.drawing_tool.handle(ToolEvent::Enter);
                 self.handle_drawing_tool_effect(effect, None);
@@ -2968,9 +3049,72 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::UndoToolPoint => {
+                if self.transform_tool_state.active().is_some() {
+                    if !self.transform_tool_state.backspace() {
+                        return CommandResult::failed("there is no transform input to undo");
+                    }
+                    self.status = "Removed the last transform input or point.".to_owned();
+                    return CommandResult::completed();
+                }
                 self.sync_drawing_tool_state();
                 self.drawing_tool.handle(ToolEvent::Backspace);
                 self.status = "Removed the last typed character or pending point.".to_owned();
+            }
+            ShellAction::ToggleTransformCopyMode => {
+                if !self.transform_tool_state.toggle_copy_mode() {
+                    return CommandResult::failed("copy mode is available for Move and Rotate");
+                }
+                self.status = if self.transform_tool_state.copy_mode() {
+                    "Transform copy mode enabled.".to_owned()
+                } else {
+                    "Transform copy mode disabled.".to_owned()
+                };
+            }
+            ShellAction::PaintSelection => {
+                let selection = self.selection.clone();
+                let color = self.current_paint_color;
+                match self.commit_document_edit("Paint selection", |document| {
+                    modeling_transforms::paint_selection(document, &selection, color)
+                }) {
+                    Ok(report) if report.changed() => {
+                        self.status = format!(
+                            "Painted {} edge(s) and {} face(s).",
+                            report.painted_segments, report.painted_triangles
+                        );
+                        let mut result = CommandResult::completed();
+                        result.outputs.insert(
+                            "painted".to_owned(),
+                            serde_json::json!({
+                                "edges": report.painted_segments,
+                                "faces": report.painted_triangles,
+                            }),
+                        );
+                        return result;
+                    }
+                    Ok(_) => {
+                        self.status = "Selection already has the current color.".to_owned();
+                    }
+                    Err(error) => return CommandResult::failed(error),
+                }
+            }
+            ShellAction::SetPaintColor => {
+                let channels = ["red", "green", "blue", "alpha"]
+                    .map(|name| payload.values.get(name).and_then(serde_json::Value::as_u64));
+                if channels.iter().any(Option::is_none)
+                    || channels.iter().flatten().any(|channel| *channel > 255)
+                {
+                    return CommandResult::failed(
+                        "paint color channels must be integers between 0 and 255",
+                    );
+                }
+                let [Some(red), Some(green), Some(blue), Some(alpha)] = channels else {
+                    return CommandResult::failed("all four paint color channels are required");
+                };
+                self.current_paint_color =
+                    Rgba8::new(red as u8, green as u8, blue as u8, alpha as u8);
+                self.status = format!(
+                    "Current paint color set to #{red:02x}{green:02x}{blue:02x}{alpha:02x}."
+                );
             }
             ShellAction::CancelActiveTool => self.cancel_active_tool(),
             ShellAction::PlaceGuide(kind) => {
@@ -3613,19 +3757,44 @@ impl MeshcraftApp {
             #[cfg(target_arch = "wasm32")]
             return CommandState::disabled("The browser tab cannot be closed by the app");
         }
-        if id == "tool.distance"
-            && (!matches!(self.active_tool.as_str(), "Line" | "Construction Line")
-                || self.drawing_tool.anchor().is_none())
-        {
+        let line_distance_ready = matches!(self.active_tool.as_str(), "Line" | "Construction Line")
+            && self.drawing_tool.anchor().is_some();
+        let transform_input_ready = self.transform_tool_state.active().is_some()
+            && !self.transform_tool_state.points().is_empty();
+        if id == "tool.distance" && !line_distance_ready && !transform_input_ready {
             return CommandState::disabled(
-                "start a Line or Construction Line before entering a distance",
+                "place a line anchor or transform reference point before entering a value",
             );
         }
         if matches!(id, "tool.finish" | "tool.undo_point")
-            && (!matches!(self.active_tool.as_str(), "Line" | "Construction Line")
-                || self.drawing_tool.anchor().is_none())
+            && !line_distance_ready
+            && !transform_input_ready
         {
             return CommandState::disabled("start a Line or Construction Line first");
+        }
+        if id == "tool.copy_mode"
+            && !self
+                .transform_tool_state
+                .active()
+                .is_some_and(TransformTool::supports_copy_mode)
+        {
+            return CommandState::disabled("copy mode is available for Move and Rotate");
+        }
+        if id == "paint.apply_selection"
+            && !self.selection.selected().iter().any(|target| {
+                matches!(
+                    target.entity,
+                    SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+                )
+            })
+        {
+            return CommandState::disabled("select an edge or face to paint");
+        }
+        if id == "tool.copy_mode" {
+            return CommandState {
+                checked: Some(self.transform_tool_state.copy_mode()),
+                ..CommandState::default()
+            };
         }
         if id == "tool.cancel"
             && self.active_tool == "Select"
@@ -3890,7 +4059,42 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.drawing_tool.handle(ToolEvent::Escape);
         self.shape_tool_state.activate(None);
+        self.transform_tool_state.cancel();
         self.status = "Current tool operation canceled.".to_owned();
+    }
+
+    fn commit_transform(
+        &mut self,
+        commit: meshcraft_core::tools::transforms::TransformCommit,
+    ) -> Result<modeling_transforms::TransformReport, String> {
+        let mut next_selection = self.selection.clone();
+        let report = self.commit_document_edit("Transform selection", |document| {
+            modeling_transforms::transform_selection(
+                document,
+                &mut next_selection,
+                commit.transform,
+                commit.copy,
+            )
+        })?;
+        self.selection = next_selection;
+        self.selection.retain_valid(&self.document);
+        Ok(report)
+    }
+
+    fn finish_transform_input(&mut self) -> CommandResult {
+        let mut next_state = self.transform_tool_state.clone();
+        let commit = match next_state.finish() {
+            Ok(commit) => commit,
+            Err(error) => return CommandResult::failed(error),
+        };
+        match self.commit_transform(commit) {
+            Ok(report) => {
+                self.transform_tool_state = next_state;
+                self.status = transform_status(&report, commit.copy);
+                CommandResult::completed()
+            }
+            Err(error) => CommandResult::failed(error),
+        }
     }
 
     fn handle_drawing_tool_effect(&mut self, effect: ToolEffect, snap: Option<SnapResult>) {
@@ -4124,6 +4328,67 @@ impl MeshcraftApp {
             };
             let effect = self.drawing_tool.handle(ToolEvent::Pick(point));
             self.handle_drawing_tool_effect(effect, snap);
+            return;
+        }
+
+        if self.transform_tool_state.active().is_some() {
+            let Some(point) = construction_point else {
+                self.status = "Transform needs a point in the active construction view.".to_owned();
+                return;
+            };
+            let previous_state = self.transform_tool_state.clone();
+            match self.transform_tool_state.pick(point) {
+                TransformPick::NeedPoint { prompt, .. } => self.status = prompt.to_owned(),
+                TransformPick::Commit(commit) => match self.commit_transform(commit) {
+                    Ok(report) => self.status = transform_status(&report, commit.copy),
+                    Err(error) => {
+                        self.transform_tool_state = previous_state;
+                        self.status = error;
+                    }
+                },
+                TransformPick::Invalid(error) => self.status = error,
+            }
+            return;
+        }
+
+        if self.active_tool == "Paint" {
+            let scope = match &self.selection.context {
+                EditContext::Document => SnapScope::Document,
+                EditContext::Definition(definition) => SnapScope::Definition(*definition),
+                EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+            };
+            let Some(target) = self.viewport.pick_selection_target(
+                rect,
+                &self.document,
+                position,
+                scope,
+                &self.selection_display_policy,
+            ) else {
+                self.status = "Paint: click a visible edge or face.".to_owned();
+                return;
+            };
+            if !matches!(
+                target.entity,
+                SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+            ) {
+                self.status = "Paint applies to edges and faces.".to_owned();
+                return;
+            }
+            let mut target_selection = SelectionSession::default();
+            target_selection.set_context(self.selection.context.clone());
+            target_selection.select(target);
+            let color = self.current_paint_color;
+            match self.commit_document_edit("Paint entity", |document| {
+                modeling_transforms::paint_selection(document, &target_selection, color)
+            }) {
+                Ok(report) => {
+                    self.status = format!(
+                        "Painted {} edge(s) and {} face(s).",
+                        report.painted_segments, report.painted_triangles
+                    );
+                }
+                Err(error) => self.status = error,
+            }
             return;
         }
 
@@ -4538,6 +4803,21 @@ impl MeshcraftApp {
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
         let position = pointer?;
+        if self.transform_tool_state.active().is_some() {
+            let point = snap
+                .map(|result| result.point)
+                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
+            let transform = self.transform_tool_state.preview(Some(point))?;
+            let edges = modeling_transforms::preview_selection_transform(
+                &self.document,
+                &self.selection,
+                transform,
+            )
+            .ok()?;
+            if !edges.is_empty() {
+                return Some(ToolPreview::Transform { edges });
+            }
+        }
         if self.shape_tool_state.active().is_some() {
             let point = snap
                 .map(|result| result.point)
@@ -4997,6 +5277,10 @@ impl MeshcraftApp {
 
     fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
         self.sync_drawing_tool_state();
+        if self.transform_tool_state.active() != TransformTool::from_label(&self.active_tool) {
+            self.transform_tool_state
+                .activate(TransformTool::from_label(&self.active_tool));
+        }
         self.viewport
             .set_grid_normal_axis(self.preferences.grid_normal_axis);
         self.viewport.set_walkthrough_tuning(WalkthroughTuning {
@@ -5013,6 +5297,15 @@ impl MeshcraftApp {
         let snap = pointer.and_then(|position| {
             self.snap_at_viewport_position(predicted_rect, position, ui.ctx().pixels_per_point())
         });
+        if self.transform_tool_state.active().is_some() {
+            let point = pointer.and_then(|position| {
+                snap.map(|snap| snap.point).or_else(|| {
+                    self.viewport
+                        .screen_to_construction_plane(predicted_rect, position)
+                })
+            });
+            self.transform_tool_state.set_pointer(point);
+        }
         if matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && let Some(point) = pointer.and_then(|position| {
                 snap.map(|snap| snap.point).or_else(|| {
@@ -5094,6 +5387,23 @@ impl MeshcraftApp {
                 format!("Distance: {}", self.drawing_tool.numeric_input())
             };
             egui::Area::new(egui::Id::unique("drawing-distance-input"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(position)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(text);
+                    });
+                });
+        }
+        if self.transform_tool_state.active().is_some()
+            && !self.transform_tool_state.numeric_input().is_empty()
+        {
+            let position = input.rect.left_top() + egui::vec2(18.0, 54.0);
+            let text = format!(
+                "Transform value: {}",
+                self.transform_tool_state.numeric_input()
+            );
+            egui::Area::new(egui::Id::unique("transform-numeric-input"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(position)
                 .show(ui.ctx(), |ui| {
@@ -5804,6 +6114,27 @@ impl MeshcraftApp {
                 self.handle_drawing_tool_effect(effect, None);
             }
         }
+        if shortcuts_allowed && self.transform_tool_state.active().is_some() {
+            let typed = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Text(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            });
+            if !typed.is_empty() {
+                self.transform_tool_state.add_numeric_text(&typed);
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
+                self.transform_tool_state.backspace();
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                self.finish_transform_input();
+            }
+        }
         let distance_input_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::N));
         if distance_input_shortcut {
@@ -5993,6 +6324,42 @@ impl MeshcraftApp {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.weak(format!("Tool: {}", self.active_tool));
+            if self
+                .transform_tool_state
+                .active()
+                .is_some_and(TransformTool::supports_copy_mode)
+            {
+                let label = if self.transform_tool_state.copy_mode() {
+                    "Copy: On"
+                } else {
+                    "Copy: Off"
+                };
+                if ui
+                    .selectable_label(self.transform_tool_state.copy_mode(), label)
+                    .clicked()
+                {
+                    self.run_command("tool.copy_mode");
+                }
+            }
+            if self.active_tool == "Paint" {
+                let mut color = Color32::from_rgba_unmultiplied(
+                    self.current_paint_color.red,
+                    self.current_paint_color.green,
+                    self.current_paint_color.blue,
+                    self.current_paint_color.alpha,
+                );
+                if ui.color_edit_button_srgba(&mut color).changed() {
+                    let [red, green, blue, alpha] = color.to_srgba_unmultiplied();
+                    self.current_paint_color = Rgba8::new(red, green, blue, alpha);
+                }
+                let enabled = self.query_command_state("paint.apply_selection").enabled;
+                if ui
+                    .add_enabled(enabled, egui::Button::new("Paint Selection"))
+                    .clicked()
+                {
+                    self.run_command("paint.apply_selection");
+                }
+            }
             ui.separator();
             ui.label(&self.status);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -6175,6 +6542,23 @@ fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<V
     payload_vec3_value(value, name)
 }
 
+fn transform_status(report: &modeling_transforms::TransformReport, copied: bool) -> String {
+    if copied {
+        format!(
+            "Copied {} vertex/vertices, {} edge(s), {} face(s), and {} object(s).",
+            report.copied_vertices,
+            report.copied_segments,
+            report.copied_triangles,
+            report.copied_occurrences
+        )
+    } else {
+        format!(
+            "Transformed {} vertex/vertices and {} object(s).",
+            report.transformed_vertices, report.transformed_occurrences
+        )
+    }
+}
+
 fn payload_vec3_value(value: &serde_json::Value, name: &str) -> Result<Vec3, String> {
     let Some(values) = value.as_array() else {
         return Err(format!("`{name}` must be an array of three numbers"));
@@ -6237,8 +6621,9 @@ mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
         ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionSession, ShapeToolState, ToolCycleState, ToolEvent, TransactionHistory, UiProfile,
-        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
+        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
+        TransactionHistory, TransformTool, TransformToolState, UiProfile, command_matches,
+        registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -6252,7 +6637,7 @@ mod tests {
     use meshcraft_core::commands::{
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
-    use meshcraft_core::document::{Document, OccurrenceRef};
+    use meshcraft_core::document::{Document, OccurrenceRef, Rgba8};
     use meshcraft_core::geometry::{Affine3, Vec3};
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
@@ -6417,6 +6802,8 @@ mod tests {
             drawing_tool: DrawingToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
+            transform_tool_state: TransformToolState::default(),
+            current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
             pending_selection_volume: None,
@@ -6699,7 +7086,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(209, entries.len());
+        assert_eq!(212, entries.len());
         assert_eq!(
             74,
             entries
@@ -6731,6 +7118,9 @@ mod tests {
         );
         assert!(shell_commands().get("document.snapshot").is_some());
         assert!(shell_commands().get("selection.set").is_some());
+        assert!(shell_commands().get("tool.copy_mode").is_some());
+        assert!(shell_commands().get("paint.set_color").is_some());
+        assert!(shell_commands().get("paint.apply_selection").is_some());
         assert!(
             shell_commands()
                 .get("view.workspace.reset_layout")
@@ -7477,6 +7867,265 @@ mod tests {
         assert!(rejected.accepted);
         assert_eq!(CommandCompletion::Failed, rejected.result.completion);
         assert_eq!(original, app.viewport.legacy_camera_state());
+    }
+
+    #[test]
+    fn move_tool_transforms_a_selected_face_once_and_keeps_selection() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let selected = SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(face),
+        };
+        app.selection.select(selected.clone());
+
+        app.run_command("tool.builtin.move");
+        assert_eq!(Some(TransformTool::Move), app.transform_tool_state.active());
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::X * 3.0));
+
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        let face = &geometry.triangles[&face];
+        assert!(face.vertices.iter().all(|reference| {
+            geometry
+                .vertex_position(*reference)
+                .is_some_and(|point| point.x >= 3.0)
+        }));
+        assert_eq!(1, app.history.entries().len());
+        assert_eq!(1, app.selection.selected().len());
+        assert!(app.selection.selected().contains(&selected));
+    }
+
+    #[test]
+    fn move_copy_mode_duplicates_selected_face_and_selects_the_copy() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(face),
+        });
+        app.run_command("tool.builtin.move");
+        app.run_command("tool.copy_mode");
+        assert!(app.transform_tool_state.copy_mode());
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::X * 3.0));
+
+        assert_eq!(1, app.history.entries().len());
+        assert_eq!(1, app.selection.selected().len());
+        assert!(
+            app.selection.selected().iter().all(|target| {
+                matches!(target.entity, SelectedEntity::Triangle(id) if id != face)
+            })
+        );
+        assert_eq!(
+            13,
+            app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .len()
+        );
+    }
+
+    #[test]
+    fn transform_numeric_input_finishes_the_same_pointer_preview() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_line_segment(
+                "reference",
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(4.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let segment = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .segments
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Segment(segment),
+        });
+        app.run_command("tool.builtin.move");
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+        let rect = app.viewport_rect;
+        let start = Vec3::new(2.0, 0.0, 0.0);
+        let pointer = Vec3::new(3.0, 0.0, 0.0);
+        let start_screen = app.viewport.world_to_screen(rect, start);
+        let pointer_screen = app.viewport.world_to_screen(rect, pointer);
+        click_workspace_position(&mut app, &context, start_screen);
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::PointerMoved(pointer_screen)],
+        );
+        app.run_command("tool.distance");
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::PointerMoved(pointer_screen),
+                Event::Text("3".to_owned()),
+                Event::Key {
+                    key: Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        let segment = &geometry.segments[&segment];
+        let endpoints = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference).unwrap());
+        assert!(
+            endpoints
+                .iter()
+                .any(|point| point.distance(Vec3::new(5.0, 0.0, 0.0)) < 1.0e-6)
+        );
+        assert!(
+            endpoints
+                .iter()
+                .any(|point| point.distance(Vec3::new(7.0, 0.0, 0.0)) < 1.0e-6)
+        );
+        assert_eq!(1, app.history.entries().len());
+        assert_eq!("Move", app.active_tool);
+    }
+
+    #[test]
+    fn paint_commands_apply_rgba_to_only_the_selected_face() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(face),
+        });
+        let color = Rgba8::new(12, 34, 56, 78);
+        let mut payload = CommandPayload::default();
+        for (key, value) in [
+            ("red", color.red),
+            ("green", color.green),
+            ("blue", color.blue),
+            ("alpha", color.alpha),
+        ] {
+            payload.values.insert(key.to_owned(), json!(value));
+        }
+        let color_result = app.dispatch_command("paint.set_color", &payload);
+        assert_eq!(CommandCompletion::Completed, color_result.result.completion);
+        let paint_result =
+            app.dispatch_command("paint.apply_selection", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, paint_result.result.completion);
+        let repeated = app.dispatch_command("paint.apply_selection", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, repeated.result.completion);
+
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(color, geometry.triangles[&face].color);
+        assert_eq!(1, app.history.entries().len());
+        assert_eq!(1, app.selection.selected().len());
+    }
+
+    #[test]
+    fn paint_tool_click_paints_the_visible_face_under_the_pointer() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::new(-1.0, -1.0, -1.0))
+            .unwrap();
+        let resolved = app.document.resolve_occurrence(&occurrence).unwrap();
+        let candidates = app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .values()
+            .map(|triangle| {
+                triangle.vertices.map(|reference| {
+                    resolved.world_transform.transform_point(
+                        app.document
+                            .effective_geometry(&occurrence)
+                            .unwrap()
+                            .vertex_position(reference)
+                            .unwrap(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        app.activate_tool("Paint");
+        let (position, point, target) = candidates
+            .into_iter()
+            .find_map(|triangle| {
+                let point = (triangle[0] + triangle[1] + triangle[2]) / 3.0;
+                let position = app.viewport.world_to_screen(rect, point);
+                let target = app.viewport.pick_selection_target(
+                    rect,
+                    &app.document,
+                    position,
+                    SnapScope::Document,
+                    &app.selection_display_policy,
+                )?;
+                matches!(target.entity, SelectedEntity::Triangle(_))
+                    .then_some((position, point, target))
+            })
+            .expect("a cuboid face should be visible to the viewport picker");
+        let color = Rgba8::new(222, 44, 91, 177);
+        app.current_paint_color = color;
+        app.handle_viewport_click_at_point(rect, position, None, Some(point));
+
+        let painted_id = match target.entity {
+            SelectedEntity::Triangle(id) => id,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            color,
+            app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles[&painted_id]
+                .color
+        );
+        assert_eq!(1, app.history.entries().len());
     }
 
     #[test]

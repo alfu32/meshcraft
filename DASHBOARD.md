@@ -6,9 +6,9 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 | Status | Tasks |
 | --- | ---: |
-| Todo | 35 |
+| Todo | 34 |
 | In progress | 4 |
-| Done | 12 |
+| Done | 13 |
 | **Total** | **51** |
 
 ## Currently in Progress
@@ -20,7 +20,7 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 ## Current Activity
 
-T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. T13 is complete: Line and Construction Line edit the active root or definition graph in local space, split same-context intersections, consolidate collinear overlap/touch, preserve face topology, and remap selection through inherited instances. Numeric preview and commit, Enter/Backspace/Escape, independent per-segment undo, in-tool Distance, and palette operators share the line state. Source-order L/D/O/M cycles and Ctrl+N distance focus are routed through commands; hotspot placement remains a separate host-action mode, with its model and attachment graph owned by T32. T14 is complete: Rectangle, Surface Rect, three-pick Quad and configurable Circle create directly in the active graph. Shape boundaries share Line's edge split/overlap path, previews show measurements, and commits support cancel and undo. Tests pass: 101 core, 118 desktop, 14 IO and 5 CLI; Clippy with warnings denied, formatting and `verify_plan.py` pass. The 209-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. Transform copy mode remains in T15. User-confirmed requirements for selection-first modeling, planar-first construction, nested object definitions, attached hotspots, distinct linear/planar/spatial and rotational/helical arrays, and staged point-picking remain recorded for T15 and later tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 35 Todo, 4 In Progress, 12 Done.
+T12 is complete: mixed typed selection supports replace/add/remove, instance edit entry, directional windows, world-volume selection and shared visibility/lock/wireframe policy. T13 delivers root/definition Line and Construction Line editing with intersection splitting, overlap consolidation, numeric input, cancel and per-operation undo. T14 provides Rectangle, Surface Rect, Quad and configurable Circle directly in the active geometry graph. T15 is complete for raw mesh and supported object occurrences: Move, Rotate, Scale, Stretch, Stretch Scale and Rotate Stretch have source-based previews, point and numeric input, constrained scaling and Move/Rotate copy mode. RGBA paint works on selected or clicked edges and faces. Semantic/domain, voxel, hotspot and typed annotation adapters remain with T18/T28/T32/T33; nested object copying remains with T16. Validation passes: 112 core, 123 desktop, 14 IO and 5 CLI tests; Clippy with warnings denied, formatting, `git diff --check` and `verify_plan.py` pass. The registry now contains 212 commands for all 74 built-in tools, 13 visible toolbar groups, palette/menu actions and deferred capabilities. User-confirmed requirements for selection-first modeling, planar-first construction, active-graph drawing, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks. T05, T07, T09 and T17 are currently in progress; autosave/recovery and remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 34 Todo, 4 In Progress, 13 Done.
 
 ## Task Statuses
 
@@ -41,7 +41,7 @@ T12 is complete: mixed typed selection supports replace/add/remove, injected 350
 | T12 | Port mixed selection and semantic picking framework | Done |
 | T13 | Implement tool protocol and line editing | Done |
 | T14 | Implement basic planar shape tools | Done |
-| T15 | Port transforms, stretch variants and painting | Todo |
+| T15 | Port transforms, stretch variants and painting | Done |
 | T16 | Implement reusable objects, placement and explode | Todo |
 | T17 | Complete inspectors, settings, preferences and menu coverage | In progress |
 | T18 | Implement dimensions, bitmap text and vector glyph text | Todo |

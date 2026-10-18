@@ -731,7 +731,7 @@
       ],
       "targets": [
         "crates/meshcraft-core/src/operations/transforms.rs",
-        "crates/meshcraft-core/src/tools/transforms/"
+        "crates/meshcraft-core/src/tools/transforms.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/tools/MoveTool.kt",
@@ -753,7 +753,7 @@
         "Implement face RGBA paint/current-color flow and prepare semantic/voxel/hotspot transform adapters for later tasks."
       ],
       "done": [
-        "C13/C15 pass for raw mesh and annotations supported so far; object/domain adapters extend the same contracts later.",
+        "Transform-related C13/C15 assertions pass for selected raw mesh geometry and supported object occurrences; annotation and semantic/domain adapters follow their owning tasks.",
         "No cumulative preview drift, shared-vertex double transform or unintended drawing-time auto-cut."
       ],
       "tool_ids": [
@@ -765,7 +765,7 @@
         "ROTATE_STRETCH",
         "PAINT"
       ],
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "T16",

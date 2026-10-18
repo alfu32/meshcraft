@@ -83,6 +83,9 @@ pub enum ToolPreview {
         closed: bool,
         measurements: Vec<ShapeMeasurement>,
     },
+    Transform {
+        edges: Vec<[Vec3; 2]>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -641,6 +644,9 @@ impl Viewport {
                     measurements,
                 } => {
                     self.draw_planar_shape_preview(&painter, rect, outline, *closed, measurements);
+                }
+                ToolPreview::Transform { edges } => {
+                    self.draw_transform_preview(&painter, rect, edges);
                 }
             }
         }
@@ -2987,6 +2993,22 @@ impl Viewport {
             ],
             Stroke::new(1.8, Color32::from_rgb(235, 105, 70)),
         );
+    }
+
+    fn draw_transform_preview(&self, painter: &egui::Painter, rect: Rect, edges: &[[Vec3; 2]]) {
+        let color = Color32::from_rgb(235, 105, 70);
+        for [start, end] in edges {
+            if !self.point_in_front_of_camera(*start) || !self.point_in_front_of_camera(*end) {
+                continue;
+            }
+            painter.line_segment(
+                [
+                    self.world_to_screen(rect, *start),
+                    self.world_to_screen(rect, *end),
+                ],
+                Stroke::new(1.8, color),
+            );
+        }
     }
 
     fn draw_planar_shape_preview(

@@ -1,0 +1,1036 @@
+//! Selection-first geometric transforms and appearance edits.
+
+use crate::document::{
+    DefinitionId, Document, GeometryBundle, OccurrenceRef, Segment, SegmentId, Triangle,
+    TriangleId, VertexId, VertexRef,
+};
+use crate::geometry::{Affine3, GeometryTolerance, Vec3};
+use crate::selection::{
+    EditContext, SelectedEntity, SelectionMode, SelectionSession, SelectionTarget,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TransformReport {
+    pub transformed_vertices: usize,
+    pub copied_vertices: usize,
+    pub copied_segments: usize,
+    pub copied_triangles: usize,
+    pub transformed_occurrences: usize,
+    pub copied_occurrences: usize,
+}
+
+impl TransformReport {
+    pub fn changed(&self) -> bool {
+        self.transformed_vertices > 0
+            || self.copied_vertices > 0
+            || self.copied_segments > 0
+            || self.copied_triangles > 0
+            || self.transformed_occurrences > 0
+            || self.copied_occurrences > 0
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PaintReport {
+    pub painted_segments: usize,
+    pub painted_triangles: usize,
+}
+
+impl PaintReport {
+    pub fn changed(&self) -> bool {
+        self.painted_segments > 0 || self.painted_triangles > 0
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum GeometryOwner {
+    Definition(DefinitionId),
+    Occurrence(OccurrenceRef),
+}
+
+#[derive(Clone, Debug, Default)]
+struct GeometrySelection {
+    occurrence_targets: BTreeSet<OccurrenceRef>,
+    vertices: BTreeSet<VertexId>,
+    explicit_vertices: BTreeSet<VertexId>,
+    segments: BTreeSet<SegmentId>,
+    triangles: BTreeSet<TriangleId>,
+    transform_occurrence: Option<OccurrenceRef>,
+}
+
+/// Applies one world-space affine transform to the selected mesh entities and object instances.
+/// Previews should call this with a cloned document; committing should wrap it in document history.
+/// A copy leaves source data untouched and selects the newly created entities/instances.
+pub fn transform_selection(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    world_transform: Affine3,
+    copy: bool,
+) -> Result<TransformReport, String> {
+    if !world_transform.is_finite()
+        || world_transform
+            .inverse(GeometryTolerance::default())
+            .is_none()
+    {
+        return Err("transform must be finite and invertible".to_owned());
+    }
+    if is_identity(world_transform) {
+        return Ok(TransformReport::default());
+    }
+
+    let selected = selection
+        .selected()
+        .iter()
+        .filter(|target| target_in_context(document, &selection.context, target))
+        .cloned()
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return Err("transform needs a supported selection in the active context".to_owned());
+    }
+
+    let selected_objects = selected
+        .iter()
+        .filter_map(|target| {
+            matches!(target.entity, SelectedEntity::Occurrence).then_some(target.occurrence.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    let selected_objects = selected_objects
+        .iter()
+        .filter(|occurrence| {
+            !selected_objects.iter().any(|ancestor| {
+                ancestor.path.len() < occurrence.path.len()
+                    && occurrence.path.starts_with(&ancestor.path)
+            })
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if selected
+        .iter()
+        .any(|target| matches!(target.entity, SelectedEntity::SemanticHandle { .. }))
+    {
+        return Err("semantic/domain transform adapters are not supported yet".to_owned());
+    }
+    let mut geometry = BTreeMap::<GeometryOwner, GeometrySelection>::new();
+    for target in &selected {
+        if matches!(target.entity, SelectedEntity::Occurrence)
+            || selected_objects
+                .iter()
+                .any(|occurrence| target.occurrence.path.starts_with(&occurrence.path))
+        {
+            continue;
+        }
+        let Some(resolved) = document.resolve_occurrence(&target.occurrence) else {
+            continue;
+        };
+        let owner = geometry_owner(&selection.context, target, resolved.definition.id);
+        let group = geometry.entry(owner).or_default();
+        group.occurrence_targets.insert(target.occurrence.clone());
+        group
+            .transform_occurrence
+            .get_or_insert_with(|| target.occurrence.clone());
+        let bundle = document.effective_geometry(&target.occurrence);
+        let Some(bundle) = bundle else {
+            continue;
+        };
+        match target.entity {
+            SelectedEntity::Vertex(id) if bundle.vertices.contains_key(&id) => {
+                group.vertices.insert(id);
+                group.explicit_vertices.insert(id);
+            }
+            SelectedEntity::Segment(id) => {
+                let Some(segment) = bundle.segments.get(&id) else {
+                    continue;
+                };
+                group.segments.insert(id);
+                group
+                    .vertices
+                    .extend(segment.endpoints.map(|reference| reference.id));
+            }
+            SelectedEntity::Triangle(id) => {
+                let Some(triangle) = bundle.triangles.get(&id) else {
+                    continue;
+                };
+                group.triangles.insert(id);
+                group
+                    .vertices
+                    .extend(triangle.vertices.map(|reference| reference.id));
+            }
+            SelectedEntity::Occurrence
+            | SelectedEntity::SemanticHandle { .. }
+            | SelectedEntity::Vertex(_) => {}
+        }
+    }
+    if selected_objects.is_empty() && !geometry.values().any(|group| !group.vertices.is_empty()) {
+        return Err("transform needs selected mesh geometry or an object instance".to_owned());
+    }
+
+    let mut candidate = document.clone();
+    let mut candidate_selection = selection.clone();
+    let mut report = TransformReport::default();
+    let mut copy_targets = BTreeSet::new();
+
+    for occurrence in &selected_objects {
+        if copy {
+            if occurrence.path.len() != 1 {
+                return Err("copying a nested object is not supported yet".to_owned());
+            }
+            let duplicate = candidate
+                .copy_root_occurrence(occurrence, Vec3::ZERO)
+                .ok_or_else(|| "could not copy the selected object instance".to_owned())?;
+            transform_occurrence(&mut candidate, &duplicate, world_transform)?;
+            copy_targets.insert(SelectionTarget {
+                occurrence: duplicate,
+                entity: SelectedEntity::Occurrence,
+            });
+            report.copied_occurrences += 1;
+        } else if transform_occurrence(&mut candidate, occurrence, world_transform)? {
+            report.transformed_occurrences += 1;
+        }
+    }
+
+    for (owner, group) in geometry {
+        let Some(occurrence) = group.transform_occurrence.as_ref() else {
+            continue;
+        };
+        let Some(resolved) = candidate.resolve_occurrence(occurrence) else {
+            return Err("selected geometry occurrence is no longer resolvable".to_owned());
+        };
+        let inverse = resolved
+            .world_transform
+            .inverse(GeometryTolerance::default())
+            .ok_or_else(|| "selected geometry has a singular world transform".to_owned())?;
+        let local_transform = inverse
+            .compose(world_transform)
+            .compose(resolved.world_transform);
+        let mut bundle = match &owner {
+            GeometryOwner::Definition(id) => candidate
+                .definitions
+                .get(id)
+                .map(|definition| definition.geometry.clone())
+                .ok_or_else(|| format!("selected definition {} is missing", id.0))?,
+            GeometryOwner::Occurrence(instance) => candidate
+                .effective_geometry(instance)
+                .cloned()
+                .ok_or_else(|| "selected occurrence geometry is missing".to_owned())?,
+        };
+        let result =
+            transform_geometry_bundle(&mut candidate, &mut bundle, &group, local_transform, copy)?;
+        report.transformed_vertices += result.transformed_vertices;
+        report.copied_vertices += result.copied_vertices;
+        report.copied_segments += result.copied_segments;
+        report.copied_triangles += result.copied_triangles;
+        if copy {
+            for target_occurrence in &group.occurrence_targets {
+                copy_targets.extend(
+                    result
+                        .targets
+                        .iter()
+                        .cloned()
+                        .map(|entity| SelectionTarget {
+                            occurrence: target_occurrence.clone(),
+                            entity,
+                        }),
+                );
+            }
+        }
+        match owner {
+            GeometryOwner::Definition(id) => {
+                let definition = candidate
+                    .definitions
+                    .get_mut(&id)
+                    .ok_or_else(|| format!("selected definition {} is missing", id.0))?;
+                definition.geometry = bundle;
+                candidate.revision = candidate.revision.saturating_add(1);
+            }
+            GeometryOwner::Occurrence(instance) => {
+                let mut edits = candidate
+                    .occurrence_edits(&instance)
+                    .cloned()
+                    .unwrap_or_default();
+                edits.geometry_replacement = Some(bundle);
+                if !candidate.set_occurrence_edits(instance, edits) {
+                    return Err("could not store transformed instance geometry".to_owned());
+                }
+            }
+        }
+    }
+
+    if !report.changed() {
+        return Ok(report);
+    }
+    if copy {
+        if copy_targets.is_empty() {
+            return Err("copy mode needs a selected mesh entity or object".to_owned());
+        }
+        candidate_selection.apply(copy_targets, SelectionMode::Replace);
+    }
+    candidate.validate()?;
+    candidate.revision = document
+        .revision()
+        .checked_add(1)
+        .ok_or_else(|| "document revision counter is exhausted".to_owned())?;
+    *document = candidate;
+    *selection = candidate_selection;
+    Ok(report)
+}
+
+/// Applies the current RGBA value to selected faces and edges in the active edit context.
+pub fn paint_selection(
+    document: &mut Document,
+    selection: &SelectionSession,
+    color: crate::document::Rgba8,
+) -> Result<PaintReport, String> {
+    let selected = selection
+        .selected()
+        .iter()
+        .filter(|target| target_in_context(document, &selection.context, target))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut groups = BTreeMap::<GeometryOwner, (BTreeSet<SegmentId>, BTreeSet<TriangleId>)>::new();
+    for target in selected {
+        let Some(resolved) = document.resolve_occurrence(&target.occurrence) else {
+            continue;
+        };
+        let owner = geometry_owner(&selection.context, &target, resolved.definition.id);
+        let group = groups.entry(owner).or_default();
+        match target.entity {
+            SelectedEntity::Segment(id) => {
+                group.0.insert(id);
+            }
+            SelectedEntity::Triangle(id) => {
+                group.1.insert(id);
+            }
+            _ => {}
+        }
+    }
+    if groups.is_empty()
+        || groups
+            .values()
+            .all(|(edges, faces)| edges.is_empty() && faces.is_empty())
+    {
+        return Err("paint needs a selected edge or face".to_owned());
+    }
+
+    let mut candidate = document.clone();
+    let mut report = PaintReport::default();
+    for (owner, (edges, faces)) in groups {
+        let mut geometry = match &owner {
+            GeometryOwner::Definition(id) => candidate
+                .definitions
+                .get(id)
+                .map(|definition| definition.geometry.clone())
+                .ok_or_else(|| format!("selected definition {} is missing", id.0))?,
+            GeometryOwner::Occurrence(instance) => candidate
+                .effective_geometry(instance)
+                .cloned()
+                .ok_or_else(|| "selected occurrence geometry is missing".to_owned())?,
+        };
+        let mut group_changed = false;
+        for id in &edges {
+            if let Some(segment) = geometry.segments.get_mut(id)
+                && segment.color != color
+            {
+                segment.color = color;
+                report.painted_segments += 1;
+                group_changed = true;
+            }
+        }
+        for id in &faces {
+            if let Some(triangle) = geometry.triangles.get_mut(id)
+                && triangle.color != color
+            {
+                triangle.color = color;
+                report.painted_triangles += 1;
+                group_changed = true;
+            }
+        }
+        if !group_changed {
+            continue;
+        }
+        match owner {
+            GeometryOwner::Definition(id) => {
+                candidate
+                    .definitions
+                    .get_mut(&id)
+                    .ok_or_else(|| format!("selected definition {} is missing", id.0))?
+                    .geometry = geometry;
+            }
+            GeometryOwner::Occurrence(instance) => {
+                let mut edits = candidate
+                    .occurrence_edits(&instance)
+                    .cloned()
+                    .unwrap_or_default();
+                edits.geometry_replacement = Some(geometry);
+                if !candidate.set_occurrence_edits(instance, edits) {
+                    return Err("could not store painted instance geometry".to_owned());
+                }
+            }
+        }
+    }
+    if !report.changed() {
+        return Ok(report);
+    }
+    candidate.validate()?;
+    candidate.revision = document
+        .revision()
+        .checked_add(1)
+        .ok_or_else(|| "document revision counter is exhausted".to_owned())?;
+    *document = candidate;
+    Ok(report)
+}
+
+/// Returns world-space wire edges for a transform preview without changing document or selection.
+pub fn preview_selection_transform(
+    document: &Document,
+    selection: &SelectionSession,
+    world_transform: Affine3,
+) -> Result<Vec<[Vec3; 2]>, String> {
+    if !world_transform.is_finite()
+        || world_transform
+            .inverse(GeometryTolerance::default())
+            .is_none()
+    {
+        return Err("preview transform must be finite and invertible".to_owned());
+    }
+    let selected = selection
+        .selected()
+        .iter()
+        .filter(|target| target_in_context(document, &selection.context, target))
+        .collect::<Vec<_>>();
+    let object_occurrences = selected
+        .iter()
+        .filter_map(|target| {
+            matches!(target.entity, SelectedEntity::Occurrence).then_some(target.occurrence.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    let mut edges = Vec::new();
+    for object in &object_occurrences {
+        for occurrence in document
+            .occurrence_refs()?
+            .into_iter()
+            .filter(|candidate| candidate.path.starts_with(&object.path))
+        {
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            if let Some(geometry) = document.effective_geometry(&occurrence) {
+                let vertex_ids = geometry.vertices.keys().copied().collect::<BTreeSet<_>>();
+                let Some(inverse) = resolved
+                    .world_transform
+                    .inverse(GeometryTolerance::default())
+                else {
+                    continue;
+                };
+                append_preview_geometry(
+                    geometry,
+                    &vertex_ids,
+                    resolved.world_transform,
+                    inverse
+                        .compose(world_transform)
+                        .compose(resolved.world_transform),
+                    &mut edges,
+                );
+            }
+        }
+    }
+
+    let mut selected_by_occurrence = BTreeMap::<OccurrenceRef, BTreeSet<VertexId>>::new();
+    for target in selected {
+        if matches!(target.entity, SelectedEntity::Occurrence)
+            || object_occurrences
+                .iter()
+                .any(|object| target.occurrence.path.starts_with(&object.path))
+        {
+            continue;
+        }
+        let Some(geometry) = document.effective_geometry(&target.occurrence) else {
+            continue;
+        };
+        let vertices = selected_by_occurrence
+            .entry(target.occurrence.clone())
+            .or_default();
+        match target.entity {
+            SelectedEntity::Vertex(id) => {
+                if geometry.vertices.contains_key(&id) {
+                    vertices.insert(id);
+                }
+            }
+            SelectedEntity::Segment(id) => {
+                if let Some(segment) = geometry.segments.get(&id) {
+                    vertices.extend(segment.endpoints.map(|reference| reference.id));
+                }
+            }
+            SelectedEntity::Triangle(id) => {
+                if let Some(triangle) = geometry.triangles.get(&id) {
+                    vertices.extend(triangle.vertices.map(|reference| reference.id));
+                }
+            }
+            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => {}
+        }
+    }
+    for (occurrence, vertices) in selected_by_occurrence {
+        let Some(geometry) = document.effective_geometry(&occurrence) else {
+            continue;
+        };
+        let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let inverse = resolved
+            .world_transform
+            .inverse(GeometryTolerance::default())
+            .ok_or_else(|| "selected geometry has a singular world transform".to_owned())?;
+        let local_transform = inverse
+            .compose(world_transform)
+            .compose(resolved.world_transform);
+        append_preview_geometry(
+            geometry,
+            &vertices,
+            resolved.world_transform,
+            local_transform,
+            &mut edges,
+        );
+    }
+    Ok(edges)
+}
+
+fn append_preview_geometry(
+    geometry: &GeometryBundle,
+    transformed_vertices: &BTreeSet<VertexId>,
+    world: Affine3,
+    local_transform: Affine3,
+    output: &mut Vec<[Vec3; 2]>,
+) {
+    let point = |reference: VertexRef| {
+        let position = geometry.vertex_position(reference)?;
+        let position = if transformed_vertices.contains(&reference.id) {
+            local_transform.transform_point(position)
+        } else {
+            position
+        };
+        Some(world.transform_point(position))
+    };
+    for segment in geometry.segments.values() {
+        if !segment
+            .endpoints
+            .iter()
+            .any(|reference| transformed_vertices.contains(&reference.id))
+        {
+            continue;
+        }
+        if let [Some(start), Some(end)] = segment.endpoints.map(point) {
+            output.push([start, end]);
+        }
+    }
+    for triangle in geometry.triangles.values() {
+        if !triangle
+            .vertices
+            .iter()
+            .any(|reference| transformed_vertices.contains(&reference.id))
+        {
+            continue;
+        }
+        let [Some(a), Some(b), Some(c)] = triangle.vertices.map(point) else {
+            continue;
+        };
+        output.extend([[a, b], [b, c], [c, a]]);
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct GeometryTransformResult {
+    transformed_vertices: usize,
+    copied_vertices: usize,
+    copied_segments: usize,
+    copied_triangles: usize,
+    targets: Vec<SelectedEntity>,
+}
+
+fn transform_geometry_bundle(
+    document: &mut Document,
+    geometry: &mut GeometryBundle,
+    selected: &GeometrySelection,
+    transform: Affine3,
+    copy: bool,
+) -> Result<GeometryTransformResult, String> {
+    let mut vertex_ids = selected.vertices.clone();
+    for id in &selected.segments {
+        let segment = geometry
+            .segments
+            .get(id)
+            .ok_or_else(|| format!("selected segment {} is missing", id.0))?;
+        vertex_ids.extend(segment.endpoints.map(|reference| reference.id));
+    }
+    for id in &selected.triangles {
+        let triangle = geometry
+            .triangles
+            .get(id)
+            .ok_or_else(|| format!("selected triangle {} is missing", id.0))?;
+        vertex_ids.extend(triangle.vertices.map(|reference| reference.id));
+    }
+    if vertex_ids.is_empty() {
+        return Ok(GeometryTransformResult::default());
+    }
+    if vertex_ids
+        .iter()
+        .any(|id| !geometry.vertices.contains_key(id))
+    {
+        return Err("selection references a missing geometry vertex".to_owned());
+    }
+
+    if copy {
+        let mut vertex_map = BTreeMap::new();
+        for id in &vertex_ids {
+            let source = geometry
+                .vertices
+                .get(id)
+                .ok_or_else(|| format!("selected vertex {} is missing", id.0))?;
+            let new_id = VertexId(document.allocate_id());
+            let mut vertex = source.clone();
+            vertex.id = new_id;
+            vertex.position = transform.transform_point(vertex.position);
+            vertex.legacy_aliases.clear();
+            geometry.vertices.insert(new_id, vertex);
+            vertex_map.insert(*id, new_id);
+        }
+        let mut result = GeometryTransformResult {
+            copied_vertices: vertex_map.len(),
+            ..GeometryTransformResult::default()
+        };
+        result.targets.extend(
+            selected
+                .explicit_vertices
+                .iter()
+                .filter_map(|id| vertex_map.get(id).copied())
+                .map(SelectedEntity::Vertex),
+        );
+        for id in &selected.segments {
+            let source = geometry
+                .segments
+                .get(id)
+                .ok_or_else(|| format!("selected segment {} is missing", id.0))?
+                .clone();
+            let new_id = SegmentId(document.allocate_id());
+            let copy = Segment {
+                id: new_id,
+                endpoints: source.endpoints.map(|reference| VertexRef {
+                    id: vertex_map[&reference.id],
+                    position_offset: transform.transform_vector(reference.position_offset),
+                }),
+                legacy_aliases: Vec::new(),
+                ..source
+            };
+            geometry.segments.insert(new_id, copy);
+            result.copied_segments += 1;
+            result.targets.push(SelectedEntity::Segment(new_id));
+        }
+        for id in &selected.triangles {
+            let source = geometry
+                .triangles
+                .get(id)
+                .ok_or_else(|| format!("selected triangle {} is missing", id.0))?
+                .clone();
+            let new_id = TriangleId(document.allocate_id());
+            let copy = Triangle {
+                id: new_id,
+                vertices: source.vertices.map(|reference| VertexRef {
+                    id: vertex_map[&reference.id],
+                    position_offset: transform.transform_vector(reference.position_offset),
+                }),
+                legacy_aliases: Vec::new(),
+                ..source
+            };
+            geometry.triangles.insert(new_id, copy);
+            result.copied_triangles += 1;
+            result.targets.push(SelectedEntity::Triangle(new_id));
+        }
+        return Ok(result);
+    }
+
+    let mut changed_vertices = BTreeSet::new();
+    for id in &vertex_ids {
+        let vertex = geometry
+            .vertices
+            .get_mut(id)
+            .ok_or_else(|| format!("selected vertex {} is missing", id.0))?;
+        let transformed = transform.transform_point(vertex.position);
+        if transformed != vertex.position {
+            vertex.position = transformed;
+            changed_vertices.insert(*id);
+        }
+    }
+    for segment in geometry.segments.values_mut() {
+        for reference in &mut segment.endpoints {
+            if vertex_ids.contains(&reference.id) {
+                reference.position_offset = transform.transform_vector(reference.position_offset);
+            }
+        }
+    }
+    for triangle in geometry.triangles.values_mut() {
+        for reference in &mut triangle.vertices {
+            if vertex_ids.contains(&reference.id) {
+                reference.position_offset = transform.transform_vector(reference.position_offset);
+            }
+        }
+    }
+    Ok(GeometryTransformResult {
+        transformed_vertices: changed_vertices.len(),
+        ..GeometryTransformResult::default()
+    })
+}
+
+fn transform_occurrence(
+    document: &mut Document,
+    occurrence: &OccurrenceRef,
+    world_transform: Affine3,
+) -> Result<bool, String> {
+    let (placement, mut edits) = {
+        let Some(resolved) = document.resolve_occurrence(occurrence) else {
+            return Err("selected object instance is missing".to_owned());
+        };
+        let Some(entry) = resolved.entry else {
+            return Err("the scene root cannot be transformed as an object instance".to_owned());
+        };
+        (
+            resolved
+                .edits
+                .and_then(|edits| edits.transform)
+                .unwrap_or(entry.transform),
+            resolved.edits.cloned().unwrap_or_default(),
+        )
+    };
+    let parent_world = if occurrence.path.len() == 1 {
+        Affine3::IDENTITY
+    } else {
+        let parent = OccurrenceRef {
+            path: occurrence.path[..occurrence.path.len() - 1].to_vec(),
+        };
+        document
+            .resolve_occurrence(&parent)
+            .map(|resolved| resolved.world_transform)
+            .ok_or_else(|| "selected object's parent instance is missing".to_owned())?
+    };
+    let parent_inverse = parent_world
+        .inverse(GeometryTolerance::default())
+        .ok_or_else(|| "selected object's parent transform is singular".to_owned())?;
+    let adjusted = parent_inverse
+        .compose(world_transform)
+        .compose(parent_world)
+        .compose(placement);
+    if edits.transform == Some(adjusted) {
+        return Ok(false);
+    }
+    edits.transform = Some(adjusted);
+    if !document.set_occurrence_edits(occurrence.clone(), edits) {
+        return Err("could not store the transformed object instance".to_owned());
+    }
+    Ok(true)
+}
+
+fn target_in_context(document: &Document, context: &EditContext, target: &SelectionTarget) -> bool {
+    match context {
+        EditContext::Document => true,
+        EditContext::Definition(definition) => document
+            .resolve_occurrence(&target.occurrence)
+            .is_some_and(|resolved| resolved.definition.id == *definition),
+        EditContext::Occurrence(occurrence) => target.occurrence.path.starts_with(&occurrence.path),
+    }
+}
+
+fn geometry_owner(
+    context: &EditContext,
+    target: &SelectionTarget,
+    definition: DefinitionId,
+) -> GeometryOwner {
+    match context {
+        EditContext::Definition(id) if *id == definition => GeometryOwner::Definition(*id),
+        EditContext::Occurrence(occurrence) if *occurrence == target.occurrence => {
+            GeometryOwner::Definition(definition)
+        }
+        _ if target.occurrence.is_scene_root() => GeometryOwner::Definition(definition),
+        _ => GeometryOwner::Occurrence(target.occurrence.clone()),
+    }
+}
+
+fn is_identity(transform: Affine3) -> bool {
+    transform == Affine3::IDENTITY
+}
+
+// Kept as a small helper so ownership is explicit at the call site when looking up geometry.
+#[cfg(test)]
+mod tests {
+    use super::{paint_selection, transform_selection};
+    use crate::document::{Document, OccurrenceRef, Rgba8};
+    use crate::geometry::{Affine3, Vec3};
+    use crate::selection::{
+        EditContext, SelectedEntity, SelectionKind, SelectionSession, SelectionTarget,
+    };
+
+    fn selected(occurrence: OccurrenceRef, entity: SelectedEntity) -> SelectionTarget {
+        SelectionTarget { occurrence, entity }
+    }
+
+    fn affine_translation(delta: Vec3) -> Affine3 {
+        Affine3::from_translation(delta)
+    }
+
+    #[test]
+    fn moving_one_instance_face_changes_shared_vertices_once_and_keeps_siblings() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .copy_root_occurrence(&first, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let geometry = document.effective_geometry(&first).unwrap();
+        let triangle = *geometry.triangles.keys().next().unwrap();
+        let referenced = geometry.triangles[&triangle].vertices[0].id;
+        let before = geometry.vertices[&referenced].position;
+        let sibling_before =
+            document.effective_geometry(&second).unwrap().vertices[&referenced].position;
+        let mut selection = SelectionSession::default();
+        selection.select(selected(first.clone(), SelectedEntity::Triangle(triangle)));
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(0.0, 3.0, 0.0)),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(3, report.transformed_vertices);
+        let moved = document.effective_geometry(&first).unwrap();
+        assert_eq!(
+            before + Vec3::new(0.0, 3.0, 0.0),
+            moved.vertices[&referenced].position
+        );
+        assert_eq!(
+            sibling_before,
+            document.effective_geometry(&second).unwrap().vertices[&referenced].position
+        );
+        assert_eq!(
+            8,
+            document
+                .resolve_occurrence(&first)
+                .unwrap()
+                .definition
+                .geometry
+                .vertices
+                .len()
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn copy_mixed_edge_and_face_preserves_payload_and_selects_one_shared_vertex_copy() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let resolved = document.resolve_occurrence(&occurrence).unwrap();
+        let geometry = &resolved.definition.geometry;
+        let segment = *geometry.segments.keys().next().unwrap();
+        let triangle = *geometry.triangles.keys().next().unwrap();
+        let source_vertices = geometry.segments[&segment]
+            .endpoints
+            .map(|reference| reference.id);
+        let source_color = geometry.triangles[&triangle].color;
+        let mut selection = SelectionSession::default();
+        selection.apply(
+            [
+                selected(occurrence.clone(), SelectedEntity::Segment(segment)),
+                selected(occurrence.clone(), SelectedEntity::Triangle(triangle)),
+            ],
+            crate::selection::SelectionMode::Replace,
+        );
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(4.0, 0.0, 0.0)),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(3, report.copied_vertices);
+        assert_eq!(1, report.copied_segments);
+        assert_eq!(1, report.copied_triangles);
+        assert_eq!(2, selection.selected().len());
+        let copied = document.effective_geometry(&occurrence).unwrap();
+        let copied_segment = selection
+            .selected()
+            .iter()
+            .find_map(|target| match target.entity {
+                SelectedEntity::Segment(id) => Some(&copied.segments[&id]),
+                _ => None,
+            })
+            .unwrap();
+        let copied_triangle = selection
+            .selected()
+            .iter()
+            .find_map(|target| match target.entity {
+                SelectedEntity::Triangle(id) => Some(&copied.triangles[&id]),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(source_color, copied_triangle.color);
+        assert!(copied_segment.endpoints.iter().all(|reference| {
+            copied_triangle
+                .vertices
+                .iter()
+                .any(|face_vertex| face_vertex.id == reference.id)
+                || !source_vertices.contains(&reference.id)
+        }));
+        assert!(
+            copied_segment
+                .endpoints
+                .iter()
+                .all(|reference| !source_vertices.contains(&reference.id))
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn object_move_copy_updates_the_selected_instance_only() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .copy_root_occurrence(&first, Vec3::new(6.0, 0.0, 0.0))
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(selected(first.clone(), SelectedEntity::Occurrence));
+        let second_before = document
+            .resolve_occurrence(&second)
+            .unwrap()
+            .world_transform;
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(0.0, 0.0, 2.0)),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(1, report.copied_occurrences);
+        assert_eq!(1, selection.selected().len());
+        assert_eq!(
+            second_before,
+            document
+                .resolve_occurrence(&second)
+                .unwrap()
+                .world_transform
+        );
+        let copied = &selection.selected().first().unwrap().occurrence;
+        assert_eq!(
+            Vec3::new(0.0, 0.0, 2.0),
+            document
+                .resolve_occurrence(copied)
+                .unwrap()
+                .world_transform
+                .translation
+        );
+    }
+
+    #[test]
+    fn paint_applies_rgba_only_to_selected_face_and_preserves_sibling_instance() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .copy_root_occurrence(&first, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let triangle = *document
+            .effective_geometry(&first)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(selected(first.clone(), SelectedEntity::Triangle(triangle)));
+        let color = Rgba8::new(18, 80, 220, 96);
+
+        let report = paint_selection(&mut document, &selection, color).unwrap();
+
+        assert_eq!(1, report.painted_triangles);
+        assert_eq!(
+            color,
+            document.effective_geometry(&first).unwrap().triangles[&triangle].color
+        );
+        assert_eq!(
+            Rgba8::WHITE,
+            document.effective_geometry(&second).unwrap().triangles[&triangle].color
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn definition_edit_context_paints_shared_prototype_geometry() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let definition = document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let triangle = *document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Definition(definition));
+        selection.select(selected(
+            occurrence.clone(),
+            SelectedEntity::Triangle(triangle),
+        ));
+        let color = Rgba8::new(220, 40, 80, 255);
+
+        paint_selection(&mut document, &selection, color).unwrap();
+
+        assert_eq!(
+            color,
+            document.effective_geometry(&occurrence).unwrap().triangles[&triangle].color
+        );
+        assert!(document.occurrence_edits(&occurrence).is_none());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn transform_rejects_semantic_handles_until_domain_adapters_exist() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let revision = document.revision();
+        let mut selection = SelectionSession::default();
+        selection.select(selected(
+            occurrence,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Wall,
+                id: "wall-endpoint".to_owned(),
+            },
+        ));
+
+        let error = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::X),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("semantic/domain transform adapters"));
+        assert_eq!(revision, document.revision());
+    }
+}

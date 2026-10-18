@@ -3,6 +3,7 @@
 use crate::geometry::Vec3;
 
 pub mod shapes;
+pub mod transforms;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum DrawingTool {
