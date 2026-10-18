@@ -8,7 +8,7 @@ use flate2::write::GzEncoder;
 use meshcraft_core::document::Document;
 use meshcraft_core::legacy::{export_current_value, import_current_value};
 use meshcraft_core::transactions::{
-    LegacyHistoryDecoder, OpaqueLegacyHistory, OpaqueLegacyUndoEntry,
+    HistorySnapshot, LegacyHistoryDecoder, OpaqueLegacyHistory, OpaqueLegacyUndoEntry,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -256,6 +256,65 @@ pub fn write_project(
     encode_valid_project_json(&json)
 }
 
+/// Encodes the current transaction timeline in the schema-17 undo-history format.
+///
+/// Camera state is session state rather than authored document history, so the active camera pose
+/// is merged into every snapshot before it is exported.
+pub fn encode_native_history(
+    timeline: &[HistorySnapshot],
+    cursor: usize,
+    camera_state: &Value,
+) -> Result<OpaqueLegacyHistory, ProjectError> {
+    if timeline.is_empty() || cursor >= timeline.len() {
+        return Err(ProjectError::InvalidHistory(
+            "native history must have snapshots and a cursor within the timeline".to_owned(),
+        ));
+    }
+    let max_entries = i32::try_from(timeline.len()).map_err(|_| {
+        ProjectError::InvalidHistory("native history contains too many snapshots".to_owned())
+    })?;
+
+    let mut entries = Vec::with_capacity(timeline.len());
+    for snapshot in timeline {
+        let document = meshcraft_core::legacy::snapshot_with_legacy_camera_state(
+            &snapshot.document,
+            camera_state.clone(),
+        )
+        .map_err(ProjectError::InvalidModel)?;
+        let value = export_current_value(&document).map_err(ProjectError::InvalidModel)?;
+        let json = serde_json::to_vec(&value)
+            .map_err(|error| ProjectError::InvalidJson(error.to_string()))?;
+        if json.len() > DEFAULT_MAX_DECODED_BYTES {
+            return Err(ProjectError::PayloadTooLarge {
+                limit_bytes: DEFAULT_MAX_DECODED_BYTES,
+            });
+        }
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(&json)
+            .map_err(|error| ProjectError::InvalidCompression(error.to_string()))?;
+        let compressed = encoder
+            .finish()
+            .map_err(|error| ProjectError::InvalidCompression(error.to_string()))?;
+        entries.push(OpaqueLegacyUndoEntry {
+            data: BASE64_STANDARD.encode(compressed),
+            label: snapshot.label.clone(),
+            timestamp_millis: snapshot.timestamp_millis,
+            diagnostic: None,
+            extensions: BTreeMap::new(),
+        });
+    }
+
+    Ok(OpaqueLegacyHistory {
+        max_entries,
+        index: i32::try_from(cursor).map_err(|_| {
+            ProjectError::InvalidHistory("native history cursor is out of range".to_owned())
+        })?,
+        entries,
+        extensions: BTreeMap::new(),
+    })
+}
+
 fn legacy_history_value(history: &OpaqueLegacyHistory) -> Value {
     let mut root = history
         .extensions
@@ -441,8 +500,8 @@ fn unknown_fields(object: &Map<String, Value>, known: &[&str]) -> BTreeMap<Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        LegacySnapshotAdapter, ProjectError, decode_project_payload, encode_project_json,
-        read_project, read_project_with, write_project,
+        LegacySnapshotAdapter, ProjectError, decode_project_payload, encode_native_history,
+        encode_project_json, export_current_value, read_project, read_project_with, write_project,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -450,7 +509,10 @@ mod tests {
     use flate2::write::GzEncoder;
     use meshcraft_core::document::Document;
     use meshcraft_core::geometry::Vec3;
-    use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
+    use meshcraft_core::transactions::{
+        HistoryLimits, LegacyHistoryDecoder, OpaqueLegacyHistory, OpaqueLegacyUndoEntry,
+        SystemHistoryClock, TransactionHistory,
+    };
     use serde_json::{Value, json};
     use std::collections::BTreeMap;
     use std::io::Write;
@@ -531,6 +593,73 @@ mod tests {
             imported.document.occurrence_refs().unwrap().len(),
             reopened.document.occurrence_refs().unwrap().len()
         );
+    }
+
+    #[test]
+    fn encodes_native_timeline_as_reopenable_legacy_history() {
+        let mut document = Document::new();
+        let mut timeline = TransactionHistory::new(SystemHistoryClock, HistoryLimits::default());
+        let mut pending = timeline.begin(&document, "Create cuboid");
+        pending
+            .stage(|draft| {
+                draft
+                    .add_cuboid("box", Vec3::new(2.0, 3.0, 4.0), Vec3::ZERO)
+                    .map(|_| ())
+                    .ok_or_else(|| "could not create cuboid".to_owned())
+            })
+            .unwrap();
+        timeline.commit(&mut document, pending).unwrap();
+        let snapshots = timeline.snapshot_timeline();
+        let camera_state = json!({
+            "position": {"x": 9.0, "y": 4.0, "z": -6.0},
+            "target": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "near": 0.2,
+            "far": 320.0,
+            "fieldOfView": 54.0
+        });
+
+        let encoded_history =
+            encode_native_history(&snapshots, timeline.cursor(), &camera_state).unwrap();
+        assert_eq!(2, encoded_history.max_entries);
+        assert_eq!(1, encoded_history.index);
+        assert_eq!(Some("Initial"), encoded_history.entries[0].label.as_deref());
+        assert_eq!(
+            Some("Create cuboid"),
+            encoded_history.entries[1].label.as_deref()
+        );
+
+        let encoded_project = write_project(&document, Some(&encoded_history)).unwrap();
+        let reopened = read_project(&encoded_project).unwrap();
+        let reopened_history = reopened.history.unwrap();
+        assert_eq!(2, reopened_history.entries.len());
+        assert_eq!(1, reopened_history.index);
+        for (snapshot, entry) in snapshots.iter().zip(&reopened_history.entries) {
+            let decoded = LegacySnapshotAdapter::default()
+                .decode_snapshot(&entry.data)
+                .unwrap();
+            let expected = meshcraft_core::legacy::snapshot_with_legacy_camera_state(
+                &snapshot.document,
+                camera_state.clone(),
+            )
+            .unwrap();
+            assert_eq!(
+                export_current_value(&expected).unwrap(),
+                export_current_value(&decoded).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_native_history_with_an_invalid_cursor() {
+        let snapshots = [meshcraft_core::transactions::HistorySnapshot {
+            document: Document::new(),
+            label: Some("Initial".to_owned()),
+            timestamp_millis: 0,
+        }];
+        assert!(matches!(
+            encode_native_history(&snapshots, 1, &json!({})),
+            Err(ProjectError::InvalidHistory(_))
+        ));
     }
 
     #[test]

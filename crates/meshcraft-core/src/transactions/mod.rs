@@ -173,6 +173,14 @@ pub struct HistoryEntryInfo {
     pub change_set: ChangeSet,
 }
 
+/// A document state and presentation metadata in a saveable history timeline.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistorySnapshot {
+    pub document: Document,
+    pub label: Option<String>,
+    pub timestamp_millis: i64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HistoryEntryOrigin {
     Native,
@@ -622,6 +630,31 @@ impl<C: HistoryClock> TransactionHistory<C> {
 
     pub fn entries(&self) -> &[HistoryEntryInfo] {
         &self.entries
+    }
+
+    /// Clones the bounded document timeline with labels and timestamps for persistence.
+    pub fn snapshot_timeline(&self) -> Vec<HistorySnapshot> {
+        self.states
+            .iter()
+            .enumerate()
+            .map(|(index, state)| {
+                match index
+                    .checked_sub(1)
+                    .and_then(|entry| self.entries.get(entry))
+                {
+                    Some(entry) => HistorySnapshot {
+                        document: state.document.clone(),
+                        label: Some(entry.label.clone()),
+                        timestamp_millis: entry.timestamp_millis,
+                    },
+                    None => HistorySnapshot {
+                        document: state.document.clone(),
+                        label: Some("Initial".to_owned()),
+                        timestamp_millis: 0,
+                    },
+                }
+            })
+            .collect()
     }
 
     pub fn cursor(&self) -> usize {

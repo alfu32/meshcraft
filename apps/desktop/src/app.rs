@@ -17,7 +17,9 @@ use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use meshcraft_io::project::{DecodeProgress, read_project_with, write_project};
+use meshcraft_io::project::{
+    DecodeProgress, encode_native_history, read_project_with, write_project,
+};
 use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1611,16 +1613,32 @@ impl MeshcraftApp {
         };
         let document_is_dirty = self.document_is_dirty();
         let dropped_legacy_history = document_is_dirty && self.legacy_history.is_some();
-        let history = if document_is_dirty {
+        let imported_history = if document_is_dirty {
             None
         } else {
             self.legacy_history.clone()
         };
+        let native_history = (document_is_dirty && !self.history.entries().is_empty()).then(|| {
+            (
+                self.history.snapshot_timeline(),
+                self.history.cursor(),
+                self.viewport.legacy_camera_state(),
+            )
+        });
         let worker_path = path.clone();
         let (sender, receiver) = mpsc::channel();
         let worker_name = job_id.clone();
         let spawn_result = thread::Builder::new().name(worker_name).spawn(move || {
-            let result = write_project_file(&worker_path, &document, history.as_ref());
+            let result = (|| {
+                let history = match native_history {
+                    Some((timeline, cursor, camera_state)) => Some(
+                        encode_native_history(&timeline, cursor, &camera_state)
+                            .map_err(|error| error.to_string())?,
+                    ),
+                    None => imported_history,
+                };
+                write_project_file(&worker_path, &document, history.as_ref())
+            })();
             let _ = sender.send(result);
         });
         if let Err(error) = spawn_result {
@@ -1666,7 +1684,7 @@ impl MeshcraftApp {
                 };
                 if pending.dropped_legacy_history {
                     self.status.push_str(
-                        " Imported undo snapshots were cleared because they no longer match the saved model.",
+                        " Imported undo snapshots were discarded because they predate these edits; current session history was saved when available.",
                     );
                 }
                 self.job_results
@@ -5580,7 +5598,28 @@ mod tests {
         );
         assert_eq!(saved_camera["target"], restored_camera["target"]);
         assert_eq!(saved_camera["fieldOfView"], restored_camera["fieldOfView"]);
-        assert!(reopened.history.is_none());
+        let saved_history = reopened.history.as_ref().unwrap();
+        assert_eq!(2, saved_history.entries.len());
+        assert_eq!(1, saved_history.index);
+
+        let mut reopened_app = test_app();
+        let load_job = start_project_load(&mut reopened_app, &path);
+        wait_for_project_load(&mut reopened_app, &load_job);
+        assert_eq!(1, reopened_app.document.occurrence_refs().unwrap().len());
+        reopened_app.run_command("edit.undo");
+        assert!(
+            reopened_app
+                .document
+                .definitions()
+                .all(|definition| definition.geometry.triangles.is_empty())
+        );
+        reopened_app.run_command("edit.redo");
+        assert!(
+            reopened_app
+                .document
+                .definitions()
+                .any(|definition| !definition.geometry.triangles.is_empty())
+        );
 
         app.legacy_history = Some(OpaqueLegacyHistory {
             max_entries: 4,
@@ -5615,8 +5654,13 @@ mod tests {
         let reopened = read_project(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(1, reopened.document.occurrence_refs().unwrap().len());
         assert_eq!(2.0, reopened.document.model_settings().grid_size);
-        assert!(reopened.history.is_none());
-        assert!(app.status.contains("Imported undo snapshots were cleared"));
+        let saved_history = reopened.history.as_ref().unwrap();
+        assert_eq!(3, saved_history.entries.len());
+        assert_eq!(2, saved_history.index);
+        assert!(
+            app.status
+                .contains("Imported undo snapshots were discarded")
+        );
 
         let job_id = start_project_load(&mut app, &path);
         wait_for_project_load(&mut app, &job_id);
