@@ -619,6 +619,68 @@ impl Viewport {
         )
     }
 
+    pub fn guide_index_at(
+        &self,
+        rect: Rect,
+        position: Pos2,
+        guides: &[ConstructionGuide],
+        grid_spacing: f64,
+        snap_radius: f32,
+    ) -> Option<usize> {
+        if !grid_spacing.is_finite()
+            || grid_spacing <= 0.0
+            || !snap_radius.is_finite()
+            || snap_radius < 0.0
+        {
+            return None;
+        }
+        let extent = grid_spacing * 10.0;
+        let radius_squared = snap_radius * snap_radius;
+        let mut best: Option<(f32, usize)> = None;
+        for (index, guide) in guides.iter().enumerate() {
+            let mut consider_segment = |start: Vec3, end: Vec3| {
+                let (Some(start), Some(end)) = (
+                    self.project_if_visible(rect, start),
+                    self.project_if_visible(rect, end),
+                ) else {
+                    return;
+                };
+                let distance = distance_to_segment_squared(position, start, end);
+                if distance <= radius_squared
+                    && best.is_none_or(|(best_distance, _)| distance < best_distance)
+                {
+                    best = Some((distance, index));
+                }
+            };
+            match guide.kind {
+                ConstructionGuideKind::Grid => {
+                    for (_, axis_u, axis_v) in guide.planes() {
+                        for step in -10..=10 {
+                            let offset = f64::from(step) * grid_spacing;
+                            consider_segment(
+                                guide.origin + axis_u * offset - axis_v * extent,
+                                guide.origin + axis_u * offset + axis_v * extent,
+                            );
+                            consider_segment(
+                                guide.origin + axis_v * offset - axis_u * extent,
+                                guide.origin + axis_v * offset + axis_u * extent,
+                            );
+                        }
+                    }
+                }
+                ConstructionGuideKind::Axis => {
+                    for axis in [guide.axis_u, guide.axis_v, guide.axis_w] {
+                        consider_segment(
+                            guide.origin - axis * extent,
+                            guide.origin + axis * extent,
+                        );
+                    }
+                }
+            }
+        }
+        best.map(|(_, index)| index)
+    }
+
     /// Snaps a logical-pixel pointer to visible model geometry or the active construction grid.
     /// The caller supplies a radius in egui points, converted from the configured pixel radius.
     #[cfg(test)]

@@ -547,6 +547,7 @@ enum ShellAction {
     SelectTool(&'static str),
     SelectToolAlias(&'static str),
     PlaceGuide(ConstructionGuideKind),
+    RemoveGuide,
     AddCuboid,
     CopySelection,
     DeleteSelection,
@@ -910,6 +911,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::ClearGuides,
             ),
             (
+                "view.guide.remove",
+                "View> Remove Guide",
+                "View",
+                "construction guide remove delete pick click",
+                None,
+                ShellAction::RemoveGuide,
+            ),
+            (
                 "view.workspace.reset_layout",
                 "View> Reset Workspace Layout",
                 "View",
@@ -1137,7 +1146,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
     match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
-        | ShellAction::PlaceGuide(_) => CommandKind::ToolActivation,
+        | ShellAction::PlaceGuide(_)
+        | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
@@ -1195,6 +1205,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::PlaceGuide(ConstructionGuideKind::Grid) => {
             CommandStateQuery::ActiveTool("Grid Guide".to_owned())
         }
+        ShellAction::RemoveGuide => CommandStateQuery::ActiveTool("Remove Guide".to_owned()),
         ShellAction::SetProfile(profile) => {
             CommandStateQuery::ActiveProfile(profile.label().to_owned())
         }
@@ -1248,6 +1259,7 @@ fn register_shell_command(
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
         | ShellAction::PlaceGuide(_)
+        | ShellAction::RemoveGuide
         | ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
         | ShellAction::SetWalkthroughView
@@ -2620,6 +2632,14 @@ impl MeshcraftApp {
                 }
                 .to_owned();
             }
+            ShellAction::RemoveGuide => {
+                self.active_tool = "Remove Guide".to_owned();
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.line_first = None;
+                self.rectangle_first = None;
+                self.status = "Remove Guide: click a visible construction guide.".to_owned();
+            }
             ShellAction::AddCuboid => {
                 let dimensions = match payload_vec3(payload, "dimensions", Vec3::new(2.0, 2.0, 2.0))
                 {
@@ -3448,6 +3468,28 @@ impl MeshcraftApp {
         position: egui::Pos2,
         snap: Option<SnapResult>,
     ) {
+        if self.active_tool == "Remove Guide" {
+            let guides = if self.preferences.show_construction_guides {
+                self.guides.as_slice()
+            } else {
+                &[]
+            };
+            let guide_index = self.viewport.guide_index_at(
+                rect,
+                position,
+                guides,
+                self.document.model_settings().grid_size,
+                10.0,
+            );
+            if let Some(index) = guide_index {
+                self.guides.remove(index);
+                self.status = "Construction guide removed.".to_owned();
+            } else {
+                self.status = "No visible construction guide near the pointer.".to_owned();
+            }
+            self.active_tool = "Select".to_owned();
+            return;
+        }
         if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
             let point = snap.map(|snap| (snap.point, snap.normal)).or_else(|| {
                 self.viewport
@@ -5401,7 +5443,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(196, entries.len());
+        assert_eq!(197, entries.len());
         assert_eq!(
             74,
             entries
@@ -5794,6 +5836,11 @@ mod tests {
                 .expect("guide control is available in the command palette");
             assert_eq!(CommandKind::SessionMutation, command.kind);
         }
+        let remove_command = commands
+            .iter()
+            .find(|command| command.id.as_str() == "view.guide.remove")
+            .expect("guide removal is available in the command palette");
+        assert_eq!(CommandKind::ToolActivation, remove_command.kind);
         assert_eq!(
             Some(true),
             app.query_command_state("view.guides.toggle").checked
@@ -5807,6 +5854,20 @@ mod tests {
 
         app.run_command("view.guides.clear");
         assert!(app.guides.is_empty());
+        assert_eq!(initial_revision, app.document.revision());
+        app.run_command("view.guides.toggle");
+        assert!(app.preferences.show_construction_guides);
+
+        app.guides.push(
+            ConstructionGuide::at_point(ConstructionGuideKind::Axis, Vec3::ZERO, Vec3::Y)
+                .expect("axis guide basis"),
+        );
+        app.run_command("view.guide.remove");
+        let viewport_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let guide_origin = app.viewport.world_to_screen(viewport_rect, Vec3::ZERO);
+        app.handle_viewport_click(viewport_rect, guide_origin, None);
+        assert!(app.guides.is_empty());
+        assert_eq!("Select", app.active_tool);
         assert_eq!(initial_revision, app.document.revision());
     }
 
