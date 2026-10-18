@@ -6044,12 +6044,13 @@ impl MeshcraftApp {
         self.selection
             .apply(report.selected_results.clone(), SelectionMode::Replace);
         self.status = format!(
-            "Exploded {} object(s) into {} edge(s), {} face(s), {} dimension(s) and {} text item(s).",
+            "Exploded {} object(s) into {} edge(s), {} face(s), {} dimension(s), {} text item(s) and {} vector text outline(s).",
             report.exploded_occurrences,
             report.segments,
             report.triangles,
             report.dimensions,
-            report.texts
+            report.texts,
+            report.vector_texts
         );
         let mut result = CommandResult::completed();
         result.outputs.insert(
@@ -6068,6 +6069,9 @@ impl MeshcraftApp {
         result
             .outputs
             .insert("text_count".to_owned(), report.texts.into());
+        result
+            .outputs
+            .insert("vector_text_count".to_owned(), report.vector_texts.into());
         let result_occurrences = report
             .selected_results
             .iter()

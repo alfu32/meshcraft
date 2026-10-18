@@ -28,6 +28,7 @@ pub struct ExplodeReport {
     pub triangles: usize,
     pub dimensions: usize,
     pub texts: usize,
+    pub vector_texts: usize,
     pub selected_results: Vec<SelectionTarget>,
 }
 
@@ -36,6 +37,7 @@ pub struct ExplodeReport {
 pub struct ExplodeContent {
     pub geometry: GeometryBundle,
     pub domain_records: BTreeMap<String, Vec<Value>>,
+    pub vector_texts: usize,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -340,7 +342,7 @@ pub fn delete_selection(
 pub trait ObjectExplodeAdapter {
     fn append_resolved_content(
         &self,
-        document: &Document,
+        document: &mut Document,
         occurrence: &OccurrenceRef,
         transform_to_parent: Affine3,
         output: &mut ExplodeContent,
@@ -354,7 +356,7 @@ pub struct MeshOnlyExplodeAdapter;
 impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
     fn append_resolved_content(
         &self,
-        document: &Document,
+        document: &mut Document,
         occurrence: &OccurrenceRef,
         _transform_to_parent: Affine3,
         _output: &mut ExplodeContent,
@@ -398,41 +400,64 @@ pub struct LegacyAnnotationExplodeAdapter;
 impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
     fn append_resolved_content(
         &self,
-        document: &Document,
+        document: &mut Document,
         occurrence: &OccurrenceRef,
         transform_to_parent: Affine3,
         output: &mut ExplodeContent,
     ) -> Result<(), String> {
-        let resolved = document
-            .resolve_occurrence(occurrence)
-            .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
-        if !resolved.definition.domain_data.is_empty()
-            || resolved
-                .definition
-                .domain_entity_ids
-                .iter()
-                .any(|(field, identities)| {
-                    !identities.is_empty() && field != "dimensions" && field != "texts"
-                })
-            || resolved.edits.is_some_and(|edits| {
-                !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
+        let (
+            definition_name,
+            has_domain_data,
+            domain_entity_ids,
+            has_unsupported_edits,
+            extensions,
+        ) = {
+            let resolved = document
+                .resolve_occurrence(occurrence)
+                .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
+            (
+                resolved.definition.name.clone(),
+                !resolved.definition.domain_data.is_empty(),
+                resolved.definition.domain_entity_ids.clone(),
+                resolved.edits.is_some_and(|edits| {
+                    !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
+                }),
+                resolved.definition.extensions.clone(),
+            )
+        };
+        if has_domain_data
+            || domain_entity_ids.iter().any(|(field, identities)| {
+                !identities.is_empty() && field != "dimensions" && field != "texts"
             })
+            || has_unsupported_edits
         {
             return Err(format!(
-                "object {:?} contains domain content without an explode adapter",
-                resolved.definition.name
+                "object {definition_name:?} contains domain content without an explode adapter"
             ));
         }
         for field in ["dimensions", "texts"] {
-            let Some(records) = resolved
-                .definition
-                .extensions
+            let Some(records) = extensions
                 .get(&format!("k3d.{field}"))
                 .and_then(Value::as_array)
             else {
                 continue;
             };
             for record in records {
+                if field == "texts"
+                    && record
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("VECTOR"))
+                {
+                    super::vector_text::append_vector_text(
+                        document,
+                        &mut output.geometry,
+                        record,
+                        transform_to_parent,
+                    )?;
+                    output.vector_texts += 1;
+                    continue;
+                }
                 output
                     .domain_records
                     .entry(field.to_owned())
@@ -1443,6 +1468,7 @@ pub fn explode_occurrences(
         report.triangles += content.geometry.triangles.len();
         report.dimensions += content.domain_records.get("dimensions").map_or(0, Vec::len);
         report.texts += content.domain_records.get("texts").map_or(0, Vec::len);
+        report.vector_texts += content.vector_texts;
         let vertex_ids = content
             .geometry
             .vertices
@@ -2132,6 +2158,15 @@ mod tests {
                     "size": 0.1,
                     "normal": {"x": 0, "y": 0, "z": 0},
                     "axisU": {"x": 0, "y": 0, "z": 0}
+                },
+                {
+                    "position": {"x": 0, "y": 0, "z": 0},
+                    "text": "A",
+                    "size": 0.5,
+                    "normal": {"x": 0, "y": 1, "z": 0},
+                    "axisU": {"x": 1, "y": 0, "z": 0},
+                    "kind": "VECTOR",
+                    "glyphSourcePath": "embedded:alphabet"
                 }
             ]),
         );
@@ -2140,7 +2175,11 @@ mod tests {
             .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
         definition.domain_entity_ids.insert(
             "texts".to_owned(),
-            vec!["text-1".to_owned(), "text-2".to_owned()],
+            vec![
+                "text-1".to_owned(),
+                "text-2".to_owned(),
+                "text-3".to_owned(),
+            ],
         );
         let placed_id = document
             .add_layout_entry(
@@ -2161,6 +2200,8 @@ mod tests {
 
         assert_eq!(1, report.dimensions);
         assert_eq!(2, report.texts);
+        assert_eq!(1, report.vector_texts);
+        assert!(report.segments > 12);
         let dimension_target = report
             .selected_results
             .iter()
@@ -2214,6 +2255,14 @@ mod tests {
             prototype["dimensions"][0]["start"]
         );
         assert_eq!(2, prototype["texts"].as_array().unwrap().len());
+        assert!(
+            !prototype["texts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|text| text["text"] == "A")
+        );
+        assert!(prototype["segments"].as_array().unwrap().len() > 12);
         assert!(prototype["dimensions"][0].get("id").is_none());
         assert!(prototype["texts"][0].get("id").is_none());
     }
@@ -2290,6 +2339,44 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("domain content without an explode adapter"));
+        assert_eq!(before, document);
+    }
+
+    #[test]
+    fn vector_text_explode_rejects_unavailable_glyph_source_atomically() {
+        let mut document = Document::new();
+        let instance = cube(&mut document, "custom font", Vec3::ZERO);
+        let definition_id = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            serde_json::json!([{
+                "position": {"x": 0, "y": 0, "z": 0},
+                "text": "Meshcraft",
+                "size": 1,
+                "normal": {"x": 0, "y": 1, "z": 0},
+                "axisU": {"x": 1, "y": 0, "z": 0},
+                "kind": "VECTOR",
+                "glyphSourcePath": "custom:engineering-font"
+            }]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("texts".to_owned(), vec!["text-1".to_owned()]);
+        let before = document.clone();
+
+        let error = explode_occurrences(
+            &mut document,
+            std::slice::from_ref(&instance),
+            &LegacyAnnotationExplodeAdapter,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("glyph source"));
         assert_eq!(before, document);
     }
 
