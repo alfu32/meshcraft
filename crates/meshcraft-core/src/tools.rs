@@ -3,6 +3,7 @@
 use crate::geometry::Vec3;
 
 pub mod object_place;
+pub mod paths;
 pub mod shapes;
 pub mod transforms;
 

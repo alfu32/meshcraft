@@ -386,6 +386,9 @@ pub struct ModelSettings {
     pub circle_segments: u32,
     /// Screen-space snapping radius, matching the legacy `snapEpsilon` setting.
     pub snap_radius: f64,
+    pub arc_max_length: f64,
+    pub double_line_size: f64,
+    pub double_line_offset: f64,
 }
 
 impl Default for ModelSettings {
@@ -396,6 +399,9 @@ impl Default for ModelSettings {
             grid_size: 1.0,
             circle_segments: 24,
             snap_radius: 12.0,
+            arc_max_length: 0.5,
+            double_line_size: 1.0,
+            double_line_offset: 0.5,
         }
     }
 }
@@ -420,6 +426,15 @@ impl ModelSettings {
         }
         if !self.snap_radius.is_finite() || !(0.0..=128.0).contains(&self.snap_radius) {
             return Err("snap radius must be between 0 and 128 pixels".to_owned());
+        }
+        if !self.arc_max_length.is_finite() || self.arc_max_length <= 0.0 {
+            return Err("arc maximum length must be finite and positive".to_owned());
+        }
+        if !self.double_line_size.is_finite() || self.double_line_size <= 0.0 {
+            return Err("double-line size must be finite and positive".to_owned());
+        }
+        if !self.double_line_offset.is_finite() {
+            return Err("double-line offset must be finite".to_owned());
         }
         Ok(())
     }
@@ -1001,6 +1016,7 @@ impl Document {
     }
 
     /// Inserts planar edges through the ordinary line topology path, then appends authored faces.
+    /// An empty face list represents a line-only path.
     pub fn append_planar_mesh_to_definition(
         &mut self,
         definition_id: DefinitionId,
@@ -1012,8 +1028,8 @@ impl Document {
             return Err(format!("missing definition {}", definition_id.0));
         }
         validate_indexed_geometry_input(&vertices, &segments, &triangles)?;
-        if segments.is_empty() || triangles.is_empty() {
-            return Err("planar shapes need boundary segments and filled triangles".to_owned());
+        if segments.is_empty() {
+            return Err("planar geometry needs at least one segment".to_owned());
         }
 
         let mut geometry = self.definitions[&definition_id].geometry.clone();

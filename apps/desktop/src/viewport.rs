@@ -22,6 +22,188 @@ const WALK_EYE_HEIGHT: f64 = 6.0;
 const WALK_LOOK_RADIANS_PER_PIXEL: f64 = 0.25_f64.to_radians();
 const WALK_PAN_UNITS_PER_PIXEL: f64 = 0.05;
 const WALK_SCROLL_MOVE_SCALE: f64 = 0.2;
+const SHADOW_MAP_RESOLUTION: usize = 192;
+const GROUND_SHADOW_RESOLUTION: usize = 96;
+
+fn shadow_light_direction() -> Vec3 {
+    Vec3::new(-0.45, 0.82, 0.35)
+        .try_normalized(1.0e-12)
+        .unwrap_or(Vec3::Y)
+}
+
+#[derive(Clone, Copy)]
+struct WorldTriangle {
+    points: [Vec3; 3],
+}
+
+struct ShadowMap {
+    light_direction: Vec3,
+    axis_u: Vec3,
+    axis_v: Vec3,
+    min_u: f64,
+    min_v: f64,
+    span_u: f64,
+    span_v: f64,
+    depth_bias: f64,
+    depths: Vec<f64>,
+}
+
+impl ShadowMap {
+    fn build(triangles: &[WorldTriangle]) -> Option<Self> {
+        if triangles.is_empty() {
+            return None;
+        }
+        let light_direction = shadow_light_direction();
+        let reference = if light_direction.y.abs() < 0.95 {
+            Vec3::Y
+        } else {
+            Vec3::X
+        };
+        let axis_u = reference.cross(light_direction).try_normalized(1.0e-12)?;
+        let axis_v = light_direction.cross(axis_u).try_normalized(1.0e-12)?;
+        let projected = triangles
+            .iter()
+            .flat_map(|triangle| triangle.points)
+            .map(|point| (point.dot(axis_u), point.dot(axis_v)))
+            .collect::<Vec<_>>();
+        let (mut min_u, mut max_u, mut min_v, mut max_v) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for (u, v) in projected {
+            min_u = min_u.min(u);
+            max_u = max_u.max(u);
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
+        let padding = ((max_u - min_u).max(max_v - min_v) * 0.02).max(1.0e-4);
+        min_u -= padding;
+        max_u += padding;
+        min_v -= padding;
+        max_v += padding;
+        let span_u = (max_u - min_u).max(1.0e-4);
+        let span_v = (max_v - min_v).max(1.0e-4);
+        let cell_world_size = span_u.max(span_v) / SHADOW_MAP_RESOLUTION as f64;
+        let mut map = Self {
+            light_direction,
+            axis_u,
+            axis_v,
+            min_u,
+            min_v,
+            span_u,
+            span_v,
+            depth_bias: cell_world_size * 0.6,
+            depths: vec![f64::NEG_INFINITY; SHADOW_MAP_RESOLUTION * SHADOW_MAP_RESOLUTION],
+        };
+        for triangle in triangles {
+            map.rasterize(triangle.points);
+        }
+        Some(map)
+    }
+
+    fn screen_point(&self, point: Vec3) -> [f64; 2] {
+        [
+            (point.dot(self.axis_u) - self.min_u) / self.span_u
+                * (SHADOW_MAP_RESOLUTION - 1) as f64,
+            (point.dot(self.axis_v) - self.min_v) / self.span_v
+                * (SHADOW_MAP_RESOLUTION - 1) as f64,
+        ]
+    }
+
+    fn rasterize(&mut self, points: [Vec3; 3]) {
+        let screen = points.map(|point| self.screen_point(point));
+        let min_x = screen
+            .iter()
+            .map(|point| point[0].floor() as i32)
+            .min()
+            .unwrap_or(0)
+            .clamp(0, SHADOW_MAP_RESOLUTION as i32 - 1);
+        let max_x = screen
+            .iter()
+            .map(|point| point[0].ceil() as i32)
+            .max()
+            .unwrap_or(0)
+            .clamp(0, SHADOW_MAP_RESOLUTION as i32 - 1);
+        let min_y = screen
+            .iter()
+            .map(|point| point[1].floor() as i32)
+            .min()
+            .unwrap_or(0)
+            .clamp(0, SHADOW_MAP_RESOLUTION as i32 - 1);
+        let max_y = screen
+            .iter()
+            .map(|point| point[1].ceil() as i32)
+            .max()
+            .unwrap_or(0)
+            .clamp(0, SHADOW_MAP_RESOLUTION as i32 - 1);
+        let denominator = (screen[1][1] - screen[2][1]) * (screen[0][0] - screen[2][0])
+            + (screen[2][0] - screen[1][0]) * (screen[0][1] - screen[2][1]);
+        if denominator.abs() <= 1.0e-12 {
+            return;
+        }
+        let depths = points.map(|point| point.dot(self.light_direction));
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let sample = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+                let first = ((screen[1][1] - screen[2][1]) * (sample[0] - screen[2][0])
+                    + (screen[2][0] - screen[1][0]) * (sample[1] - screen[2][1]))
+                    / denominator;
+                let second = ((screen[2][1] - screen[0][1]) * (sample[0] - screen[2][0])
+                    + (screen[0][0] - screen[2][0]) * (sample[1] - screen[2][1]))
+                    / denominator;
+                let third = 1.0 - first - second;
+                if first < -1.0e-8 || second < -1.0e-8 || third < -1.0e-8 {
+                    continue;
+                }
+                let depth = first * depths[0] + second * depths[1] + third * depths[2];
+                let index = y as usize * SHADOW_MAP_RESOLUTION + x as usize;
+                self.depths[index] = self.depths[index].max(depth);
+            }
+        }
+    }
+
+    fn shadow_coverage(&self, point: Vec3, normal: Vec3) -> f32 {
+        let screen = self.screen_point(point);
+        if screen.iter().any(|coordinate| {
+            !coordinate.is_finite()
+                || *coordinate < 0.0
+                || *coordinate >= SHADOW_MAP_RESOLUTION as f64
+        }) {
+            return 0.0;
+        }
+        let receiver_depth = point.dot(self.light_direction);
+        let grazing_bias = self.depth_bias
+            + (1.0 - normal.dot(self.light_direction).abs().clamp(0.0, 1.0))
+                * self.depth_bias
+                * 2.0;
+        let center = [screen[0].round() as i32, screen[1].round() as i32];
+        let mut occluded = 0_u32;
+        let mut samples = 0_u32;
+        for offset_y in -1..=1 {
+            for offset_x in -1..=1 {
+                let x = center[0] + offset_x;
+                let y = center[1] + offset_y;
+                if !(0..SHADOW_MAP_RESOLUTION as i32).contains(&x)
+                    || !(0..SHADOW_MAP_RESOLUTION as i32).contains(&y)
+                {
+                    continue;
+                }
+                samples += 1;
+                let depth = self.depths[y as usize * SHADOW_MAP_RESOLUTION + x as usize];
+                if depth.is_finite() && depth > receiver_depth + grazing_bias {
+                    occluded += 1;
+                }
+            }
+        }
+        if samples == 0 {
+            0.0
+        } else {
+            occluded as f32 / samples as f32
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WalkthroughTuning {
@@ -82,6 +264,10 @@ pub enum ToolPreview {
         outline: Vec<Vec3>,
         closed: bool,
         measurements: Vec<ShapeMeasurement>,
+    },
+    Polyline {
+        outline: Vec<Vec3>,
+        closed: bool,
     },
     Transform {
         edges: Vec<[Vec3; 2]>,
@@ -609,16 +795,13 @@ impl Viewport {
             }
         }
 
+        let world_triangles =
+            collect_world_triangles(scene.document, scene.scope, scene.display_policy);
+        let shadow_map = ShadowMap::build(&world_triangles);
+        self.draw_ground_shadows(&painter, rect, &world_triangles, shadow_map.as_ref());
         self.update_adaptive_grid(scene.snap, scene.grid, scene.guides);
         self.draw_grid(&painter, rect, scene.grid);
-        self.draw_document(
-            &painter,
-            rect,
-            scene.document,
-            scene.selection,
-            scene.scope,
-            scene.display_policy,
-        );
+        self.draw_document(&painter, rect, scene, shadow_map.as_ref());
         self.draw_guides(&painter, rect, scene.guides, scene.grid, false);
         if let Some(cloud) = self.adaptive_grid_cloud {
             self.draw_adaptive_grid_cloud(&painter, rect, cloud, scene.grid.spacing);
@@ -644,6 +827,9 @@ impl Viewport {
                     measurements,
                 } => {
                     self.draw_planar_shape_preview(&painter, rect, outline, *closed, measurements);
+                }
+                ToolPreview::Polyline { outline, closed } => {
+                    self.draw_polyline_preview(&painter, rect, outline, *closed);
                 }
                 ToolPreview::Transform { edges } => {
                     self.draw_transform_preview(&painter, rect, edges);
@@ -2815,15 +3001,93 @@ impl Viewport {
         }
     }
 
+    fn draw_ground_shadows(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        triangles: &[WorldTriangle],
+        shadow_map: Option<&ShadowMap>,
+    ) {
+        let Some(shadow_map) = shadow_map else {
+            return;
+        };
+        let light = shadow_map.light_direction;
+        if light.y <= 1.0e-6 {
+            return;
+        }
+        let mut bounds = [
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        for point in triangles.iter().flat_map(|triangle| triangle.points) {
+            let mut include = |x: f64, z: f64| {
+                bounds[0] = bounds[0].min(x);
+                bounds[1] = bounds[1].max(x);
+                bounds[2] = bounds[2].min(z);
+                bounds[3] = bounds[3].max(z);
+            };
+            if point.y >= 0.0 {
+                include(point.x, point.z);
+            }
+            if point.y > 1.0e-8 {
+                let distance = point.y / light.y;
+                include(point.x - light.x * distance, point.z - light.z * distance);
+            }
+        }
+        let extent = (bounds[1] - bounds[0]).max(bounds[3] - bounds[2]);
+        if !extent.is_finite() || extent <= 1.0e-8 {
+            return;
+        }
+        let spacing_x = (bounds[1] - bounds[0]) / GROUND_SHADOW_RESOLUTION as f64;
+        let spacing_z = (bounds[3] - bounds[2]) / GROUND_SHADOW_RESOLUTION as f64;
+        if spacing_x <= 1.0e-8 || spacing_z <= 1.0e-8 {
+            return;
+        }
+        for row in 0..GROUND_SHADOW_RESOLUTION {
+            for column in 0..GROUND_SHADOW_RESOLUTION {
+                let min_x = bounds[0] + column as f64 * spacing_x;
+                let min_z = bounds[2] + row as f64 * spacing_z;
+                let center = Vec3::new(min_x + spacing_x * 0.5, 0.0, min_z + spacing_z * 0.5);
+                let coverage = shadow_map.shadow_coverage(center, Vec3::Y);
+                if coverage < 0.15 {
+                    continue;
+                }
+                let corners = [
+                    Vec3::new(min_x, 0.0, min_z),
+                    Vec3::new(min_x + spacing_x, 0.0, min_z),
+                    Vec3::new(min_x + spacing_x, 0.0, min_z + spacing_z),
+                    Vec3::new(min_x, 0.0, min_z + spacing_z),
+                ];
+                let Some(points) = corners
+                    .into_iter()
+                    .map(|point| self.project_if_visible(rect, point))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
+                let alpha = (coverage * 58.0).round().clamp(0.0, 58.0) as u8;
+                painter.add(Shape::convex_polygon(
+                    points,
+                    Color32::from_rgba_unmultiplied(34, 43, 55, alpha),
+                    Stroke::NONE,
+                ));
+            }
+        }
+    }
+
     fn draw_document(
         &self,
         painter: &egui::Painter,
         rect: Rect,
-        document: &Document,
-        selection: &[SelectionTarget],
-        scope: SnapScope<'_>,
-        policy: &SelectionDisplayPolicy,
+        scene: &ViewportScene<'_>,
+        shadow_map: Option<&ShadowMap>,
     ) {
+        let document = scene.document;
+        let selection = scene.selection;
+        let scope = scene.scope;
+        let policy = scene.display_policy;
         let Ok(occurrences) = document.scene_geometry_refs() else {
             return;
         };
@@ -2888,7 +3152,15 @@ impl Viewport {
                     let color = if selected_face {
                         Color32::from_rgba_unmultiplied(255, 163, 62, 116)
                     } else {
-                        color32(triangle.color)
+                        let color = orient_face_color(color32(triangle.color), facing > 0.0);
+                        let center = (world_points[0] + world_points[1] + world_points[2]) / 3.0;
+                        let normal = (world_points[1] - world_points[0])
+                            .cross(world_points[2] - world_points[0])
+                            .try_normalized(1.0e-12)
+                            .unwrap_or(Vec3::Y);
+                        let shadow = shadow_map
+                            .map_or(0.0, |shadow_map| shadow_map.shadow_coverage(center, normal));
+                        shade_face_for_shadow(color, shadow)
                     };
                     faces.push((depth, points, color));
                 }
@@ -3064,6 +3336,33 @@ impl Viewport {
             );
         }
     }
+
+    fn draw_polyline_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        outline: &[Vec3],
+        closed: bool,
+    ) {
+        if outline.len() < 2
+            || outline
+                .iter()
+                .any(|point| !self.point_in_front_of_camera(*point))
+        {
+            return;
+        }
+        let points = outline
+            .iter()
+            .map(|point| self.world_to_screen(rect, *point))
+            .collect::<Vec<_>>();
+        let stroke = Stroke::new(1.8, Color32::from_rgb(235, 105, 70));
+        for pair in points.windows(2) {
+            painter.line_segment([pair[0], pair[1]], stroke);
+        }
+        if closed {
+            painter.line_segment([*points.last().unwrap(), points[0]], stroke);
+        }
+    }
 }
 
 fn bounds_corners(bounds: meshcraft_core::geometry::Aabb3) -> [Vec3; 8] {
@@ -3083,6 +3382,61 @@ fn bounds_corners(bounds: meshcraft_core::geometry::Aabb3) -> [Vec3; 8] {
 
 fn color32(color: Rgba8) -> Color32 {
     Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, color.alpha)
+}
+
+fn orient_face_color(color: Color32, front_facing: bool) -> Color32 {
+    if front_facing {
+        return color;
+    }
+    let [red, green, blue, alpha] = color.to_array();
+    let tint = |channel: u8, factor: f32| (f32::from(channel) * factor).round() as u8;
+    Color32::from_rgba_premultiplied(tint(red, 0.76), tint(green, 0.80), tint(blue, 0.90), alpha)
+}
+
+fn shade_face_for_shadow(color: Color32, coverage: f32) -> Color32 {
+    let factor = 1.0 - coverage.clamp(0.0, 1.0) * 0.45;
+    let [red, green, blue, alpha] = color.to_array();
+    let shade = |channel: u8| (f32::from(channel) * factor).round() as u8;
+    Color32::from_rgba_premultiplied(shade(red), shade(green), shade(blue), alpha)
+}
+
+fn collect_world_triangles(
+    document: &Document,
+    scope: SnapScope<'_>,
+    policy: &SelectionDisplayPolicy,
+) -> Vec<WorldTriangle> {
+    if !policy.can_draw(SelectionKind::Face) || policy.state(SelectionKind::Face).wireframe {
+        return Vec::new();
+    }
+    let Ok(occurrences) = document.scene_geometry_refs() else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    for occurrence in occurrences {
+        if !scope.contains(document, &occurrence)
+            || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+        {
+            continue;
+        }
+        let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let Some(geometry) = document.effective_geometry(&occurrence) else {
+            continue;
+        };
+        for triangle in geometry.triangles.values() {
+            let [Some(a), Some(b), Some(c)] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            result.push(WorldTriangle {
+                points: [a, b, c].map(|point| resolved.world_transform.transform_point(point)),
+            });
+        }
+    }
+    result
 }
 
 fn edge_key(first: VertexId, second: VertexId) -> (VertexId, VertexId) {
@@ -3347,12 +3701,50 @@ mod tests {
     use super::{
         ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
         GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SelectedEntity,
-        SelectionDisplayPolicy, SelectionKind, SnapKind, SnapOptions, SnapResult, SnapScope,
-        SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
-        height_in_triangle_xz, point_in_triangle,
+        SelectionDisplayPolicy, SelectionKind, ShadowMap, SnapKind, SnapOptions, SnapResult,
+        SnapScope, SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, WorldTriangle,
+        cuboid_corners, height_in_triangle_xz, orient_face_color, point_in_triangle,
+        shade_face_for_shadow, shadow_light_direction,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
+
+    #[test]
+    fn back_faces_are_darker_and_slightly_bluer_than_front_faces() {
+        let front = egui::Color32::from_rgb(220, 220, 220);
+        let back = orient_face_color(front, false);
+        assert!(back.r() < front.r());
+        assert!(back.g() < front.g());
+        assert!(back.b() < front.b());
+        assert!(back.b() > back.r());
+        assert_eq!(front, orient_face_color(front, true));
+        assert_eq!(back, shade_face_for_shadow(back, 0.0));
+        let translucent = egui::Color32::from_rgba_unmultiplied(220, 180, 140, 96);
+        assert_eq!(translucent.a(), orient_face_color(translucent, false).a());
+        assert_eq!(translucent.a(), shade_face_for_shadow(translucent, 1.0).a());
+    }
+
+    #[test]
+    fn shadow_map_occludes_ground_but_does_not_shadow_its_own_horizontal_face() {
+        let caster = WorldTriangle {
+            points: [
+                Vec3::new(-1.0, 4.0, -1.0),
+                Vec3::new(1.0, 4.0, -1.0),
+                Vec3::new(0.0, 4.0, 1.0),
+            ],
+        };
+        let map = ShadowMap::build(&[caster]).expect("triangle creates a depth map");
+        let light = shadow_light_direction();
+        let face_center = Vec3::new(0.0, 4.0, -1.0 / 3.0);
+        let receiver = face_center - light * (face_center.y / light.y);
+
+        assert!(map.shadow_coverage(receiver, Vec3::Y) > 0.0);
+        assert_eq!(0.0, map.shadow_coverage(face_center, Vec3::Y));
+        assert_eq!(
+            0.0,
+            map.shadow_coverage(Vec3::new(100.0, 0.0, 100.0), Vec3::Y)
+        );
+    }
 
     fn run_viewport_frame(
         viewport: &mut Viewport,

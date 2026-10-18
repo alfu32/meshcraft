@@ -53,7 +53,7 @@ Source: `K/ui/{StatusModel,SketchUiOverlay}.kt`, feedback classes, runtime prefs
 
 ### R01 Interactive viewport
 
-**Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
+**Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
 
 Use incremental revisioned geometry buffers and per-instance transforms; avoid full-document snapshots and mesh rebuilds every frame. Keep display/picking/selection policies consistent and define transparent sorting/two-sided behavior using source scenarios. Basic flat/shaded rendering ships with the first viewport; later lighting/shadow work completes fidelity. Device loss/resize must not corrupt documents.
 
@@ -61,7 +61,7 @@ Source: real-time render/chunk paths in `K/Main.kt`, `K/render/SketchDefaultShad
 
 ### R02 Lighting and shadows
 
-**Observed.** Model settings serialize shadow/directional/ambient/specular values/alphas and shadow bias, normal bias, PCF mode, dither, CSM flag. Controls update real-time lighting. Initial defaults include directional 0.73, ambient 0.59, specular 0.2; legacy shadow numeric scales are unusual (2500/5620) and cannot be assigned directly to a different GPU pipeline.
+**Observed.** Model settings serialize shadow/directional/ambient/specular values/alphas and shadow bias, normal bias, PCF mode, dither, CSM flag. Controls update real-time lighting. Shadow maps cast entity shadows onto both the ground and other entities. Initial defaults include directional 0.73, ambient 0.59, specular 0.2; legacy shadow numeric scales are unusual (2500/5620) and cannot be assigned directly to a different GPU pipeline.
 
 Persist legacy fields and define an explicit conversion to the new renderer. Match intent and representative image outcomes, not shader-internal units. Check acne, peter-panning, orbit stability, ground extent, transformed instances, alpha, distant geometry, toggles and quality changes. Do not claim “CSM flag serialized” alone proves all cascade quality behavior.
 

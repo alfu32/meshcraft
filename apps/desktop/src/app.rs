@@ -24,6 +24,10 @@ use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
+    paths::{
+        PolylinePath, PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
+        build_polyline_mesh,
+    },
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
 };
@@ -971,7 +975,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.finish",
                 "Tool> Finish Current Input",
                 "Tools",
-                "line construction line finish enter commit chain",
+                "line construction line polyline finish enter commit chain",
                 Some("select"),
                 ShellAction::FinishToolInput,
             ),
@@ -979,7 +983,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.undo_point",
                 "Tool> Undo Last Point or Input",
                 "Tools",
-                "line construction line backspace undo point numeric input",
+                "line construction line polyline backspace undo point numeric input",
                 Some("undo"),
                 ShellAction::UndoToolPoint,
             ),
@@ -1253,6 +1257,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "select" => ShellAction::SelectToolAlias("Select"),
                 "line" => ShellAction::SelectToolAlias("Line"),
                 "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
+                "polyline" => ShellAction::SelectToolAlias("Polyline"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -1576,6 +1581,9 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("grid_size", CommandValueType::Number),
             ("circle_segments", CommandValueType::Integer),
             ("snap_radius", CommandValueType::Number),
+            ("arc_max_length", CommandValueType::Number),
+            ("double_line_size", CommandValueType::Number),
+            ("double_line_offset", CommandValueType::Number),
         ],
         "ui.update_preferences" => &[
             ("ui_text_scale", CommandValueType::Number),
@@ -1765,6 +1773,7 @@ pub struct MeshcraftApp {
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
     drawing_tool: DrawingToolState,
+    polyline_tool_state: PolylineToolState,
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
@@ -1903,6 +1912,7 @@ impl MeshcraftApp {
             cuboid_first: None,
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
+            polyline_tool_state: PolylineToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -2092,6 +2102,51 @@ impl MeshcraftApp {
             entity: SelectedEntity::Triangle(id),
         }));
         Ok(targets)
+    }
+
+    fn finish_polyline(&mut self, closed: bool) -> CommandResult {
+        let previous = self.polyline_tool_state.clone();
+        let path = if closed {
+            self.polyline_tool_state.close()
+        } else {
+            self.polyline_tool_state.finish()
+        };
+        let Some(path) = path else {
+            return CommandResult::failed(if closed {
+                "A closed polyline needs at least three points."
+            } else {
+                "Polyline needs at least two points to finish."
+            });
+        };
+        let result = self.commit_polyline_path(path);
+        if result.completion == CommandCompletion::Failed {
+            self.polyline_tool_state = previous;
+            self.status = result
+                .diagnostics
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Polyline could not be created.".to_owned());
+        }
+        result
+    }
+
+    fn commit_polyline_path(&mut self, path: PolylinePath) -> CommandResult {
+        let mesh = match build_polyline_mesh(&path) {
+            Ok(mesh) => mesh,
+            Err(error) => return CommandResult::failed(error),
+        };
+        match self.create_planar_shape_in_active_context(mesh, "Polyline") {
+            Ok(targets) => {
+                self.selection.apply(targets, SelectionMode::Replace);
+                self.status = format!(
+                    "Created {} polyline point(s){} in the active geometry graph.",
+                    path.points.len(),
+                    if path.closed { " as a closed mesh" } else { "" }
+                );
+                CommandResult::completed()
+            }
+            Err(error) => CommandResult::failed(error),
+        }
     }
 
     fn commit_document_edit<T>(
@@ -3006,6 +3061,7 @@ impl MeshcraftApp {
         }
         self.cuboid_first = None;
         self.cuboid_base = None;
+        self.polyline_tool_state.activate(tool == "Polyline");
         self.drawing_tool.handle(ToolEvent::Activate(match tool {
             "Line" => DrawingTool::Line,
             "Construction Line" => DrawingTool::ConstructionLine,
@@ -3019,6 +3075,9 @@ impl MeshcraftApp {
             "Cuboid" => "Cuboid: click two ground-plane corners, then click the height.".to_owned(),
             "Line" => {
                 "Line: click a start and end point in the active construction plane.".to_owned()
+            }
+            "Polyline" => {
+                "Polyline: click to start; A selects three-point arc, C center arc, L line. Enter finishes.".to_owned()
             }
             "Construction Line" => {
                 "Construction Line: click two points; the tool stays active for another segment."
@@ -3102,6 +3161,9 @@ impl MeshcraftApp {
                 if self.transform_tool_state.active().is_some() {
                     return self.finish_transform_input();
                 }
+                if self.active_tool == "Polyline" {
+                    return self.finish_polyline(false);
+                }
                 self.sync_drawing_tool_state();
                 let effect = self.drawing_tool.handle(ToolEvent::Enter);
                 self.handle_drawing_tool_effect(effect, None);
@@ -3115,6 +3177,14 @@ impl MeshcraftApp {
                         return CommandResult::failed("there is no transform input to undo");
                     }
                     self.status = "Removed the last transform input or point.".to_owned();
+                    return CommandResult::completed();
+                }
+                if self.active_tool == "Polyline" {
+                    if !self.polyline_tool_state.backspace() {
+                        return CommandResult::failed("there is no polyline point to undo");
+                    }
+                    self.status =
+                        "Removed the last polyline point or arc control point.".to_owned();
                     return CommandResult::completed();
                 }
                 self.sync_drawing_tool_state();
@@ -3510,6 +3580,18 @@ impl MeshcraftApp {
                     };
                     settings.circle_segments = value;
                 }
+                for (name, target) in [
+                    ("arc_max_length", &mut settings.arc_max_length),
+                    ("double_line_size", &mut settings.double_line_size),
+                    ("double_line_offset", &mut settings.double_line_offset),
+                ] {
+                    if let Some(value) = payload.values.get(name) {
+                        let Some(value) = value.as_f64().filter(|value| value.is_finite()) else {
+                            return CommandResult::failed(format!("{name} must be finite"));
+                        };
+                        *target = value;
+                    }
+                }
                 match self.commit_document_edit("Change model settings", |document| {
                     document.update_model_settings(settings).map(|_| ())
                 }) {
@@ -3870,16 +3952,29 @@ impl MeshcraftApp {
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
             && !self.transform_tool_state.points().is_empty();
+        let polyline_finish_ready =
+            self.active_tool == "Polyline" && self.polyline_tool_state.points().len() >= 2;
+        let polyline_undo_ready = self.active_tool == "Polyline"
+            && (self.polyline_tool_state.arc_control().is_some()
+                || !self.polyline_tool_state.points().is_empty());
         if id == "tool.distance" && !line_distance_ready && !transform_input_ready {
             return CommandState::disabled(
                 "place a line anchor or transform reference point before entering a value",
             );
         }
-        if matches!(id, "tool.finish" | "tool.undo_point")
+        if id == "tool.finish"
             && !line_distance_ready
             && !transform_input_ready
+            && !polyline_finish_ready
         {
-            return CommandState::disabled("start a Line or Construction Line first");
+            return CommandState::disabled("start a Line, Construction Line, or Polyline first");
+        }
+        if id == "tool.undo_point"
+            && !line_distance_ready
+            && !transform_input_ready
+            && !polyline_undo_ready
+        {
+            return CommandState::disabled("start a point-input tool before undoing a point");
         }
         if id == "tool.copy_mode"
             && !self
@@ -4314,6 +4409,7 @@ impl MeshcraftApp {
         self.drawing_tool.handle(ToolEvent::Escape);
         self.shape_tool_state.activate(None);
         self.transform_tool_state.cancel();
+        self.polyline_tool_state.cancel();
         self.status = "Current tool operation canceled.".to_owned();
     }
 
@@ -4616,6 +4712,43 @@ impl MeshcraftApp {
             return;
         }
 
+        if self.active_tool == "Polyline" {
+            let Some(point) = construction_point else {
+                self.status = "Polyline needs a point in the active construction view.".to_owned();
+                return;
+            };
+            let effect = self
+                .polyline_tool_state
+                .pick(point, self.document.model_settings().arc_max_length);
+            match effect {
+                Ok(PolylinePickEffect::Started) => {
+                    self.status =
+                        "Polyline: choose the next point; A arc through, C arc center, L line."
+                            .to_owned();
+                }
+                Ok(PolylinePickEffect::Added) => {
+                    self.status =
+                        "Polyline: choose the next point or press Enter to finish.".to_owned();
+                }
+                Ok(PolylinePickEffect::NeedArcEndpoint) => {
+                    self.status = match self.polyline_tool_state.mode() {
+                        PolylineSegmentMode::ArcThrough => {
+                            "Polyline arc: choose its endpoint.".to_owned()
+                        }
+                        PolylineSegmentMode::ArcCenter => {
+                            "Polyline arc: choose its endpoint after the center.".to_owned()
+                        }
+                        PolylineSegmentMode::Line => "Polyline: choose the next point.".to_owned(),
+                    };
+                }
+                Ok(PolylinePickEffect::Closed) => {
+                    self.finish_polyline(true);
+                }
+                Err(error) => self.status = error.to_owned(),
+            }
+            return;
+        }
+
         if self.transform_tool_state.active().is_some() {
             let Some(point) = construction_point else {
                 self.status = "Transform needs a point in the active construction view.".to_owned();
@@ -4892,11 +5025,20 @@ impl MeshcraftApp {
                         return;
                     }
                     SelectedEntity::Triangle(_) => {
-                        let coplanar = self.coplanar_face_component(target);
+                        let coplanar = self.coplanar_faces(target);
                         self.selection.apply(coplanar, SelectionMode::Replace);
                         self.status = format!(
                             "{} Coplanar face(s) selected.",
                             self.selection.summary().faces
+                        );
+                        return;
+                    }
+                    SelectedEntity::Segment(_) => {
+                        let connected = self.connected_line_segments(target);
+                        self.selection.apply(connected, SelectionMode::Replace);
+                        self.status = format!(
+                            "{} Connected line segment(s) selected.",
+                            self.selection.summary().edges
                         );
                         return;
                     }
@@ -4939,7 +5081,7 @@ impl MeshcraftApp {
         None
     }
 
-    fn coplanar_face_component(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
+    fn coplanar_faces(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
         let SelectedEntity::Triangle(start_id) = &target.entity else {
             return vec![target.clone()];
         };
@@ -4959,55 +5101,65 @@ impl MeshcraftApp {
         let Some(start_triangle) = geometry.triangles.get(start_id) else {
             return vec![target.clone()];
         };
-        let Some((start_vertices, start_point, start_normal)) = triangle_data(start_triangle)
-        else {
+        let Some((_, start_point, start_normal)) = triangle_data(start_triangle) else {
             return vec![target.clone()];
         };
-        let mut component = BTreeSet::from([*start_id]);
+        geometry
+            .triangles
+            .values()
+            .filter(|triangle| {
+                triangle_data(triangle).is_some_and(|(_, point, normal)| {
+                    normal.dot(start_normal).abs() >= 1.0 - 1.0e-8
+                        && (point - start_point).dot(start_normal).abs() <= 1.0e-7
+                })
+            })
+            .map(|triangle| triangle.id)
+            .map(|id| SelectionTarget {
+                occurrence: target.occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            })
+            .collect()
+    }
+
+    fn connected_line_segments(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
+        let SelectedEntity::Segment(start_id) = target.entity else {
+            return vec![target.clone()];
+        };
+        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+            return vec![target.clone()];
+        };
+        let Some(start) = geometry.segments.get(&start_id) else {
+            return vec![target.clone()];
+        };
+        let mut vertices = start
+            .endpoints
+            .iter()
+            .map(|vertex| vertex.id)
+            .collect::<BTreeSet<_>>();
+        let mut segments = BTreeSet::from([start_id]);
         loop {
-            let current = component.iter().copied().collect::<Vec<_>>();
             let mut changed = false;
-            for triangle in geometry.triangles.values() {
-                if component.contains(&triangle.id) {
-                    continue;
-                }
-                let Some((vertices, point, normal)) = triangle_data(triangle) else {
-                    continue;
-                };
-                if normal.dot(start_normal).abs() < 1.0 - 1.0e-8
-                    || (point - start_point).dot(start_normal).abs() > 1.0e-7
+            for segment in geometry.segments.values() {
+                if segment
+                    .endpoints
+                    .iter()
+                    .any(|vertex| vertices.contains(&vertex.id))
                 {
-                    continue;
-                }
-                let shares_edge = current.iter().any(|id| {
-                    geometry.triangles.get(id).is_some_and(|adjacent| {
-                        let adjacent_vertices = adjacent.vertices.map(|vertex| vertex.id);
-                        vertices
-                            .iter()
-                            .filter(|vertex| adjacent_vertices.contains(vertex))
-                            .count()
-                            >= 2
-                    })
-                });
-                if shares_edge {
-                    changed |= component.insert(triangle.id);
+                    changed |= segments.insert(segment.id);
+                    for vertex in &segment.endpoints {
+                        changed |= vertices.insert(vertex.id);
+                    }
                 }
             }
             if !changed {
                 break;
             }
         }
-        if start_vertices
-            .iter()
-            .all(|vertex| !geometry.vertices.contains_key(vertex))
-        {
-            return vec![target.clone()];
-        }
-        component
+        segments
             .into_iter()
             .map(|id| SelectionTarget {
                 occurrence: target.occurrence.clone(),
-                entity: SelectedEntity::Triangle(id),
+                entity: SelectedEntity::Segment(id),
             })
             .collect()
     }
@@ -5149,6 +5301,18 @@ impl MeshcraftApp {
                 outline: preview.outline,
                 closed: preview.closed,
                 measurements: preview.measurements,
+            });
+        }
+        if self.polyline_tool_state.active() {
+            let point = snap
+                .map(|result| result.point)
+                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
+            let preview = self
+                .polyline_tool_state
+                .preview(point, self.document.model_settings().arc_max_length)?;
+            return Some(ToolPreview::Polyline {
+                outline: preview.points,
+                closed: preview.closed,
             });
         }
         match self.active_tool.as_str() {
@@ -6022,6 +6186,66 @@ impl MeshcraftApp {
             });
     }
 
+    fn show_polyline_settings(&mut self, ui: &mut egui::Ui) {
+        let mut settings = self.document.model_settings().clone();
+        let mut changed = false;
+        for (label, value, range) in [
+            (
+                "Arc max length",
+                &mut settings.arc_max_length,
+                0.0001..=1_000_000.0,
+            ),
+            (
+                "Double line size",
+                &mut settings.double_line_size,
+                0.0001..=1_000_000.0,
+            ),
+            (
+                "Double line offset",
+                &mut settings.double_line_offset,
+                -1_000_000.0..=1_000_000.0,
+            ),
+        ] {
+            ui.label(label);
+            changed |= ui
+                .add_sized(
+                    [ui.available_width(), 24.0],
+                    egui::DragValue::new(value)
+                        .range(range)
+                        .max_decimals(4)
+                        .speed(0.05),
+                )
+                .changed();
+        }
+        if changed {
+            let mut payload = CommandPayload::default();
+            payload.values.insert(
+                "arc_max_length".to_owned(),
+                serde_json::json!(settings.arc_max_length),
+            );
+            payload.values.insert(
+                "double_line_size".to_owned(),
+                serde_json::json!(settings.double_line_size),
+            );
+            payload.values.insert(
+                "double_line_offset".to_owned(),
+                serde_json::json!(settings.double_line_offset),
+            );
+            let result = self.dispatch_command("model.update_settings", &payload);
+            if result.result.completion == CommandCompletion::Failed {
+                ui.colored_label(
+                    Color32::LIGHT_RED,
+                    result
+                        .result
+                        .diagnostics
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or("Polyline settings could not be updated."),
+                );
+            }
+        }
+    }
+
     fn show_model_settings(&mut self, ui: &mut egui::Ui) {
         let mut settings = self.document.model_settings().clone();
         let mut preferences = self.preferences.clone();
@@ -6378,10 +6602,7 @@ impl MeshcraftApp {
                         });
                     }
                     if self.show_panel_header(ui, "polyline", "Polyline Settings") {
-                        Self::show_panel_body(ui, |ui| {
-                            ui.label("Arc max length · Double line size · Double line offset");
-                            ui.weak("Polyline construction settings are not implemented yet.");
-                        });
+                        Self::show_panel_body(ui, |ui| self.show_polyline_settings(ui));
                     }
                     if self.show_panel_header(ui, "vector_text", "Vector Text") {
                         Self::show_panel_body(ui, |ui| {
@@ -6446,6 +6667,39 @@ impl MeshcraftApp {
             if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                 let effect = self.drawing_tool.handle(ToolEvent::Enter);
                 self.handle_drawing_tool_effect(effect, None);
+            }
+        }
+        if shortcuts_allowed && self.active_tool == "Polyline" {
+            if ui.input(|input| input.key_pressed(egui::Key::Backspace))
+                && self.polyline_tool_state.backspace()
+            {
+                self.status = "Removed the last polyline point or arc control point.".to_owned();
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                self.run_command("tool.finish");
+            }
+            let mode = ui.input(|input| {
+                if input.key_pressed(egui::Key::A) {
+                    Some(PolylineSegmentMode::ArcThrough)
+                } else if input.key_pressed(egui::Key::C) {
+                    Some(PolylineSegmentMode::ArcCenter)
+                } else if input.key_pressed(egui::Key::L) {
+                    Some(PolylineSegmentMode::Line)
+                } else {
+                    None
+                }
+            });
+            if let Some(mode) = mode {
+                self.polyline_tool_state.set_mode(mode);
+                self.status = match mode {
+                    PolylineSegmentMode::Line => "Polyline mode: line segment.".to_owned(),
+                    PolylineSegmentMode::ArcThrough => {
+                        "Polyline mode: arc through a picked point.".to_owned()
+                    }
+                    PolylineSegmentMode::ArcCenter => {
+                        "Polyline mode: arc from a picked center.".to_owned()
+                    }
+                };
             }
         }
         if shortcuts_allowed && self.transform_tool_state.active().is_some() {
@@ -6535,6 +6789,7 @@ impl MeshcraftApp {
                 }
             }
         } else if shortcuts_allowed
+            && self.active_tool != "Polyline"
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -6945,11 +7200,11 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
-        ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
-        TransactionHistory, TransformTool, TransformToolState, UiProfile, command_matches,
-        registry_has_unique_ids, shell_commands, tool_command_id,
+        CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, PolylineToolState,
+        Preferences, ReplacementDecision, SelectedEntity, SelectionClickTracker,
+        SelectionDisplayPolicy, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
+        ToolEvent, TransactionHistory, TransformTool, TransformToolState, UiProfile,
+        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -7126,6 +7381,7 @@ mod tests {
             cuboid_first: None,
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
+            polyline_tool_state: PolylineToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -8631,6 +8887,112 @@ mod tests {
     }
 
     #[test]
+    fn polyline_tool_creates_open_paths_and_closes_concave_meshes() {
+        let mut open = test_app();
+        open.run_command("tool.builtin.polyline");
+        let pick = |app: &mut MeshcraftApp, point| {
+            app.handle_viewport_click_at_point_with_selection(
+                Rect::NOTHING,
+                Pos2::ZERO,
+                None,
+                Some(point),
+                egui::Modifiers::default(),
+                1,
+            );
+        };
+        pick(&mut open, Vec3::ZERO);
+        pick(&mut open, Vec3::X * 2.0);
+        pick(&mut open, Vec3::new(2.0, 0.0, 2.0));
+        assert!(open.query_command_state("tool.finish").enabled);
+        let finish = open.dispatch_command("tool.finish", &CommandPayload::default());
+        assert_eq!(
+            CommandCompletion::Completed,
+            finish.result.completion,
+            "{}",
+            open.status
+        );
+        let open_occurrence = open
+            .selection
+            .selected()
+            .iter()
+            .next()
+            .unwrap()
+            .occurrence
+            .clone();
+        let geometry = open.document.effective_geometry(&open_occurrence).unwrap();
+        assert_eq!(2, geometry.segments.len());
+        assert!(geometry.triangles.is_empty());
+        assert_eq!(2, open.selection.summary().edges);
+        assert_eq!(1, open.history.entries().len());
+
+        let mut closed = test_app();
+        closed.run_command("tool.builtin.polyline");
+        let concave = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(3.0, 0.0, 0.0),
+            Vec3::new(3.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 3.0),
+            Vec3::new(0.0, 0.0, 3.0),
+        ];
+        for point in concave.into_iter().chain([Vec3::new(0.05, 0.0, 0.05)]) {
+            pick(&mut closed, point);
+        }
+        let closed_occurrence = closed
+            .selection
+            .selected()
+            .iter()
+            .next()
+            .unwrap()
+            .occurrence
+            .clone();
+        let geometry = closed
+            .document
+            .effective_geometry(&closed_occurrence)
+            .unwrap();
+        assert_eq!(6, geometry.segments.len());
+        assert_eq!(4, geometry.triangles.len());
+        assert_eq!(1, closed.history.entries().len());
+        assert_eq!("Polyline", closed.active_tool);
+    }
+
+    #[test]
+    fn polyline_settings_are_validated_and_round_trip_with_the_document() {
+        let mut app = test_app();
+        assert_eq!(0.5, app.document.model_settings().arc_max_length);
+        assert_eq!(1.0, app.document.model_settings().double_line_size);
+        assert_eq!(0.5, app.document.model_settings().double_line_offset);
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("arc_max_length".to_owned(), json!(0.25));
+        payload
+            .values
+            .insert("double_line_size".to_owned(), json!(2.0));
+        payload
+            .values
+            .insert("double_line_offset".to_owned(), json!(-0.75));
+        let result = app.dispatch_command("model.update_settings", &payload);
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!(0.25, app.document.model_settings().arc_max_length);
+        assert_eq!(2.0, app.document.model_settings().double_line_size);
+        assert_eq!(-0.75, app.document.model_settings().double_line_offset);
+        assert_eq!(1, app.history.entries().len());
+        let encoded = serde_json::to_vec(&app.document).unwrap();
+        let reopened: Document = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(app.document.model_settings(), reopened.model_settings());
+
+        let revision = app.document.revision();
+        let mut invalid = CommandPayload::default();
+        invalid
+            .values
+            .insert("arc_max_length".to_owned(), json!(0.0));
+        let result = app.dispatch_command("model.update_settings", &invalid);
+        assert_eq!(CommandCompletion::Failed, result.result.completion);
+        assert_eq!(revision, app.document.revision());
+    }
+
+    #[test]
     fn surface_rectangle_command_uses_the_first_face_normal() {
         let mut app = test_app();
         assert!(
@@ -10107,7 +10469,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_double_click_expands_coplanar_faces_and_triple_click_selects_connected_geometry() {
+    fn desktop_double_click_selects_all_coplanar_faces_and_triple_clicks_connected_geometry() {
         let mut app = test_app();
         let occurrence = app
             .document
@@ -10119,6 +10481,24 @@ mod tests {
                     Vec3::new(2.0, 0.0, 2.0),
                     Vec3::new(-2.0, 0.0, 2.0),
                 ],
+            )
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        app.document
+            .append_planar_mesh_to_definition(
+                definition,
+                vec![
+                    Vec3::new(6.0, 0.0, 0.0),
+                    Vec3::new(7.0, 0.0, 0.0),
+                    Vec3::new(6.0, 0.0, 1.0),
+                ],
+                vec![[0, 1], [1, 2], [2, 0]],
+                vec![[0, 1, 2]],
             )
             .unwrap();
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
@@ -10135,7 +10515,7 @@ mod tests {
                 None,
             );
         }
-        assert_eq!(2, app.selection.summary().faces);
+        assert_eq!(3, app.selection.summary().faces);
         assert_eq!(0, app.selection.summary().vertices);
 
         app.handle_viewport_click_input(
@@ -10156,6 +10536,72 @@ mod tests {
             occurrence,
             app.selection.selected().first().unwrap().occurrence
         );
+    }
+
+    #[test]
+    fn desktop_double_click_selects_connected_line_segments_and_triple_clicks_component() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_line_segment("first", Vec3::new(0.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        app.document
+            .append_line_segment_to_definition(
+                definition,
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 2.0),
+            )
+            .unwrap();
+        app.document
+            .append_line_segment_to_definition(
+                definition,
+                Vec3::new(5.0, 0.0, 0.0),
+                Vec3::new(6.0, 0.0, 0.0),
+            )
+            .unwrap();
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let position = app.viewport.world_to_screen(rect, Vec3::new(1.0, 0.0, 0.0));
+        for time_millis in [100, 200] {
+            app.handle_viewport_click_input(
+                rect,
+                ViewportClick {
+                    position,
+                    modifiers: egui::Modifiers::default(),
+                    time_millis,
+                    pixels_per_point: 1.0,
+                },
+                None,
+            );
+        }
+        let summary = app.selection.summary();
+        assert_eq!(2, summary.edges);
+        assert_eq!(0, summary.vertices);
+        assert_eq!(0, summary.faces);
+
+        app.selection.clear();
+        for time_millis in [1_000, 1_100, 1_200] {
+            app.handle_viewport_click_input(
+                rect,
+                ViewportClick {
+                    position,
+                    modifiers: egui::Modifiers::default(),
+                    time_millis,
+                    pixels_per_point: 1.0,
+                },
+                None,
+            );
+        }
+        let summary = app.selection.summary();
+        assert_eq!(3, summary.vertices);
+        assert_eq!(2, summary.edges);
+        assert_eq!(0, summary.faces);
     }
 
     #[test]

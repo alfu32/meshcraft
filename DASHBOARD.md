@@ -6,8 +6,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 | Status | Tasks |
 | --- | ---: |
-| Todo | 33 |
-| In progress | 5 |
+| Todo | 31 |
+| In progress | 7 |
 | Done | 13 |
 | **Total** | **51** |
 
@@ -18,10 +18,16 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T09 — Implement desktop document service and safe storage**
 - **T16 — Implement reusable objects, placement and explode**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
+- **T19 — Implement paths, offsets, outlines and mesh creation**
+- **T39 — Complete real-time lighting, shadows and view capture**
 
 ## Current Activity
 
-T12 is complete: mixed typed selection supports replace/add/remove, instance edit entry, directional windows, world-volume selection and shared visibility/lock/wireframe policy. Click selection targets objects and typed mesh entities; left-to-right windows require containment and right-to-left crossing windows include intersections. Escape clears selection, or guides when selection is empty, then cancels the active tool and returns to Select. T13 delivers root/definition Line and Construction Line editing with intersection splitting, overlap consolidation, numeric input, cancel and per-operation undo. T14 provides Rectangle, Surface Rect, Quad and configurable Circle directly in the active geometry graph. T15 is complete for raw mesh and supported object occurrences: Move, Rotate, Scale, Stretch, Stretch Scale and Rotate Stretch have source-based previews, point and numeric input, constrained scaling and Move/Rotate copy mode. RGBA paint works on selected or clicked edges and faces. T16 is in progress: selection-first object grouping, nested duplication, placement with optional surface alignment, mesh-only explode and unused-definition deletion. Snapping now reaches every active point-input tool and resolves both grid and existing geometry, including transform and object-placement picks; Cuboid consumes snapped base and elevation points. Validation passes: 120 core, 131 desktop library, 14 IO and 5 CLI tests; Clippy with warnings denied, formatting, `git diff --check` and `verify_plan.py` pass. The registry contains 216 commands for all 74 built-in tools, 13 visible toolbar groups, palette/menu actions and deferred capabilities. Requirements for planar-first construction, active-graph drawing, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks. T05, T07, T09, T16 and T17 are currently in progress; autosave/recovery and remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 33 Todo, 5 In Progress, 13 Done.
+T12 is complete: typed selection supports object/mesh targets, directional windows, occurrence editing, connected-line double-click, coplanar-face double-click, connected-component triple-click, and Escape cancellation/guide clearing. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is in progress: Polyline slice 1 supports line, three-point arc and center arc, closed concave meshes, active-graph commits, undo and persisted path settings; Double Line, outlines and mesh operations remain open.
+
+T39 is in progress: the viewport now distinguishes darker blue back faces and uses a bounded CPU directional depth map for entity and ground shadows. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
+
+Validation: `cargo test --workspace --quiet` passes 124 core, 136 desktop library, 14 IO and 5 CLI tests. Clippy with warnings denied, formatting, `git diff --check` and `verify_plan.py` pass. Rendering tests cover front/back tint, alpha preservation, ground occlusion and self-shadow bias. The registry contains 216 commands for all 74 built-in tools and 13 visible toolbar groups. Current task counts: 31 Todo, 7 In Progress, 13 Done.
 
 ## Task Statuses
 
@@ -46,7 +52,7 @@ T12 is complete: mixed typed selection supports replace/add/remove, instance edi
 | T16 | Implement reusable objects, placement and explode | In progress |
 | T17 | Complete inspectors, settings, preferences and menu coverage | In progress |
 | T18 | Implement dimensions, bitmap text and vector glyph text | Todo |
-| T19 | Implement paths, offsets, outlines and mesh creation | Todo |
+| T19 | Implement paths, offsets, outlines and mesh creation | In progress |
 | T20 | Implement region push/pull | Todo |
 | T21 | Port every copy and array state machine | Todo |
 | T22 | Port hole/cutout algorithms and robust replacement | Todo |
@@ -66,7 +72,7 @@ T12 is complete: mixed typed selection supports replace/add/remove, instance edi
 | T36 | Implement OBJ/STL/DXF interchange and unit policy | Todo |
 | T37 | Implement extended mesh formats | Todo |
 | T38 | Implement IFC4 proxy export and supported geometry import | Todo |
-| T39 | Complete real-time lighting, shadows and view capture | Todo |
+| T39 | Complete real-time lighting, shadows and view capture | In progress |
 | T40 | Port progressive CPU offline rendering | Todo |
 | T41 | Implement structured automation and regression dispatcher | Todo |
 | T42 | Audit phase-specific capabilities and preserve migration boundaries | Todo |

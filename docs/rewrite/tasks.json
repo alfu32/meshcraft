@@ -965,7 +965,7 @@
         "FACE_OUTLINE",
         "LINE_OFFSET"
       ],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T20",
@@ -1873,10 +1873,11 @@
       ],
       "done": [
         "C24 covers lights/shadows/alpha/overlays and menu-dependent viewport offsets.",
+        "Front/back face colors preserve the darker, slightly bluer back-face appearance, and shadow maps cast entity shadows onto ground and other entities.",
         "Capture dispatch success is distinct from a completed fresh output file."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T40",
