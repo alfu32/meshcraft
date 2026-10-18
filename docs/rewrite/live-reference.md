@@ -25,7 +25,7 @@ An additional live read on 2026-10-18 reported 16 groups, 460 faces, 524 edges, 
 
 ## Right-hand Panels screenshots
 
-These eight 1920×1080 captures were compared byte-for-byte with the screenshots supplied for this walkthrough. The numbered list follows attachment order. Filenames and captions name every visible section, including partial sections at crop edges; a heading at a crop edge does not mean its full section is shown. “Panels” means the vertically scrolling inspector/settings column on the right, distinct from the centered command palette.
+These eight 1920×1080 captures match the screenshots supplied for this walkthrough byte-for-byte. The numbered list follows attachment order, and each caption follows the visible section labels. It describes partial sections where the image starts or ends mid-panel; a heading at a crop edge does not mean the full section is shown. “Panels” means the vertically scrolling inspector/settings column on the right, distinct from the centered command palette. Use these linked captures as the visual evidence for the panel contents; do not infer a section's contents from a filename alone.
 
 1. Selection totals, the empty Object editor, and the `cuboid | internal | 16` Objects entry: ![01 — Selection, Object, and Objects](references/live-5.7.1/panels-selection-object-objects.png)
 2. XRef actions, Model Settings through walk-height-adjust speed, and the first UI Settings field: ![02 — XRef, Model Settings, and start of UI Settings](references/live-5.7.1/panels-xref-model-settings-ui-start.png)
