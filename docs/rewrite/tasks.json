@@ -2449,6 +2449,57 @@
       ],
       "tool_ids": [],
       "status": "planned"
+    },
+    {
+      "id": "T51",
+      "title": "Fix geometric feedback for enabled tools (#2)",
+      "phase": "desktop",
+      "dependencies": [
+        "T13",
+        "T14",
+        "T15",
+        "T19",
+        "T20"
+      ],
+      "requirements": [
+        "U05"
+      ],
+      "acceptance": [
+        "C34"
+      ],
+      "targets": [
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs",
+        "crates/meshcraft-core/src/tools/transforms.rs",
+        "crates/meshcraft-core/src/tools/shapes.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/Tool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/MoveTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RotateTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ScaleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/StretchTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/StretchScaleTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/RotateStretchTool.kt"
+      ],
+      "source_symbols": [
+        "onPointerMove",
+        "onPointerDown",
+        "preview",
+        "measurements"
+      ],
+      "slices": [
+        "Inventory the currently enabled geometry commands and every pending pick stage; identify stages without geometry or vector feedback, treating Select as the sole exception.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals.",
+        "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
+        "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
+      ],
+      "done": [
+        "Every enabled tool that constructs or changes geometry gives live preview at each pending pick stage; only selection is exempt.",
+        "Vector feedback shows distance and relative coordinates, and preview data agrees with committed geometry for snapped, numeric and entered-definition workflows."
+      ],
+      "tool_ids": [],
+      "status": "in_progress"
     }
   ]
 }

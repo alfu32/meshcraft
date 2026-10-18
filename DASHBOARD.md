@@ -7,9 +7,9 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status      |  Tasks |
 |-------------|-------:|
 | Todo        |     30 |
-| In progress |      6 |
+| In progress |      7 |
 | Done        |     15 |
-| **Total**   | **51** |
+| **Total**   | **52** |
 
 ## Currently in Progress
 
@@ -18,15 +18,16 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T09 — Implement desktop document service and safe storage**
 - **T16 — Implement reusable objects, placement and explode**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
+- **T51 — Fix geometric feedback for enabled tools (#2)**
 - **T39 — Complete real-time lighting, shadows and view capture**
 
 ## Current Activity
 
-T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage. T20 is complete: selected faces extrude with signed snapped-point or numeric input, colored geometry preview, unit-aware distance/ΔX/ΔY/ΔZ feedback, correctly wound manifold output, active-definition insertion, selected generated results, cancellation and undo. C13/C19 coverage verifies multi-face color retention, holes, both extrusion signs, zero/invalid-input atomicity, manifold edge incidence and prism volume. This implements the Push/Pull feedback slice of [rule issue #1](https://github.com/alfu32/meshcraft/issues/1), which remains open for the other geometry tools.
+T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage. T20 is complete: selected faces extrude with signed snapped-point or numeric input, colored geometry preview, unit-aware distance/ΔX/ΔY/ΔZ feedback, correctly wound manifold output, active-definition insertion, selected generated results, cancellation and undo. C13/C19 coverage verifies multi-face color retention, holes, both extrusion signs, zero/invalid-input atomicity, manifold edge incidence and prism volume. The general feedback rule from [issue #1](https://github.com/alfu32/meshcraft/issues/1) is now in U05/C34. T51 is in progress for [bug #2](https://github.com/alfu32/meshcraft/issues/2): inventory and complete previews/readouts for every currently enabled geometry tool, with selection as the exception.
 
 T39 is in progress: the viewport distinguishes darker, slightly bluer back faces and uses a bounded CPU directional depth map for shadows on the ground and other entity faces, including transformed instances. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
 
-Validation: `cargo test --workspace --quiet` passes (144 core, 157 desktop, 14 IO and 5 CLI tests); `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`, `python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` pass. Push/Pull coverage verifies signed extrusion geometry, live feedback, colors, holes, manifoldness/volume, snapping, numeric input, cancellation, active-definition insertion, selected results and undo. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. Current task counts: 30 Todo, 6 In Progress, 15 Done.
+Validation: last full run `cargo test --workspace --quiet` passed (144 core, 157 desktop, 14 IO and 5 CLI tests); Clippy, formatting, desktop Wasm check, `verify_plan.py` and `git diff --check` also passed before T51 was added. Rerun plan and implementation checks as T51 progresses. Push/Pull coverage verifies signed extrusion geometry, live feedback, colors, holes, manifoldness/volume, snapping, numeric input, cancellation, active-definition insertion, selected results and undo. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. Current task counts: 30 Todo, 7 In Progress, 15 Done.
 
 ## Task Statuses
 
@@ -83,3 +84,4 @@ Validation: `cargo test --workspace --quiet` passes (144 core, 157 desktop, 14 I
 | T48 | Implement JavaScriptCore runtime lifecycle and context facade            | Todo        |
 | T49 | Connect the versioned JavaScript plugin SDK to normalized host services  | Todo        |
 | T50 | Deliver JavaScriptCore plugin UX, samples and qualified desktop packages | Todo        |
+| T51 | Fix geometric feedback for enabled tools (#2)                           | In progress |

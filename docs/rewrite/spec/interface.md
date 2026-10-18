@@ -51,6 +51,12 @@ Preview overlays show selections, hover, guides, measurement labels, tool geomet
 
 Source: `K/ui/{StatusModel,SketchUiOverlay}.kt`, feedback classes, runtime prefs in `K/Main.kt`. Acceptance: C17, C23.
 
+### U05 Geometric tool feedback
+
+**User-confirmed rule (GitHub issue #1).** Every enabled tool that constructs or changes geometry shows live feedback while points or numeric input are pending; selection is the exception. Prefer a preview of the generated geometry, rendered as lines/faces where possible. Otherwise draw a vector from the previous accepted point to the current snapped pointer. Vector feedback displays its length and signed relative ΔX/ΔY/ΔZ in the model's named units, rounded to at most three decimals. Preview geometry, measurements and the eventual commit must use the same snapped points, transform and numeric values. Cancellation clears the preview without changing authored geometry or history.
+
+Acceptance: C34.
+
 ### R01 Interactive viewport
 
 **Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
