@@ -5387,6 +5387,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn open_menu_captures_wheel_and_clicks_from_an_overlapping_viewport_tool() {
+        let mut app = test_app();
+        app.active_tool = "Line".to_owned();
+        let context = egui::Context::default();
+        let menu_bar = run_workspace_frame(&mut app, &context, Vec::new());
+        let file_menu = text_center_in_row(&menu_bar, "File", 48.0);
+        click_workspace_position(&mut app, &context, file_menu);
+        let output = run_workspace_frame(&mut app, &context, Vec::new());
+        let quit_item = text_center_in_row(&output, "Exit", 320.0);
+        assert!(
+            app.viewport_rect.contains(quit_item),
+            "File menu item should overlap the viewport rectangle in this layout"
+        );
+
+        let revision = app.document.revision();
+        let camera = app.viewport.legacy_camera_state();
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::PointerMoved(quit_item),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -120.0),
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        assert_eq!(camera, app.viewport.legacy_camera_state());
+        assert_eq!(None, app.pointer_in_viewport);
+
+        click_workspace_position(&mut app, &context, quit_item);
+        assert!(app.quit_requested);
+        assert_eq!(None, app.line_first);
+        assert_eq!(revision, app.document.revision());
+    }
+
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {
         fn collect(
             shape: &egui::epaint::Shape,
