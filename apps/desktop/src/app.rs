@@ -19,6 +19,243 @@ use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
+const ARCHITECTURE_PANEL_IDS: &[&str] = &[
+    "architecture_walls",
+    "architecture_slabs",
+    "architecture_stairs",
+    "architecture_frames",
+];
+const LEGACY_BUILTIN_TOOLS: &[(&str, &str)] = &[
+    ("select", "Select"),
+    ("axial_grid", "Axial Grid"),
+    ("planar_grid", "Planar Grid"),
+    ("line", "Line"),
+    ("construction_line", "Construction Line"),
+    ("polyline", "Polyline"),
+    ("double_line", "Double Line"),
+    ("ribbon_3d", "Ribbon 3D"),
+    ("voxel", "Voxel"),
+    ("voxel_volume", "Voxel Volume"),
+    ("voxel_frame", "Voxel Frame"),
+    ("arch_wall", "Wall"),
+    ("arch_slab", "Slab"),
+    ("arch_stair", "Stair"),
+    ("arch_add_hole", "Add Hole"),
+    ("arch_window_frame", "Window Frame"),
+    ("arch_door_frame", "Door Frame"),
+    ("hvac_plumbing", "HVAC Plumbing"),
+    ("hvac_ventilation", "HVAC Ventilation"),
+    ("primitive_sphere", "Sphere"),
+    ("primitive_cylinder", "Cylinder"),
+    ("primitive_cone", "Cone"),
+    ("primitive_pill", "Pill"),
+    ("mech_screw", "Screw"),
+    ("mech_circular_hole", "Circular Hole"),
+    ("mech_round_washer", "Round Washer"),
+    ("mech_cog_wheel", "Cog Wheel"),
+    ("face_outline", "Face Outline"),
+    ("polyline_mesh", "Polyline Mesh"),
+    ("object_cut", "Cut Objects"),
+    ("solid_union", "Solid Union"),
+    ("solid_intersection", "Solid Intersection"),
+    ("solid_subtraction", "Solid Subtraction"),
+    ("mesh", "Mesh"),
+    ("line_offset", "Line Offset"),
+    ("cut_holes", "Cut Holes"),
+    ("cut_holes_2", "Cut Holes 2"),
+    ("cut_out_3", "Cutout"),
+    ("extrude_swipe", "Extrude Swipe"),
+    ("extrude_swipe_3d", "Extrude Swipe 3D"),
+    ("plane_section", "Plane Section"),
+    ("mesh_intersection", "Mesh Intersection"),
+    ("cut_with_plane", "Cut With Plane"),
+    ("revolve", "Revolve"),
+    ("rectangle", "Rectangle"),
+    ("surface_rectangle", "Surface Rect"),
+    ("quad", "Quad"),
+    ("circle", "Circle"),
+    ("linear_dimension", "Linear Dimension"),
+    ("text", "Text"),
+    ("vector_text", "Vector Text"),
+    ("push_pull", "Push/Pull"),
+    ("move", "Move"),
+    ("rotate", "Rotate"),
+    ("rotate_2", "Rotate 2"),
+    ("scale", "Scale"),
+    ("stretch", "Stretch"),
+    ("stretch_scale", "Stretch Scale"),
+    ("random_offset", "Random Offset"),
+    ("random_surface_array", "Random Surface Array"),
+    ("mesh_regularize", "Planar Regularize"),
+    ("surface_remesh", "Surface Remesh"),
+    ("rotate_stretch", "Rotate Stretch"),
+    ("copy_multiple", "Copy Multiple"),
+    ("planar_translate_multiple", "Planar Translate Multiple"),
+    (
+        "volumetric_translate_multiple",
+        "Volumetric Translate Multiple",
+    ),
+    ("planar_rotate_multiple", "Planar Rotate Multiple"),
+    ("helicoidal_rotate_multiple", "Helicoidal Rotate Multiple"),
+    ("rotational_array", "Rotational Array"),
+    ("helical_array", "Helical Array"),
+    ("rotational_array_equalized", "Rotational Array Even"),
+    ("helical_array_equalized", "Helical Array Even"),
+    ("paint", "Paint"),
+    ("object_place", "Object"),
+];
+const LEGACY_TOOLBARS: &[(&str, &str)] = &[
+    ("builtin_toolbar_construction_points", "Point Construction"),
+    (
+        "builtin_toolbar_construction_entities",
+        "Entity Construction",
+    ),
+    ("builtin_toolbar_modification", "Modification"),
+    ("builtin_toolbar_modification_2", "Modification 2"),
+    ("builtin_toolbar_architecture", "Architecture"),
+    ("builtin_toolbar_hvac", "HVAC"),
+    ("builtin_toolbar_primitives", "Primitives"),
+    ("builtin_toolbar_mech", "Mech"),
+    ("builtin_toolbar_voxel", "Voxel"),
+    ("builtin_toolbar_actions", "Actions"),
+    ("builtin_toolbar_camera", "Camera"),
+    ("builtin_toolbar_rendering", "Rendering"),
+];
+const LEGACY_COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
+    (
+        "edit.new_architecture_group",
+        "Edit> Architecture: Wall Tool",
+        "Edit",
+        "architecture wall slab stair",
+        Some("edit"),
+    ),
+    (
+        "edit.new_voxel_group",
+        "Edit> New Voxel Group",
+        "Edit",
+        "voxel group minecraft",
+        Some("edit"),
+    ),
+    (
+        "edit.voxelize_faces",
+        "Edit> Voxelize Faces",
+        "Edit",
+        "voxel faces convert",
+        Some("edit"),
+    ),
+    (
+        "edit.group",
+        "Edit> Group",
+        "Edit",
+        "group object prototype selection",
+        Some("edit"),
+    ),
+    (
+        "edit.ungroup",
+        "Edit> Ungroup",
+        "Edit",
+        "ungroup object",
+        Some("edit"),
+    ),
+    (
+        "view.axis_guide",
+        "View> Add Axis Guide",
+        "View",
+        "axis guide",
+        Some("view"),
+    ),
+    (
+        "view.grid_guide",
+        "View> Add Grid Guide",
+        "View",
+        "grid guide",
+        Some("view"),
+    ),
+    (
+        "view.camera.orbit",
+        "View> Camera Orbit",
+        "View",
+        "camera orbit perspective",
+        Some("view"),
+    ),
+    (
+        "view.camera.walkthrough",
+        "View> Camera Walkthrough",
+        "View",
+        "camera walkthrough perspective",
+        Some("view"),
+    ),
+    (
+        "view.camera.orthographic",
+        "View> Camera Orthographic",
+        "View",
+        "camera orthographic",
+        Some("view"),
+    ),
+    (
+        "view.capture_ui_minimal",
+        "View> Capture UI Minimal",
+        "View",
+        "capture screenshot ui panels",
+        Some("view"),
+    ),
+    (
+        "view.capture_ui_restore",
+        "View> Capture UI Restore",
+        "View",
+        "capture screenshot ui panels restore",
+        Some("view"),
+    ),
+    (
+        "export.svg_view",
+        "Export> SVG (View)",
+        "Export",
+        "export svg view",
+        Some("export"),
+    ),
+    (
+        "export.screenshot",
+        "Export> Screenshot",
+        "Export",
+        "export screenshot printscreen png",
+        Some("export"),
+    ),
+    (
+        "export.ifc_model",
+        "Export> IFC (Model)",
+        "Export",
+        "export ifc model",
+        Some("export"),
+    ),
+    (
+        "import.mesh",
+        "Import> Mesh (OBJ/STL/FBX/glTF/DAE/DXF/3MF/AMF/IFC)",
+        "Import",
+        "import mesh obj stl fbx gltf glb dae dxf 3mf amf ifc",
+        Some("import"),
+    ),
+    (
+        "export.mesh",
+        "Export> Mesh (OBJ/STL/FBX/glTF/DAE/DXF/3MF/AMF/IFC)",
+        "Export",
+        "export mesh obj stl fbx gltf glb dae dxf 3mf amf ifc",
+        Some("export"),
+    ),
+    (
+        "edit.cut_rect_hole",
+        "Edit> Cut Rect Hole",
+        "Edit",
+        "cut hole rect polyline faces",
+        Some("edit"),
+    ),
+    (
+        "edit.reset_scene_for_capture",
+        "Edit> Reset Scene For Capture",
+        "Edit",
+        "reset scene capture screenshot perspective",
+        Some("edit"),
+    ),
+];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,6 +279,7 @@ impl UiProfile {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ShellAction {
     SelectTool(&'static str),
+    SelectToolAlias(&'static str),
     AddCuboid,
     CopySelection,
     CreateObject,
@@ -53,6 +291,9 @@ enum ShellAction {
     ToggleToolbars,
     TogglePanels,
     ToggleGrid,
+    OpenPanel(&'static str),
+    OpenPanelGroup(&'static [&'static str]),
+    Unsupported,
     About,
 }
 
@@ -213,44 +454,182 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 None,
                 ShellAction::About,
             ),
+            (
+                "view.objects",
+                "View> Objects",
+                "View",
+                "objects panel prototypes",
+                Some("view"),
+                ShellAction::OpenPanel("objects"),
+            ),
+            (
+                "view.selection",
+                "View> Selection",
+                "View",
+                "selection panel",
+                Some("view"),
+                ShellAction::OpenPanel("selection"),
+            ),
+            (
+                "view.object_info",
+                "View> Object Info",
+                "View",
+                "object info panel",
+                Some("view"),
+                ShellAction::OpenPanel("object"),
+            ),
+            (
+                "view.lighting",
+                "View> Lighting",
+                "View",
+                "lighting shader panel",
+                Some("view"),
+                ShellAction::OpenPanel("shaders"),
+            ),
+            (
+                "view.model_settings",
+                "View> Model Settings",
+                "View",
+                "model settings",
+                Some("view"),
+                ShellAction::OpenPanel("model_settings"),
+            ),
+            (
+                "view.polyline_settings",
+                "View> Polyline Settings",
+                "View",
+                "polyline settings",
+                Some("view"),
+                ShellAction::OpenPanel("polyline"),
+            ),
+            (
+                "view.vector_text_settings",
+                "View> Vector Text Settings",
+                "View",
+                "vector text settings glyph",
+                Some("view"),
+                ShellAction::OpenPanel("vector_text"),
+            ),
+            (
+                "view.architecture_settings",
+                "View> Architecture Settings",
+                "View",
+                "architecture walls slabs stairs frames settings",
+                Some("view"),
+                ShellAction::OpenPanelGroup(ARCHITECTURE_PANEL_IDS),
+            ),
+            (
+                "view.hvac_settings",
+                "View> HVAC Settings",
+                "View",
+                "hvac settings ventilation plumbing",
+                Some("view"),
+                ShellAction::OpenPanel("hvac"),
+            ),
+            (
+                "view.hotspot_settings",
+                "View> Hotspot Settings",
+                "View",
+                "hotspot settings operation",
+                Some("view"),
+                ShellAction::OpenPanel("hotspots"),
+            ),
+            (
+                "view.random_tool_settings",
+                "View> Random Tool Settings",
+                "View",
+                "random fuzzy scatter remesh settings",
+                Some("view"),
+                ShellAction::OpenPanel("random"),
+            ),
+            (
+                "view.help_about",
+                "View> Help / About",
+                "View",
+                "help about platform input",
+                Some("view"),
+                ShellAction::OpenPanel("help"),
+            ),
+            (
+                "view.plugin_manager",
+                "View> Plugin Manager",
+                "View",
+                "plugins manager",
+                Some("view"),
+                ShellAction::Unsupported,
+            ),
         ];
         for (id, name, category, keywords, icon, action) in commands {
-            let (_, label) = name.split_once("> ").unwrap_or((category, name));
-            let mut descriptor = CommandDescriptor::new(
-                id,
-                label,
-                category,
-                keywords.split_whitespace(),
-                action_kind(action),
-            )
-            .expect("built-in command metadata is valid");
-            descriptor.state_query = action_state_query(action);
-            descriptor.capability = match action {
-                ShellAction::SelectTool(_)
-                | ShellAction::SetProfile(_)
-                | ShellAction::ToggleToolbars
-                | ShellAction::TogglePanels
-                | ShellAction::ToggleGrid
-                | ShellAction::About => CommandCapability::Desktop,
-                _ => CommandCapability::Core,
+            register_shell_command(&mut registry, id, name, category, keywords, icon, action);
+        }
+        for (tool_id, label) in LEGACY_BUILTIN_TOOLS {
+            let id = format!("tool.builtin.{tool_id}");
+            let name = format!("Tool> {label}");
+            let keywords = format!("{} tool", label.to_lowercase());
+            let action = match *tool_id {
+                "select" => ShellAction::SelectToolAlias("Select"),
+                "line" => ShellAction::SelectToolAlias("Line"),
+                "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
+                _ => ShellAction::Unsupported,
             };
-            descriptor.presentation = CommandPresentation {
-                palette_path: name.to_owned(),
-                menu_path: vec![category.to_owned()],
-                toolbar_group: match action {
-                    ShellAction::SelectTool(_) => Some("Tools".to_owned()),
-                    ShellAction::AddCuboid
-                    | ShellAction::CopySelection
-                    | ShellAction::CreateObject
-                    | ShellAction::ArraySelection => Some("Modeling".to_owned()),
-                    _ => None,
-                },
-                icon_key: icon.map(str::to_owned),
-                tutorial_action_id: None,
+            register_shell_command(
+                &mut registry,
+                &id,
+                &name,
+                "Tools",
+                &keywords,
+                Some("tool"),
+                action,
+            );
+        }
+        for (id, name, category, keywords, icon) in LEGACY_COMMANDS {
+            let action = if *id == "edit.group" {
+                ShellAction::CreateObject
+            } else {
+                ShellAction::Unsupported
             };
-            registry
-                .register(descriptor, action)
-                .expect("built-in command ids are unique");
+            register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
+        }
+        for (view_id, label) in [
+            ("top", "Ortho Top"),
+            ("bottom", "Ortho Bottom"),
+            ("left", "Ortho Left"),
+            ("right", "Ortho Right"),
+            ("front", "Ortho Front"),
+            ("back", "Ortho Back"),
+        ] {
+            let id = format!("view.ortho.{view_id}");
+            let name = format!("View> {label}");
+            let keywords = format!("camera orthographic {view_id}");
+            register_shell_command(
+                &mut registry,
+                &id,
+                &name,
+                "View",
+                &keywords,
+                Some("view"),
+                ShellAction::Unsupported,
+            );
+        }
+        for (toolbar_id, label) in LEGACY_TOOLBARS {
+            let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
+                continue;
+            };
+            for verb in ["show", "hide"] {
+                let title = if verb == "show" { "Show" } else { "Hide" };
+                let id = format!("view.toolbar.{stem}.{verb}");
+                let name = format!("View> Toolbars> {title} {label}");
+                let keywords = format!("toolbar {verb} {}", label.to_lowercase());
+                register_shell_command(
+                    &mut registry,
+                    &id,
+                    &name,
+                    "View",
+                    &keywords,
+                    Some("view"),
+                    ShellAction::Unsupported,
+                );
+            }
         }
         registry
     })
@@ -258,7 +637,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
 
 fn action_kind(action: ShellAction) -> CommandKind {
     match action {
-        ShellAction::SelectTool(_) => CommandKind::ToolActivation,
+        ShellAction::SelectTool(_) | ShellAction::SelectToolAlias(_) => CommandKind::ToolActivation,
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::CreateObject
@@ -269,7 +648,10 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::SetProfile(_)
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
-        | ShellAction::ToggleGrid => CommandKind::SessionMutation,
+        | ShellAction::ToggleGrid
+        | ShellAction::OpenPanel(_)
+        | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
+        ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::About => CommandKind::ReadOnly,
     }
 }
@@ -281,7 +663,9 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::CopySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::CreateObject => CommandStateQuery::RootSelectionAvailable,
         ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
-        ShellAction::SelectTool(tool) => CommandStateQuery::ActiveTool(tool.to_owned()),
+        ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
+            CommandStateQuery::ActiveTool(tool.to_owned())
+        }
         ShellAction::SetProfile(profile) => {
             CommandStateQuery::ActiveProfile(profile.label().to_owned())
         }
@@ -290,6 +674,57 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ToggleGrid => CommandStateQuery::PreferenceEnabled("grid".to_owned()),
         _ => CommandStateQuery::Always,
     }
+}
+
+fn register_shell_command(
+    registry: &mut CommandRegistry<ShellAction>,
+    id: &str,
+    name: &str,
+    category: &str,
+    keywords: &str,
+    icon: Option<&str>,
+    action: ShellAction,
+) {
+    let (_, label) = name.split_once("> ").unwrap_or((category, name));
+    let mut descriptor = CommandDescriptor::new(
+        id,
+        label,
+        category,
+        keywords.split_whitespace(),
+        action_kind(action),
+    )
+    .expect("built-in command metadata is valid");
+    descriptor.state_query = action_state_query(action);
+    descriptor.capability = match action {
+        ShellAction::SelectTool(_)
+        | ShellAction::SelectToolAlias(_)
+        | ShellAction::SetProfile(_)
+        | ShellAction::ToggleToolbars
+        | ShellAction::TogglePanels
+        | ShellAction::ToggleGrid
+        | ShellAction::OpenPanel(_)
+        | ShellAction::OpenPanelGroup(_)
+        | ShellAction::About => CommandCapability::Desktop,
+        ShellAction::Unsupported => CommandCapability::Deferred,
+        _ => CommandCapability::Core,
+    };
+    descriptor.presentation = CommandPresentation {
+        palette_path: name.to_owned(),
+        menu_path: vec![category.to_owned()],
+        toolbar_group: match action {
+            ShellAction::SelectTool(_) => Some("Tools".to_owned()),
+            ShellAction::AddCuboid
+            | ShellAction::CopySelection
+            | ShellAction::CreateObject
+            | ShellAction::ArraySelection => Some("Modeling".to_owned()),
+            _ => None,
+        },
+        icon_key: icon.map(str::to_owned),
+        tutorial_action_id: None,
+    };
+    registry
+        .register(descriptor, action)
+        .expect("built-in command ids are unique");
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -341,6 +776,7 @@ pub struct MeshcraftApp {
     command_search: String,
     command_selection: usize,
     focus_command_search: bool,
+    panel_focus: Option<String>,
     document: Document,
     history: TransactionHistory<SystemHistoryClock>,
     legacy_history: Option<OpaqueLegacyHistory>,
@@ -422,6 +858,7 @@ impl MeshcraftApp {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
+            panel_focus: None,
             document,
             history: TransactionHistory::default(),
             legacy_history,
@@ -732,7 +1169,7 @@ impl MeshcraftApp {
 
     fn execute_command(&mut self, action: ShellAction) -> CommandResult {
         match action {
-            ShellAction::SelectTool(tool) => {
+            ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
                 self.active_tool = tool.to_owned();
                 if self.preferences.auto_collapse_toolbars {
                     self.preferences.toolbars_visible = false;
@@ -819,6 +1256,11 @@ impl MeshcraftApp {
                     "Permanent grid hidden.".to_owned()
                 };
             }
+            ShellAction::OpenPanel(panel) => self.open_panels(&[panel]),
+            ShellAction::OpenPanelGroup(panels) => self.open_panels(panels),
+            ShellAction::Unsupported => {
+                return CommandResult::failed("this command is not implemented in this build");
+            }
             ShellAction::About => {
                 self.status = "Meshcraft · Rust rewrite · development build".to_owned();
             }
@@ -826,10 +1268,27 @@ impl MeshcraftApp {
         CommandResult::completed()
     }
 
+    fn open_panels(&mut self, panels: &[&str]) {
+        self.preferences.panels_visible = true;
+        for panel in panels {
+            self.preferences
+                .panel_open
+                .insert((*panel).to_owned(), true);
+        }
+        self.panel_focus = panels.first().map(|panel| (*panel).to_owned());
+        self.status = "Opened the requested inspector panel.".to_owned();
+    }
+
     fn command_state(&self, id: &str) -> CommandState {
         let Some(command) = shell_commands().get(id) else {
             return CommandState::disabled(format!("unknown command `{id}`"));
         };
+        if command.descriptor.capability == CommandCapability::Deferred {
+            return CommandState::disabled(format!(
+                "{} is not implemented in this build",
+                command.descriptor.label
+            ));
+        }
         match &command.descriptor.state_query {
             CommandStateQuery::Always => CommandState::default(),
             CommandStateQuery::UndoAvailable if !self.can_undo_document() => {
@@ -1221,6 +1680,7 @@ impl MeshcraftApp {
             .iter()
             .map(|command| self.command_state(command.descriptor.id.as_str()))
             .collect::<Vec<_>>();
+        let available_count = command_states.iter().filter(|state| state.enabled).count();
         let mut selected_command = None;
         let focus_search = std::mem::take(&mut self.focus_command_search);
         egui::Window::new("Command Palette")
@@ -1278,8 +1738,8 @@ impl MeshcraftApp {
                     });
                 ui.separator();
                 ui.weak(format!(
-                    "{} commands available · Enter to run · Esc to close",
-                    commands.len()
+                    "{available_count} available · {} cataloged · Enter to run · Esc to close",
+                    commands.len(),
                 ));
             });
 
@@ -1353,22 +1813,26 @@ impl MeshcraftApp {
             });
 
             ui.menu_button("View", |ui| {
-                ui.label("Workspace profile");
-                for id in [
-                    "view.profile.menus",
-                    "view.profile.buttons",
-                    "view.profile.hybrid",
-                ] {
-                    self.show_command_menu_item(ui, id);
+                let commands = shell_commands()
+                    .entries()
+                    .filter(|command| command.descriptor.category == "View")
+                    .collect::<Vec<_>>();
+                for command in commands {
+                    let id = command.descriptor.id.as_str();
+                    if matches!(
+                        id,
+                        "view.toolbars.toggle" | "view.panels.toggle" | "view.grid.toggle"
+                    ) {
+                        self.show_command_toggle(ui, id);
+                    } else {
+                        self.show_command_menu_item(ui, id);
+                    }
                 }
-                ui.separator();
-                self.show_command_toggle(ui, "view.toolbars.toggle");
-                ui.separator();
-                self.show_command_toggle(ui, "view.grid.toggle");
-                ui.add_enabled(false, egui::Button::new("Camera and visibility controls"));
             });
 
-            for menu in ["Draw", "Modify", "Objects", "Tools", "Render"] {
+            for menu in [
+                "Draw", "Modify", "Objects", "Tools", "Render", "Import", "Export",
+            ] {
                 ui.menu_button(menu, |ui| {
                     let commands = shell_commands()
                         .entries()
@@ -1515,6 +1979,10 @@ impl MeshcraftApp {
             .fill(Color32::from_rgb(54, 163, 244))
             .corner_radius(0.0),
         );
+        if self.panel_focus.as_deref() == Some(id) {
+            ui.scroll_to_rect(response.rect, Some(Align::Min));
+            self.panel_focus = None;
+        }
         if response.clicked() {
             self.preferences.panel_open.insert(id.to_owned(), !is_open);
             !is_open
@@ -2124,6 +2592,7 @@ mod tests {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
+            panel_focus: None,
             document: Document::new(),
             history: TransactionHistory::default(),
             legacy_history: None,
@@ -2186,6 +2655,41 @@ mod tests {
     }
 
     #[test]
+    fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
+        let entries = shell_commands().entries().collect::<Vec<_>>();
+        assert_eq!(155, entries.len());
+        assert_eq!(
+            74,
+            entries
+                .iter()
+                .filter(|command| command.descriptor.id.as_str().starts_with("tool.builtin."))
+                .count()
+        );
+        assert_eq!(
+            6,
+            entries
+                .iter()
+                .filter(|command| command.descriptor.id.as_str().starts_with("view.ortho."))
+                .count()
+        );
+        assert_eq!(
+            24,
+            entries
+                .iter()
+                .filter(|command| command.descriptor.id.as_str().starts_with("view.toolbar."))
+                .count()
+        );
+        assert!(shell_commands().get("edit.group").is_some());
+        assert!(shell_commands().get("export.screenshot").is_some());
+        assert!(shell_commands().get("import.mesh").is_some());
+        assert!(entries.iter().any(|command| {
+            command.descriptor.id.as_str() == "tool.builtin.axial_grid"
+                && command.descriptor.capability
+                    == meshcraft_core::commands::CommandCapability::Deferred
+        }));
+    }
+
+    #[test]
     fn every_visible_tool_has_a_registry_command() {
         for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
             let id = tool_command_id(tool);
@@ -2226,6 +2730,49 @@ mod tests {
             meshcraft_core::commands::CommandKind::ToolActivation,
             shell_commands().get("tool.cuboid").unwrap().descriptor.kind
         );
+    }
+
+    #[test]
+    fn legacy_inspector_commands_open_and_focus_the_matching_panel() {
+        let mut app = test_app();
+        app.preferences.panels_visible = false;
+        app.preferences
+            .panel_open
+            .insert("model_settings".to_owned(), false);
+
+        app.run_command("view.model_settings");
+
+        assert!(app.preferences.panels_visible);
+        assert_eq!(
+            Some(&true),
+            app.preferences.panel_open.get("model_settings")
+        );
+        assert_eq!(Some("model_settings"), app.panel_focus.as_deref());
+
+        app.run_command("view.architecture_settings");
+        for panel in [
+            "architecture_walls",
+            "architecture_slabs",
+            "architecture_stairs",
+            "architecture_frames",
+        ] {
+            assert_eq!(Some(&true), app.preferences.panel_open.get(panel));
+        }
+        assert_eq!(Some("architecture_walls"), app.panel_focus.as_deref());
+    }
+
+    #[test]
+    fn deferred_commands_are_discoverable_but_report_their_unsupported_state() {
+        let mut app = test_app();
+        assert!(shell_commands().get("view.plugin_manager").is_some());
+        assert!(!app.command_state("view.plugin_manager").enabled);
+        assert!(
+            app.command_state("view.plugin_manager")
+                .disabled_reason
+                .is_some_and(|reason| reason.contains("not implemented"))
+        );
+        app.run_command("view.plugin_manager");
+        assert!(app.status.contains("not implemented"));
     }
 
     #[test]
