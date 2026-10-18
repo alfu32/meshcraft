@@ -338,6 +338,9 @@ pub struct Definition {
     pub default_child_layout: Option<ChildLayoutId>,
     /// Sparse domain parameters are migrated to typed components by the IO layer.
     pub domain_data: BTreeMap<String, Value>,
+    /// Runtime identities aligned with legacy domain DTO arrays that do not persist IDs.
+    #[serde(default)]
+    pub domain_entity_ids: BTreeMap<String, Vec<String>>,
     /// Original payload values that this implementation does not yet understand.
     pub extensions: BTreeMap<String, Value>,
     pub legacy_aliases: Vec<LegacyAlias>,
@@ -493,6 +496,7 @@ impl Document {
                 },
                 default_child_layout: Some(root_layout),
                 domain_data: BTreeMap::new(),
+                domain_entity_ids: BTreeMap::new(),
                 extensions: BTreeMap::new(),
                 legacy_aliases: Vec::new(),
             },
@@ -532,6 +536,7 @@ impl Document {
             },
             default_child_layout: Some(self.root_layout),
             domain_data: BTreeMap::new(),
+            domain_entity_ids: BTreeMap::new(),
             extensions: BTreeMap::new(),
             legacy_aliases: Vec::new(),
         });
@@ -616,6 +621,7 @@ impl Document {
                 },
                 default_child_layout: None,
                 domain_data: BTreeMap::new(),
+                domain_entity_ids: BTreeMap::new(),
                 extensions: BTreeMap::new(),
                 legacy_aliases: Vec::new(),
             },
@@ -1871,6 +1877,7 @@ impl Document {
                 geometry,
                 default_child_layout: None,
                 domain_data: BTreeMap::new(),
+                domain_entity_ids: BTreeMap::new(),
                 extensions: BTreeMap::new(),
                 legacy_aliases: Vec::new(),
             },
@@ -2183,6 +2190,7 @@ impl Document {
                 },
                 default_child_layout: Some(layout_id),
                 domain_data: BTreeMap::new(),
+                domain_entity_ids: BTreeMap::new(),
                 extensions: BTreeMap::new(),
                 legacy_aliases: Vec::new(),
             },
@@ -2453,6 +2461,37 @@ impl Document {
                 return Err(format!("definition {} has a non-finite frame", id.0));
             }
             definition.geometry.validate()?;
+            for (field, identities) in &definition.domain_entity_ids {
+                let extension_key = format!("k3d.{field}");
+                let values = definition
+                    .extensions
+                    .get(&extension_key)
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        format!(
+                            "definition {} has identities for missing domain data {field:?}",
+                            id.0
+                        )
+                    })?;
+                if identities.len() != values.len() {
+                    return Err(format!(
+                        "definition {} has {} identities for {} {field} records",
+                        id.0,
+                        identities.len(),
+                        values.len()
+                    ));
+                }
+                let mut unique = BTreeSet::new();
+                if identities
+                    .iter()
+                    .any(|identity| identity.is_empty() || !unique.insert(identity))
+                {
+                    return Err(format!(
+                        "definition {} has empty or duplicate {field} identities",
+                        id.0
+                    ));
+                }
+            }
             if definition
                 .default_child_layout
                 .is_some_and(|layout| !self.child_layouts.contains_key(&layout))

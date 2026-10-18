@@ -198,11 +198,24 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
         validate_transform(frame, &format!("{path}/definitionOrigin"))?;
 
         let definition_id = document.add_definition(name, kind);
+        let domain_entity_ids = SCHEMA17_DOMAIN_ARRAY_FIELDS
+            .iter()
+            .copied()
+            .chain(["dimensions", "texts"])
+            .filter_map(|field| {
+                let count = object.get(field)?.as_array()?.len();
+                let ids = (0..count)
+                    .map(|index| format!("meshcraft:domain:{}:{field}:{index}", definition_id.0))
+                    .collect();
+                Some((field.to_owned(), ids))
+            })
+            .collect::<BTreeMap<_, _>>();
         let definition = document
             .definitions
             .get_mut(&definition_id)
             .expect("new definition is present");
         definition.frame = frame;
+        definition.domain_entity_ids = domain_entity_ids;
         definition.legacy_aliases.push(LegacyAlias {
             source: "k3d.prototype".to_owned(),
             id: legacy_id.clone(),
@@ -2383,6 +2396,23 @@ mod tests {
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
+        let annotation_definition = imported
+            .definitions
+            .values()
+            .find(|definition| definition.domain_entity_ids.contains_key("dimensions"))
+            .unwrap();
+        let dimension_ids = &annotation_definition.domain_entity_ids["dimensions"];
+        let text_ids = &annotation_definition.domain_entity_ids["texts"];
+        assert_eq!(1, dimension_ids.len());
+        assert_eq!(1, text_ids.len());
+        assert_ne!(dimension_ids[0], text_ids[0]);
+        assert!(
+            !exported["prototypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|prototype| prototype["dimensions"][0].get("id").is_some())
+        );
         let prototype = exported["prototypes"]
             .as_array()
             .unwrap()

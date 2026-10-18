@@ -54,7 +54,7 @@ Keep a small number of canonical concepts, with an explicit authoring/resolution
 
 | Concept | Canonical fields | Excluded derived/session fields |
 | --- | --- | --- |
-| `Definition` | Stable ID, name, glue/edit profile, optional nonidentity definition frame, authored geometry-bundle ID, typed domain parameters, hotspot definitions, default child-layout ID, external-source metadata | Per-instance selection, resolved triangles, world bounds, cached matrices, runtime hotspots |
+| `Definition` | Stable ID, name, glue/edit profile, optional nonidentity definition frame, authored geometry-bundle ID, typed domain parameters, hotspot definitions, runtime semantic IDs aligned with legacy DTO arrays that omit IDs, default child-layout ID, external-source metadata | Per-instance selection, resolved triangles, world bounds, cached matrices, runtime hotspots; generated semantic IDs are not written into legacy DTO payloads |
 | `GeometryBundle` | Stable vertex records, segment/triangle corner references with sparse position offsets and RGBA, dimensions/text, local identities and unknown imported fields | Repeated full vertex vectors on every primitive, selected flags, GPU buffers, spatial indexes |
 | `ChildLayout` | Ordered child-placement templates with stable template IDs, referenced definition, local transform and authored instance inputs | A cloned realized subtree for each parent occurrence |
 | `Placement` / authored occurrence edits | Definition reference, local transform, hotspot/input overrides, optional actual geometry replacement/edit, optional child-layout override | Automatically materialized copies equal to the definition; computed world matrix |

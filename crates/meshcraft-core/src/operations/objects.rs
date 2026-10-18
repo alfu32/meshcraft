@@ -6,14 +6,16 @@ use crate::document::{
     Triangle, TriangleId, Vertex, VertexId, VertexRef,
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
-use crate::selection::{EditContext, SelectedEntity, SelectionSession, SelectionTarget};
+use crate::selection::{
+    EditContext, SelectedEntity, SelectionKind, SelectionSession, SelectionTarget,
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-fn groupable_domain_extension_key(kind: crate::selection::SelectionKind) -> Option<&'static str> {
+fn groupable_domain_field(kind: SelectionKind) -> Option<&'static str> {
     match kind {
-        crate::selection::SelectionKind::Dimension => Some("k3d.dimensions"),
-        crate::selection::SelectionKind::Text => Some("k3d.texts"),
+        SelectionKind::Dimension => Some("dimensions"),
+        SelectionKind::Text => Some("texts"),
         _ => None,
     }
 }
@@ -394,9 +396,7 @@ pub fn group_selection(
             SelectedEntity::Vertex(_)
             | SelectedEntity::Segment(_)
             | SelectedEntity::Triangle(_) => true,
-            SelectedEntity::SemanticHandle { kind, .. } => {
-                groupable_domain_extension_key(*kind).is_some()
-            }
+            SelectedEntity::SemanticHandle { kind, .. } => groupable_domain_field(*kind).is_some(),
             SelectedEntity::Occurrence => false,
         })
     {
@@ -523,7 +523,7 @@ pub fn group_mesh_selection(
                 selected_vertices.extend(triangle.vertices.map(|reference| reference.id));
             }
             SelectedEntity::SemanticHandle { kind, id } => {
-                let Some(field) = groupable_domain_extension_key(*kind) else {
+                let Some(field) = groupable_domain_field(*kind) else {
                     return Err(format!(
                         "grouping {:?} selections requires a domain adapter",
                         kind
@@ -554,42 +554,66 @@ pub fn group_mesh_selection(
     }
 
     let mut moved_extensions = BTreeMap::new();
+    let mut moved_domain_entity_ids = BTreeMap::new();
     for (field, selected_ids) in &selected_domain_ids {
-        let values = candidate
-            .definitions
-            .get(&definition_id)
-            .and_then(|definition| definition.extensions.get(*field))
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("selected domain data {field:?} is not available"))?;
+        let extension_key = format!("k3d.{field}");
+        let (domain_ids, values) = {
+            let definition = candidate
+                .definitions
+                .get(&definition_id)
+                .ok_or_else(|| "the selected domain definition is missing".to_owned())?;
+            let domain_ids = definition
+                .domain_entity_ids
+                .get(*field)
+                .cloned()
+                .ok_or_else(|| format!("selected {field} identities are not available"))?;
+            let values = definition
+                .extensions
+                .get(&extension_key)
+                .and_then(Value::as_array)
+                .cloned()
+                .ok_or_else(|| format!("selected domain data {field:?} is not available"))?;
+            (domain_ids, values)
+        };
+        if domain_ids.len() != values.len() {
+            return Err(format!(
+                "selected {field} identities do not match their payloads"
+            ));
+        }
         let mut moved = Vec::new();
         let mut remaining = Vec::new();
+        let mut moved_ids = Vec::new();
+        let mut remaining_ids = Vec::new();
         let mut counts = BTreeMap::<&str, usize>::new();
-        for value in values {
-            let id = value
-                .as_object()
-                .and_then(|record| record.get("id"))
-                .and_then(Value::as_str);
-            if let Some(id) = id.filter(|id| selected_ids.contains(*id)) {
-                *counts.entry(id).or_default() += 1;
-                moved.push(value.clone());
+        for (id, value) in domain_ids.iter().zip(values) {
+            if selected_ids.contains(id) {
+                *counts.entry(id.as_str()).or_default() += 1;
+                moved.push(value);
+                moved_ids.push(id.clone());
             } else {
-                remaining.push(value.clone());
+                remaining.push(value);
+                remaining_ids.push(id.clone());
             }
         }
         for id in selected_ids {
             match counts.get(id.as_str()).copied() {
                 Some(1) => {}
-                Some(_) => return Err(format!("selected {field} id {id:?} is ambiguous")),
-                None => return Err(format!("selected {field} id {id:?} no longer exists")),
+                Some(_) => return Err(format!("selected {field} identity {id:?} is ambiguous")),
+                None => return Err(format!("selected {field} identity {id:?} no longer exists")),
             }
         }
-        moved_extensions.insert((*field).to_owned(), Value::Array(moved));
-        candidate
+        moved_extensions.insert(extension_key.clone(), Value::Array(moved));
+        moved_domain_entity_ids.insert((*field).to_owned(), moved_ids);
+        let definition = candidate
             .definitions
             .get_mut(&definition_id)
-            .expect("selected definition was resolved")
+            .expect("selected definition was resolved");
+        definition
             .extensions
-            .insert((*field).to_owned(), Value::Array(remaining));
+            .insert(extension_key, Value::Array(remaining));
+        definition
+            .domain_entity_ids
+            .insert((*field).to_owned(), remaining_ids);
     }
 
     let mut moved_geometry = GeometryBundle::default();
@@ -717,6 +741,7 @@ pub fn group_mesh_selection(
             geometry: moved_geometry,
             default_child_layout: None,
             domain_data: BTreeMap::new(),
+            domain_entity_ids: moved_domain_entity_ids,
             extensions: moved_extensions,
             legacy_aliases: Vec::new(),
         },
@@ -850,6 +875,7 @@ pub fn group_occurrences(
             },
             default_child_layout: Some(child_layout_id),
             domain_data: BTreeMap::new(),
+            domain_entity_ids: BTreeMap::new(),
             extensions: BTreeMap::new(),
             legacy_aliases: Vec::new(),
         },
@@ -1279,6 +1305,7 @@ pub fn explode_occurrences(
                 geometry,
                 default_child_layout: None,
                 domain_data: BTreeMap::new(),
+                domain_entity_ids: BTreeMap::new(),
                 extensions: BTreeMap::new(),
                 legacy_aliases: Vec::new(),
             },
@@ -2046,16 +2073,26 @@ mod tests {
         definition.extensions.insert(
             "k3d.dimensions".to_owned(),
             serde_json::json!([
-                {"id": "dimension-selected", "start": {"x": 1, "y": 2, "z": 3}},
-                {"id": "dimension-retained", "offset": 0.25}
+                {"start": {"x": 1, "y": 2, "z": 3}},
+                {"offset": 0.25}
             ]),
         );
         definition.extensions.insert(
             "k3d.texts".to_owned(),
             serde_json::json!([
-                {"id": "text-selected", "text": "Door", "position": {"x": 4, "y": 5, "z": 6}}
+                {"text": "Door", "position": {"x": 4, "y": 5, "z": 6}}
             ]),
         );
+        definition.domain_entity_ids.insert(
+            "dimensions".to_owned(),
+            vec![
+                "dimension-selected".to_owned(),
+                "dimension-retained".to_owned(),
+            ],
+        );
+        definition
+            .domain_entity_ids
+            .insert("texts".to_owned(), vec!["text-selected".to_owned()]);
 
         let mut selection = SelectionSession::default();
         selection.context = EditContext::Definition(definition_id);
@@ -2088,7 +2125,7 @@ mod tests {
         let source = document.definition(definition_id).unwrap();
         assert_eq!(11, source.geometry.triangles.len());
         assert_eq!(
-            serde_json::json!([{"id": "dimension-retained", "offset": 0.25}]),
+            serde_json::json!([{"offset": 0.25}]),
             source.extensions["k3d.dimensions"]
         );
         assert_eq!(serde_json::json!([]), source.extensions["k3d.texts"]);
@@ -2100,18 +2137,30 @@ mod tests {
         assert_eq!(1, grouped_definition.geometry.triangles.len());
         assert_eq!(
             serde_json::json!([{
-                "id": "dimension-selected",
                 "start": {"x": 1, "y": 2, "z": 3}
             }]),
             grouped_definition.extensions["k3d.dimensions"]
         );
         assert_eq!(
             serde_json::json!([{
-                "id": "text-selected",
                 "text": "Door",
                 "position": {"x": 4, "y": 5, "z": 6}
             }]),
             grouped_definition.extensions["k3d.texts"]
+        );
+        assert_eq!(
+            vec!["dimension-selected"],
+            grouped_definition.domain_entity_ids["dimensions"]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec!["text-selected"],
+            grouped_definition.domain_entity_ids["texts"]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
         );
         let grouped_child_id = *grouped.path.last().unwrap();
         assert!(
@@ -2130,20 +2179,18 @@ mod tests {
             .find(|prototype| prototype["name"] == "Selected annotations")
             .unwrap();
         assert_eq!(
-            serde_json::json!([{"id": "dimension-retained", "offset": 0.25}]),
+            serde_json::json!([{"offset": 0.25}]),
             source_prototype["dimensions"]
         );
         assert_eq!(serde_json::json!([]), source_prototype["texts"]);
         assert_eq!(
             serde_json::json!([{
-                "id": "dimension-selected",
                 "start": {"x": 1, "y": 2, "z": 3}
             }]),
             grouped_prototype["dimensions"]
         );
         assert_eq!(
             serde_json::json!([{
-                "id": "text-selected",
                 "text": "Door",
                 "position": {"x": 4, "y": 5, "z": 6}
             }]),
@@ -2168,8 +2215,14 @@ mod tests {
             .extensions
             .insert(
                 "k3d.dimensions".to_owned(),
-                serde_json::json!([{"id": "dimension-1", "text": "length"}]),
+                serde_json::json!([{"start": {"x": 1, "y": 0, "z": 0}}]),
             );
+        document
+            .definitions
+            .get_mut(&definition_id)
+            .unwrap()
+            .domain_entity_ids
+            .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
         let before = document.clone();
         let mut selection = SelectionSession::default();
         selection.select(SelectionTarget {

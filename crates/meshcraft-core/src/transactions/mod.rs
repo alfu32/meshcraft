@@ -866,6 +866,7 @@ fn classify_definition_change(
     if before.name != after.name
         || before.kind != after.kind
         || before.domain_data != after.domain_data
+        || before.domain_entity_ids != after.domain_entity_ids
         || before.extensions != after.extensions
         || before.legacy_aliases != after.legacy_aliases
     {
