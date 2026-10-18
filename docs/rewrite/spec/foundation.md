@@ -128,6 +128,8 @@ Source: `K/input/{Snapper,SnapType,SnapResult}.kt`. Acceptance: C10.
 
 Keep these helpers separate from persistent model lines. UI exposes spacing, visibility/orientation/extents and guide actions in both workspaces. Determine guide/session persistence from code rather than assuming guides are serialized by ModelSnapshot.
 
+The viewport also shows an oriented 3D cursor at the current snapped point while the pointer is over the view. Its blue axis follows the picked surface normal, red is the horizontal tangent through the point, and green is the remaining tangent. Placing a grid or axis guide uses this cursor point without changing the active tool or its accepted picks; if the cursor has no valid viewport point, an in-progress tool remains untouched.
+
 Source: `K/input/GuideManager.kt`, `K/tools/GuidePlacementTool.kt`, grid functions/prefs in `K/Main.kt`. Acceptance: C10, C17.
 
 ### I06 Selection and display filters

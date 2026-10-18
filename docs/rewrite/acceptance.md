@@ -147,3 +147,7 @@ Enumerate every enabled command that creates or changes geometry; selection is t
 ## C35 — Delete selected geometry and object instances
 
 Select and delete an object instance, a nested instance, and selected vertices, segments and triangles from the active scene graph. Verify dependent topology remains valid, sibling and unrelated shared instances are unchanged, and invalid/stale or unsupported targets fail without partial mutation. Repeat through the Edit menu, toolbar button, command palette and Delete key; each route must produce the same document state, clear deleted selection, and create one undo step. Undo and redo each operation and compare the restored/deleted document and selection state. Include a real viewport click/window selection case rather than only assigning selection targets in a test.
+
+## C36 — Oriented cursor and context-safe guide placement (#8, #9)
+
+In perspective and orthographic views, verify the cursor follows the current snapped or free construction point and shows a readable red horizontal tangent, green remaining tangent, and blue surface normal on level and slanted faces. Grid and axis guides use the same basis. Invoke either guide command and G/T while another multi-pick tool has accepted points; the guide is placed at the cursor while the active tool, accepted points, preview, and document history remain unchanged. With no cursor point, the command must report the missing point without interrupting an in-progress tool. Verify the selector's existing one-click guide fallback when no tool is in progress.

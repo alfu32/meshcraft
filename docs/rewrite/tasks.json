@@ -2591,6 +2591,49 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T54",
+      "title": "Persistent oriented cursor and context-safe guide placement (#8, #9)",
+      "phase": "desktop",
+      "dependencies": [
+        "T11",
+        "T13",
+        "T51"
+      ],
+      "requirements": [
+        "I04",
+        "I05"
+      ],
+      "acceptance": [
+        "C36"
+      ],
+      "targets": [
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/GuideManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/GuidePlacementTool.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/Snapper.kt"
+      ],
+      "source_symbols": [
+        "addAxisGuide",
+        "addGridGuide",
+        "compute"
+      ],
+      "slices": [
+        "Expose the latest snapped or free construction point as a viewport cursor throughout all active tool states.",
+        "Render an oriented cursor basis and guide axes with red horizontal tangent, green remaining tangent and blue surface-normal conventions for level and slanted surfaces.",
+        "Make guide commands and G/T place at the current cursor without changing active tools, accepted picks, previews or document history; retain selector click placement when there is no cursor point and reject missing points during an in-progress tool without state loss.",
+        "Add C36 regression coverage for cursor basis, both guide kinds, staged-tool context preservation, missing cursor handling and selector fallback."
+      ],
+      "done": [
+        "Cursor and guide orientation use the snapped surface normal with a horizontal red tangent and orthogonal green tangent.",
+        "Guide placement at the cursor preserves all in-progress tool state and performs no document edit."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

@@ -1057,6 +1057,7 @@ impl Viewport {
         if let Some(snap) = scene.snap.filter(|snap| snap.kind != SnapKind::Free)
             && let Some(position) = self.project_if_visible(rect, snap.point)
         {
+            self.draw_cursor(&painter, rect, snap, scene.grid.spacing);
             let color = match snap.kind {
                 SnapKind::Free => Color32::WHITE,
                 SnapKind::Face => Color32::from_rgb(255, 218, 77),
@@ -1070,6 +1071,9 @@ impl Viewport {
             };
             painter.circle_stroke(position, 6.0, Stroke::new(2.0, Color32::BLACK));
             painter.circle_stroke(position, 4.0, Stroke::new(2.0, color));
+        }
+        if let Some(snap) = scene.snap.filter(|snap| snap.kind == SnapKind::Free) {
+            self.draw_cursor(&painter, rect, snap, scene.grid.spacing);
         }
 
         if let Some(feedback) = scene.feedback.as_ref() {
@@ -3403,6 +3407,71 @@ impl Viewport {
         }
     }
 
+    fn draw_cursor(&self, painter: &egui::Painter, rect: Rect, snap: SnapResult, spacing: f64) {
+        let Some(origin_screen) = self.project_if_visible(rect, snap.point) else {
+            return;
+        };
+        let Some(basis) =
+            ConstructionGuide::at_point(ConstructionGuideKind::Axis, snap.point, snap.normal)
+        else {
+            return;
+        };
+        let spacing = if spacing.is_finite() && spacing > 1.0e-6 {
+            spacing
+        } else {
+            1.0
+        };
+        let [red, green, blue] = axis_guide_colors(true);
+        for (axis, color) in [
+            (basis.axis_u, red),
+            (basis.axis_v, green),
+            (basis.axis_w, blue),
+        ] {
+            let projected_unit = self
+                .project_if_visible(rect, snap.point + axis * spacing)
+                .map_or(0.0, |screen| screen.distance(origin_screen));
+            let extent = spacing
+                * f64::from(if projected_unit > 1.0e-3 {
+                    (25.0 / projected_unit).clamp(0.2, 12.0)
+                } else {
+                    1.0
+                });
+            let negative = snap.point - axis * (extent * 0.62);
+            let positive = snap.point + axis * extent;
+
+            if let Some([start, _]) = self.clip_segment_to_camera([negative, snap.point]) {
+                let screen_segment = [self.world_to_screen(rect, start), origin_screen];
+                painter.line_segment(screen_segment, Stroke::new(4.0, Color32::BLACK));
+                painter.line_segment(screen_segment, Stroke::new(2.2, lighter_axis_color(color)));
+            }
+            if let Some([start, end]) = self.clip_segment_to_camera([snap.point, positive]) {
+                let start_screen = if start == snap.point {
+                    origin_screen
+                } else {
+                    self.world_to_screen(rect, start)
+                };
+                let end_screen = self.world_to_screen(rect, end);
+                painter.line_segment([start_screen, end_screen], Stroke::new(4.0, Color32::BLACK));
+                painter.line_segment([start_screen, end_screen], Stroke::new(2.2, color));
+                let direction = end_screen - start_screen;
+                if direction.length() > 5.0 {
+                    let direction = direction.normalized();
+                    let wing = Vec2::new(-direction.y, direction.x) * 3.2;
+                    let arrow_base = end_screen - direction * 6.0;
+                    for arrow_end in [arrow_base + wing, arrow_base - wing] {
+                        painter.line_segment(
+                            [end_screen, arrow_end],
+                            Stroke::new(3.6, Color32::BLACK),
+                        );
+                        painter.line_segment([end_screen, arrow_end], Stroke::new(1.8, color));
+                    }
+                }
+            }
+        }
+        painter.circle_filled(origin_screen, 4.2, Color32::BLACK);
+        painter.circle_filled(origin_screen, 2.0, Color32::WHITE);
+    }
+
     fn draw_ground_shadows(
         &self,
         painter: &egui::Painter,
@@ -4637,6 +4706,22 @@ mod tests {
         assert!(negative.g() > colors[0].g());
         assert!(negative.b() > colors[0].b());
         assert_eq!(colors[0].a(), negative.a());
+    }
+
+    #[test]
+    fn slanted_surface_guide_keeps_red_horizontal_and_blue_on_the_normal() {
+        let normal = Vec3::new(1.0, 2.0, 3.0)
+            .try_normalized(1.0e-12)
+            .expect("slanted surface normal is nonzero");
+        let guide = ConstructionGuide::at_point(ConstructionGuideKind::Axis, Vec3::ZERO, normal)
+            .expect("slanted surface has a stable axis basis");
+
+        assert!(guide.axis_w.distance(normal) < 1.0e-12);
+        assert!(guide.axis_u.y.abs() < 1.0e-12);
+        assert!(guide.axis_v.y > 0.0);
+        assert!(guide.axis_u.dot(guide.axis_v).abs() < 1.0e-12);
+        assert!(guide.axis_u.dot(guide.axis_w).abs() < 1.0e-12);
+        assert!(guide.axis_v.dot(guide.axis_w).abs() < 1.0e-12);
     }
 
     #[test]

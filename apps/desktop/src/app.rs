@@ -1476,7 +1476,6 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::SelectToolAlias(_)
         | ShellAction::CycleTool(_)
         | ShellAction::BeginObjectPlacement
-        | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::AddCuboid
         | ShellAction::CopySelection
@@ -1526,6 +1525,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleGrid
         | ShellAction::ToggleGuides
         | ShellAction::ClearGuides
+        | ShellAction::PlaceGuide(_)
         | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
@@ -1553,12 +1553,6 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ArraySelection => CommandStateQuery::SelectionAvailable,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
             CommandStateQuery::ActiveTool(tool.to_owned())
-        }
-        ShellAction::PlaceGuide(ConstructionGuideKind::Axis) => {
-            CommandStateQuery::ActiveTool("Axis Guide".to_owned())
-        }
-        ShellAction::PlaceGuide(ConstructionGuideKind::Grid) => {
-            CommandStateQuery::ActiveTool("Grid Guide".to_owned())
         }
         ShellAction::RemoveGuide => CommandStateQuery::ActiveTool("Remove Guide".to_owned()),
         ShellAction::SetProfile(profile) => {
@@ -1961,6 +1955,7 @@ pub struct MeshcraftApp {
     active_tool: String,
     status: String,
     pointer_in_viewport: Option<egui::Vec2>,
+    cursor_snap: Option<SnapResult>,
     viewport_rect: egui::Rect,
     open_file_menu: bool,
     command_palette_open: bool,
@@ -2118,6 +2113,7 @@ impl MeshcraftApp {
             active_tool: "Select".to_owned(),
             status,
             pointer_in_viewport: None,
+            cursor_snap: None,
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             command_palette_open: false,
@@ -4337,6 +4333,7 @@ impl MeshcraftApp {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.active_tool = "Select".to_owned();
         self.guides.clear();
+        self.cursor_snap = None;
         self.cuboid_first = None;
         self.cuboid_base = None;
         self.drawing_tool
@@ -4480,6 +4477,7 @@ impl MeshcraftApp {
         self.shape_tool_state.clear_picks();
         self.primitive_tool_state.cancel();
         self.guides.clear();
+        self.cursor_snap = None;
         self.status = "New empty document.".to_owned();
         let mut result = CommandResult::completed();
         result.document_revision = Some(self.document.revision());
@@ -4885,6 +4883,30 @@ impl MeshcraftApp {
             }
             ShellAction::CancelActiveTool => self.cancel_active_tool(),
             ShellAction::PlaceGuide(kind) => {
+                if let Some(cursor) = self.cursor_snap {
+                    if let Some(guide) =
+                        ConstructionGuide::at_point(kind, cursor.point, cursor.normal)
+                    {
+                        self.guides.push(guide);
+                        self.status = match kind {
+                            ConstructionGuideKind::Axis => {
+                                "Axis guide placed at the cursor.".to_owned()
+                            }
+                            ConstructionGuideKind::Grid => {
+                                "Grid guide placed at the cursor.".to_owned()
+                            }
+                        };
+                        return CommandResult::completed();
+                    }
+                    return CommandResult::failed(
+                        "Could not construct a stable guide orientation.",
+                    );
+                }
+                if self.active_tool != "Select" {
+                    return CommandResult::failed(
+                        "Move the pointer over the viewport to place a guide; the active tool and its picked points were kept.",
+                    );
+                }
                 self.active_tool = match kind {
                     ConstructionGuideKind::Axis => "Axis Guide",
                     ConstructionGuideKind::Grid => "Grid Guide",
@@ -5024,6 +5046,7 @@ impl MeshcraftApp {
                     .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.shape_tool_state.activate(None);
                 self.guides.clear();
+                self.cursor_snap = None;
                 self.viewport.reset_camera();
                 let camera_state = serde_json::json!({
                     "position": {"x": 18.0, "y": 14.0, "z": 18.0},
@@ -8629,6 +8652,9 @@ impl MeshcraftApp {
         );
         self.viewport_rect = input.rect;
         self.pointer_in_viewport = input.pointer_local;
+        if pointer.is_some() {
+            self.cursor_snap = snap;
+        }
         if let Some(click) = input.click {
             self.handle_viewport_click_input(input.rect, click, snap);
         }
@@ -9720,6 +9746,17 @@ impl MeshcraftApp {
                     && input.key_pressed(egui::Key::G)
             })
         {
+            if let Some(position) = ui
+                .ctx()
+                .pointer_interact_pos()
+                .filter(|position| self.viewport_rect.contains(*position))
+            {
+                self.cursor_snap = self.snap_at_viewport_position(
+                    self.viewport_rect,
+                    position,
+                    ui.ctx().pixels_per_point(),
+                );
+            }
             self.run_command("view.grid_guide");
         } else if shortcuts_allowed
             && ui.input(|input| {
@@ -9730,6 +9767,17 @@ impl MeshcraftApp {
                     && input.key_pressed(egui::Key::T)
             })
         {
+            if let Some(position) = ui
+                .ctx()
+                .pointer_interact_pos()
+                .filter(|position| self.viewport_rect.contains(*position))
+            {
+                self.cursor_snap = self.snap_at_viewport_position(
+                    self.viewport_rect,
+                    position,
+                    ui.ctx().pixels_per_point(),
+                );
+            }
             self.run_command("view.axis_guide");
         } else if shortcuts_allowed && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.handle_escape();
@@ -10248,6 +10296,7 @@ mod tests {
             active_tool: "Select".to_owned(),
             status: String::new(),
             pointer_in_viewport: None,
+            cursor_snap: None,
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             command_palette_open: false,
@@ -11419,7 +11468,7 @@ mod tests {
     }
 
     #[test]
-    fn guide_commands_activate_placement_and_keep_guides_out_of_document_geometry() {
+    fn guide_commands_keep_the_legacy_click_fallback_without_a_cursor_position() {
         let mut app = test_app();
         let initial_revision = app.document.revision();
         let commands = MeshcraftApp::command_catalog();
@@ -11432,7 +11481,7 @@ mod tests {
                 .iter()
                 .find(|command| command.id.as_str() == id)
                 .expect("guide command is registered in the palette");
-            assert_eq!(CommandKind::ToolActivation, descriptor.kind);
+            assert_eq!(CommandKind::SessionMutation, descriptor.kind);
             app.run_command(id);
             assert_eq!(tool_name, app.active_tool);
 
@@ -11447,6 +11496,92 @@ mod tests {
             assert_eq!("Select", app.active_tool);
             assert_eq!(initial_revision, app.document.revision());
         }
+    }
+
+    #[test]
+    fn guide_commands_place_at_cursor_without_interrupting_a_staged_tool() {
+        let mut app = test_app();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let first_point = Vec3::new(2.0, 0.0, 1.0);
+        app.activate_tool("Line");
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(first_point));
+        assert_eq!(Some(first_point), app.drawing_tool.anchor());
+
+        let cursor = SnapResult {
+            point: Vec3::new(4.0, 3.0, -2.0),
+            normal: Vec3::new(1.0, 2.0, 3.0).try_normalized(1.0e-12).unwrap(),
+            kind: SnapKind::Face,
+            screen_distance: 0.0,
+        };
+        app.cursor_snap = Some(cursor);
+        let document_revision = app.document.revision();
+        app.run_command("view.axis_guide");
+
+        assert_eq!("Line", app.active_tool);
+        assert_eq!(Some(first_point), app.drawing_tool.anchor());
+        assert_eq!(1, app.guides.len());
+        assert_eq!(ConstructionGuideKind::Axis, app.guides[0].kind);
+        assert_eq!(cursor.point, app.guides[0].origin);
+        assert!(app.guides[0].axis_w.distance(cursor.normal) < 1.0e-12);
+        assert_eq!(document_revision, app.document.revision());
+
+        app.run_command("view.grid_guide");
+        assert_eq!("Line", app.active_tool);
+        assert_eq!(Some(first_point), app.drawing_tool.anchor());
+        assert_eq!(2, app.guides.len());
+        assert_eq!(ConstructionGuideKind::Grid, app.guides[1].kind);
+        assert_eq!(cursor.point, app.guides[1].origin);
+    }
+
+    #[test]
+    fn guide_command_without_cursor_does_not_interrupt_an_active_tool() {
+        let mut app = test_app();
+        let first_point = Vec3::new(1.0, 0.0, 2.0);
+        app.activate_tool("Line");
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(first_point));
+
+        let result = app.dispatch_command("view.axis_guide", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Failed, result.result.completion);
+        assert_eq!("Line", app.active_tool);
+        assert_eq!(Some(first_point), app.drawing_tool.anchor());
+        assert!(app.guides.is_empty());
+    }
+
+    #[test]
+    fn guide_shortcut_places_at_the_live_cursor_while_a_tool_is_staged() {
+        let mut app = test_app();
+        let context = egui::Context::default();
+        app.activate_tool("Line");
+        let first_point = Vec3::new(2.0, 0.0, 1.0);
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(first_point));
+        run_workspace_frame(&mut app, &context, Vec::new());
+
+        let rect = app.viewport_rect;
+        let pointer = app.viewport.world_to_screen(rect, Vec3::new(4.0, 0.0, 3.0));
+        assert!(rect.contains(pointer));
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::PointerMoved(pointer),
+                Event::Key {
+                    key: egui::Key::G,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+
+        assert_eq!("Line", app.active_tool);
+        assert_eq!(Some(first_point), app.drawing_tool.anchor());
+        assert_eq!(1, app.guides.len());
+        assert_eq!(ConstructionGuideKind::Grid, app.guides[0].kind);
+        assert_eq!(
+            Some(app.guides[0].origin),
+            app.cursor_snap.map(|snap| snap.point)
+        );
     }
 
     #[test]
