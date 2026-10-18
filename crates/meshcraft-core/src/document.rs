@@ -1000,6 +1000,114 @@ impl Document {
             .then_some((segment_ids, triangle_ids))
     }
 
+    /// Inserts planar edges through the ordinary line topology path, then appends authored faces.
+    pub fn append_planar_mesh_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        vertices: Vec<Vec3>,
+        segments: Vec<[usize; 2]>,
+        triangles: Vec<[usize; 3]>,
+    ) -> Result<(Vec<SegmentId>, Vec<TriangleId>), String> {
+        if !self.definitions.contains_key(&definition_id) {
+            return Err(format!("missing definition {}", definition_id.0));
+        }
+        validate_indexed_geometry_input(&vertices, &segments, &triangles)?;
+        if segments.is_empty() || triangles.is_empty() {
+            return Err("planar shapes need boundary segments and filled triangles".to_owned());
+        }
+
+        let mut geometry = self.definitions[&definition_id].geometry.clone();
+        let mut selected_segments = BTreeSet::new();
+        let mut next_id = self.next_id;
+        for [start, end] in &segments {
+            let (replacement, insertion) =
+                insert_line_geometry(&geometry, vertices[*start], vertices[*end], &mut next_id)
+                    .ok_or_else(|| "planar shape contains an invalid edge".to_owned())?;
+            for (source, targets) in insertion.remap.segments {
+                if selected_segments.remove(&source) {
+                    selected_segments.extend(targets);
+                }
+            }
+            selected_segments.extend(insertion.affected_segments);
+            geometry = replacement;
+        }
+
+        let model_scale = vertices
+            .iter()
+            .map(|point| point.length())
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(model_scale);
+        let mut vertex_ids = Vec::with_capacity(vertices.len());
+        for position in vertices {
+            let existing = geometry
+                .vertices
+                .values()
+                .find(|vertex| vertex.position.distance(position) <= tolerance)
+                .map(|vertex| vertex.id);
+            let id = existing.unwrap_or_else(|| {
+                let id = allocate_id(&mut next_id, VertexId);
+                geometry.vertices.insert(
+                    id,
+                    Vertex {
+                        id,
+                        position,
+                        legacy_aliases: Vec::new(),
+                    },
+                );
+                id
+            });
+            vertex_ids.push(id);
+        }
+
+        let mut triangle_ids = Vec::with_capacity(triangles.len());
+        for [first, second, third] in triangles {
+            let id = allocate_id(&mut next_id, TriangleId);
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: [
+                        VertexRef::new(vertex_ids[first]),
+                        VertexRef::new(vertex_ids[second]),
+                        VertexRef::new(vertex_ids[third]),
+                    ],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+            triangle_ids.push(id);
+        }
+        geometry.validate()?;
+        self.definitions
+            .get_mut(&definition_id)
+            .expect("definition checked before shape insertion")
+            .geometry = geometry;
+        self.next_id = next_id;
+        self.revision = self.revision.saturating_add(1);
+        Ok((selected_segments.into_iter().collect(), triangle_ids))
+    }
+
+    /// Inserts a planar mesh directly into the scene-root graph.
+    pub fn append_planar_mesh_to_scene_root(
+        &mut self,
+        vertices: Vec<Vec3>,
+        segments: Vec<[usize; 2]>,
+        triangles: Vec<[usize; 3]>,
+    ) -> Result<(Vec<SegmentId>, Vec<TriangleId>), String> {
+        validate_indexed_geometry_input(&vertices, &segments, &triangles)?;
+        let mut staged = self.clone();
+        let definition_id = staged.ensure_scene_root();
+        let inserted = staged.append_planar_mesh_to_definition(
+            definition_id,
+            vertices,
+            segments,
+            triangles,
+        )?;
+        *self = staged;
+        Ok(inserted)
+    }
+
     fn append_geometry_to_definition(
         &mut self,
         definition_id: DefinitionId,
@@ -1889,6 +1997,29 @@ impl Document {
         }
         Ok(())
     }
+}
+
+fn validate_indexed_geometry_input(
+    vertices: &[Vec3],
+    segments: &[[usize; 2]],
+    triangles: &[[usize; 3]],
+) -> Result<(), String> {
+    if vertices.is_empty()
+        || vertices.iter().any(|point| !point.is_finite())
+        || segments
+            .iter()
+            .flatten()
+            .any(|index| *index >= vertices.len())
+        || triangles
+            .iter()
+            .flatten()
+            .any(|index| *index >= vertices.len())
+    {
+        return Err(
+            "indexed geometry must contain finite vertices and valid references".to_owned(),
+        );
+    }
+    Ok(())
 }
 
 mod occurrence_edit_map {
@@ -2978,6 +3109,53 @@ mod tests {
                     .any(|endpoint| endpoint.id == intersection_vertex))
                 .count()
         );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn planar_mesh_boundary_edges_use_line_splitting_and_overlap_consolidation() {
+        let mut document = Document::new();
+        document
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X * 4.0)
+            .unwrap();
+        let (segments, triangles) = document
+            .append_planar_mesh_to_scene_root(
+                vec![
+                    Vec3::X * 2.0,
+                    Vec3::X * 4.0,
+                    Vec3::new(4.0, 2.0, 0.0),
+                    Vec3::new(2.0, 2.0, 0.0),
+                ],
+                vec![[0, 1], [1, 2], [2, 3], [3, 0]],
+                vec![[0, 1, 2], [0, 2, 3]],
+            )
+            .unwrap();
+        let geometry = document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        let bottom_edges = geometry
+            .segments
+            .values()
+            .filter_map(|segment| {
+                let points = segment
+                    .endpoints
+                    .map(|reference| geometry.vertex_position(reference).unwrap());
+                (points[0].y == 0.0 && points[1].y == 0.0).then_some(points)
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            bottom_edges
+                .iter()
+                .any(|edge| { edge.contains(&Vec3::ZERO) && edge.contains(&(Vec3::X * 2.0)) })
+        );
+        assert!(
+            bottom_edges
+                .iter()
+                .any(|edge| { edge.contains(&(Vec3::X * 2.0)) && edge.contains(&(Vec3::X * 4.0)) })
+        );
+        assert!(segments.iter().all(|id| geometry.segments.contains_key(id)));
+        assert_eq!(2, triangles.len());
+        assert_eq!(2, geometry.triangles.len());
         assert!(document.validate().is_ok());
     }
 

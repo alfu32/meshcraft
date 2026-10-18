@@ -5,6 +5,7 @@ use meshcraft_core::geometry::Vec3;
 use meshcraft_core::selection::{
     SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionTarget,
 };
+use meshcraft_core::tools::shapes::ShapeMeasurement;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -70,11 +71,18 @@ pub struct CuboidPreview {
     pub dimensions: Vec3,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum ToolPreview {
     Cuboid(CuboidPreview),
-    Line { start: Vec3, end: Vec3 },
-    Rectangle { corners: [Vec3; 4] },
+    Line {
+        start: Vec3,
+        end: Vec3,
+    },
+    PlanarShape {
+        outline: Vec<Vec3>,
+        closed: bool,
+        measurements: Vec<ShapeMeasurement>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -621,14 +629,18 @@ impl Viewport {
                 true,
             );
         }
-        if let Some(preview) = scene.preview {
+        if let Some(preview) = scene.preview.as_ref() {
             match preview {
-                ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, cuboid),
+                ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, *cuboid),
                 ToolPreview::Line { start, end } => {
-                    self.draw_line_preview(&painter, rect, start, end)
+                    self.draw_line_preview(&painter, rect, *start, *end)
                 }
-                ToolPreview::Rectangle { corners } => {
-                    self.draw_rectangle_preview(&painter, rect, corners);
+                ToolPreview::PlanarShape {
+                    outline,
+                    closed,
+                    measurements,
+                } => {
+                    self.draw_planar_shape_preview(&painter, rect, outline, *closed, measurements);
                 }
             }
         }
@@ -1364,7 +1376,7 @@ impl Viewport {
         }
     }
 
-    fn construction_plane_normal(&self) -> Vec3 {
+    pub fn construction_plane_normal(&self) -> Vec3 {
         self.orthographic.map_or_else(
             || self.grid_normal_axis.vector(),
             |view| view.screen_axes().2,
@@ -1416,20 +1428,6 @@ impl Viewport {
             return Some((point_on_view_plane + normal * self.far_plane, -normal));
         }
         self.ray_from_screen(rect, position)
-    }
-
-    /// Returns a rectangle's four corners in the active construction plane.
-    pub fn construction_rectangle_corners(&self, first: Vec3, opposite: Vec3) -> [Vec3; 4] {
-        let (axis_u, axis_v) = self.orthographic.map_or((Vec3::X, -Vec3::Z), |view| {
-            let (right, up, _) = view.screen_axes();
-            (right, up)
-        });
-        let delta = opposite - first;
-        let along_u = delta.dot(axis_u);
-        let along_v = delta.dot(axis_v);
-        let p1 = first + axis_u * along_u;
-        let p3 = first + axis_v * along_v;
-        [first, p1, p1 + axis_v * along_v, p3]
     }
 
     pub fn request_frame(&mut self) {
@@ -2991,23 +2989,56 @@ impl Viewport {
         );
     }
 
-    fn draw_rectangle_preview(&self, painter: &egui::Painter, rect: Rect, corners: [Vec3; 4]) {
-        if corners
-            .iter()
-            .any(|corner| !self.point_in_front_of_camera(*corner))
+    fn draw_planar_shape_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        outline: &[Vec3],
+        closed: bool,
+        measurements: &[ShapeMeasurement],
+    ) {
+        if outline.len() < 2
+            || outline
+                .iter()
+                .any(|point| !self.point_in_front_of_camera(*point))
         {
             return;
         }
-        let points = corners.map(|point| self.world_to_screen(rect, point));
-        painter.add(Shape::convex_polygon(
-            points.to_vec(),
-            Color32::from_rgba_unmultiplied(235, 105, 70, 36),
-            Stroke::NONE,
-        ));
-        for index in 0..points.len() {
+        let points = outline
+            .iter()
+            .map(|point| self.world_to_screen(rect, *point))
+            .collect::<Vec<_>>();
+        if closed && points.len() >= 3 {
+            painter.add(Shape::convex_polygon(
+                points.clone(),
+                Color32::from_rgba_unmultiplied(235, 105, 70, 36),
+                Stroke::NONE,
+            ));
+        }
+        for pair in points.windows(2) {
             painter.line_segment(
-                [points[index], points[(index + 1) % points.len()]],
+                [pair[0], pair[1]],
                 Stroke::new(1.8, Color32::from_rgb(235, 105, 70)),
+            );
+        }
+        if closed {
+            painter.line_segment(
+                [*points.last().unwrap(), points[0]],
+                Stroke::new(1.8, Color32::from_rgb(235, 105, 70)),
+            );
+        }
+        if !measurements.is_empty() {
+            let labels = measurements
+                .iter()
+                .map(|measurement| format!("{} {:.2}", measurement.label, measurement.value))
+                .collect::<Vec<_>>()
+                .join("  ");
+            painter.text(
+                *points.last().unwrap() + Vec2::new(10.0, 12.0),
+                egui::Align2::LEFT_TOP,
+                labels,
+                egui::FontId::proportional(12.0),
+                Color32::WHITE,
             );
         }
     }
@@ -3860,7 +3891,12 @@ mod tests {
             let opposite = viewport
                 .screen_to_construction_plane(rect, opposite_screen)
                 .unwrap();
-            let corners = viewport.construction_rectangle_corners(world, opposite);
+            let corners = meshcraft_core::tools::shapes::rectangle_corners(
+                world,
+                opposite,
+                view.screen_axes().2,
+            )
+            .unwrap();
             assert!(
                 viewport
                     .world_to_screen(rect, corners[2])

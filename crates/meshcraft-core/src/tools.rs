@@ -2,6 +2,8 @@
 
 use crate::geometry::Vec3;
 
+pub mod shapes;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum DrawingTool {
     #[default]

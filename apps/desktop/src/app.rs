@@ -21,6 +21,7 @@ use meshcraft_core::selection::{
 use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
+    shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
 };
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
@@ -1184,6 +1185,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "line" => ShellAction::SelectToolAlias("Line"),
                 "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
+                "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
+                "quad" => ShellAction::SelectToolAlias("Quad"),
+                "circle" => ShellAction::SelectToolAlias("Circle"),
                 _ => ShellAction::Unsupported,
             };
             register_shell_command(
@@ -1656,7 +1660,7 @@ pub struct MeshcraftApp {
     cuboid_base: Option<(Vec3, Vec3)>,
     drawing_tool: DrawingToolState,
     tool_cycle_state: ToolCycleState,
-    rectangle_first: Option<Vec3>,
+    shape_tool_state: ShapeToolState,
     array_count: usize,
     array_spacing: f64,
     pending_selection_volume: Option<Vec3>,
@@ -1791,7 +1795,7 @@ impl MeshcraftApp {
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
-            rectangle_first: None,
+            shape_tool_state: ShapeToolState::default(),
             array_count: 12,
             array_spacing: 3.0,
             pending_selection_volume: None,
@@ -1841,23 +1845,6 @@ impl MeshcraftApp {
             }),
             SelectionMode::Replace,
         );
-    }
-
-    fn active_occurrence_edit_transform(
-        &self,
-    ) -> Option<(
-        OccurrenceRef,
-        DefinitionId,
-        meshcraft_core::geometry::Affine3,
-    )> {
-        let EditContext::Occurrence(occurrence) = &self.selection.context else {
-            return None;
-        };
-        let resolved = self.document.resolve_occurrence(occurrence)?;
-        let inverse = resolved
-            .world_transform
-            .inverse(meshcraft_core::geometry::GeometryTolerance::default())?;
-        Some((occurrence.clone(), resolved.definition.id, inverse))
     }
 
     fn line_geometry_context(
@@ -1960,41 +1947,39 @@ impl MeshcraftApp {
             .collect())
     }
 
-    fn create_rectangle_in_active_context(
+    fn create_planar_shape_in_active_context(
         &mut self,
-        corners: [Vec3; 4],
+        mesh: PlanarMesh,
+        label: &'static str,
     ) -> Result<Vec<SelectionTarget>, String> {
-        if let Some((occurrence, definition, inverse)) = self.active_occurrence_edit_transform() {
-            let corners = corners.map(|point| inverse.transform_point(point));
-            let (segments, triangles) =
-                self.commit_document_edit("Create rectangle", |document| {
-                    document
-                        .append_planar_rectangle_to_definition(definition, corners)
-                        .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
-                })?;
-            let mut targets = segments
-                .into_iter()
-                .map(|id| SelectionTarget {
-                    occurrence: occurrence.clone(),
-                    entity: SelectedEntity::Segment(id),
-                })
-                .collect::<Vec<_>>();
-            targets.extend(triangles.into_iter().map(|id| SelectionTarget {
-                occurrence: occurrence.clone(),
-                entity: SelectedEntity::Triangle(id),
-            }));
-            Ok(targets)
-        } else {
-            let occurrence = self.commit_document_edit("Create rectangle", |document| {
-                document
-                    .add_planar_rectangle("rectangle", corners)
-                    .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let vertices = mesh
+            .vertices
+            .into_iter()
+            .map(|point| inverse.transform_point(point))
+            .collect::<Vec<_>>();
+        let segments = mesh.segments;
+        let triangles = mesh.triangles;
+        let (segment_ids, triangle_ids) =
+            self.commit_document_edit(&format!("Create {label}"), |document| match owner {
+                LineOwner::SceneRoot => {
+                    document.append_planar_mesh_to_scene_root(vertices, segments, triangles)
+                }
+                LineOwner::Definition(definition) => document
+                    .append_planar_mesh_to_definition(definition, vertices, segments, triangles),
             })?;
-            Ok(vec![SelectionTarget {
-                occurrence,
-                entity: SelectedEntity::Occurrence,
-            }])
-        }
+        let mut targets = segment_ids
+            .into_iter()
+            .map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(id),
+            })
+            .collect::<Vec<_>>();
+        targets.extend(triangle_ids.into_iter().map(|id| SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(id),
+        }));
+        Ok(targets)
     }
 
     fn commit_document_edit<T>(
@@ -2717,7 +2702,7 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
-        self.rectangle_first = None;
+        self.shape_tool_state.clear_picks();
         self.viewport.reset_camera();
         let restored_camera = meshcraft_core::legacy::legacy_camera_state(&self.document)
             .is_some_and(|state| self.viewport.restore_legacy_camera_state(state));
@@ -2852,7 +2837,7 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
-        self.rectangle_first = None;
+        self.shape_tool_state.clear_picks();
         self.guides.clear();
         self.status = "New empty document.".to_owned();
         let mut result = CommandResult::completed();
@@ -2913,7 +2898,8 @@ impl MeshcraftApp {
             "Construction Line" => DrawingTool::ConstructionLine,
             _ => DrawingTool::Select,
         }));
-        self.rectangle_first = None;
+        self.shape_tool_state
+            .activate(PlanarShapeTool::from_label(tool));
         self.status = match tool {
             "Cuboid" => "Cuboid: click two ground-plane corners, then click the height.".to_owned(),
             "Line" => {
@@ -2926,6 +2912,11 @@ impl MeshcraftApp {
             "Rectangle" => {
                 "Rectangle: click two opposite corners in the active construction plane.".to_owned()
             }
+            "Surface Rect" => {
+                "Surface Rect: pick a surface point, then the opposite rectangle corner.".to_owned()
+            }
+            "Quad" => "Quad: pick the origin, second point, then third point.".to_owned(),
+            "Circle" => "Circle: pick a center, then a radius point.".to_owned(),
             _ => format!("{tool} tool selected."),
         };
     }
@@ -2992,7 +2983,7 @@ impl MeshcraftApp {
                 self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
-                self.rectangle_first = None;
+                self.shape_tool_state.activate(None);
                 self.status = match kind {
                     ConstructionGuideKind::Axis => {
                         "Axis Guide: click a point to place a temporary construction guide."
@@ -3009,7 +3000,7 @@ impl MeshcraftApp {
                 self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
-                self.rectangle_first = None;
+                self.shape_tool_state.activate(None);
                 self.status = "Remove Guide: click a visible construction guide.".to_owned();
             }
             ShellAction::AddCuboid => {
@@ -3113,7 +3104,7 @@ impl MeshcraftApp {
                 self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
-                self.rectangle_first = None;
+                self.shape_tool_state.activate(None);
                 self.guides.clear();
                 self.viewport.reset_camera();
                 let camera_state = serde_json::json!({
@@ -3898,7 +3889,7 @@ impl MeshcraftApp {
         self.cuboid_first = None;
         self.cuboid_base = None;
         self.drawing_tool.handle(ToolEvent::Escape);
-        self.rectangle_first = None;
+        self.shape_tool_state.activate(None);
         self.status = "Current tool operation canceled.".to_owned();
     }
 
@@ -4136,30 +4127,46 @@ impl MeshcraftApp {
             return;
         }
 
-        if self.active_tool == "Rectangle" {
-            let point = construction_point;
-            let Some(point) = point else {
+        if let Some(shape_tool) = self.shape_tool_state.active() {
+            let Some(point) = construction_point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
-            if let Some(first) = self.rectangle_first {
-                let corners = self.viewport.construction_rectangle_corners(first, point);
-                match self.create_rectangle_in_active_context(corners) {
-                    Ok(targets) => {
-                        self.selection.apply(targets, SelectionMode::Replace);
-                        self.active_tool = "Select".to_owned();
-                        self.rectangle_first = None;
-                        self.status = format!(
-                            "Created rectangle {:.2} × {:.2}.",
-                            corners[0].distance(corners[1]),
-                            corners[1].distance(corners[2])
-                        );
-                    }
-                    Err(error) => self.status = error,
+            let pick_normal = snap.map(|result| result.normal);
+            let fallback_normal = self.viewport.construction_plane_normal();
+            let pick_count = self.shape_tool_state.picks().len();
+            match self.shape_tool_state.pick(
+                point,
+                pick_normal,
+                fallback_normal,
+                self.document.model_settings().circle_segments,
+            ) {
+                Ok(None) => {
+                    self.status = match (shape_tool, pick_count) {
+                        (PlanarShapeTool::Rectangle, _) => {
+                            "Rectangle: choose the opposite corner.".to_owned()
+                        }
+                        (PlanarShapeTool::SurfaceRectangle, _) => {
+                            "Surface Rect: choose the opposite rectangle corner.".to_owned()
+                        }
+                        (PlanarShapeTool::Quad, 0) => "Quad: pick the second point.".to_owned(),
+                        (PlanarShapeTool::Quad, _) => "Quad: pick the third point.".to_owned(),
+                        (PlanarShapeTool::Circle, _) => "Circle: choose a radius point.".to_owned(),
+                    };
                 }
-            } else {
-                self.rectangle_first = Some(point);
-                self.status = "Rectangle: choose the opposite corner.".to_owned();
+                Ok(Some(mesh)) => {
+                    match self.create_planar_shape_in_active_context(mesh, shape_tool.label()) {
+                        Ok(targets) => {
+                            self.selection.apply(targets, SelectionMode::Replace);
+                            self.status = format!(
+                                "Created {} in the active geometry graph.",
+                                shape_tool.label()
+                            );
+                        }
+                        Err(error) => self.status = error,
+                    }
+                }
+                Err(error) => self.status = error.to_owned(),
             }
             return;
         }
@@ -4531,6 +4538,21 @@ impl MeshcraftApp {
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
         let position = pointer?;
+        if self.shape_tool_state.active().is_some() {
+            let point = snap
+                .map(|result| result.point)
+                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
+            let preview = self.shape_tool_state.preview(
+                point,
+                self.viewport.construction_plane_normal(),
+                self.document.model_settings().circle_segments,
+            )?;
+            return Some(ToolPreview::PlanarShape {
+                outline: preview.outline,
+                closed: preview.closed,
+                measurements: preview.measurements,
+            });
+        }
         match self.active_tool.as_str() {
             "Cuboid" => {
                 let (first, opposite) = self.cuboid_base?;
@@ -4559,17 +4581,6 @@ impl MeshcraftApp {
                 let preview = self.drawing_tool.preview(point);
                 let [start, end] = preview.segment?;
                 Some(ToolPreview::Line { start, end })
-            }
-            "Rectangle" => {
-                let first = self.rectangle_first?;
-                let opposite = snap
-                    .map(|snap| snap.point)
-                    .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
-                Some(ToolPreview::Rectangle {
-                    corners: self
-                        .viewport
-                        .construction_rectangle_corners(first, opposite),
-                })
             }
             _ => None,
         }
@@ -6226,12 +6237,12 @@ mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
         ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionSession, ToolCycleState, ToolEvent, TransactionHistory, UiProfile,
+        SelectionSession, ShapeToolState, ToolCycleState, ToolEvent, TransactionHistory, UiProfile,
         command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
-        SnapScope, Viewport, ViewportClick,
+        SnapResult, SnapScope, Viewport, ViewportClick,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -6242,7 +6253,7 @@ mod tests {
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
     use meshcraft_core::document::{Document, OccurrenceRef};
-    use meshcraft_core::geometry::Vec3;
+    use meshcraft_core::geometry::{Affine3, Vec3};
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
     use serde_json::{Value, json};
@@ -6405,7 +6416,7 @@ mod tests {
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
-            rectangle_first: None,
+            shape_tool_state: ShapeToolState::default(),
             array_count: 12,
             array_spacing: 3.0,
             pending_selection_volume: None,
@@ -7469,25 +7480,29 @@ mod tests {
     }
 
     #[test]
-    fn rectangle_tool_creates_a_face_in_the_active_orthographic_plane() {
+    fn rectangle_tool_creates_ground_mesh_geometry_in_the_active_scene_graph() {
         let mut app = test_app();
-        app.active_tool = "Rectangle".to_owned();
-        app.viewport.set_orthographic_view(OrthoView::Front);
+        app.activate_tool("Rectangle");
+        app.viewport.set_orthographic_view(OrthoView::Top);
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
 
         app.handle_viewport_click(rect, rect.center(), None);
         app.handle_viewport_click(rect, Pos2::new(456.0, 244.0), None);
 
-        assert_eq!("Select", app.active_tool);
-        let occurrence = app.selected_occurrences().pop().unwrap();
-        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!("Rectangle", app.active_tool);
+        assert_eq!(6, app.selection.selected().len());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
         assert_eq!(4, geometry.vertices.len());
+        assert_eq!(4, geometry.segments.len());
         assert_eq!(2, geometry.triangles.len());
         assert!(
             geometry
                 .vertices
                 .values()
-                .all(|vertex| vertex.position.z == 0.0)
+                .all(|vertex| vertex.position.y == 0.0)
         );
         assert!(
             geometry
@@ -7499,8 +7514,236 @@ mod tests {
             geometry
                 .vertices
                 .values()
-                .any(|vertex| vertex.position.y == 2.0)
+                .any(|vertex| vertex.position.z.abs() == 2.0)
         );
+        assert_eq!(1, app.history.entries().len());
+        app.run_command("edit.undo");
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert!(geometry.vertices.is_empty());
+        assert!(geometry.segments.is_empty());
+        assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn quad_and_circle_commands_create_configured_geometry_in_the_scene_root() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut quad = test_app();
+        let command = quad.dispatch_command("tool.builtin.quad", &CommandPayload::default());
+        assert!(command.accepted);
+        for point in [Vec3::ZERO, Vec3::X * 2.0, Vec3::Z * 3.0] {
+            quad.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+        }
+        assert_eq!("Quad", quad.active_tool);
+        let geometry = quad
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert_eq!(6, quad.selection.selected().len());
+        assert_eq!(1, quad.history.entries().len());
+        quad.run_command("edit.undo");
+        assert!(
+            quad.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .triangles
+                .is_empty()
+        );
+
+        let mut circle = test_app();
+        assert!(
+            circle
+                .dispatch_command("tool.builtin.circle", &CommandPayload::default())
+                .accepted
+        );
+        let mut settings = CommandPayload::default();
+        settings
+            .values
+            .insert("circle_segments".to_owned(), json!(12));
+        assert!(
+            circle
+                .dispatch_command("model.update_settings", &settings)
+                .accepted
+        );
+        let face_pick = |point| {
+            Some(SnapResult {
+                point,
+                normal: Vec3::X,
+                kind: SnapKind::Face,
+                screen_distance: 0.0,
+            })
+        };
+        circle.handle_viewport_click_at_point(
+            rect,
+            Pos2::ZERO,
+            face_pick(Vec3::ZERO),
+            Some(Vec3::ZERO),
+        );
+        circle.handle_viewport_click_at_point(
+            rect,
+            Pos2::ZERO,
+            face_pick(Vec3::Y * 2.0),
+            Some(Vec3::Y * 2.0),
+        );
+        assert_eq!("Circle", circle.active_tool);
+        let geometry = circle
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(13, geometry.vertices.len());
+        assert_eq!(12, geometry.segments.len());
+        assert_eq!(12, geometry.triangles.len());
+        assert_eq!(24, circle.selection.selected().len());
+        assert_eq!(2, circle.history.entries().len());
+        circle.run_command("edit.undo");
+        assert!(
+            circle
+                .document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .triangles
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn surface_rectangle_command_uses_the_first_face_normal() {
+        let mut app = test_app();
+        assert!(
+            app.dispatch_command("tool.builtin.surface_rectangle", &CommandPayload::default())
+                .accepted
+        );
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let normal = Vec3::new(1.0, 1.0, 0.0).try_normalized(1.0e-12).unwrap();
+        let start = Vec3::new(1.0, 1.0, 0.0);
+        let end = start + Vec3::new(2.0, 0.0, 4.0) + normal * 5.0;
+        for point in [start, end] {
+            app.handle_viewport_click_at_point(
+                rect,
+                Pos2::ZERO,
+                Some(SnapResult {
+                    point,
+                    normal,
+                    kind: SnapKind::Face,
+                    screen_distance: 0.0,
+                }),
+                Some(point),
+            );
+        }
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert!(
+            geometry
+                .vertices
+                .values()
+                .all(|vertex| ((vertex.position - start).dot(normal)).abs() < 1.0e-10)
+        );
+        assert_eq!("Surface Rect", app.active_tool);
+        app.run_command("edit.undo");
+        assert!(
+            app.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .triangles
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn canceling_a_pending_shape_pick_leaves_no_document_or_history_change() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        app.dispatch_command("tool.builtin.circle", &CommandPayload::default());
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        assert_eq!(1, app.shape_tool_state.picks().len());
+
+        let canceled = app.dispatch_command("tool.cancel", &CommandPayload::default());
+
+        assert!(canceled.accepted);
+        assert_eq!("Select", app.active_tool);
+        assert!(app.shape_tool_state.picks().is_empty());
+        let root = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert!(root.vertices.is_empty());
+        assert_eq!(revision, app.document.revision());
+        assert!(app.history.entries().is_empty());
+    }
+
+    #[test]
+    fn planar_shape_tools_append_in_local_space_when_editing_a_rotated_instance() {
+        let mut app = test_app();
+        let prototype_instance = app
+            .document
+            .add_cuboid("rotated prototype", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&prototype_instance)
+            .unwrap()
+            .definition
+            .id;
+        let occurrence = app
+            .document
+            .add_layout_entry(
+                app.document.root_layout(),
+                definition,
+                Affine3::from_linear_translation(
+                    [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]],
+                    Vec3::new(10.0, 0.0, 0.0),
+                ),
+            )
+            .map(OccurrenceRef::root)
+            .unwrap();
+        let root_count = app.document.occurrence_refs().unwrap().len();
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        app.activate_tool("Rectangle");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(
+            rect,
+            Pos2::ZERO,
+            None,
+            Some(Vec3::new(10.0, 2.0, -2.0)),
+        );
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::new(12.0, 2.0, 0.0)));
+
+        let resolved = app.document.resolve_occurrence(&occurrence).unwrap();
+        assert_eq!(definition, resolved.definition.id);
+        assert_eq!(root_count, app.document.occurrence_refs().unwrap().len());
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(8, geometry.vertices.len());
+        assert_eq!(14, geometry.triangles.len());
+        assert_eq!(
+            8,
+            app.document
+                .effective_geometry(&prototype_instance)
+                .unwrap()
+                .vertices
+                .len()
+        );
+        let world_vertices = geometry
+            .vertices
+            .values()
+            .map(|vertex| resolved.world_transform.transform_point(vertex.position))
+            .collect::<Vec<_>>();
+        assert!(world_vertices.contains(&Vec3::new(10.0, 2.0, -2.0)));
+        assert!(world_vertices.contains(&Vec3::new(12.0, 2.0, 0.0)));
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(8, geometry.vertices.len());
+        assert_eq!(12, geometry.triangles.len());
     }
 
     #[test]
