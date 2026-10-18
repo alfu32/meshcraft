@@ -122,7 +122,9 @@ pub fn read_project_with(
             ));
         }
     };
-    let document = import_current_value(&root).map_err(ProjectError::InvalidModel)?;
+    let normalized =
+        crate::legacy::normalize_scene_shape(&root).map_err(ProjectError::InvalidModel)?;
+    let document = import_current_value(&normalized).map_err(ProjectError::InvalidModel)?;
     document.validate().map_err(ProjectError::InvalidModel)?;
     Ok(ImportedProject {
         document,
@@ -370,12 +372,15 @@ mod tests {
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use meshcraft_core::geometry::Vec3;
     use meshcraft_core::transactions::OpaqueLegacyHistory;
     use serde_json::{Value, json};
     use std::io::Write;
 
     const CURRENT_MODEL: &str =
         include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
+    const ROOT_GROUP_MODEL: &str =
+        include_str!("../../../fixtures/legacy/historical/root-group-test-2.k3d");
 
     fn gzip(bytes: &[u8]) -> Vec<u8> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -398,6 +403,105 @@ mod tests {
             read_project(malformed.to_string().as_bytes()),
             Err(ProjectError::InvalidModel(_))
         ));
+    }
+
+    #[test]
+    fn imports_historical_root_group_tree_and_preserves_unrecognized_group_payload() {
+        let mut source: Value = serde_json::from_str(ROOT_GROUP_MODEL).unwrap();
+        source["rootGroup"]["futureDomainPayload"] = json!({"enabled": true, "values": [1, 2]});
+        source["rootGroup"]["segments"][0]["futureSegmentPayload"] = json!({"tag": "line"});
+        source["rootGroup"]["faces"][0]["futureFacePayload"] = json!(["surface"]);
+        source["rootGroup"]["children"] = json!([{
+            "id": "child-instance",
+            "name": "Child",
+            "instanceOrigin": {"x": 10},
+            "instanceAxisU": {"x": 1},
+            "instanceAxisV": {"y": 1},
+            "instanceAxisW": {"z": 1},
+            "segments": [{"start": {}, "end": {"x": 1}}]
+        }]);
+        let imported = read_project(source.to_string().as_bytes()).unwrap();
+        let occurrences = imported.document.occurrence_refs().unwrap();
+        assert_eq!(2, occurrences.len());
+        let root = imported
+            .document
+            .resolve_occurrence(&occurrences[0])
+            .unwrap();
+        assert_eq!("Root", root.definition.name);
+        assert_eq!(3, root.definition.geometry.segments.len());
+        assert_eq!(1, root.definition.geometry.triangles.len());
+        assert_eq!(
+            Some(&json!({"enabled": true, "values": [1, 2]})),
+            root.definition.extensions.get("k3d.futureDomainPayload")
+        );
+        assert!(
+            root.definition
+                .geometry
+                .vertices
+                .values()
+                .any(|vertex| { vertex.position == Vec3::new(-3.0, 0.0, 4.0) })
+        );
+        assert!(root.definition.geometry.segments.values().any(|segment| {
+            segment.extensions.get("k3d.futureSegmentPayload") == Some(&json!({"tag": "line"}))
+        }));
+        assert!(root.definition.geometry.triangles.values().any(|triangle| {
+            triangle.extensions.get("k3d.futureFacePayload") == Some(&json!(["surface"]))
+        }));
+        let child = occurrences
+            .iter()
+            .find(|occurrence| occurrence.path.len() == 2)
+            .unwrap();
+        let child = imported.document.resolve_occurrence(child).unwrap();
+        assert_eq!("Child", child.definition.name);
+        assert_eq!(10.0, child.world_transform.translation.x);
+    }
+
+    #[test]
+    fn imports_flat_geometry_and_prototype_only_recovery_shapes() {
+        let root_group: Value = serde_json::from_str(ROOT_GROUP_MODEL).unwrap();
+        let group = &root_group["rootGroup"];
+        let flat = json!({
+            "segments": group["segments"].clone(),
+            "faces": group["faces"].clone()
+        });
+        let flat_document = read_project(flat.to_string().as_bytes()).unwrap().document;
+        let flat_occurrences = flat_document.occurrence_refs().unwrap();
+        assert_eq!(1, flat_occurrences.len());
+        let flat_root = flat_document
+            .resolve_occurrence(&flat_occurrences[0])
+            .unwrap();
+        assert_eq!(3, flat_root.definition.geometry.segments.len());
+        assert_eq!(1, flat_root.definition.geometry.triangles.len());
+
+        let mut prototype_only: Value = serde_json::from_str(CURRENT_MODEL).unwrap();
+        prototype_only
+            .as_object_mut()
+            .unwrap()
+            .remove("rootInstance");
+        let recovered = read_project(prototype_only.to_string().as_bytes()).unwrap();
+        let occurrences = recovered.document.occurrence_refs().unwrap();
+        assert_eq!(2, occurrences.len());
+        let root_path = occurrences
+            .iter()
+            .find(|occurrence| occurrence.path.len() == 1)
+            .unwrap();
+        assert_eq!(
+            "Root",
+            recovered
+                .document
+                .resolve_occurrence(root_path)
+                .unwrap()
+                .definition
+                .name
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_prototype_container_instead_of_treating_it_as_flat_geometry() {
+        let error = read_project(br#"{"prototypes":{},"segments":[]}"#).unwrap_err();
+        assert!(
+            matches!(error, ProjectError::InvalidModel(message) if message.contains("/prototypes must be an array"))
+        );
     }
 
     #[test]

@@ -22,19 +22,19 @@ An additional live read on 2026-10-18 reported 16 groups, 460 faces, 524 edges, 
 
 ## Right-hand Panels screenshots
 
-These eight 1920×1080 captures were compared byte-for-byte with the screenshots supplied for this walkthrough. The list follows their attachment order. “Panels” here means the vertically scrolling inspector/settings column on the right.
+These eight 1920×1080 captures were compared byte-for-byte with the screenshots supplied for this walkthrough. The numbered list follows attachment order. Captions below name only visible content; a heading at a crop edge does not mean its full section is shown. “Panels” means the vertically scrolling inspector/settings column on the right.
 
-1. Selection totals, Object section and the Objects list, alongside the cuboid array: ![Selection, Object and Objects panels](references/live-5.7.1/object-array.png)
-2. XRef controls and Model Settings; UI Settings starts at the bottom: ![Model Settings](references/live-5.7.1/model-settings.png)
-3. UI Settings and Help / About: ![UI Settings and Help / About](references/live-5.7.1/ui-settings-help-about.png)
-4. Help / About, Polyline Settings and Vector Text: ![Polyline and Vector Text settings](references/live-5.7.1/polyline-vector-text-settings.png)
-5. Architecture - Walls, Slabs, Stairs and Frames; HVAC is below the captured area: ![Architecture settings](references/live-5.7.1/architecture-settings.png)
-6. HVAC Settings and Hotspot Settings, with Random Tools beginning at the bottom: ![HVAC and Hotspot settings](references/live-5.7.1/hvac-settings.png)
-7. Random Tools and tutorial controls, ending at the Shader Settings heading: ![Random Tools and Tutorials](references/live-5.7.1/random-tools-tutorials.png)
-8. Tutorial controls and Shader Settings values: ![Tutorial and Shader Settings](references/live-5.7.1/tutorials-and-shader-settings.png)
+1. Selection totals, the empty Object editor, and the `cuboid | internal | 16` Objects entry: ![01 — Selection, Object, and Objects](references/live-5.7.1/object-array.png)
+2. XRef actions, Model Settings through walk-height-adjust speed, and the start of UI Settings: ![02 — XRef, Model Settings, and start of UI Settings](references/live-5.7.1/model-settings.png)
+3. UI Settings controls followed by Help / About: ![03 — UI Settings and Help / About](references/live-5.7.1/ui-settings-help-about.png)
+4. Help / About tail, Polyline Settings, and Vector Text through the embedded glyph source: ![04 — Polyline Settings and Vector Text](references/live-5.7.1/polyline-vector-text-settings.png)
+5. Architecture - Walls, Slabs, Stairs, and the visible top of Frames; the Frames section continues below the crop: ![05 — Architecture construction settings](references/live-5.7.1/architecture-settings.png)
+6. HVAC Settings, Hotspot Settings, and the beginning of Random Tools: ![06 — HVAC, Hotspot, and start of Random Tools](references/live-5.7.1/hvac-settings.png)
+7. Random Tools (Fuzzy Offset, Random Surface Array, and Planar Regularize / Surface Remesh), Tutorials and playback controls, plus the Shader Settings heading: ![07 — Random Tools, Tutorials, and Shader Settings heading](references/live-5.7.1/random-tools-tutorials.png)
+8. The tail of Random Tools, Tutorials, and visible Shader Settings controls through shadow bias, normal bias, PCF, CSM, and dithering: ![08 — Tutorials and Shader Settings controls](references/live-5.7.1/tutorials-and-shader-settings.png)
 
 ## Command palette screenshot
 
-This separate 1882×1011 image shows the centered command picker and its 138-command count. It is not a capture of the right-hand Panels column: ![Centered command palette showing the 138-command count](references/live-5.7.1/command-palette.png)
+This separate 1882×1011 image shows the centered command picker and its 138-command count over the workspace. The right-hand Panels column is also visible: UI Settings is expanded and the other visible section headers are collapsed. Treat it as combined command-picker/sidebar state, not as a dedicated settings walkthrough: ![Command picker over the workspace with the Panels column visible and UI Settings expanded](references/live-5.7.1/command-palette.png)
 
 Viewport lines and points in these captures include transient overlays; do not use these images to judge geometry rendering fidelity.

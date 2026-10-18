@@ -245,6 +245,8 @@ pub struct Segment {
     pub color: Rgba8,
     #[serde(default)]
     pub legacy_aliases: Vec<LegacyAlias>,
+    #[serde(default)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -254,6 +256,8 @@ pub struct Triangle {
     pub color: Rgba8,
     #[serde(default)]
     pub legacy_aliases: Vec<LegacyAlias>,
+    #[serde(default)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
 /// A raw topological vertex supplied by an importer; positions are never welded implicitly.
@@ -276,6 +280,7 @@ pub struct RawGeometrySegment {
     pub endpoints: [RawVertexRef; 2],
     pub color: Rgba8,
     pub legacy_aliases: Vec<LegacyAlias>,
+    pub extensions: BTreeMap<String, Value>,
 }
 
 /// A raw triangle whose corners reference the vertex array passed to the import operation.
@@ -284,6 +289,7 @@ pub struct RawGeometryTriangle {
     pub vertices: [RawVertexRef; 3],
     pub color: Rgba8,
     pub legacy_aliases: Vec<LegacyAlias>,
+    pub extensions: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -625,6 +631,7 @@ impl Document {
                     ],
                     color: segment.color,
                     legacy_aliases: segment.legacy_aliases,
+                    extensions: segment.extensions,
                 },
             );
         }
@@ -640,6 +647,7 @@ impl Document {
                     }),
                     color: triangle.color,
                     legacy_aliases: triangle.legacy_aliases,
+                    extensions: triangle.extensions,
                 },
             );
         }
@@ -732,6 +740,7 @@ impl Document {
                     endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
                 },
             );
         }
@@ -761,6 +770,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
                 },
             );
         }
@@ -809,6 +819,7 @@ impl Document {
                 endpoints: [VertexRef::new(start_id), VertexRef::new(end_id)],
                 color: Rgba8::WHITE,
                 legacy_aliases: Vec::new(),
+                extensions: BTreeMap::new(),
             },
         );
         self.add_root_geometry(name, geometry, Affine3::IDENTITY)
@@ -863,6 +874,7 @@ impl Document {
                     endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
                 },
             );
         }
@@ -879,6 +891,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
                 },
             );
         }
@@ -1493,6 +1506,7 @@ mod tests {
                 ],
                 color: Rgba8::WHITE,
                 legacy_aliases: Vec::new(),
+                extensions: BTreeMap::new(),
             },
         );
         bundle
@@ -2025,6 +2039,7 @@ mod tests {
                         ],
                         color: Rgba8::new(255, 0, 0, 255),
                         legacy_aliases: vec![],
+                        extensions: BTreeMap::new(),
                     },
                     RawGeometryTriangle {
                         vertices: [
@@ -2043,6 +2058,7 @@ mod tests {
                         ],
                         color: Rgba8::new(0, 0, 255, 128),
                         legacy_aliases: vec![],
+                        extensions: BTreeMap::new(),
                     },
                 ],
             )

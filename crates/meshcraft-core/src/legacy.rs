@@ -14,7 +14,8 @@ const MAX_INSTANCE_COUNT: usize = 100_000;
 const MAX_INSTANCE_DEPTH: usize = 256;
 
 type ImportResult<T> = Result<T, String>;
-type ParsedOverrideFace = ([Vec3; 3], Rgba8, Vec<LegacyAlias>);
+type ParsedOverrideSegment = (Vec3, Vec3, Vec<LegacyAlias>, BTreeMap<String, Value>);
+type ParsedOverrideFace = ([Vec3; 3], Rgba8, Vec<LegacyAlias>, BTreeMap<String, Value>);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct QuantizedVertex(i64, i64, i64);
@@ -196,6 +197,18 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
+        if let Some(Value::Array(vertices)) = object.get("prototypeVertices") {
+            for (vertex_index, vertex) in vertices.iter().enumerate() {
+                if let Some(vertex) = vertex.as_object() {
+                    preserve_unknown_fields(
+                        vertex,
+                        &["id", "x", "y", "z"],
+                        &mut definition.extensions,
+                        &format!("k3d.prototypeVertices.{vertex_index}."),
+                    );
+                }
+            }
+        }
 
         let geometry = parse_prototype_geometry(object, &path)?;
         let (vertices, segments, triangles) = geometry.into_parts();
@@ -480,6 +493,7 @@ fn parse_prototype_geometry(
             endpoints: [start_index, end_index],
             color: Rgba8::WHITE,
             legacy_aliases: entity_alias(segment, "k3d.segment")?,
+            extensions: entity_extensions(segment, &["id", "start", "end"]),
         });
     }
 
@@ -510,6 +524,7 @@ fn parse_prototype_geometry(
             vertices: indices,
             color: parse_color(face.get("color"), &format!("{face_path}/color"))?,
             legacy_aliases: entity_alias(face, "k3d.face")?,
+            extensions: entity_extensions(face, &["id", "a", "b", "c", "color"]),
         });
     }
     Ok(geometry)
@@ -563,6 +578,7 @@ fn parse_instance(
         )?);
     }
     let mut hotspot_positions = BTreeMap::new();
+    let mut preserved_fields = BTreeMap::new();
     for (index, position_value) in read_array(
         object.get("hotspotPositions"),
         &format!("{path}/hotspotPositions"),
@@ -574,6 +590,12 @@ fn parse_instance(
         let position_object = position_value
             .as_object()
             .ok_or_else(|| format!("{position_path}: hotspot position must be an object"))?;
+        preserve_unknown_fields(
+            position_object,
+            &["id", "position"],
+            &mut preserved_fields,
+            &format!("k3d.hotspotPositions/{index}/"),
+        );
         let hotspot_id = read_string(position_object, "id", &position_path)?.unwrap_or_default();
         if !hotspot_id.is_empty() {
             hotspot_positions.insert(
@@ -606,6 +628,7 @@ fn parse_instance(
                 endpoints: [start_index, end_index],
                 color: Rgba8::WHITE,
                 legacy_aliases: segment.2,
+                extensions: segment.3,
             });
         }
         for triangle in override_triangles {
@@ -616,12 +639,12 @@ fn parse_instance(
                 vertices: indices,
                 color: triangle.1,
                 legacy_aliases: triangle.2,
+                extensions: triangle.3,
             });
         }
         geometry
     });
 
-    let mut preserved_fields = BTreeMap::new();
     preserve_unknown_fields(
         object,
         &[
@@ -659,7 +682,7 @@ fn parse_instance(
 fn parse_override_segments(
     object: &Map<String, Value>,
     path: &str,
-) -> ImportResult<Vec<(Vec3, Vec3, Vec<LegacyAlias>)>> {
+) -> ImportResult<Vec<ParsedOverrideSegment>> {
     let mut output = Vec::new();
     for (index, value) in read_array(
         object.get("overrideSegments"),
@@ -676,6 +699,7 @@ fn parse_override_segments(
             read_vec3(segment.get("start"), &format!("{segment_path}/start"))?,
             read_vec3(segment.get("end"), &format!("{segment_path}/end"))?,
             entity_alias(segment, "k3d.segment")?,
+            entity_extensions(segment, &["id", "start", "end"]),
         ));
     }
     Ok(output)
@@ -705,6 +729,7 @@ fn parse_override_faces(
             ],
             parse_color(face.get("color"), &format!("{face_path}/color"))?,
             entity_alias(face, "k3d.face")?,
+            entity_extensions(face, &["id", "a", "b", "c", "color"]),
         ));
     }
     Ok(output)
@@ -969,6 +994,12 @@ fn entity_alias(object: &Map<String, Value>, source: &str) -> ImportResult<Vec<L
         .unwrap_or_default())
 }
 
+fn entity_extensions(object: &Map<String, Value>, consumed: &[&str]) -> BTreeMap<String, Value> {
+    let mut extensions = BTreeMap::new();
+    preserve_unknown_fields(object, consumed, &mut extensions, "k3d.");
+    extensions
+}
+
 fn parse_color(value: Option<&Value>, path: &str) -> ImportResult<Rgba8> {
     let Some(value) = value else {
         return Ok(Rgba8::WHITE);
@@ -1220,6 +1251,92 @@ mod tests {
                 .unwrap()
                 .default_child_layout
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn preserves_unknown_fields_on_prototype_and_instance_geometry_entities() {
+        let source = r#"{
+            "prototypes": [{
+                "id":"root", "name":"Root",
+                "definitionAxisU":{"x":1}, "definitionAxisV":{"y":1}, "definitionAxisW":{"z":1},
+                "prototypeVertices":[{"id":"vertex-1","x":0,"y":0,"z":0,"futureVertex":"point"}],
+                "segments":[{"id":"segment-1","start":{},"end":{"x":1},"futureSegment":{"tag":"kept"}}],
+                "faces":[{"id":"face-1","a":{},"b":{"x":1},"c":{"y":1},"futureFace":[1,2]}]
+            }],
+            "rootInstance": {
+                "id":"root-instance", "prototypeId":"root",
+                "instanceAxisU":{"x":1}, "instanceAxisV":{"y":1}, "instanceAxisW":{"z":1},
+                "hotspotPositions":[{"id":"hotspot-1","position":{},"futureHotspot":"location"}],
+                "overrideSegments":[{"id":"override-segment","start":{},"end":{"z":1},"futureOverride":"segment"}],
+                "overrideFaces":[{"id":"override-face","a":{},"b":{"x":1},"c":{"z":1},"futureOverride":"face"}]
+            }
+        }"#;
+        let document = import_current_json(source).unwrap();
+        let definition = document
+            .definitions
+            .values()
+            .find(|definition| definition.name == "Root")
+            .unwrap();
+        assert_eq!(
+            Some(&serde_json::json!({"tag":"kept"})),
+            definition
+                .geometry
+                .segments
+                .values()
+                .next()
+                .unwrap()
+                .extensions
+                .get("k3d.futureSegment")
+        );
+        assert_eq!(
+            Some(&serde_json::json!([1, 2])),
+            definition
+                .geometry
+                .triangles
+                .values()
+                .next()
+                .unwrap()
+                .extensions
+                .get("k3d.futureFace")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("point")),
+            definition
+                .extensions
+                .get("k3d.prototypeVertices.0.futureVertex")
+        );
+
+        let occurrence = document.occurrence_refs().unwrap().remove(0);
+        let effective = document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(
+            Some(&serde_json::json!("location")),
+            document
+                .occurrence_edits
+                .get(&occurrence)
+                .unwrap()
+                .values
+                .get("k3d.hotspotPositions/0/futureHotspot")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("segment")),
+            effective
+                .segments
+                .values()
+                .next()
+                .unwrap()
+                .extensions
+                .get("k3d.futureOverride")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("face")),
+            effective
+                .triangles
+                .values()
+                .next()
+                .unwrap()
+                .extensions
+                .get("k3d.futureOverride")
         );
     }
 
