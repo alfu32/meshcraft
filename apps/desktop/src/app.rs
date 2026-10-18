@@ -5294,6 +5294,54 @@ mod tests {
     }
 
     #[test]
+    fn cuboid_tool_activation_is_shared_by_menu_toolbar_palette_and_structured_dispatch() {
+        let mut menu_path = test_app();
+        menu_path.run_command("tool.cuboid");
+
+        let toolbar_command_ids = super::legacy_toolbar_command_ids("construction_points");
+        assert!(toolbar_command_ids.iter().any(|id| id == "tool.cuboid"));
+        let mut toolbar_path = test_app();
+        toolbar_path.run_command("tool.cuboid");
+
+        let mut structured_path = test_app();
+        let structured =
+            structured_path.dispatch_command("tool.cuboid", &CommandPayload::default());
+        assert!(structured.accepted);
+        assert_eq!(CommandCompletion::Completed, structured.result.completion);
+
+        let mut palette_path = test_app();
+        let context = egui::Context::default();
+        open_palette(&mut palette_path, &context);
+        palette_path.command_search = "tool.cuboid".to_owned();
+        assert!(
+            palette_path
+                .matching_commands()
+                .iter()
+                .any(|command| command.descriptor.id.as_str() == "tool.cuboid")
+        );
+        run_workspace_frame(
+            &mut palette_path,
+            &context,
+            vec![Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+
+        for app in [&menu_path, &toolbar_path, &structured_path, &palette_path] {
+            assert_eq!("Cuboid", app.active_tool);
+            assert_eq!(menu_path.document, app.document);
+            assert_eq!(menu_path.selected_occurrences(), app.selected_occurrences());
+            assert_eq!(menu_path.document.revision(), app.document.revision());
+            assert_eq!(0, app.history.entries().len());
+        }
+        assert!(!palette_path.command_palette_open);
+    }
+
+    #[test]
     fn camera_commands_share_registry_and_do_not_edit_the_document() {
         let mut app = test_app();
         let initial_revision = app.document.revision();
