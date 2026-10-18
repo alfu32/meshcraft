@@ -1,7 +1,7 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
-    CuboidPreview, GridStyle, OrthoView, SnapResult, ToolPreview, Viewport, ViewportScene,
-    WalkthroughTuning,
+    ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridStyle, OrthoView, SnapResult,
+    ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -546,6 +546,7 @@ impl UiProfile {
 enum ShellAction {
     SelectTool(&'static str),
     SelectToolAlias(&'static str),
+    PlaceGuide(ConstructionGuideKind),
     AddCuboid,
     CopySelection,
     DeleteSelection,
@@ -1056,6 +1057,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             let action = match *id {
                 "edit.group" => ShellAction::CreateObject,
                 "edit.reset_scene_for_capture" => ShellAction::ResetSceneForCapture,
+                "view.axis_guide" => ShellAction::PlaceGuide(ConstructionGuideKind::Axis),
+                "view.grid_guide" => ShellAction::PlaceGuide(ConstructionGuideKind::Grid),
                 "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
                 "view.camera.walkthrough" => ShellAction::SetWalkthroughView,
                 "view.camera.orthographic" => ShellAction::SetOrthographicView(OrthoView::Top),
@@ -1114,7 +1117,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
 
 fn action_kind(action: ShellAction) -> CommandKind {
     match action {
-        ShellAction::SelectTool(_) | ShellAction::SelectToolAlias(_) => CommandKind::ToolActivation,
+        ShellAction::SelectTool(_)
+        | ShellAction::SelectToolAlias(_)
+        | ShellAction::PlaceGuide(_) => CommandKind::ToolActivation,
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
@@ -1163,6 +1168,12 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
             CommandStateQuery::ActiveTool(tool.to_owned())
+        }
+        ShellAction::PlaceGuide(ConstructionGuideKind::Axis) => {
+            CommandStateQuery::ActiveTool("Axis Guide".to_owned())
+        }
+        ShellAction::PlaceGuide(ConstructionGuideKind::Grid) => {
+            CommandStateQuery::ActiveTool("Grid Guide".to_owned())
         }
         ShellAction::SetProfile(profile) => {
             CommandStateQuery::ActiveProfile(profile.label().to_owned())
@@ -1215,6 +1226,7 @@ fn register_shell_command(
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
+        | ShellAction::PlaceGuide(_)
         | ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
         | ShellAction::SetWalkthroughView
@@ -1436,6 +1448,7 @@ pub struct MeshcraftApp {
     selection: SelectionSession,
     object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
+    guides: Vec<ConstructionGuide>,
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
     line_first: Option<Vec3>,
@@ -1566,6 +1579,7 @@ impl MeshcraftApp {
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport,
+            guides: Vec::new(),
             cuboid_first: None,
             cuboid_base: None,
             line_first: None,
@@ -2334,6 +2348,7 @@ impl MeshcraftApp {
         self.selection.clear();
         self.object_name_edit = None;
         self.active_tool = "Select".to_owned();
+        self.guides.clear();
         self.cuboid_first = None;
         self.cuboid_base = None;
         self.line_first = None;
@@ -2471,6 +2486,7 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.line_first = None;
         self.rectangle_first = None;
+        self.guides.clear();
         self.status = "New empty document.".to_owned();
         let mut result = CommandResult::completed();
         result.document_revision = Some(self.document.revision());
@@ -2540,6 +2556,26 @@ impl MeshcraftApp {
                     }
                     _ => format!("{tool} tool selected."),
                 };
+            }
+            ShellAction::PlaceGuide(kind) => {
+                self.active_tool = match kind {
+                    ConstructionGuideKind::Axis => "Axis Guide",
+                    ConstructionGuideKind::Grid => "Grid Guide",
+                }
+                .to_owned();
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.line_first = None;
+                self.rectangle_first = None;
+                self.status = match kind {
+                    ConstructionGuideKind::Axis => {
+                        "Axis Guide: click a point to place a temporary construction guide."
+                    }
+                    ConstructionGuideKind::Grid => {
+                        "Grid Guide: click a point to place a temporary construction grid."
+                    }
+                }
+                .to_owned();
             }
             ShellAction::AddCuboid => {
                 let dimensions = match payload_vec3(payload, "dimensions", Vec3::new(2.0, 2.0, 2.0))
@@ -2614,6 +2650,7 @@ impl MeshcraftApp {
                 self.cuboid_base = None;
                 self.line_first = None;
                 self.rectangle_first = None;
+                self.guides.clear();
                 self.viewport.reset_camera();
                 let camera_state = serde_json::json!({
                     "position": {"x": 18.0, "y": 14.0, "z": 18.0},
@@ -3337,6 +3374,34 @@ impl MeshcraftApp {
         position: egui::Pos2,
         snap: Option<SnapResult>,
     ) {
+        if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
+            let point = snap.map(|snap| (snap.point, snap.normal)).or_else(|| {
+                self.viewport
+                    .screen_to_construction_plane(rect, position)
+                    .map(|point| (point, Vec3::Y))
+            });
+            let Some((point, normal)) = point else {
+                self.status = "The current view has no construction-plane intersection.".to_owned();
+                return;
+            };
+            let kind = if self.active_tool == "Axis Guide" {
+                ConstructionGuideKind::Axis
+            } else {
+                ConstructionGuideKind::Grid
+            };
+            if let Some(guide) = ConstructionGuide::at_point(kind, point, normal) {
+                self.guides.push(guide);
+                self.active_tool = "Select".to_owned();
+                self.status = match kind {
+                    ConstructionGuideKind::Axis => "Axis guide placed.".to_owned(),
+                    ConstructionGuideKind::Grid => "Grid guide placed.".to_owned(),
+                };
+            } else {
+                self.status = "Could not construct a stable guide orientation.".to_owned();
+            }
+            return;
+        }
+
         if self.active_tool == "Line" {
             let point = snap
                 .map(|snap| snap.point)
@@ -3953,20 +4018,36 @@ impl MeshcraftApp {
             .filter(|position| predicted_rect.contains(*position));
         let snap_radius_points = (self.document.model_settings().snap_radius
             / f64::from(ui.ctx().pixels_per_point())) as f32;
-        let snap = if matches!(self.active_tool.as_str(), "Line" | "Rectangle") {
+        let snap = if matches!(
+            self.active_tool.as_str(),
+            "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
+        ) {
             pointer.and_then(|position| {
-                self.viewport.snap_point(
+                self.viewport.snap_point_with_guides(
                     predicted_rect,
                     &self.document,
                     position,
                     snap_radius_points,
                     self.document.model_settings().grid_size,
+                    &self.guides,
                 )
             })
         } else {
             None
         };
         let preview = self.tool_preview(predicted_rect, pointer, snap);
+        let guide_preview = if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
+            snap.and_then(|snap| {
+                let kind = if self.active_tool == "Axis Guide" {
+                    ConstructionGuideKind::Axis
+                } else {
+                    ConstructionGuideKind::Grid
+                };
+                ConstructionGuide::at_point(kind, snap.point, snap.normal)
+            })
+        } else {
+            None
+        };
         let selection = self.selected_occurrences();
         let input = self.viewport.show(
             ui,
@@ -3977,6 +4058,8 @@ impl MeshcraftApp {
                 active_tool: &self.active_tool,
                 preview,
                 snap,
+                guides: &self.guides,
+                guide_preview,
                 grid: GridStyle {
                     visible: self.preferences.show_permanent_grid,
                     spacing: self.document.model_settings().grid_size,
@@ -4480,6 +4563,7 @@ impl MeshcraftApp {
                             ui.label("Platform: Desktop");
                             ui.label("Rust rewrite · development build");
                             ui.label("Ctrl+Shift+P opens the command palette.");
+                            ui.label("G places a grid guide; T places an axis guide.");
                         });
                     }
                     if self.show_panel_header(ui, "polyline", "Polyline Settings") {
@@ -4595,6 +4679,26 @@ impl MeshcraftApp {
                     self.command_palette_open = false;
                 }
             }
+        } else if !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::G)
+            })
+        {
+            self.run_command("view.grid_guide");
+        } else if !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::T)
+            })
+        {
+            self.run_command("view.axis_guide");
         } else if ui.input(|input| input.key_pressed(egui::Key::Escape))
             && self.active_tool != "Select"
         {
@@ -4896,7 +5000,7 @@ mod tests {
         SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
         shell_commands, tool_command_id,
     };
-    use crate::viewport::{SnapKind, Viewport};
+    use crate::viewport::{ConstructionGuideKind, SnapKind, Viewport};
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
@@ -5062,6 +5166,7 @@ mod tests {
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: Default::default(),
+            guides: Vec::new(),
             cuboid_first: None,
             cuboid_base: None,
             line_first: None,
@@ -5526,6 +5631,37 @@ mod tests {
         app.run_command("view.camera.orbit");
         assert_eq!(None, app.viewport.orthographic_view());
         assert!(!app.viewport.walkthrough_active());
+    }
+
+    #[test]
+    fn guide_commands_activate_placement_and_keep_guides_out_of_document_geometry() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+        let commands = MeshcraftApp::command_catalog();
+        let guide_commands: &[(&str, &str, ConstructionGuideKind)] = &[
+            ("view.grid_guide", "Grid Guide", ConstructionGuideKind::Grid),
+            ("view.axis_guide", "Axis Guide", ConstructionGuideKind::Axis),
+        ];
+        for (index, &(id, tool_name, kind)) in guide_commands.iter().enumerate() {
+            let descriptor = commands
+                .iter()
+                .find(|command| command.id.as_str() == id)
+                .expect("guide command is registered in the palette");
+            assert_eq!(CommandKind::ToolActivation, descriptor.kind);
+            app.run_command(id);
+            assert_eq!(tool_name, app.active_tool);
+
+            let position = Pos2::new(440.0, 330.0);
+            app.handle_viewport_click(
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0)),
+                position,
+                None,
+            );
+            assert_eq!(index + 1, app.guides.len());
+            assert_eq!(kind, app.guides[index].kind);
+            assert_eq!("Select", app.active_tool);
+            assert_eq!(initial_revision, app.document.revision());
+        }
     }
 
     #[test]

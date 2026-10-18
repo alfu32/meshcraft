@@ -156,6 +156,9 @@ pub enum SnapKind {
     Face,
     Line,
     Grid,
+    GridLine,
+    GridGuide,
+    AxisGuide,
     Endpoint,
     Midpoint,
 }
@@ -167,6 +170,9 @@ impl SnapKind {
             Self::Face => "Face",
             Self::Line => "Line",
             Self::Grid => "Grid",
+            Self::GridLine => "Grid Line",
+            Self::GridGuide => "Grid Guide",
+            Self::AxisGuide => "Axis Guide",
             Self::Endpoint => "Endpoint",
             Self::Midpoint => "Midpoint",
         }
@@ -176,8 +182,8 @@ impl SnapKind {
         match self {
             Self::Free => 0,
             Self::Face => 1,
-            Self::Line => 2,
-            Self::Grid => 3,
+            Self::Line | Self::GridLine => 2,
+            Self::Grid | Self::GridGuide | Self::AxisGuide => 3,
             Self::Endpoint | Self::Midpoint => 4,
         }
     }
@@ -186,6 +192,7 @@ impl SnapKind {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SnapResult {
     pub point: Vec3,
+    pub normal: Vec3,
     pub kind: SnapKind,
     pub screen_distance: f32,
 }
@@ -193,9 +200,53 @@ pub struct SnapResult {
 #[derive(Clone, Copy, Debug)]
 struct SnapCandidate {
     point: Vec3,
+    normal: Vec3,
     kind: SnapKind,
     screen_distance: f32,
     depth: f64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConstructionGuideKind {
+    Grid,
+    Axis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConstructionGuide {
+    pub kind: ConstructionGuideKind,
+    pub origin: Vec3,
+    pub axis_u: Vec3,
+    pub axis_v: Vec3,
+    pub axis_w: Vec3,
+}
+
+impl ConstructionGuide {
+    pub fn at_point(kind: ConstructionGuideKind, origin: Vec3, normal: Vec3) -> Option<Self> {
+        let axis_w = normal.try_normalized(1.0e-12)?;
+        let reference = if axis_w.y.abs() < 0.95 {
+            Vec3::Y
+        } else {
+            Vec3::Z
+        };
+        let axis_v = (reference - axis_w * reference.dot(axis_w)).try_normalized(1.0e-12)?;
+        let axis_u = axis_v.cross(axis_w).try_normalized(1.0e-12)?;
+        Some(Self {
+            kind,
+            origin,
+            axis_u,
+            axis_v,
+            axis_w,
+        })
+    }
+
+    fn planes(self) -> [(Vec3, Vec3, Vec3); 3] {
+        [
+            (self.axis_w, self.axis_u, self.axis_v),
+            (self.axis_v, self.axis_u, self.axis_w),
+            (self.axis_u, self.axis_v, self.axis_w),
+        ]
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -214,6 +265,8 @@ pub struct ViewportScene<'a> {
     pub active_tool: &'a str,
     pub preview: Option<ToolPreview>,
     pub snap: Option<SnapResult>,
+    pub guides: &'a [ConstructionGuide],
+    pub guide_preview: Option<ConstructionGuide>,
     pub grid: GridStyle,
 }
 
@@ -373,6 +426,16 @@ impl Viewport {
 
         self.draw_grid(&painter, rect, scene.grid);
         self.draw_document(&painter, rect, scene.document, scene.selection);
+        self.draw_guides(&painter, rect, scene.guides, scene.grid, false);
+        if let Some(guide) = scene.guide_preview {
+            self.draw_guides(
+                &painter,
+                rect,
+                std::slice::from_ref(&guide),
+                scene.grid,
+                true,
+            );
+        }
         if let Some(preview) = scene.preview {
             match preview {
                 ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, cuboid),
@@ -393,6 +456,9 @@ impl Viewport {
                 SnapKind::Face => Color32::from_rgb(255, 218, 77),
                 SnapKind::Line => Color32::from_rgb(87, 192, 255),
                 SnapKind::Grid => Color32::from_rgb(105, 226, 177),
+                SnapKind::GridLine => Color32::from_rgb(68, 211, 183),
+                SnapKind::GridGuide => Color32::from_rgb(79, 225, 212),
+                SnapKind::AxisGuide => Color32::from_rgb(103, 201, 255),
                 SnapKind::Endpoint => Color32::from_rgb(255, 113, 138),
                 SnapKind::Midpoint => Color32::from_rgb(203, 149, 255),
             };
@@ -446,6 +512,7 @@ impl Viewport {
 
     /// Snaps a logical-pixel pointer to visible model geometry or the active construction grid.
     /// The caller supplies a radius in egui points, converted from the configured pixel radius.
+    #[cfg(test)]
     pub fn snap_point(
         &mut self,
         rect: Rect,
@@ -453,6 +520,18 @@ impl Viewport {
         position: Pos2,
         snap_radius: f32,
         grid_spacing: f64,
+    ) -> Option<SnapResult> {
+        self.snap_point_with_guides(rect, document, position, snap_radius, grid_spacing, &[])
+    }
+
+    pub fn snap_point_with_guides(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+        snap_radius: f32,
+        grid_spacing: f64,
+        guides: &[ConstructionGuide],
     ) -> Option<SnapResult> {
         let construction_point = self.screen_to_construction_plane(rect, position);
         let ray = self.ray_for_screen(rect, position);
@@ -518,6 +597,7 @@ impl Viewport {
                                 &mut best,
                                 SnapCandidate {
                                     point,
+                                    normal: self.construction_plane_normal(),
                                     kind: SnapKind::Endpoint,
                                     screen_distance: distance,
                                     depth: point.distance(ray_origin),
@@ -535,6 +615,7 @@ impl Viewport {
                             &mut best,
                             SnapCandidate {
                                 point: midpoint,
+                                normal: self.construction_plane_normal(),
                                 kind: SnapKind::Midpoint,
                                 screen_distance: distance,
                                 depth: midpoint.distance(ray_origin),
@@ -561,6 +642,7 @@ impl Viewport {
                             &mut best,
                             SnapCandidate {
                                 point: line_point,
+                                normal: self.construction_plane_normal(),
                                 kind: SnapKind::Line,
                                 screen_distance: distance,
                                 depth: line_point.distance(ray_origin),
@@ -587,16 +669,17 @@ impl Viewport {
                             continue;
                         };
                         let point = ray_origin + ray_direction * distance_along_ray;
+                        let triangle_normal = (b - a)
+                            .cross(c - a)
+                            .try_normalized(1.0e-12)
+                            .unwrap_or(base_normal);
+                        let facing_normal = if triangle_normal.dot(ray_direction) > 0.0 {
+                            -triangle_normal
+                        } else {
+                            triangle_normal
+                        };
                         if distance_along_ray < base_depth {
-                            let normal = (b - a)
-                                .cross(c - a)
-                                .try_normalized(1.0e-12)
-                                .unwrap_or(base_normal);
-                            base_normal = if normal.dot(ray_direction) > 0.0 {
-                                -normal
-                            } else {
-                                normal
-                            };
+                            base_normal = facing_normal;
                             base_point = Some(point);
                             base_depth = distance_along_ray;
                         }
@@ -607,6 +690,7 @@ impl Viewport {
                             &mut best,
                             SnapCandidate {
                                 point,
+                                normal: facing_normal,
                                 kind: SnapKind::Face,
                                 screen_distance: screen.distance(position),
                                 depth: distance_along_ray,
@@ -635,6 +719,7 @@ impl Viewport {
                     &mut best,
                     SnapCandidate {
                         point: grid_point,
+                        normal: base_normal,
                         kind: SnapKind::Grid,
                         screen_distance: distance,
                         depth,
@@ -643,16 +728,117 @@ impl Viewport {
                     grid_spacing,
                 );
             }
+
+            let relative = point - origin;
+            let u = relative.dot(axis_u);
+            let v = relative.dot(axis_v);
+            for line_point in [
+                origin + axis_u * (u / grid_spacing).round() * grid_spacing + axis_v * v,
+                origin + axis_u * u + axis_v * (v / grid_spacing).round() * grid_spacing,
+            ] {
+                if let Some(screen) = self.project_if_visible(rect, line_point) {
+                    let depth = ray.map_or(0.0, |(ray_origin, _)| line_point.distance(ray_origin));
+                    self.consider_snap(
+                        &mut best,
+                        SnapCandidate {
+                            point: line_point,
+                            normal: base_normal,
+                            kind: SnapKind::GridLine,
+                            screen_distance: screen.distance(position),
+                            depth,
+                        },
+                        radius,
+                        grid_spacing,
+                    );
+                }
+            }
+        }
+
+        if let Some((ray_origin, ray_direction)) = ray {
+            for guide in guides {
+                match guide.kind {
+                    ConstructionGuideKind::Grid => {
+                        for (normal, axis_u, axis_v) in guide.planes() {
+                            let Some(hit) = self.ray_plane_intersection(
+                                ray_origin,
+                                ray_direction,
+                                guide.origin,
+                                normal,
+                            ) else {
+                                continue;
+                            };
+                            let relative = hit - guide.origin;
+                            let u = relative.dot(axis_u);
+                            let v = relative.dot(axis_v);
+                            let snapped = guide.origin
+                                + axis_u * ((u / grid_spacing).round() * grid_spacing)
+                                + axis_v * ((v / grid_spacing).round() * grid_spacing);
+                            if let Some(screen) = self.project_if_visible(rect, snapped) {
+                                self.consider_snap(
+                                    &mut best,
+                                    SnapCandidate {
+                                        point: snapped,
+                                        normal,
+                                        kind: SnapKind::GridGuide,
+                                        screen_distance: screen.distance(position),
+                                        depth: snapped.distance(ray_origin),
+                                    },
+                                    radius,
+                                    grid_spacing,
+                                );
+                            }
+                        }
+                    }
+                    ConstructionGuideKind::Axis => {
+                        let extent = grid_spacing * 10.0;
+                        for axis in [guide.axis_u, guide.axis_v, guide.axis_w] {
+                            let Some((closest, along)) = closest_point_on_ray_line(
+                                ray_origin,
+                                ray_direction,
+                                guide.origin,
+                                axis,
+                            ) else {
+                                continue;
+                            };
+                            if along.abs() > extent {
+                                continue;
+                            }
+                            let rounded = (along / grid_spacing).round() * grid_spacing;
+                            let point = if rounded.abs() <= extent {
+                                guide.origin + axis * rounded
+                            } else {
+                                closest
+                            };
+                            if let Some(screen) = self.project_if_visible(rect, point) {
+                                self.consider_snap(
+                                    &mut best,
+                                    SnapCandidate {
+                                        point,
+                                        normal: base_normal,
+                                        kind: SnapKind::AxisGuide,
+                                        screen_distance: screen.distance(position),
+                                        depth: point.distance(ray_origin),
+                                    },
+                                    radius,
+                                    grid_spacing,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         best.map(|candidate| SnapResult {
             point: candidate.point,
+            normal: candidate.normal,
             kind: candidate.kind,
             screen_distance: candidate.screen_distance,
         })
         .or_else(|| {
             construction_point.map(|point| SnapResult {
                 point,
+                normal: self.construction_plane_normal(),
                 kind: SnapKind::Free,
                 screen_distance: 0.0,
             })
@@ -1510,6 +1696,104 @@ impl Viewport {
         }
     }
 
+    fn draw_guides(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        guides: &[ConstructionGuide],
+        style: GridStyle,
+        preview: bool,
+    ) {
+        let spacing = style.spacing;
+        if !spacing.is_finite() || spacing <= 0.0 {
+            return;
+        }
+        let extent = f64::from(style.extent.min(256)) * spacing;
+        let steps = style.extent.min(256) as i32;
+        for guide in guides {
+            match guide.kind {
+                ConstructionGuideKind::Grid => {
+                    let color = if preview {
+                        Color32::from_rgba_unmultiplied(84, 225, 231, 185)
+                    } else {
+                        Color32::from_rgba_unmultiplied(72, 196, 207, 125)
+                    };
+                    for (plane_index, (_, axis_u, axis_v)) in guide.planes().into_iter().enumerate()
+                    {
+                        for step in -steps..=steps {
+                            let offset = f64::from(step) * spacing;
+                            let line_color = if step == 0 {
+                                Color32::from_rgba_unmultiplied(83, 220, 225, 190)
+                            } else {
+                                color
+                            };
+                            for (start, end) in [
+                                (
+                                    guide.origin + axis_u * offset - axis_v * extent,
+                                    guide.origin + axis_u * offset + axis_v * extent,
+                                ),
+                                (
+                                    guide.origin + axis_v * offset - axis_u * extent,
+                                    guide.origin + axis_v * offset + axis_u * extent,
+                                ),
+                            ] {
+                                if let (Some(start), Some(end)) = (
+                                    self.project_if_visible(rect, start),
+                                    self.project_if_visible(rect, end),
+                                ) {
+                                    painter.line_segment(
+                                        [start, end],
+                                        Stroke::new(
+                                            if step == 0 { style.thick_width } else { 1.0 },
+                                            line_color,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        if plane_index == 0 {
+                            let origin = guide.origin;
+                            if let Some(screen) = self.project_if_visible(rect, origin) {
+                                painter.circle_stroke(
+                                    screen,
+                                    4.0,
+                                    Stroke::new(1.5, Color32::from_rgb(100, 235, 239)),
+                                );
+                            }
+                        }
+                    }
+                }
+                ConstructionGuideKind::Axis => {
+                    let color = if preview {
+                        Color32::from_rgb(120, 219, 255)
+                    } else {
+                        Color32::from_rgb(91, 177, 218)
+                    };
+                    for (axis, axis_color) in [
+                        (guide.axis_u, color),
+                        (guide.axis_v, Color32::from_rgb(104, 218, 150)),
+                        (guide.axis_w, Color32::from_rgb(227, 126, 126)),
+                    ] {
+                        let start = guide.origin - axis * extent;
+                        let end = guide.origin + axis * extent;
+                        if let (Some(start), Some(end)) = (
+                            self.project_if_visible(rect, start),
+                            self.project_if_visible(rect, end),
+                        ) {
+                            painter.line_segment(
+                                [start, end],
+                                Stroke::new(style.thick_width.max(1.4), axis_color),
+                            );
+                        }
+                    }
+                    if let Some(origin) = self.project_if_visible(rect, guide.origin) {
+                        painter.circle_stroke(origin, 5.0, Stroke::new(1.5, color));
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_document(
         &self,
         painter: &egui::Painter,
@@ -1781,6 +2065,30 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
     point.distance_sq(start + direction * t)
 }
 
+fn closest_point_on_ray_line(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    line_origin: Vec3,
+    line_direction: Vec3,
+) -> Option<(Vec3, f64)> {
+    let offset = ray_origin - line_origin;
+    let dot = ray_direction.dot(line_direction);
+    let ray_offset = ray_direction.dot(offset);
+    let line_offset = line_direction.dot(offset);
+    let denominator = 1.0 - dot * dot;
+    if !denominator.is_finite() || denominator.abs() <= 1.0e-12 {
+        return None;
+    }
+    let mut ray_distance = (dot * line_offset - ray_offset) / denominator;
+    let mut line_distance = (line_offset - dot * ray_offset) / denominator;
+    if ray_distance < 0.0 {
+        ray_distance = 0.0;
+        line_distance = line_offset;
+    }
+    let closest_line = line_origin + line_direction * line_distance;
+    (line_distance.is_finite() && ray_distance.is_finite()).then_some((closest_line, line_distance))
+}
+
 fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f64> {
     let edge_ab = b - a;
     let edge_ac = c - a;
@@ -1807,9 +2115,9 @@ fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE, MAX_ELEVATION, MIN_ELEVATION, OrthoView,
-        SnapKind, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
-        height_in_triangle_xz, point_in_triangle,
+        ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
+        MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, Viewport, WalkthroughCamera,
+        WalkthroughTuning, cuboid_corners, height_in_triangle_xz, point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -1837,6 +2145,8 @@ mod tests {
                         active_tool: "Select",
                         preview: None,
                         snap: None,
+                        guides: &[],
+                        guide_preview: None,
                         grid: super::GridStyle {
                             visible: false,
                             spacing: 1.0,
@@ -2482,6 +2792,42 @@ mod tests {
     }
 
     #[test]
+    fn snapping_uses_oriented_grid_and_axis_guides() {
+        let rect = Rect::from_min_size(Pos2::new(60.0, 30.0), Vec2::new(900.0, 700.0));
+        let document = meshcraft_core::document::Document::new();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+        let grid_guide = ConstructionGuide::at_point(
+            ConstructionGuideKind::Grid,
+            Vec3::new(0.0, 4.0, 0.0),
+            Vec3::Y,
+        )
+        .unwrap();
+        let grid_point = Vec3::new(2.0, 4.0, -3.0);
+        let grid_pointer = viewport.world_to_screen(rect, grid_point) + Vec2::new(2.0, -1.0);
+        let grid_snap = viewport
+            .snap_point_with_guides(rect, &document, grid_pointer, 8.0, 1.0, &[grid_guide])
+            .unwrap();
+        assert_eq!(SnapKind::GridGuide, grid_snap.kind);
+        assert_eq!(grid_point, grid_snap.point);
+        assert_eq!(Vec3::Y, grid_snap.normal);
+
+        let axis_guide = ConstructionGuide::at_point(
+            ConstructionGuideKind::Axis,
+            Vec3::new(0.0, 4.0, 0.0),
+            Vec3::Y,
+        )
+        .unwrap();
+        let axis_point = axis_guide.origin + axis_guide.axis_u * 5.0;
+        let axis_pointer = viewport.world_to_screen(rect, axis_point) + Vec2::new(2.0, 1.0);
+        let axis_snap = viewport
+            .snap_point_with_guides(rect, &document, axis_pointer, 8.0, 1.0, &[axis_guide])
+            .unwrap();
+        assert_eq!(SnapKind::AxisGuide, axis_snap.kind);
+        assert!(axis_snap.point.distance(axis_point) < 1.0e-6);
+    }
+
+    #[test]
     fn snapping_uses_face_hits_grid_points_and_pixel_radius() {
         let rect = Rect::from_min_size(Pos2::new(48.0, 28.0), Vec2::new(900.0, 640.0));
         let mut document = meshcraft_core::document::Document::new();
@@ -2606,6 +2952,8 @@ mod tests {
                             active_tool: "Select",
                             preview: None,
                             snap: None,
+                            guides: &[],
+                            guide_preview: None,
                             grid: super::GridStyle {
                                 visible: false,
                                 spacing: 1.0,
