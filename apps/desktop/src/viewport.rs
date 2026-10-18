@@ -27,6 +27,24 @@ pub struct ViewportInput {
     pub pointer_local: Option<Vec2>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct GridStyle {
+    pub visible: bool,
+    pub spacing: f64,
+    pub extent: u32,
+    pub normal_width: f32,
+    pub thick_width: f32,
+}
+
+pub struct ViewportScene<'a> {
+    pub size: Vec2,
+    pub document: &'a Document,
+    pub selection: &'a [OccurrenceRef],
+    pub active_tool: &'a str,
+    pub preview: Option<ToolPreview>,
+    pub grid: GridStyle,
+}
+
 pub struct Viewport {
     zoom: f32,
     pan: Vec2,
@@ -46,21 +64,13 @@ impl Default for Viewport {
 }
 
 impl Viewport {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        size: Vec2,
-        document: &Document,
-        selection: &[OccurrenceRef],
-        active_tool: &str,
-        preview: Option<ToolPreview>,
-    ) -> ViewportInput {
-        let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
+    pub fn show(&mut self, ui: &mut egui::Ui, scene: &ViewportScene<'_>) -> ViewportInput {
+        let (response, painter) = ui.allocate_painter(scene.size, Sense::click_and_drag());
         let rect = response.rect;
         painter.rect_filled(rect, 0.0, Color32::from_rgb(200, 222, 244));
 
         if std::mem::take(&mut self.frame_pending) {
-            self.frame_document(rect, document);
+            self.frame_document(rect, scene.document);
         }
 
         if response.hovered() {
@@ -73,14 +83,14 @@ impl Viewport {
             {
                 self.pan += ui.input(|input| input.pointer.delta());
             }
-            if active_tool == "Orbit" && response.dragged_by(egui::PointerButton::Primary) {
+            if scene.active_tool == "Orbit" && response.dragged_by(egui::PointerButton::Primary) {
                 self.yaw += f64::from(ui.input(|input| input.pointer.delta().x)) * 0.008;
             }
         }
 
-        self.draw_grid(&painter, rect);
-        self.draw_document(&painter, rect, document, selection);
-        if let Some(preview) = preview {
+        self.draw_grid(&painter, rect, scene.grid);
+        self.draw_document(&painter, rect, scene.document, scene.selection);
+        if let Some(preview) = scene.preview {
             match preview {
                 ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, cuboid),
                 ToolPreview::Line { start, end } => {
@@ -93,9 +103,10 @@ impl Viewport {
         }
 
         let pointer = response.hover_pos();
-        let click = (active_tool != "Orbit" && response.clicked_by(egui::PointerButton::Primary))
-            .then(|| response.interact_pointer_pos())
-            .flatten();
+        let click = (scene.active_tool != "Orbit"
+            && response.clicked_by(egui::PointerButton::Primary))
+        .then(|| response.interact_pointer_pos())
+        .flatten();
         ViewportInput {
             rect,
             click,
@@ -261,36 +272,48 @@ impl Viewport {
         nearest.map(|(_, _, occurrence)| occurrence)
     }
 
-    fn draw_grid(&self, painter: &egui::Painter, rect: Rect) {
-        for coordinate in -20..=20 {
-            let coordinate = f64::from(coordinate);
-            let parallel_z_a = self.world_to_screen(rect, Vec3::new(coordinate, 0.0, -20.0));
-            let parallel_z_b = self.world_to_screen(rect, Vec3::new(coordinate, 0.0, 20.0));
-            let parallel_x_a = self.world_to_screen(rect, Vec3::new(-20.0, 0.0, coordinate));
-            let parallel_x_b = self.world_to_screen(rect, Vec3::new(20.0, 0.0, coordinate));
+    fn draw_grid(&self, painter: &egui::Painter, rect: Rect, style: GridStyle) {
+        if !style.visible {
+            return;
+        }
+        let extent = style.extent.min(256) as i32;
+        let world_extent = f64::from(extent) * style.spacing;
+        for step in -extent..=extent {
+            let coordinate = f64::from(step) * style.spacing;
+            let parallel_z_a =
+                self.world_to_screen(rect, Vec3::new(coordinate, 0.0, -world_extent));
+            let parallel_z_b = self.world_to_screen(rect, Vec3::new(coordinate, 0.0, world_extent));
+            let parallel_x_a =
+                self.world_to_screen(rect, Vec3::new(-world_extent, 0.0, coordinate));
+            let parallel_x_b = self.world_to_screen(rect, Vec3::new(world_extent, 0.0, coordinate));
             let color = if coordinate == 0.0 {
                 Color32::from_rgb(129, 171, 127)
             } else {
                 Color32::from_rgb(169, 186, 199)
             };
-            painter.line_segment([parallel_z_a, parallel_z_b], Stroke::new(0.7, color));
-            painter.line_segment([parallel_x_a, parallel_x_b], Stroke::new(0.7, color));
+            let width = if coordinate == 0.0 {
+                style.thick_width
+            } else {
+                style.normal_width
+            };
+            painter.line_segment([parallel_z_a, parallel_z_b], Stroke::new(width, color));
+            painter.line_segment([parallel_x_a, parallel_x_b], Stroke::new(width, color));
         }
         let origin = self.world_to_screen(rect, Vec3::ZERO);
-        let x_axis = self.world_to_screen(rect, Vec3::new(20.0, 0.0, 0.0));
-        let z_axis = self.world_to_screen(rect, Vec3::new(0.0, 0.0, 20.0));
-        let y_axis = self.world_to_screen(rect, Vec3::new(0.0, 20.0, 0.0));
+        let x_axis = self.world_to_screen(rect, Vec3::new(world_extent, 0.0, 0.0));
+        let z_axis = self.world_to_screen(rect, Vec3::new(0.0, 0.0, world_extent));
+        let y_axis = self.world_to_screen(rect, Vec3::new(0.0, world_extent, 0.0));
         painter.line_segment(
             [origin, x_axis],
-            Stroke::new(1.5, Color32::from_rgb(202, 105, 105)),
+            Stroke::new(style.thick_width, Color32::from_rgb(202, 105, 105)),
         );
         painter.line_segment(
             [origin, z_axis],
-            Stroke::new(1.5, Color32::from_rgb(100, 160, 115)),
+            Stroke::new(style.thick_width, Color32::from_rgb(100, 160, 115)),
         );
         painter.line_segment(
             [origin, y_axis],
-            Stroke::new(1.5, Color32::from_rgb(100, 130, 190)),
+            Stroke::new(style.thick_width, Color32::from_rgb(100, 130, 190)),
         );
     }
 

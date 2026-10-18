@@ -1,6 +1,6 @@
 use crate::assets::{self, IconRegion};
-use crate::viewport::{CuboidPreview, ToolPreview, Viewport};
-use eframe::egui::{self, Align, Align2, Layout, Vec2};
+use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
+use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::document::{Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,8 @@ enum ShellAction {
     NewDocument,
     SetProfile(UiProfile),
     ToggleToolbars,
+    TogglePanels,
+    ToggleGrid,
     About,
 }
 
@@ -159,11 +161,27 @@ const SHELL_COMMANDS: &[ShellCommand] = &[
     },
     ShellCommand {
         id: "view.toolbars.toggle",
-        name: "View> Toggle Hybrid Toolbars",
+        name: "View> Toggle Toolbars",
         category: "View",
-        keywords: "workspace buttons",
+        keywords: "workspace buttons toolbar",
         icon: None,
         action: ShellAction::ToggleToolbars,
+    },
+    ShellCommand {
+        id: "view.panels.toggle",
+        name: "View> Toggle Panels",
+        category: "View",
+        keywords: "workspace inspector visibility",
+        icon: None,
+        action: ShellAction::TogglePanels,
+    },
+    ShellCommand {
+        id: "view.grid.toggle",
+        name: "View> Toggle Permanent Grid",
+        category: "View",
+        keywords: "grid visibility display",
+        icon: None,
+        action: ShellAction::ToggleGrid,
     },
     ShellCommand {
         id: "help.about",
@@ -175,11 +193,40 @@ const SHELL_COMMANDS: &[ShellCommand] = &[
     },
 ];
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 struct Preferences {
     profile: UiProfile,
     toolbars_visible: bool,
+    auto_collapse_toolbars: bool,
+    ui_text_scale: f32,
+    toolbar_icon_size: u32,
+    show_permanent_grid: bool,
+    grid_extent: u32,
+    normal_grid_width: f32,
+    thick_grid_width: f32,
+    toolbar_flow_top_down: bool,
+    panels_visible: bool,
+    panel_open: BTreeMap<String, bool>,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            profile: UiProfile::DesktopMenus,
+            toolbars_visible: true,
+            auto_collapse_toolbars: false,
+            ui_text_scale: 1.0,
+            toolbar_icon_size: 32,
+            show_permanent_grid: true,
+            grid_extent: 20,
+            normal_grid_width: 1.0,
+            thick_grid_width: 3.0,
+            toolbar_flow_top_down: false,
+            panels_visible: true,
+            panel_open: BTreeMap::new(),
+        }
+    }
 }
 
 pub struct MeshcraftApp {
@@ -187,7 +234,6 @@ pub struct MeshcraftApp {
     icon_atlas: Option<egui::TextureHandle>,
     icon_regions: BTreeMap<&'static str, IconRegion>,
     active_tool: String,
-    input_probe: String,
     status: String,
     pointer_in_viewport: Option<egui::Vec2>,
     viewport_size: Vec2,
@@ -245,7 +291,6 @@ impl MeshcraftApp {
             icon_atlas: assets::load_icon_atlas(&creation_context.egui_ctx),
             icon_regions: assets::icon_regions(),
             active_tool: "Select".to_owned(),
-            input_probe: String::new(),
             status,
             pointer_in_viewport: None,
             viewport_size: Vec2::ZERO,
@@ -307,6 +352,9 @@ impl MeshcraftApp {
         match command.action {
             ShellAction::SelectTool(tool) => {
                 self.active_tool = tool.to_owned();
+                if self.preferences.auto_collapse_toolbars {
+                    self.preferences.toolbars_visible = false;
+                }
                 self.cuboid_first = None;
                 self.cuboid_base = None;
                 self.line_first = None;
@@ -354,6 +402,22 @@ impl MeshcraftApp {
                     "Hybrid toolbars shown.".to_owned()
                 } else {
                     "Hybrid toolbars hidden.".to_owned()
+                };
+            }
+            ShellAction::TogglePanels => {
+                self.preferences.panels_visible = !self.preferences.panels_visible;
+                self.status = if self.preferences.panels_visible {
+                    "Panels shown.".to_owned()
+                } else {
+                    "Panels hidden.".to_owned()
+                };
+            }
+            ShellAction::ToggleGrid => {
+                self.preferences.show_permanent_grid = !self.preferences.show_permanent_grid;
+                self.status = if self.preferences.show_permanent_grid {
+                    "Permanent grid shown.".to_owned()
+                } else {
+                    "Permanent grid hidden.".to_owned()
                 };
             }
             ShellAction::About => {
@@ -607,19 +671,30 @@ impl MeshcraftApp {
         Some(egui::Image::new((texture.id(), size)).uv(uv))
     }
 
-    fn show_tool_button(&self, ui: &mut egui::Ui, tool: &str) -> bool {
+    fn show_tool_button(&self, ui: &mut egui::Ui, tool: &str, size: f32, icon_only: bool) -> bool {
         let command_id = tool_command_id(tool);
         let icon_name = SHELL_COMMANDS
             .iter()
             .find(|command| command.id == command_id)
             .and_then(|command| command.icon);
         let selected = self.active_tool == tool;
-        let button = match self.icon_image(icon_name, Vec2::splat(16.0)) {
-            Some(icon) => egui::Button::image_and_text(icon, tool),
-            None => egui::Button::new(tool),
+        let icon_size = (size * 0.55).max(12.0);
+        let button = match (
+            self.icon_image(icon_name, Vec2::splat(icon_size)),
+            icon_only,
+        ) {
+            (Some(icon), true) => egui::Button::image(icon),
+            (Some(icon), false) => egui::Button::image_and_text(icon, tool),
+            (None, true) => egui::Button::new(tool.chars().next().unwrap_or('?').to_string()),
+            (None, false) => egui::Button::new(tool),
         }
         .selected(selected);
-        ui.add(button).clicked()
+        let button_size = if icon_only {
+            Vec2::splat(size)
+        } else {
+            Vec2::new(ui.available_width(), size)
+        };
+        ui.add_sized(button_size, button).clicked()
     }
 
     fn show_command_palette(&mut self, ctx: &egui::Context) {
@@ -744,12 +819,19 @@ impl MeshcraftApp {
                 ui.separator();
                 let mut toolbars_visible = self.preferences.toolbars_visible;
                 if ui
-                    .checkbox(&mut toolbars_visible, "Toolbars in Hybrid profile")
+                    .checkbox(&mut toolbars_visible, "Show toolbars")
                     .changed()
                 {
                     self.run_command("view.toolbars.toggle");
                 }
                 ui.separator();
+                let mut grid_visible = self.preferences.show_permanent_grid;
+                if ui
+                    .checkbox(&mut grid_visible, "Show permanent grid")
+                    .changed()
+                {
+                    self.run_command("view.grid.toggle");
+                }
                 ui.add_enabled(false, egui::Button::new("Camera and visibility controls"));
             });
 
@@ -776,7 +858,16 @@ impl MeshcraftApp {
 
             ui.menu_button("Window", |ui| {
                 ui.label("Workspace panels");
-                ui.add_enabled(false, egui::Button::new("Inspector"));
+                if ui
+                    .button(if self.preferences.panels_visible {
+                        "Hide Panels"
+                    } else {
+                        "Show Panels"
+                    })
+                    .clicked()
+                {
+                    self.run_command("view.panels.toggle");
+                }
                 ui.add_enabled(false, egui::Button::new("Reset Workspace Layout"));
             });
 
@@ -792,15 +883,28 @@ impl MeshcraftApp {
     }
 
     fn show_toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.strong("Tools");
-            ui.separator();
-            for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
-                if self.show_tool_button(ui, tool) {
-                    self.run_command(tool_command_id(tool));
+        let tools = ["Select", "Cuboid", "Line", "Rectangle", "Orbit"];
+        let size = self.preferences.toolbar_icon_size as f32;
+        if self.preferences.toolbar_flow_top_down {
+            ui.vertical(|ui| {
+                ui.strong("Tools");
+                for tool in tools {
+                    if self.show_tool_button(ui, tool, size, true) {
+                        self.run_command(tool_command_id(tool));
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            ui.horizontal(|ui| {
+                ui.strong("Tools");
+                ui.separator();
+                for tool in tools {
+                    if self.show_tool_button(ui, tool, size, true) {
+                        self.run_command(tool_command_id(tool));
+                    }
+                }
+            });
+        }
     }
 
     fn show_tool_panel(&mut self, ui: &mut egui::Ui, height: f32) {
@@ -810,8 +914,9 @@ impl MeshcraftApp {
             ui.heading("Tools");
             ui.label("Modeling tools");
             ui.separator();
+            let size = self.preferences.toolbar_icon_size as f32;
             for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
-                if self.show_tool_button(ui, tool) {
+                if self.show_tool_button(ui, tool, size, false) {
                     self.run_command(tool_command_id(tool));
                 }
             }
@@ -840,11 +945,20 @@ impl MeshcraftApp {
         let preview = self.tool_preview(predicted_rect, pointer);
         let input = self.viewport.show(
             ui,
-            size,
-            &self.document,
-            &self.selection,
-            &self.active_tool,
-            preview,
+            &ViewportScene {
+                size,
+                document: &self.document,
+                selection: &self.selection,
+                active_tool: &self.active_tool,
+                preview,
+                grid: GridStyle {
+                    visible: self.preferences.show_permanent_grid,
+                    spacing: self.document.model_settings.grid_size,
+                    extent: self.preferences.grid_extent,
+                    normal_width: self.preferences.normal_grid_width,
+                    thick_width: self.preferences.thick_grid_width,
+                },
+            },
         );
         self.viewport_size = input.rect.size();
         self.pointer_in_viewport = input.pointer_local;
@@ -853,108 +967,353 @@ impl MeshcraftApp {
         }
     }
 
+    fn show_panel_header(&mut self, ui: &mut egui::Ui, id: &str, title: &str) -> bool {
+        let is_open = *self
+            .preferences
+            .panel_open
+            .entry(id.to_owned())
+            .or_insert(true);
+        let marker = if is_open { "-" } else { "+" };
+        let width = ui.available_width();
+        let response = ui.add_sized(
+            [width, 28.0],
+            egui::Button::new(
+                egui::RichText::new(format!("{marker}  {title}")).color(Color32::WHITE),
+            )
+            .fill(Color32::from_rgb(54, 163, 244))
+            .corner_radius(0.0),
+        );
+        if response.clicked() {
+            self.preferences.panel_open.insert(id.to_owned(), !is_open);
+            !is_open
+        } else {
+            is_open
+        }
+    }
+
+    fn show_panel_body(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+        egui::Frame::new()
+            .fill(Color32::from_rgb(84, 84, 84))
+            .inner_margin(egui::Margin::same(7))
+            .show(ui, |ui| {
+                ui.visuals_mut().override_text_color = Some(Color32::WHITE);
+                add_contents(ui);
+            });
+        ui.add_space(5.0);
+    }
+
+    fn show_selection_panel(&mut self, ui: &mut egui::Ui) {
+        let root_objects = self.top_level_occurrences();
+        let mut all_edges = 0;
+        let mut all_faces = 0;
+        for occurrence in self.document.occurrence_refs().unwrap_or_default() {
+            if let Some(geometry) = self.document.effective_geometry(&occurrence) {
+                all_edges += geometry.segments.len();
+                all_faces += geometry.triangles.len();
+            }
+        }
+        let (selected_edges, selected_faces) = self.selection.iter().fold((0, 0), |sum, item| {
+            self.document
+                .effective_geometry(item)
+                .map_or(sum, |geometry| {
+                    (
+                        sum.0 + geometry.segments.len(),
+                        sum.1 + geometry.triangles.len(),
+                    )
+                })
+        });
+        ui.horizontal(|ui| {
+            ui.weak("Type");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.weak("Total   Selected");
+            });
+        });
+        for (label, total, selected) in [
+            ("Edges", all_edges, selected_edges),
+            ("Faces", all_faces, selected_faces),
+            ("Voxels", 0, 0),
+            ("Hotspots", 0, 0),
+            ("Objects", root_objects.len(), self.selection.len()),
+            ("Dimensions", 0, 0),
+            ("Texts", 0, 0),
+            ("Walls", 0, 0),
+            ("Slabs", 0, 0),
+            ("Stairs", 0, 0),
+            ("Frames", 0, 0),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(label);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.monospace(format!("{total:>6}   {selected:>4}"));
+                });
+            });
+        }
+    }
+
+    fn show_object_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(selected) = self.selection.first() else {
+            ui.label("No object selected");
+            return;
+        };
+        let Some(resolved) = self.document.resolve_occurrence(selected) else {
+            ui.label("The selected object no longer exists");
+            return;
+        };
+        ui.label(format!("{} selected", self.selection.len()));
+        ui.label("Name");
+        let mut name = resolved.definition.name.clone();
+        if ui
+            .add(egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY))
+            .changed()
+        {
+            match self
+                .document
+                .rename_definition(resolved.definition.id, &name)
+            {
+                Ok(_) => {}
+                Err(error) => self.status = error,
+            }
+        }
+    }
+
+    fn show_objects_panel(&mut self, ui: &mut egui::Ui) {
+        let root_objects = self.top_level_occurrences();
+        egui::ScrollArea::vertical()
+            .id_salt("document-object-list")
+            .max_height(180.0)
+            .show(ui, |ui| {
+                for occurrence in &root_objects {
+                    let label = self
+                        .document
+                        .resolve_occurrence(occurrence)
+                        .map(|resolved| resolved.definition.name.as_str())
+                        .unwrap_or("Missing object");
+                    let selected = self.selection.contains(occurrence);
+                    if ui.selectable_label(selected, label).clicked() {
+                        self.selection = vec![occurrence.clone()];
+                    }
+                }
+            });
+    }
+
+    fn show_model_settings(&mut self, ui: &mut egui::Ui) {
+        let mut settings = self.document.model_settings.clone();
+        let mut changed = false;
+        ui.label("Unit name");
+        changed |= ui
+            .add(egui::TextEdit::singleline(&mut settings.unit_name).desired_width(f32::INFINITY))
+            .changed();
+        for (label, value, range) in [
+            ("Unit size", &mut settings.unit_size, 0.0001..=1_000_000.0),
+            ("Grid size", &mut settings.grid_size, 0.0001..=1_000_000.0),
+            ("Snap radius", &mut settings.snap_radius, 0.0..=128.0),
+        ] {
+            ui.label(label);
+            changed |= ui
+                .add_sized(
+                    [ui.available_width(), 24.0],
+                    egui::DragValue::new(value)
+                        .range(range)
+                        .max_decimals(4)
+                        .speed(0.05),
+                )
+                .changed();
+        }
+        ui.label("Circle segments");
+        changed |= ui
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::DragValue::new(&mut settings.circle_segments).range(3..=256),
+            )
+            .changed();
+        if changed {
+            match self.document.update_model_settings(settings) {
+                Ok(_) => {}
+                Err(error) => {
+                    ui.colored_label(Color32::LIGHT_RED, error);
+                }
+            }
+        }
+    }
+
+    fn show_ui_settings(&mut self, ui: &mut egui::Ui) {
+        ui.label("UI text size");
+        egui::ComboBox::from_id_salt("ui-text-scale")
+            .selected_text(format!("{}x", self.preferences.ui_text_scale))
+            .show_ui(ui, |ui| {
+                for scale in [0.75_f32, 1.0, 1.25, 1.5, 2.0] {
+                    ui.selectable_value(
+                        &mut self.preferences.ui_text_scale,
+                        scale,
+                        format!("{scale}x"),
+                    );
+                }
+            });
+        ui.checkbox(
+            &mut self.preferences.auto_collapse_toolbars,
+            "Auto-collapse after tool selection",
+        );
+        ui.label("Toolbar icon/button size");
+        egui::ComboBox::from_id_salt("toolbar-icon-size")
+            .selected_text(format!(
+                "{} × {} px",
+                self.preferences.toolbar_icon_size, self.preferences.toolbar_icon_size
+            ))
+            .show_ui(ui, |ui| {
+                for size in [24, 32, 40, 48] {
+                    ui.selectable_value(
+                        &mut self.preferences.toolbar_icon_size,
+                        size,
+                        format!("{size} × {size} px"),
+                    );
+                }
+            });
+        ui.checkbox(
+            &mut self.preferences.show_permanent_grid,
+            "Show permanent grid",
+        );
+        ui.label("Permanent grid extent (steps from origin)");
+        ui.add(egui::DragValue::new(&mut self.preferences.grid_extent).range(1..=256));
+        ui.label("Normal line width");
+        ui.add(
+            egui::Slider::new(&mut self.preferences.normal_grid_width, 0.25..=4.0).suffix(" px"),
+        );
+        ui.label("Thick line width");
+        ui.add(egui::Slider::new(&mut self.preferences.thick_grid_width, 0.5..=8.0).suffix(" px"));
+        ui.label("Arrange toolbars");
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_label(!self.preferences.toolbar_flow_top_down, "Flow L→R")
+                .clicked()
+            {
+                self.preferences.toolbar_flow_top_down = false;
+            }
+            if ui
+                .selectable_label(self.preferences.toolbar_flow_top_down, "Flow T→D")
+                .clicked()
+            {
+                self.preferences.toolbar_flow_top_down = true;
+            }
+        });
+        ui.weak("Toolbar layout and grid display are saved as application preferences.");
+    }
+
+    fn show_profile_settings(&mut self, ui: &mut egui::Ui) {
+        let selected_profile = self.preferences.profile;
+        egui::ComboBox::from_id_salt("ui-profile")
+            .selected_text(selected_profile.label())
+            .show_ui(ui, |ui| {
+                for (id, profile) in [
+                    ("view.profile.menus", UiProfile::DesktopMenus),
+                    ("view.profile.buttons", UiProfile::Buttons),
+                    ("view.profile.hybrid", UiProfile::Hybrid),
+                ] {
+                    if ui
+                        .selectable_label(selected_profile == profile, profile.label())
+                        .clicked()
+                    {
+                        self.run_command(id);
+                    }
+                }
+            });
+        ui.checkbox(&mut self.preferences.toolbars_visible, "Show toolbars");
+    }
+
     fn show_inspector(&mut self, ui: &mut egui::Ui, height: f32) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(228.0);
+            ui.set_width(402.0);
             ui.set_min_height(height);
-            ui.heading("Selection");
-            let root_objects = self.top_level_occurrences();
-            ui.label(format!("Objects: {}", root_objects.len()));
-            ui.label(format!("Selected: {}", self.selection.len()));
-            ui.separator();
-            ui.label("Objects");
+            ui.heading("Panels");
             egui::ScrollArea::vertical()
-                .id_salt("document-object-list")
-                .max_height(120.0)
+                .id_salt("panels-scroll")
+                .max_height((height - 34.0).max(100.0))
                 .show(ui, |ui| {
-                    for occurrence in &root_objects {
-                        let label = self
-                            .document
-                            .resolve_occurrence(occurrence)
-                            .map(|resolved| resolved.definition.name.as_str())
-                            .unwrap_or("Missing object");
-                        let selected = self.selection.contains(occurrence);
-                        if ui.selectable_label(selected, label).clicked() {
-                            self.selection = vec![occurrence.clone()];
-                        }
+                    if self.show_panel_header(ui, "selection", "Selection") {
+                        Self::show_panel_body(ui, |ui| self.show_selection_panel(ui));
                     }
-                });
-            ui.separator();
-            ui.label("Model Settings");
-            ui.label("Unit size: 1.0000 · Grid: 1.0000");
-            ui.label("Circle segments: 24");
-            ui.separator();
-            ui.label("Array");
-            ui.add(
-                egui::DragValue::new(&mut self.array_count)
-                    .range(1..=10_000)
-                    .prefix("Copies: "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.array_spacing)
-                    .speed(0.1)
-                    .prefix("Spacing: "),
-            );
-            if ui.button("Copy Selection").clicked() {
-                self.run_command("edit.copy_selection");
-            }
-            if ui.button("Create Object from Selection").clicked() {
-                self.run_command("object.create_from_selection");
-            }
-            if ui.button("Array Selected Object").clicked() {
-                self.run_command("object.array_selection");
-            }
-            ui.separator();
-            ui.label("Workspace profile");
-            ui.label("UI profile");
-            let selected_profile = self.preferences.profile;
-            egui::ComboBox::from_id_salt("ui-profile")
-                .selected_text(selected_profile.label())
-                .show_ui(ui, |ui| {
-                    for (id, profile) in [
-                        ("view.profile.menus", UiProfile::DesktopMenus),
-                        ("view.profile.buttons", UiProfile::Buttons),
-                        ("view.profile.hybrid", UiProfile::Hybrid),
+                    if self.show_panel_header(ui, "object", "Object") {
+                        Self::show_panel_body(ui, |ui| self.show_object_panel(ui));
+                    }
+                    if self.show_panel_header(ui, "objects", "Objects") {
+                        Self::show_panel_body(ui, |ui| {
+                            self.show_objects_panel(ui);
+                            ui.separator();
+                            ui.add(
+                                egui::DragValue::new(&mut self.array_count)
+                                    .range(1..=10_000)
+                                    .prefix("Copy count: "),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut self.array_spacing)
+                                    .speed(0.1)
+                                    .prefix("Spacing: "),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.button("Copy").clicked() {
+                                    self.run_command("edit.copy_selection");
+                                }
+                                if ui.button("Create Object").clicked() {
+                                    self.run_command("object.create_from_selection");
+                                }
+                                if ui.button("Array").clicked() {
+                                    self.run_command("object.array_selection");
+                                }
+                            });
+                        });
+                    }
+                    if self.show_panel_header(ui, "model_settings", "Model Settings") {
+                        Self::show_panel_body(ui, |ui| self.show_model_settings(ui));
+                    }
+                    if self.show_panel_header(ui, "profile", "Workspace Profile") {
+                        Self::show_panel_body(ui, |ui| self.show_profile_settings(ui));
+                    }
+                    if self.show_panel_header(ui, "ui_settings", "UI Settings") {
+                        Self::show_panel_body(ui, |ui| self.show_ui_settings(ui));
+                    }
+                    if self.show_panel_header(ui, "help", "Help / About") {
+                        Self::show_panel_body(ui, |ui| {
+                            ui.label("Meshcraft");
+                            ui.label("Platform: Desktop");
+                            ui.label("Rust rewrite · development build");
+                            ui.label("Ctrl+Shift+P opens the command palette.");
+                        });
+                    }
+                    if self.show_panel_header(ui, "polyline", "Polyline Settings") {
+                        Self::show_panel_body(ui, |ui| {
+                            ui.label("Arc max length · Double line size · Double line offset");
+                            ui.weak("Polyline construction settings are not implemented yet.");
+                        });
+                    }
+                    if self.show_panel_header(ui, "vector_text", "Vector Text") {
+                        Self::show_panel_body(ui, |ui| {
+                            ui.label("Text · Size · Tracking · Line spacing · Glyph source");
+                            ui.weak("Vector text settings are not implemented yet.");
+                        });
+                    }
+                    for (id, title) in [
+                        ("architecture_walls", "Architecture - Walls"),
+                        ("architecture_slabs", "Architecture - Slabs"),
+                        ("architecture_stairs", "Architecture - Stairs"),
+                        ("architecture_frames", "Architecture - Frames"),
+                        ("hvac", "HVAC Settings"),
+                        ("hotspots", "Hotspot Settings"),
+                        ("random", "Random Tools"),
+                        ("tutorials", "Tutorials"),
+                        ("shaders", "Shader Settings"),
                     ] {
-                        if ui
-                            .selectable_label(selected_profile == profile, profile.label())
-                            .clicked()
-                        {
-                            self.run_command(id);
+                        if self.show_panel_header(ui, id, title) {
+                            Self::show_panel_body(ui, |ui| {
+                                ui.weak(format!("{title} are not implemented yet."));
+                            });
                         }
                     }
                 });
-            ui.separator();
-            ui.label("Keyboard focus / IME probe");
-            let input_response = ui.add(
-                egui::TextEdit::singleline(&mut self.input_probe)
-                    .hint_text("Type or compose text…")
-                    .desired_width(210.0),
-            );
-            if input_response.changed() {
-                self.status = format!(
-                    "Text input received: {} characters",
-                    self.input_probe.chars().count()
-                );
-            }
-            ui.add_space(12.0);
-            ui.label(format!("Active tool: {}", self.active_tool));
-            ui.label(format!(
-                "Viewport area: {:.0} × {:.0} px",
-                self.viewport_size.x, self.viewport_size.y
-            ));
-            if let Some(pointer) = self.pointer_in_viewport {
-                ui.label(format!(
-                    "Pointer in viewport: {:.0}, {:.0}",
-                    pointer.x, pointer.y
-                ));
-            } else {
-                ui.label("Pointer outside viewport");
-            }
         });
     }
 
     fn show_workspace(&mut self, ui: &mut egui::Ui) {
+        ui.ctx()
+            .set_zoom_factor(self.preferences.ui_text_scale.clamp(0.5, 2.0));
         let toggle_command_palette = ui.input(|input| {
             input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
         });
@@ -990,8 +1349,11 @@ impl MeshcraftApp {
         }
 
         let menus_visible = self.preferences.profile != UiProfile::Buttons;
-        let toolbar_visible = self.preferences.profile == UiProfile::Buttons
-            || (self.preferences.profile == UiProfile::Hybrid && self.preferences.toolbars_visible);
+        let toolbar_visible = self.preferences.toolbars_visible
+            && matches!(
+                self.preferences.profile,
+                UiProfile::Buttons | UiProfile::Hybrid
+            );
 
         if menus_visible {
             let open_file_menu = ui.input(|input| {
@@ -1009,12 +1371,12 @@ impl MeshcraftApp {
         }
 
         ui.separator();
-        let content_height = (ui.available_height() - 28.0).max(160.0);
+        let content_height = (ui.available_height() - 48.0).max(160.0);
         let content_width = ui.available_width();
-        let show_tools = content_width >= 680.0;
-        let show_inspector = content_width >= 560.0;
+        let show_tools = content_width >= 820.0;
+        let show_inspector = self.preferences.panels_visible && content_width >= 650.0;
         let side_width =
-            if show_tools { 166.0 } else { 0.0 } + if show_inspector { 246.0 } else { 0.0 };
+            if show_tools { 166.0 } else { 0.0 } + if show_inspector { 420.0 } else { 0.0 };
         let viewport_width = (content_width - side_width - 16.0).max(120.0);
 
         ui.horizontal(|ui| {
@@ -1028,7 +1390,7 @@ impl MeshcraftApp {
             self.show_viewport(ui, Vec2::new(viewport_width, content_height));
             if show_inspector {
                 ui.allocate_ui_with_layout(
-                    Vec2::new(246.0, content_height),
+                    Vec2::new(420.0, content_height),
                     Layout::top_down(Align::Min),
                     |ui| self.show_inspector(ui, content_height),
                 );
@@ -1037,12 +1399,22 @@ impl MeshcraftApp {
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
+            ui.weak(format!("Tool: {}", self.active_tool));
+            ui.separator();
             ui.label(&self.status);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let object_count = self.top_level_occurrences().len();
                 ui.weak(format!(
-                    "{} root objects · revision {}",
-                    object_count, self.document.revision
+                    "{object_count} objects · revision {}",
+                    self.document.revision
+                ));
+                if let Some(pointer) = self.pointer_in_viewport {
+                    ui.weak(format!("Pointer: {:.0}, {:.0}", pointer.x, pointer.y));
+                }
+                ui.separator();
+                ui.weak(format!(
+                    "Viewport {:.0} × {:.0}",
+                    self.viewport_size.x, self.viewport_size.y
                 ));
             });
         });
@@ -1090,7 +1462,9 @@ impl eframe::App for MeshcraftApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHELL_COMMANDS, command_matches, registry_has_unique_ids, tool_command_id};
+    use super::{
+        Preferences, SHELL_COMMANDS, command_matches, registry_has_unique_ids, tool_command_id,
+    };
 
     #[test]
     fn every_shell_command_has_a_unique_stable_id() {
@@ -1133,5 +1507,31 @@ mod tests {
         assert!(command_matches(rectangle, "Rectangle"));
         assert!(command_matches(rectangle, "tool shape"));
         assert!(!command_matches(rectangle, "camera"));
+    }
+
+    #[test]
+    fn panel_and_grid_visibility_have_palette_commands() {
+        for (id, query) in [
+            ("view.panels.toggle", "inspector"),
+            ("view.grid.toggle", "permanent grid"),
+        ] {
+            let command = SHELL_COMMANDS
+                .iter()
+                .find(|command| command.id == id)
+                .unwrap_or_else(|| panic!("missing command {id}"));
+            assert!(command_matches(command, query));
+        }
+    }
+
+    #[test]
+    fn preferences_default_to_reference_ui_values_and_load_partial_old_state() {
+        let preferences: Preferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(1.0, preferences.ui_text_scale);
+        assert_eq!(32, preferences.toolbar_icon_size);
+        assert!(preferences.show_permanent_grid);
+        assert_eq!(20, preferences.grid_extent);
+        assert_eq!(1.0, preferences.normal_grid_width);
+        assert_eq!(3.0, preferences.thick_grid_width);
+        assert!(preferences.panels_visible);
     }
 }

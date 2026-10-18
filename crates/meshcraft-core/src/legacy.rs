@@ -2,7 +2,8 @@
 
 use crate::document::{
     ChildLayoutId, DefinitionId, DefinitionKind, Document, InstanceEdits, LayoutEntryId,
-    LegacyAlias, OccurrenceRef, RawGeometrySegment, RawGeometryTriangle, RawGeometryVertex, Rgba8,
+    LegacyAlias, ModelSettings, OccurrenceRef, RawGeometrySegment, RawGeometryTriangle,
+    RawGeometryVertex, Rgba8,
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use serde_json::{Map, Value};
@@ -132,6 +133,7 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
     }
 
     let mut document = Document::new();
+    document.model_settings = parse_model_settings(root)?;
     preserve_root_fields(root, &mut document);
     let mut definitions = HashMap::new();
     for (index, prototype) in prototype_values.iter().enumerate() {
@@ -344,10 +346,71 @@ fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
             "rootGroup",
             "segments",
             "faces",
+            "modelUnit",
+            "gridSpacing",
+            "circleSegments",
+            "snapEpsilon",
         ],
         &mut document.extensions,
         "k3d.",
     );
+    if let Some(unit) = root.get("modelUnit").and_then(Value::as_object) {
+        preserve_unknown_fields(
+            unit,
+            &["name", "size"],
+            &mut document.extensions,
+            "k3d.modelUnit.",
+        );
+    }
+}
+
+fn parse_model_settings(root: &Map<String, Value>) -> ImportResult<ModelSettings> {
+    let mut settings = ModelSettings::default();
+    if let Some(unit) = root.get("modelUnit") {
+        let unit = unit
+            .as_object()
+            .ok_or_else(|| "modelUnit: expected an object".to_owned())?;
+        if let Some(name) = read_string(unit, "name", "/modelUnit")? {
+            settings.unit_name = name;
+        }
+        if let Some(size) = read_optional_number(unit, "size", "/modelUnit")? {
+            settings.unit_size = size;
+        }
+    }
+    if let Some(grid_size) = read_optional_number(root, "gridSpacing", "")? {
+        settings.grid_size = grid_size;
+    }
+    if let Some(segments) = root.get("circleSegments") {
+        let segments = segments
+            .as_u64()
+            .ok_or_else(|| "circleSegments: expected a positive integer".to_owned())?;
+        settings.circle_segments = u32::try_from(segments)
+            .map_err(|_| "circleSegments: integer is outside the supported range".to_owned())?;
+    }
+    if let Some(snap_radius) = read_optional_number(root, "snapEpsilon", "")? {
+        settings.snap_radius = snap_radius;
+    }
+    settings
+        .validate()
+        .map_err(|error| format!("model settings: {error}"))?;
+    Ok(settings)
+}
+
+fn read_optional_number(
+    object: &Map<String, Value>,
+    key: &str,
+    path: &str,
+) -> ImportResult<Option<f64>> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_f64()
+        .ok_or_else(|| format!("{path}/{key}: expected a number"))?;
+    if !value.is_finite() {
+        return Err(format!("{path}/{key}: expected a finite number"));
+    }
+    Ok(Some(value))
 }
 
 fn preserve_unknown_fields(
@@ -974,9 +1037,10 @@ fn read_string(object: &Map<String, Value>, key: &str, path: &str) -> ImportResu
 
 #[cfg(test)]
 mod tests {
-    use super::{GeometryDraft, QuantizedVertex, import_current_json};
+    use super::{GeometryDraft, QuantizedVertex, import_current_json, import_current_value};
     use crate::document::{DefinitionKind, LegacyAlias, OccurrenceRef};
     use crate::geometry::Vec3;
+    use serde_json::Value;
     use std::collections::HashMap;
 
     const ARCH_FRAME: &str =
@@ -1024,6 +1088,29 @@ mod tests {
                 .any(|position| *position != Vec3::ZERO)
         }));
         assert!(document.extensions.contains_key("k3d.undoHistory"));
+    }
+
+    #[test]
+    fn imports_model_settings_and_preserves_unknown_unit_fields() {
+        let mut snapshot: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+        snapshot["modelUnit"] = serde_json::json!({
+            "name": "meter",
+            "size": 0.01,
+            "futureUnitHint": "kept"
+        });
+        snapshot["gridSpacing"] = serde_json::json!(2.5);
+        snapshot["circleSegments"] = serde_json::json!(48);
+        snapshot["snapEpsilon"] = serde_json::json!(8.0);
+        let document = import_current_value(&snapshot).unwrap();
+        assert_eq!("meter", document.model_settings.unit_name);
+        assert_eq!(0.01, document.model_settings.unit_size);
+        assert_eq!(2.5, document.model_settings.grid_size);
+        assert_eq!(48, document.model_settings.circle_segments);
+        assert_eq!(8.0, document.model_settings.snap_radius);
+        assert_eq!(
+            &serde_json::json!("kept"),
+            &document.extensions["k3d.modelUnit.futureUnitHint"]
+        );
     }
 
     #[test]

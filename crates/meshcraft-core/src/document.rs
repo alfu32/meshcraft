@@ -252,6 +252,50 @@ impl InstanceEdits {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
+pub struct ModelSettings {
+    pub unit_name: String,
+    pub unit_size: f64,
+    pub grid_size: f64,
+    pub circle_segments: u32,
+    /// Screen-space snapping radius, matching the legacy `snapEpsilon` setting.
+    pub snap_radius: f64,
+}
+
+impl Default for ModelSettings {
+    fn default() -> Self {
+        Self {
+            unit_name: "unit".to_owned(),
+            unit_size: 1.0,
+            grid_size: 1.0,
+            circle_segments: 24,
+            snap_radius: 12.0,
+        }
+    }
+}
+
+impl ModelSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.unit_name.trim().is_empty() {
+            return Err("unit name cannot be empty".to_owned());
+        }
+        if !self.unit_size.is_finite() || self.unit_size <= 0.0 {
+            return Err("unit size must be finite and positive".to_owned());
+        }
+        if !self.grid_size.is_finite() || self.grid_size <= 0.0 {
+            return Err("grid size must be finite and positive".to_owned());
+        }
+        if !(3..=256).contains(&self.circle_segments) {
+            return Err("circle segments must be between 3 and 256".to_owned());
+        }
+        if !self.snap_radius.is_finite() || !(0.0..=128.0).contains(&self.snap_radius) {
+            return Err("snap radius must be between 0 and 128 pixels".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Document {
     pub schema_version: u32,
     pub revision: u64,
@@ -261,6 +305,8 @@ pub struct Document {
     /// Overrides belong to realized occurrences, not shared layout entries.
     #[serde(with = "occurrence_edit_map")]
     pub occurrence_edits: BTreeMap<OccurrenceRef, InstanceEdits>,
+    #[serde(default)]
+    pub model_settings: ModelSettings,
     pub extensions: BTreeMap<String, Value>,
     next_id: u64,
 }
@@ -286,6 +332,7 @@ impl Document {
             definitions: BTreeMap::new(),
             child_layouts,
             occurrence_edits: BTreeMap::new(),
+            model_settings: ModelSettings::default(),
             extensions: BTreeMap::new(),
             next_id: 2,
         }
@@ -293,6 +340,37 @@ impl Document {
 
     pub fn root_layout(&self) -> ChildLayoutId {
         self.root_layout
+    }
+
+    pub fn update_model_settings(&mut self, settings: ModelSettings) -> Result<bool, String> {
+        settings.validate()?;
+        if settings == self.model_settings {
+            return Ok(false);
+        }
+        self.model_settings = settings;
+        self.revision = self.revision.saturating_add(1);
+        Ok(true)
+    }
+
+    pub fn rename_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        name: &str,
+    ) -> Result<bool, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("object name cannot be empty".to_owned());
+        }
+        let definition = self
+            .definitions
+            .get_mut(&definition_id)
+            .ok_or_else(|| format!("missing definition {}", definition_id.0))?;
+        if definition.name == name {
+            return Ok(false);
+        }
+        definition.name = name.to_owned();
+        self.revision = self.revision.saturating_add(1);
+        Ok(true)
     }
 
     pub fn add_definition(
@@ -1028,6 +1106,7 @@ impl Document {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        self.model_settings.validate()?;
         if !self.child_layouts.contains_key(&self.root_layout) {
             return Err("root child layout is missing".to_owned());
         }
@@ -1219,8 +1298,8 @@ pub struct ResolvedOccurrence<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DefinitionKind, Document, GeometryBundle, InstanceEdits, OccurrenceRef, Rgba8, Triangle,
-        TriangleId, Vertex, VertexId,
+        DefinitionKind, Document, GeometryBundle, InstanceEdits, ModelSettings, OccurrenceRef,
+        Rgba8, Triangle, TriangleId, Vertex, VertexId,
     };
     use crate::geometry::{Affine3, Vec3};
     use std::collections::BTreeMap;
@@ -1466,6 +1545,38 @@ mod tests {
         let decoded: Document = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded, document);
         assert!(decoded.validate().is_ok());
+    }
+
+    #[test]
+    fn model_settings_validate_and_increment_document_revision_only_on_change() {
+        let mut document = Document::new();
+        assert_eq!("unit", document.model_settings.unit_name);
+        assert_eq!(24, document.model_settings.circle_segments);
+        assert!(document.model_settings.validate().is_ok());
+        let revision = document.revision;
+        assert!(
+            !document
+                .update_model_settings(document.model_settings.clone())
+                .unwrap()
+        );
+        let mut settings = ModelSettings {
+            unit_name: "meter".to_owned(),
+            ..document.model_settings.clone()
+        };
+        assert!(document.update_model_settings(settings.clone()).unwrap());
+        assert_eq!(revision + 1, document.revision);
+        assert!(!document.update_model_settings(settings.clone()).unwrap());
+        settings.grid_size = 0.0;
+        assert!(document.update_model_settings(settings).is_err());
+        assert_eq!("meter", document.model_settings.unit_name);
+    }
+
+    #[test]
+    fn older_serialized_documents_receive_default_model_settings() {
+        let mut value = serde_json::to_value(Document::new()).unwrap();
+        value.as_object_mut().unwrap().remove("model_settings");
+        let document: Document = serde_json::from_value(value).unwrap();
+        assert_eq!(ModelSettings::default(), document.model_settings);
     }
 
     #[test]
