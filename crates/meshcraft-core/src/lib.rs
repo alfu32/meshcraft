@@ -1,5 +1,6 @@
 //! Platform-independent document and geometry primitives for Meshcraft.
 
+pub mod commands;
 pub mod document;
 pub mod geometry;
 pub mod legacy;

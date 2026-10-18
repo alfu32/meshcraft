@@ -1,6 +1,10 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
+use meshcraft_core::commands::{
+    CommandCapability, CommandDescriptor, CommandKind, CommandPayload, CommandPresentation,
+    CommandRegistry, CommandResult, CommandState, CommandStateQuery,
+};
 use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
 use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
@@ -12,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
 use std::collections::BTreeSet;
+use std::sync::OnceLock;
 
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
 
@@ -51,170 +56,241 @@ enum ShellAction {
     About,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ShellCommand {
-    id: &'static str,
-    name: &'static str,
-    category: &'static str,
-    keywords: &'static str,
-    icon: Option<&'static str>,
-    action: ShellAction,
+fn shell_commands() -> &'static CommandRegistry<ShellAction> {
+    static REGISTRY: OnceLock<CommandRegistry<ShellAction>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut registry = CommandRegistry::default();
+        let commands = [
+            (
+                "tool.select",
+                "Tool> Select",
+                "Tools",
+                "selection pointer",
+                Some("select"),
+                ShellAction::SelectTool("Select"),
+            ),
+            (
+                "tool.cuboid",
+                "Tool> Cuboid",
+                "Tools",
+                "box primitive draw solid",
+                None,
+                ShellAction::SelectTool("Cuboid"),
+            ),
+            (
+                "geometry.add_cuboid",
+                "Draw> Add Cuboid at Origin",
+                "Draw",
+                "box primitive create solid",
+                None,
+                ShellAction::AddCuboid,
+            ),
+            (
+                "edit.undo",
+                "Edit> Undo",
+                "Edit",
+                "history revert previous",
+                None,
+                ShellAction::Undo,
+            ),
+            (
+                "edit.redo",
+                "Edit> Redo",
+                "Edit",
+                "history repeat restore",
+                None,
+                ShellAction::Redo,
+            ),
+            (
+                "edit.copy_selection",
+                "Edit> Copy Selection",
+                "Edit",
+                "duplicate clone",
+                None,
+                ShellAction::CopySelection,
+            ),
+            (
+                "object.create_from_selection",
+                "Objects> Create Object from Selection",
+                "Objects",
+                "group prototype",
+                None,
+                ShellAction::CreateObject,
+            ),
+            (
+                "object.array_selection",
+                "Objects> Array Selected Object",
+                "Objects",
+                "repeat copies distribute",
+                None,
+                ShellAction::ArraySelection,
+            ),
+            (
+                "file.new",
+                "File> New Document",
+                "File",
+                "clear reset",
+                None,
+                ShellAction::NewDocument,
+            ),
+            (
+                "tool.line",
+                "Tool> Line",
+                "Tools",
+                "draw segment",
+                Some("construction_line"),
+                ShellAction::SelectTool("Line"),
+            ),
+            (
+                "tool.rectangle",
+                "Tool> Rectangle",
+                "Tools",
+                "draw shape",
+                Some("rectangle"),
+                ShellAction::SelectTool("Rectangle"),
+            ),
+            (
+                "view.orbit",
+                "View> Orbit",
+                "View",
+                "camera rotate",
+                Some("camera_rotating_operation"),
+                ShellAction::SelectTool("Orbit"),
+            ),
+            (
+                "view.profile.menus",
+                "View> Desktop Menus Profile",
+                "View",
+                "workspace interface",
+                None,
+                ShellAction::SetProfile(UiProfile::DesktopMenus),
+            ),
+            (
+                "view.profile.buttons",
+                "View> Buttons Profile",
+                "View",
+                "workspace interface toolbar",
+                None,
+                ShellAction::SetProfile(UiProfile::Buttons),
+            ),
+            (
+                "view.profile.hybrid",
+                "View> Hybrid Profile",
+                "View",
+                "workspace interface toolbar",
+                None,
+                ShellAction::SetProfile(UiProfile::Hybrid),
+            ),
+            (
+                "view.toolbars.toggle",
+                "View> Toggle Toolbars",
+                "View",
+                "workspace buttons toolbar",
+                None,
+                ShellAction::ToggleToolbars,
+            ),
+            (
+                "view.panels.toggle",
+                "View> Toggle Panels",
+                "View",
+                "workspace inspector visibility",
+                None,
+                ShellAction::TogglePanels,
+            ),
+            (
+                "view.grid.toggle",
+                "View> Toggle Permanent Grid",
+                "View",
+                "grid visibility display",
+                None,
+                ShellAction::ToggleGrid,
+            ),
+            (
+                "help.about",
+                "Help> About Meshcraft",
+                "Help",
+                "version information",
+                None,
+                ShellAction::About,
+            ),
+        ];
+        for (id, name, category, keywords, icon, action) in commands {
+            let (_, label) = name.split_once("> ").unwrap_or((category, name));
+            let mut descriptor = CommandDescriptor::new(
+                id,
+                label,
+                category,
+                keywords.split_whitespace(),
+                action_kind(action),
+            )
+            .expect("built-in command metadata is valid");
+            descriptor.state_query = action_state_query(action);
+            descriptor.capability = match action {
+                ShellAction::SelectTool(_)
+                | ShellAction::SetProfile(_)
+                | ShellAction::ToggleToolbars
+                | ShellAction::TogglePanels
+                | ShellAction::ToggleGrid
+                | ShellAction::About => CommandCapability::Desktop,
+                _ => CommandCapability::Core,
+            };
+            descriptor.presentation = CommandPresentation {
+                palette_path: name.to_owned(),
+                menu_path: vec![category.to_owned()],
+                toolbar_group: match action {
+                    ShellAction::SelectTool(_) => Some("Tools".to_owned()),
+                    ShellAction::AddCuboid
+                    | ShellAction::CopySelection
+                    | ShellAction::CreateObject
+                    | ShellAction::ArraySelection => Some("Modeling".to_owned()),
+                    _ => None,
+                },
+                icon_key: icon.map(str::to_owned),
+                tutorial_action_id: None,
+            };
+            registry
+                .register(descriptor, action)
+                .expect("built-in command ids are unique");
+        }
+        registry
+    })
 }
 
-const SHELL_COMMANDS: &[ShellCommand] = &[
-    ShellCommand {
-        id: "tool.select",
-        name: "Tool> Select",
-        category: "Tools",
-        keywords: "selection pointer",
-        icon: Some("select"),
-        action: ShellAction::SelectTool("Select"),
-    },
-    ShellCommand {
-        id: "tool.cuboid",
-        name: "Tool> Cuboid",
-        category: "Tools",
-        keywords: "box primitive draw solid",
-        icon: None,
-        action: ShellAction::SelectTool("Cuboid"),
-    },
-    ShellCommand {
-        id: "geometry.add_cuboid",
-        name: "Draw> Add Cuboid at Origin",
-        category: "Draw",
-        keywords: "box primitive create solid",
-        icon: None,
-        action: ShellAction::AddCuboid,
-    },
-    ShellCommand {
-        id: "edit.undo",
-        name: "Edit> Undo",
-        category: "Edit",
-        keywords: "history revert previous",
-        icon: None,
-        action: ShellAction::Undo,
-    },
-    ShellCommand {
-        id: "edit.redo",
-        name: "Edit> Redo",
-        category: "Edit",
-        keywords: "history repeat restore",
-        icon: None,
-        action: ShellAction::Redo,
-    },
-    ShellCommand {
-        id: "edit.copy_selection",
-        name: "Edit> Copy Selection",
-        category: "Edit",
-        keywords: "duplicate clone",
-        icon: None,
-        action: ShellAction::CopySelection,
-    },
-    ShellCommand {
-        id: "object.create_from_selection",
-        name: "Objects> Create Object from Selection",
-        category: "Objects",
-        keywords: "group prototype",
-        icon: None,
-        action: ShellAction::CreateObject,
-    },
-    ShellCommand {
-        id: "object.array_selection",
-        name: "Objects> Array Selected Object",
-        category: "Objects",
-        keywords: "repeat copies distribute",
-        icon: None,
-        action: ShellAction::ArraySelection,
-    },
-    ShellCommand {
-        id: "file.new",
-        name: "File> New Document",
-        category: "File",
-        keywords: "clear reset",
-        icon: None,
-        action: ShellAction::NewDocument,
-    },
-    ShellCommand {
-        id: "tool.line",
-        name: "Tool> Line",
-        category: "Tools",
-        keywords: "draw segment",
-        icon: Some("construction_line"),
-        action: ShellAction::SelectTool("Line"),
-    },
-    ShellCommand {
-        id: "tool.rectangle",
-        name: "Tool> Rectangle",
-        category: "Tools",
-        keywords: "draw shape",
-        icon: Some("rectangle"),
-        action: ShellAction::SelectTool("Rectangle"),
-    },
-    ShellCommand {
-        id: "view.orbit",
-        name: "View> Orbit",
-        category: "View",
-        keywords: "camera rotate",
-        icon: Some("camera_rotating_operation"),
-        action: ShellAction::SelectTool("Orbit"),
-    },
-    ShellCommand {
-        id: "view.profile.menus",
-        name: "View> Desktop Menus Profile",
-        category: "View",
-        keywords: "workspace interface",
-        icon: None,
-        action: ShellAction::SetProfile(UiProfile::DesktopMenus),
-    },
-    ShellCommand {
-        id: "view.profile.buttons",
-        name: "View> Buttons Profile",
-        category: "View",
-        keywords: "workspace interface toolbar",
-        icon: None,
-        action: ShellAction::SetProfile(UiProfile::Buttons),
-    },
-    ShellCommand {
-        id: "view.profile.hybrid",
-        name: "View> Hybrid Profile",
-        category: "View",
-        keywords: "workspace interface toolbar",
-        icon: None,
-        action: ShellAction::SetProfile(UiProfile::Hybrid),
-    },
-    ShellCommand {
-        id: "view.toolbars.toggle",
-        name: "View> Toggle Toolbars",
-        category: "View",
-        keywords: "workspace buttons toolbar",
-        icon: None,
-        action: ShellAction::ToggleToolbars,
-    },
-    ShellCommand {
-        id: "view.panels.toggle",
-        name: "View> Toggle Panels",
-        category: "View",
-        keywords: "workspace inspector visibility",
-        icon: None,
-        action: ShellAction::TogglePanels,
-    },
-    ShellCommand {
-        id: "view.grid.toggle",
-        name: "View> Toggle Permanent Grid",
-        category: "View",
-        keywords: "grid visibility display",
-        icon: None,
-        action: ShellAction::ToggleGrid,
-    },
-    ShellCommand {
-        id: "help.about",
-        name: "Help> About Meshcraft",
-        category: "Help",
-        keywords: "version information",
-        icon: None,
-        action: ShellAction::About,
-    },
-];
+fn action_kind(action: ShellAction) -> CommandKind {
+    match action {
+        ShellAction::SelectTool(_) => CommandKind::ToolActivation,
+        ShellAction::AddCuboid
+        | ShellAction::CopySelection
+        | ShellAction::CreateObject
+        | ShellAction::ArraySelection
+        | ShellAction::Undo
+        | ShellAction::Redo
+        | ShellAction::NewDocument => CommandKind::DocumentMutation,
+        ShellAction::SetProfile(_)
+        | ShellAction::ToggleToolbars
+        | ShellAction::TogglePanels
+        | ShellAction::ToggleGrid => CommandKind::SessionMutation,
+        ShellAction::About => CommandKind::ReadOnly,
+    }
+}
+
+fn action_state_query(action: ShellAction) -> CommandStateQuery {
+    match action {
+        ShellAction::Undo => CommandStateQuery::UndoAvailable,
+        ShellAction::Redo => CommandStateQuery::RedoAvailable,
+        ShellAction::CopySelection => CommandStateQuery::SingleRootSelection,
+        ShellAction::CreateObject => CommandStateQuery::RootSelectionAvailable,
+        ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
+        ShellAction::SelectTool(tool) => CommandStateQuery::ActiveTool(tool.to_owned()),
+        ShellAction::SetProfile(profile) => {
+            CommandStateQuery::ActiveProfile(profile.label().to_owned())
+        }
+        ShellAction::ToggleToolbars => CommandStateQuery::PreferenceEnabled("toolbars".to_owned()),
+        ShellAction::TogglePanels => CommandStateQuery::PreferenceEnabled("panels".to_owned()),
+        ShellAction::ToggleGrid => CommandStateQuery::PreferenceEnabled("grid".to_owned()),
+        _ => CommandStateQuery::Always,
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -637,12 +713,25 @@ impl MeshcraftApp {
     }
 
     fn run_command(&mut self, id: &str) {
-        let Some(command) = SHELL_COMMANDS.iter().find(|command| command.id == id) else {
-            self.status = format!("Unknown command: {id}");
-            return;
-        };
+        let state = self.command_state(id);
+        let outcome = shell_commands().dispatch(
+            id,
+            &CommandPayload::default(),
+            &state,
+            |action, _payload| self.execute_command(*action),
+        );
+        if !outcome.accepted {
+            self.status = outcome
+                .result
+                .diagnostics
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("Command `{id}` was rejected."));
+        }
+    }
 
-        match command.action {
+    fn execute_command(&mut self, action: ShellAction) -> CommandResult {
+        match action {
             ShellAction::SelectTool(tool) => {
                 self.active_tool = tool.to_owned();
                 if self.preferences.auto_collapse_toolbars {
@@ -733,6 +822,61 @@ impl MeshcraftApp {
             ShellAction::About => {
                 self.status = "Meshcraft · Rust rewrite · development build".to_owned();
             }
+        }
+        CommandResult::completed()
+    }
+
+    fn command_state(&self, id: &str) -> CommandState {
+        let Some(command) = shell_commands().get(id) else {
+            return CommandState::disabled(format!("unknown command `{id}`"));
+        };
+        match &command.descriptor.state_query {
+            CommandStateQuery::Always => CommandState::default(),
+            CommandStateQuery::UndoAvailable if !self.can_undo_document() => {
+                CommandState::disabled("there is no earlier document state")
+            }
+            CommandStateQuery::RedoAvailable if !self.can_redo_document() => {
+                CommandState::disabled("there is no later document state")
+            }
+            CommandStateQuery::SelectionAvailable if self.selected_occurrences().is_empty() => {
+                CommandState::disabled("select an object first")
+            }
+            CommandStateQuery::RootSelectionAvailable => {
+                let selection = self.selected_occurrences();
+                if selection.is_empty() || selection.iter().any(|item| item.path.len() != 1) {
+                    CommandState::disabled("select one or more root objects first")
+                } else {
+                    CommandState::default()
+                }
+            }
+            CommandStateQuery::SingleRootSelection => {
+                let selection = self.selected_occurrences();
+                if selection.len() != 1 || selection[0].path.len() != 1 {
+                    CommandState::disabled("select one root object first")
+                } else {
+                    CommandState::default()
+                }
+            }
+            CommandStateQuery::ActiveTool(tool) => CommandState {
+                checked: Some(self.active_tool == *tool),
+                ..CommandState::default()
+            },
+            CommandStateQuery::ActiveProfile(profile) => CommandState {
+                checked: Some(self.preferences.profile.label() == profile),
+                ..CommandState::default()
+            },
+            CommandStateQuery::PreferenceEnabled(key) => CommandState {
+                checked: Some(match key.as_str() {
+                    "toolbars" => self.preferences.toolbars_visible,
+                    "panels" => self.preferences.panels_visible,
+                    "grid" => self.preferences.show_permanent_grid,
+                    _ => false,
+                }),
+                ..CommandState::default()
+            },
+            CommandStateQuery::UndoAvailable
+            | CommandStateQuery::RedoAvailable
+            | CommandStateQuery::SelectionAvailable => CommandState::default(),
         }
     }
 
@@ -989,10 +1133,12 @@ impl MeshcraftApp {
         }
     }
 
-    fn matching_commands(&self) -> Vec<&'static ShellCommand> {
-        SHELL_COMMANDS
-            .iter()
-            .filter(|command| command_matches(command, &self.command_search))
+    fn matching_commands(
+        &self,
+    ) -> Vec<&'static meshcraft_core::commands::CommandRegistration<ShellAction>> {
+        shell_commands()
+            .entries()
+            .filter(|command| command_matches(&command.descriptor, &self.command_search))
             .collect()
     }
 
@@ -1010,12 +1156,17 @@ impl MeshcraftApp {
         Some(egui::Image::new((texture.id(), size)).uv(uv))
     }
 
-    fn show_tool_button(&self, ui: &mut egui::Ui, tool: &str, size: f32, icon_only: bool) -> bool {
-        let command_id = tool_command_id(tool);
-        let icon_name = SHELL_COMMANDS
-            .iter()
-            .find(|command| command.id == command_id)
-            .and_then(|command| command.icon);
+    fn show_tool_button(
+        &self,
+        ui: &mut egui::Ui,
+        command: &meshcraft_core::commands::CommandRegistration<ShellAction>,
+        size: f32,
+        icon_only: bool,
+    ) -> bool {
+        let ShellAction::SelectTool(tool) = command.handler else {
+            return false;
+        };
+        let icon_name = command.descriptor.presentation.icon_key.as_deref();
         let selected = self.active_tool == tool;
         let icon_size = (size * 0.55).max(12.0);
         let button = match (
@@ -1023,9 +1174,17 @@ impl MeshcraftApp {
             icon_only,
         ) {
             (Some(icon), true) => egui::Button::image(icon),
-            (Some(icon), false) => egui::Button::image_and_text(icon, tool),
-            (None, true) => egui::Button::new(tool.chars().next().unwrap_or('?').to_string()),
-            (None, false) => egui::Button::new(tool),
+            (Some(icon), false) => egui::Button::image_and_text(icon, &command.descriptor.label),
+            (None, true) => egui::Button::new(
+                command
+                    .descriptor
+                    .label
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_string(),
+            ),
+            (None, false) => egui::Button::new(&command.descriptor.label),
         }
         .selected(selected);
         let button_size = if icon_only {
@@ -1050,9 +1209,18 @@ impl MeshcraftApp {
 
         let mut command_icons = commands
             .iter()
-            .map(|command| self.icon_image(command.icon, Vec2::splat(16.0)))
+            .map(|command| {
+                self.icon_image(
+                    command.descriptor.presentation.icon_key.as_deref(),
+                    Vec2::splat(16.0),
+                )
+            })
             .collect::<Vec<_>>()
             .into_iter();
+        let command_states = commands
+            .iter()
+            .map(|command| self.command_state(command.descriptor.id.as_str()))
+            .collect::<Vec<_>>();
         let mut selected_command = None;
         let focus_search = std::mem::take(&mut self.focus_command_search);
         egui::Window::new("Command Palette")
@@ -1078,17 +1246,32 @@ impl MeshcraftApp {
                     .max_height(360.0)
                     .show(ui, |ui| {
                         for (index, command) in commands.iter().enumerate() {
-                            let label = format!("[{}] {}", command.category, command.name);
+                            let label = format!(
+                                "[{}] {}",
+                                command.descriptor.category,
+                                command.descriptor.presentation.palette_path
+                            );
                             let icon = command_icons.next().flatten();
+                            let state = &command_states[index];
                             ui.horizontal(|ui| {
                                 if let Some(icon) = icon {
                                     ui.add(icon);
                                 }
-                                if ui
-                                    .selectable_label(index == self.command_selection, label)
-                                    .clicked()
-                                {
-                                    selected_command = Some(command.id);
+                                let response = ui.add_enabled(
+                                    state.enabled,
+                                    egui::Button::selectable(
+                                        index == self.command_selection,
+                                        label,
+                                    ),
+                                );
+                                if !state.enabled {
+                                    response.clone().on_disabled_hover_text(
+                                        state.disabled_reason.as_deref().unwrap_or("Unavailable"),
+                                    );
+                                }
+                                if response.clicked() {
+                                    selected_command =
+                                        Some(command.descriptor.id.as_str().to_owned());
                                 }
                             });
                         }
@@ -1101,8 +1284,40 @@ impl MeshcraftApp {
             });
 
         if let Some(id) = selected_command {
-            self.run_command(id);
+            self.run_command(&id);
             self.command_palette_open = false;
+        }
+    }
+
+    fn show_command_menu_item(&mut self, ui: &mut egui::Ui, id: &str) {
+        let Some(command) = shell_commands().get(id) else {
+            return;
+        };
+        let label = command.descriptor.label.clone();
+        let state = self.command_state(id);
+        let response = ui.add_enabled(
+            state.enabled,
+            egui::Button::new(label).selected(state.checked.unwrap_or(false)),
+        );
+        if !state.enabled {
+            response
+                .clone()
+                .on_disabled_hover_text(state.disabled_reason.as_deref().unwrap_or("Unavailable"));
+        }
+        if response.clicked() {
+            self.run_command(id);
+        }
+    }
+
+    fn show_command_toggle(&mut self, ui: &mut egui::Ui, id: &str) {
+        let Some(command) = shell_commands().get(id) else {
+            return;
+        };
+        let label = command.descriptor.label.clone();
+        let state = self.command_state(id);
+        let mut checked = state.checked.unwrap_or(false);
+        if ui.checkbox(&mut checked, label).changed() {
+            self.run_command(id);
         }
     }
 
@@ -1111,9 +1326,7 @@ impl MeshcraftApp {
 
         egui::MenuBar::new().ui(ui, |ui| {
             let file_menu = ui.menu_button("File", |ui| {
-                if ui.button("New Document").clicked() {
-                    self.run_command("file.new");
-                }
+                self.show_command_menu_item(ui, "file.new");
                 ui.separator();
                 ui.add_enabled(false, egui::Button::new("Open…"));
                 ui.add_enabled(false, egui::Button::new("Save"));
@@ -1131,92 +1344,48 @@ impl MeshcraftApp {
             }
 
             ui.menu_button("Edit", |ui| {
-                if ui
-                    .add_enabled(self.can_undo_document(), egui::Button::new("Undo"))
-                    .clicked()
-                {
-                    self.run_command("edit.undo");
-                }
-                if ui
-                    .add_enabled(self.can_redo_document(), egui::Button::new("Redo"))
-                    .clicked()
-                {
-                    self.run_command("edit.redo");
-                }
+                self.show_command_menu_item(ui, "edit.undo");
+                self.show_command_menu_item(ui, "edit.redo");
                 ui.add_enabled(false, egui::Button::new("Delete"));
                 ui.add_enabled(false, egui::Button::new("Clear Selection"));
                 ui.separator();
-                if ui.button("Copy Selection").clicked() {
-                    self.run_command("edit.copy_selection");
-                }
+                self.show_command_menu_item(ui, "edit.copy_selection");
             });
 
             ui.menu_button("View", |ui| {
                 ui.label("Workspace profile");
-                for (id, profile) in [
-                    ("view.profile.menus", UiProfile::DesktopMenus),
-                    ("view.profile.buttons", UiProfile::Buttons),
-                    ("view.profile.hybrid", UiProfile::Hybrid),
+                for id in [
+                    "view.profile.menus",
+                    "view.profile.buttons",
+                    "view.profile.hybrid",
                 ] {
-                    if ui
-                        .radio(self.preferences.profile == profile, profile.label())
-                        .clicked()
-                    {
-                        self.run_command(id);
-                    }
+                    self.show_command_menu_item(ui, id);
                 }
                 ui.separator();
-                let mut toolbars_visible = self.preferences.toolbars_visible;
-                if ui
-                    .checkbox(&mut toolbars_visible, "Show toolbars")
-                    .changed()
-                {
-                    self.run_command("view.toolbars.toggle");
-                }
+                self.show_command_toggle(ui, "view.toolbars.toggle");
                 ui.separator();
-                let mut grid_visible = self.preferences.show_permanent_grid;
-                if ui
-                    .checkbox(&mut grid_visible, "Show permanent grid")
-                    .changed()
-                {
-                    self.run_command("view.grid.toggle");
-                }
+                self.show_command_toggle(ui, "view.grid.toggle");
                 ui.add_enabled(false, egui::Button::new("Camera and visibility controls"));
             });
 
             for menu in ["Draw", "Modify", "Objects", "Tools", "Render"] {
                 ui.menu_button(menu, |ui| {
-                    let commands = SHELL_COMMANDS
-                        .iter()
-                        .filter(|command| command.category == menu)
+                    let commands = shell_commands()
+                        .entries()
+                        .filter(|command| command.descriptor.category == menu)
                         .collect::<Vec<_>>();
                     if commands.is_empty() {
                         ui.label("No commands are registered in this menu yet.");
                     }
                     for command in commands {
-                        let label = command
-                            .name
-                            .split_once("> ")
-                            .map_or(command.name, |(_, label)| label);
-                        if ui.button(label).clicked() {
-                            self.run_command(command.id);
-                        }
+                        self.show_command_menu_item(ui, command.descriptor.id.as_str());
                     }
                 });
             }
 
             ui.menu_button("Window", |ui| {
                 ui.label("Workspace panels");
-                if ui
-                    .button(if self.preferences.panels_visible {
-                        "Hide Panels"
-                    } else {
-                        "Show Panels"
-                    })
-                    .clicked()
-                {
-                    self.run_command("view.panels.toggle");
-                }
+                self.show_command_toggle(ui, "view.panels.toggle");
                 ui.add_enabled(false, egui::Button::new("Reset Workspace Layout"));
             });
 
@@ -1224,22 +1393,28 @@ impl MeshcraftApp {
                 ui.label("Meshcraft development build");
                 ui.label("F10 or Alt+F opens the File menu.");
                 ui.label("Ctrl+Shift+P opens the Command Palette.");
-                if ui.button("About Meshcraft").clicked() {
-                    self.run_command("help.about");
-                }
+                self.show_command_menu_item(ui, "help.about");
             });
         });
     }
 
     fn show_toolbar(&mut self, ui: &mut egui::Ui) {
-        let tools = ["Select", "Cuboid", "Line", "Rectangle", "Orbit"];
+        let tools = shell_commands()
+            .entries()
+            .filter(|command| {
+                command.descriptor.presentation.toolbar_group.as_deref() == Some("Tools")
+            })
+            .map(|command| command.descriptor.id.as_str())
+            .collect::<Vec<_>>();
         let size = self.preferences.toolbar_icon_size as f32;
         if self.preferences.toolbar_flow_top_down {
             ui.vertical(|ui| {
                 ui.strong("Tools");
-                for tool in tools {
-                    if self.show_tool_button(ui, tool, size, true) {
-                        self.run_command(tool_command_id(tool));
+                for command_id in tools {
+                    if let Some(command) = shell_commands().get(command_id)
+                        && self.show_tool_button(ui, command, size, true)
+                    {
+                        self.run_command(command_id);
                     }
                 }
             });
@@ -1247,9 +1422,11 @@ impl MeshcraftApp {
             ui.horizontal(|ui| {
                 ui.strong("Tools");
                 ui.separator();
-                for tool in tools {
-                    if self.show_tool_button(ui, tool, size, true) {
-                        self.run_command(tool_command_id(tool));
+                for command_id in tools {
+                    if let Some(command) = shell_commands().get(command_id)
+                        && self.show_tool_button(ui, command, size, true)
+                    {
+                        self.run_command(command_id);
                     }
                 }
             });
@@ -1264,23 +1441,28 @@ impl MeshcraftApp {
             ui.label("Modeling tools");
             ui.separator();
             let size = self.preferences.toolbar_icon_size as f32;
-            for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
-                if self.show_tool_button(ui, tool, size, false) {
-                    self.run_command(tool_command_id(tool));
+            for command in shell_commands().entries().filter(|command| {
+                command.descriptor.presentation.toolbar_group.as_deref() == Some("Tools")
+            }) {
+                if self.show_tool_button(ui, command, size, false) {
+                    self.run_command(command.descriptor.id.as_str());
                 }
             }
             ui.add_space(12.0);
-            if ui.button("Add Cuboid").clicked() {
-                self.run_command("geometry.add_cuboid");
-            }
-            if ui.button("Copy Selection").clicked() {
-                self.run_command("edit.copy_selection");
-            }
-            if ui.button("Create Object").clicked() {
-                self.run_command("object.create_from_selection");
-            }
-            if ui.button("Array Object").clicked() {
-                self.run_command("object.array_selection");
+            for command in shell_commands().entries().filter(|command| {
+                command.descriptor.presentation.toolbar_group.as_deref() == Some("Modeling")
+            }) {
+                let state = self.command_state(command.descriptor.id.as_str());
+                let response =
+                    ui.add_enabled(state.enabled, egui::Button::new(&command.descriptor.label));
+                if !state.enabled {
+                    response.clone().on_disabled_hover_text(
+                        state.disabled_reason.as_deref().unwrap_or("Unavailable"),
+                    );
+                }
+                if response.clicked() {
+                    self.run_command(command.descriptor.id.as_str());
+                }
             }
         });
     }
@@ -1711,7 +1893,7 @@ impl MeshcraftApp {
                 if ui.input(|input| input.key_pressed(egui::Key::Enter))
                     && let Some(command) = self.matching_commands().get(self.command_selection)
                 {
-                    self.run_command(command.id);
+                    self.run_command(command.descriptor.id.as_str());
                     self.command_palette_open = false;
                 }
             }
@@ -1796,15 +1978,15 @@ impl MeshcraftApp {
     }
 }
 
+#[cfg(test)]
 fn tool_command_id(tool: &str) -> &'static str {
-    match tool {
-        "Select" => "tool.select",
-        "Cuboid" => "tool.cuboid",
-        "Line" => "tool.line",
-        "Rectangle" => "tool.rectangle",
-        "Orbit" => "view.orbit",
-        _ => "tool.select",
-    }
+    shell_commands()
+        .entries()
+        .find_map(|command| match &command.handler {
+            ShellAction::SelectTool(name) if *name == tool => Some(command.descriptor.id.as_str()),
+            _ => None,
+        })
+        .unwrap_or("tool.select")
 }
 
 fn legacy_replay_status(action: &str, label: &str, skipped_entries: &[usize]) -> String {
@@ -1819,20 +2001,29 @@ fn legacy_replay_status(action: &str, label: &str, skipped_entries: &[usize]) ->
     format!("Skipped corrupt legacy entries {skipped}; {action} legacy history: {label}.")
 }
 
-fn command_matches(command: &ShellCommand, raw_query: &str) -> bool {
+fn command_matches(command: &CommandDescriptor, raw_query: &str) -> bool {
     let query = raw_query.trim().to_lowercase();
     query.split_whitespace().all(|term| {
-        command.name.to_lowercase().contains(term)
-            || command.id.to_lowercase().contains(term)
+        command
+            .presentation
+            .palette_path
+            .to_lowercase()
+            .contains(term)
+            || command.id.as_str().to_lowercase().contains(term)
             || command.category.to_lowercase().contains(term)
-            || command.keywords.to_lowercase().contains(term)
+            || command
+                .keywords
+                .iter()
+                .any(|keyword| keyword.to_lowercase().contains(term))
     })
 }
 
 #[cfg(test)]
 fn registry_has_unique_ids() -> bool {
     let mut ids = BTreeSet::new();
-    SHELL_COMMANDS.iter().all(|command| ids.insert(command.id))
+    shell_commands()
+        .entries()
+        .all(|command| ids.insert(command.descriptor.id.clone()))
 }
 
 impl eframe::App for MeshcraftApp {
@@ -1848,8 +2039,8 @@ impl eframe::App for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshcraftApp, Preferences, SHELL_COMMANDS, SelectionSession, TransactionHistory,
-        command_matches, registry_has_unique_ids, tool_command_id,
+        MeshcraftApp, Preferences, SelectionSession, TransactionHistory, command_matches,
+        registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -1998,8 +2189,43 @@ mod tests {
     fn every_visible_tool_has_a_registry_command() {
         for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
             let id = tool_command_id(tool);
-            assert!(SHELL_COMMANDS.iter().any(|command| command.id == id));
+            assert!(shell_commands().get(id).is_some());
         }
+        assert_eq!(
+            5,
+            shell_commands()
+                .entries()
+                .filter(|command| {
+                    command.descriptor.presentation.toolbar_group.as_deref() == Some("Tools")
+                })
+                .count()
+        );
+        assert!(shell_commands().entries().all(|command| {
+            command.descriptor.presentation.menu_path.len() == 1
+                && !command.descriptor.presentation.palette_path.is_empty()
+        }));
+    }
+
+    #[test]
+    fn command_state_blocks_wrong_context_and_tool_activation_has_no_document_edit() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+        assert!(!app.command_state("edit.undo").enabled);
+        assert!(!app.command_state("edit.copy_selection").enabled);
+
+        app.run_command("edit.undo");
+        assert!(app.status.contains("no earlier document state"));
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(0, app.history.entries().len());
+
+        app.run_command("tool.cuboid");
+        assert_eq!("Cuboid", app.active_tool);
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(0, app.history.entries().len());
+        assert_eq!(
+            meshcraft_core::commands::CommandKind::ToolActivation,
+            shell_commands().get("tool.cuboid").unwrap().descriptor.kind
+        );
     }
 
     #[test]
@@ -2012,12 +2238,11 @@ mod tests {
             ("object.create_from_selection", "prototype"),
             ("object.array_selection", "array"),
         ] {
-            let command = SHELL_COMMANDS
-                .iter()
-                .find(|command| command.id == id)
+            let command = shell_commands()
+                .get(id)
                 .unwrap_or_else(|| panic!("missing command {id}"));
             assert!(
-                command_matches(command, query),
+                command_matches(&command.descriptor, query),
                 "command {id} misses {query}"
             );
         }
@@ -2120,10 +2345,7 @@ mod tests {
 
     #[test]
     fn rectangle_search_metadata_is_present() {
-        let rectangle = SHELL_COMMANDS
-            .iter()
-            .find(|command| command.id == "tool.rectangle")
-            .unwrap();
+        let rectangle = &shell_commands().get("tool.rectangle").unwrap().descriptor;
         assert!(command_matches(rectangle, "Rectangle"));
         assert!(command_matches(rectangle, "tool shape"));
         assert!(!command_matches(rectangle, "camera"));
@@ -2157,11 +2379,10 @@ mod tests {
             ("view.panels.toggle", "inspector"),
             ("view.grid.toggle", "permanent grid"),
         ] {
-            let command = SHELL_COMMANDS
-                .iter()
-                .find(|command| command.id == id)
+            let command = shell_commands()
+                .get(id)
                 .unwrap_or_else(|| panic!("missing command {id}"));
-            assert!(command_matches(command, query));
+            assert!(command_matches(&command.descriptor, query));
         }
     }
 
@@ -2192,7 +2413,7 @@ mod tests {
         assert!(
             app.matching_commands()
                 .iter()
-                .any(|command| { command.id == "tool.rectangle" })
+                .any(|command| { command.descriptor.id.as_str() == "tool.rectangle" })
         );
 
         app.command_search.clear();

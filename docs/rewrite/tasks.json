@@ -319,8 +319,8 @@
         "C18"
       ],
       "targets": [
-        "crates/meshcraft-core/src/commands/",
-        "crates/meshcraft-desktop/src/host/"
+        "crates/meshcraft-core/src/commands.rs",
+        "apps/desktop/src/app.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/plugin/CommandPalette.kt",
@@ -341,7 +341,7 @@
         "Dispatch versus completion and mutation versus tool activation are distinct in tests."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T07",
