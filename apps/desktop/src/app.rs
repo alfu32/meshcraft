@@ -26,6 +26,26 @@ const ARCHITECTURE_PANEL_IDS: &[&str] = &[
     "architecture_stairs",
     "architecture_frames",
 ];
+const INSPECTOR_PANELS: &[(&str, &str)] = &[
+    ("selection", "Selection"),
+    ("object", "Object"),
+    ("objects", "Objects"),
+    ("model_settings", "Model Settings"),
+    ("profile", "Workspace Profile"),
+    ("ui_settings", "UI Settings"),
+    ("help", "Help / About"),
+    ("polyline", "Polyline Settings"),
+    ("vector_text", "Vector Text"),
+    ("architecture_walls", "Architecture - Walls"),
+    ("architecture_slabs", "Architecture - Slabs"),
+    ("architecture_stairs", "Architecture - Stairs"),
+    ("architecture_frames", "Architecture - Frames"),
+    ("hvac", "HVAC Settings"),
+    ("hotspots", "Hotspot Settings"),
+    ("random", "Random Tools"),
+    ("tutorials", "Tutorials"),
+    ("shaders", "Shader Settings"),
+];
 const LEGACY_BUILTIN_TOOLS: &[(&str, &str)] = &[
     ("select", "Select"),
     ("axial_grid", "Axial Grid"),
@@ -285,12 +305,15 @@ enum ShellAction {
     CopySelection,
     CreateObject,
     ArraySelection,
+    UpdateModelSettings,
+    UpdateUiPreferences,
     Undo,
     Redo,
     NewDocument,
     SetProfile(UiProfile),
     FrameDocument,
     ResetCamera,
+    TogglePanelSection(&'static str),
     ToggleToolbars,
     TogglePanels,
     ToggleGrid,
@@ -328,6 +351,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "box primitive create solid",
                 None,
                 ShellAction::AddCuboid,
+            ),
+            (
+                "model.update_settings",
+                "Model> Settings",
+                "Model",
+                "unit size grid circle segments snap radius",
+                None,
+                ShellAction::UpdateModelSettings,
+            ),
+            (
+                "ui.update_preferences",
+                "View> UI Settings",
+                "View",
+                "interface scale toolbar grid layout preferences",
+                None,
+                ShellAction::UpdateUiPreferences,
             ),
             (
                 "edit.undo",
@@ -581,6 +620,20 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         for (id, name, category, keywords, icon, action) in commands {
             register_shell_command(&mut registry, id, name, category, keywords, icon, action);
         }
+        for (panel_id, label) in INSPECTOR_PANELS {
+            let id = format!("view.panel.{panel_id}.toggle");
+            let name = format!("View> Panels> Toggle {label}");
+            let keywords = format!("panel inspector toggle {}", label.to_lowercase());
+            register_shell_command(
+                &mut registry,
+                &id,
+                &name,
+                "View",
+                &keywords,
+                Some("view"),
+                ShellAction::TogglePanelSection(panel_id),
+            );
+        }
         for (tool_id, label) in LEGACY_BUILTIN_TOOLS {
             let id = format!("tool.builtin.{tool_id}");
             let name = format!("Tool> {label}");
@@ -661,12 +714,15 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::CopySelection
         | ShellAction::CreateObject
         | ShellAction::ArraySelection
+        | ShellAction::UpdateModelSettings
         | ShellAction::Undo
         | ShellAction::Redo
         | ShellAction::NewDocument => CommandKind::DocumentMutation,
         ShellAction::SetProfile(_)
+        | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
+        | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
@@ -693,6 +749,9 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ToggleToolbars => CommandStateQuery::PreferenceEnabled("toolbars".to_owned()),
         ShellAction::TogglePanels => CommandStateQuery::PreferenceEnabled("panels".to_owned()),
         ShellAction::ToggleGrid => CommandStateQuery::PreferenceEnabled("grid".to_owned()),
+        ShellAction::TogglePanelSection(panel) => {
+            CommandStateQuery::PreferenceEnabled(format!("panel:{panel}"))
+        }
         _ => CommandStateQuery::Always,
     }
 }
@@ -726,8 +785,10 @@ fn register_shell_command(
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_)
+        | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
+        | ShellAction::TogglePanelSection(_)
         | ShellAction::About => CommandCapability::Desktop,
         ShellAction::Unsupported => CommandCapability::Deferred,
         _ => CommandCapability::Core,
@@ -761,6 +822,24 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
+        "model.update_settings" => &[
+            ("unit_name", CommandValueType::String),
+            ("unit_size", CommandValueType::Number),
+            ("grid_size", CommandValueType::Number),
+            ("circle_segments", CommandValueType::Integer),
+            ("snap_radius", CommandValueType::Number),
+        ],
+        "ui.update_preferences" => &[
+            ("ui_text_scale", CommandValueType::Number),
+            ("auto_collapse_toolbars", CommandValueType::Boolean),
+            ("toolbar_icon_size", CommandValueType::Integer),
+            ("show_permanent_grid", CommandValueType::Boolean),
+            ("grid_extent", CommandValueType::Integer),
+            ("normal_grid_width", CommandValueType::Number),
+            ("thick_grid_width", CommandValueType::Number),
+            ("toolbar_flow_top_down", CommandValueType::Boolean),
+            ("toolbars_visible", CommandValueType::Boolean),
+        ],
         _ => &[],
     };
     parameters
@@ -773,7 +852,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         .collect()
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 struct Preferences {
     profile: UiProfile,
@@ -1298,6 +1377,53 @@ impl MeshcraftApp {
                 };
                 return self.array_selection(count, spacing);
             }
+            ShellAction::UpdateModelSettings => {
+                if payload.values.is_empty() {
+                    self.open_panels(&["model_settings"]);
+                    return CommandResult::completed();
+                }
+                let mut settings = self.document.model_settings().clone();
+                if let Some(value) = payload.values.get("unit_name") {
+                    let Some(value) = value.as_str() else {
+                        return CommandResult::failed("unit_name must be a string");
+                    };
+                    settings.unit_name = value.to_owned();
+                }
+                for (name, target) in [
+                    ("unit_size", &mut settings.unit_size),
+                    ("grid_size", &mut settings.grid_size),
+                    ("snap_radius", &mut settings.snap_radius),
+                ] {
+                    if let Some(value) = payload.values.get(name) {
+                        let Some(value) = value.as_f64().filter(|value| value.is_finite()) else {
+                            return CommandResult::failed(format!(
+                                "{name} must be a finite number"
+                            ));
+                        };
+                        *target = value;
+                    }
+                }
+                if let Some(value) = payload.values.get("circle_segments") {
+                    let Some(value) = value.as_u64().and_then(|value| u32::try_from(value).ok())
+                    else {
+                        return CommandResult::failed("circle_segments must be an integer");
+                    };
+                    settings.circle_segments = value;
+                }
+                match self.commit_document_edit("Change model settings", |document| {
+                    document.update_model_settings(settings).map(|_| ())
+                }) {
+                    Ok(()) => self.status = "Model settings updated.".to_owned(),
+                    Err(error) => return CommandResult::failed(error),
+                }
+            }
+            ShellAction::UpdateUiPreferences => {
+                if payload.values.is_empty() {
+                    self.open_panels(&["ui_settings"]);
+                    return CommandResult::completed();
+                }
+                return self.update_ui_preferences(payload);
+            }
             ShellAction::Undo => self.undo_document(),
             ShellAction::Redo => self.redo_document(),
             ShellAction::NewDocument => {
@@ -1329,6 +1455,7 @@ impl MeshcraftApp {
                 self.viewport.reset_camera();
                 self.status = "Camera reset to the default isometric view.".to_owned();
             }
+            ShellAction::TogglePanelSection(panel) => self.toggle_panel_section(panel),
             ShellAction::ToggleToolbars => {
                 self.preferences.toolbars_visible = !self.preferences.toolbars_visible;
                 self.status = if self.preferences.toolbars_visible {
@@ -1374,6 +1501,101 @@ impl MeshcraftApp {
         }
         self.panel_focus = panels.first().map(|panel| (*panel).to_owned());
         self.status = "Opened the requested inspector panel.".to_owned();
+    }
+
+    fn toggle_panel_section(&mut self, panel: &str) {
+        self.preferences.panels_visible = true;
+        let is_open = self
+            .preferences
+            .panel_open
+            .get(panel)
+            .copied()
+            .unwrap_or(true);
+        self.preferences
+            .panel_open
+            .insert(panel.to_owned(), !is_open);
+        self.panel_focus = Some(panel.to_owned());
+        let label = INSPECTOR_PANELS
+            .iter()
+            .find(|(id, _)| *id == panel)
+            .map(|(_, label)| *label)
+            .unwrap_or(panel);
+        self.status = format!(
+            "{label} panel {}.",
+            if is_open { "closed" } else { "opened" }
+        );
+    }
+
+    fn update_ui_preferences(&mut self, payload: &CommandPayload) -> CommandResult {
+        let mut preferences = self.preferences.clone();
+        let numeric_preferences = [
+            ("ui_text_scale", &mut preferences.ui_text_scale, 0.5, 2.0),
+            (
+                "normal_grid_width",
+                &mut preferences.normal_grid_width,
+                0.25,
+                4.0,
+            ),
+            (
+                "thick_grid_width",
+                &mut preferences.thick_grid_width,
+                0.5,
+                8.0,
+            ),
+        ];
+        for (name, target, minimum, maximum) in numeric_preferences {
+            if payload.values.contains_key(name) {
+                let value = match payload_f64(payload, name, 0.0) {
+                    Ok(value) if (minimum..=maximum).contains(&value) => value as f32,
+                    Ok(_) => {
+                        return CommandResult::failed(format!(
+                            "{name} must be between {minimum} and {maximum}"
+                        ));
+                    }
+                    Err(error) => return CommandResult::failed(error),
+                };
+                *target = value;
+            }
+        }
+        for (name, target) in [
+            (
+                "auto_collapse_toolbars",
+                &mut preferences.auto_collapse_toolbars,
+            ),
+            ("show_permanent_grid", &mut preferences.show_permanent_grid),
+            (
+                "toolbar_flow_top_down",
+                &mut preferences.toolbar_flow_top_down,
+            ),
+            ("toolbars_visible", &mut preferences.toolbars_visible),
+        ] {
+            if payload.values.contains_key(name) {
+                match payload_bool(payload, name, false) {
+                    Ok(value) => *target = value,
+                    Err(error) => return CommandResult::failed(error),
+                }
+            }
+        }
+        if payload.values.contains_key("toolbar_icon_size") {
+            let size = match payload_u32(payload, "toolbar_icon_size", 0) {
+                Ok(size) if [24, 32, 40, 48].contains(&size) => size,
+                Ok(_) => {
+                    return CommandResult::failed("toolbar_icon_size must be 24, 32, 40, or 48");
+                }
+                Err(error) => return CommandResult::failed(error),
+            };
+            preferences.toolbar_icon_size = size;
+        }
+        if payload.values.contains_key("grid_extent") {
+            preferences.grid_extent = match payload_u32(payload, "grid_extent", 1) {
+                Ok(extent) if (1..=256).contains(&extent) => extent,
+                Ok(_) => return CommandResult::failed("grid_extent must be between 1 and 256"),
+                Err(error) => return CommandResult::failed(error),
+            };
+        }
+        self.preferences = preferences;
+        self.status = "UI preferences updated.".to_owned();
+        CommandResult::completed()
     }
 
     pub fn query_command_state(&self, id: &str) -> CommandState {
@@ -1426,6 +1648,12 @@ impl MeshcraftApp {
                     "toolbars" => self.preferences.toolbars_visible,
                     "panels" => self.preferences.panels_visible,
                     "grid" => self.preferences.show_permanent_grid,
+                    key if key.starts_with("panel:") => self
+                        .preferences
+                        .panel_open
+                        .get(key.trim_start_matches("panel:"))
+                        .copied()
+                        .unwrap_or(true),
                     _ => false,
                 }),
                 ..CommandState::default()
@@ -2064,11 +2292,7 @@ impl MeshcraftApp {
     }
 
     fn show_panel_header(&mut self, ui: &mut egui::Ui, id: &str, title: &str) -> bool {
-        let is_open = *self
-            .preferences
-            .panel_open
-            .entry(id.to_owned())
-            .or_insert(true);
+        let is_open = *self.preferences.panel_open.get(id).unwrap_or(&true);
         let marker = if is_open { "-" } else { "+" };
         let width = ui.available_width();
         let response = ui.add_sized(
@@ -2084,8 +2308,12 @@ impl MeshcraftApp {
             self.panel_focus = None;
         }
         if response.clicked() {
-            self.preferences.panel_open.insert(id.to_owned(), !is_open);
-            !is_open
+            self.run_command(&format!("view.panel.{id}.toggle"));
+            self.preferences
+                .panel_open
+                .get(id)
+                .copied()
+                .unwrap_or(is_open)
         } else {
             is_open
         }
@@ -2250,75 +2478,139 @@ impl MeshcraftApp {
                 egui::DragValue::new(&mut settings.circle_segments).range(3..=256),
             )
             .changed();
-        if changed
-            && let Err(error) = self.commit_document_edit("Change model settings", |document| {
-                document.update_model_settings(settings).map(|_| ())
-            })
-        {
-            ui.colored_label(Color32::LIGHT_RED, error);
+        if changed {
+            let mut payload = CommandPayload::default();
+            payload.values.insert(
+                "unit_name".to_owned(),
+                serde_json::json!(settings.unit_name),
+            );
+            payload.values.insert(
+                "unit_size".to_owned(),
+                serde_json::json!(settings.unit_size),
+            );
+            payload.values.insert(
+                "grid_size".to_owned(),
+                serde_json::json!(settings.grid_size),
+            );
+            payload.values.insert(
+                "circle_segments".to_owned(),
+                serde_json::json!(settings.circle_segments),
+            );
+            payload.values.insert(
+                "snap_radius".to_owned(),
+                serde_json::json!(settings.snap_radius),
+            );
+            let result = self.dispatch_command("model.update_settings", &payload);
+            if result.result.completion == CommandCompletion::Failed {
+                ui.colored_label(
+                    Color32::LIGHT_RED,
+                    result
+                        .result
+                        .diagnostics
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or("Model settings could not be updated."),
+                );
+            }
         }
     }
 
     fn show_ui_settings(&mut self, ui: &mut egui::Ui) {
+        let mut preferences = self.preferences.clone();
         ui.label("UI text size");
         egui::ComboBox::from_id_salt("ui-text-scale")
-            .selected_text(format!("{}x", self.preferences.ui_text_scale))
+            .selected_text(format!("{}x", preferences.ui_text_scale))
             .show_ui(ui, |ui| {
                 for scale in [0.75_f32, 1.0, 1.25, 1.5, 2.0] {
-                    ui.selectable_value(
-                        &mut self.preferences.ui_text_scale,
-                        scale,
-                        format!("{scale}x"),
-                    );
+                    ui.selectable_value(&mut preferences.ui_text_scale, scale, format!("{scale}x"));
                 }
             });
         ui.checkbox(
-            &mut self.preferences.auto_collapse_toolbars,
+            &mut preferences.auto_collapse_toolbars,
             "Auto-collapse after tool selection",
         );
         ui.label("Toolbar icon/button size");
         egui::ComboBox::from_id_salt("toolbar-icon-size")
             .selected_text(format!(
                 "{} × {} px",
-                self.preferences.toolbar_icon_size, self.preferences.toolbar_icon_size
+                preferences.toolbar_icon_size, preferences.toolbar_icon_size
             ))
             .show_ui(ui, |ui| {
                 for size in [24, 32, 40, 48] {
                     ui.selectable_value(
-                        &mut self.preferences.toolbar_icon_size,
+                        &mut preferences.toolbar_icon_size,
                         size,
                         format!("{size} × {size} px"),
                     );
                 }
             });
-        ui.checkbox(
-            &mut self.preferences.show_permanent_grid,
-            "Show permanent grid",
-        );
+        ui.checkbox(&mut preferences.show_permanent_grid, "Show permanent grid");
         ui.label("Permanent grid extent (steps from origin)");
-        ui.add(egui::DragValue::new(&mut self.preferences.grid_extent).range(1..=256));
+        ui.add(egui::DragValue::new(&mut preferences.grid_extent).range(1..=256));
         ui.label("Normal line width");
-        ui.add(
-            egui::Slider::new(&mut self.preferences.normal_grid_width, 0.25..=4.0).suffix(" px"),
-        );
+        ui.add(egui::Slider::new(&mut preferences.normal_grid_width, 0.25..=4.0).suffix(" px"));
         ui.label("Thick line width");
-        ui.add(egui::Slider::new(&mut self.preferences.thick_grid_width, 0.5..=8.0).suffix(" px"));
+        ui.add(egui::Slider::new(&mut preferences.thick_grid_width, 0.5..=8.0).suffix(" px"));
         ui.label("Arrange toolbars");
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(!self.preferences.toolbar_flow_top_down, "Flow L→R")
+                .selectable_label(!preferences.toolbar_flow_top_down, "Flow L→R")
                 .clicked()
             {
-                self.preferences.toolbar_flow_top_down = false;
+                preferences.toolbar_flow_top_down = false;
             }
             if ui
-                .selectable_label(self.preferences.toolbar_flow_top_down, "Flow T→D")
+                .selectable_label(preferences.toolbar_flow_top_down, "Flow T→D")
                 .clicked()
             {
-                self.preferences.toolbar_flow_top_down = true;
+                preferences.toolbar_flow_top_down = true;
             }
         });
         ui.weak("Toolbar layout and grid display are saved as application preferences.");
+        if preferences != self.preferences {
+            self.dispatch_ui_preferences(&preferences);
+        }
+    }
+
+    fn dispatch_ui_preferences(&mut self, preferences: &Preferences) {
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "ui_text_scale".to_owned(),
+            serde_json::json!(preferences.ui_text_scale),
+        );
+        payload.values.insert(
+            "auto_collapse_toolbars".to_owned(),
+            serde_json::json!(preferences.auto_collapse_toolbars),
+        );
+        payload.values.insert(
+            "toolbar_icon_size".to_owned(),
+            serde_json::json!(preferences.toolbar_icon_size),
+        );
+        payload.values.insert(
+            "show_permanent_grid".to_owned(),
+            serde_json::json!(preferences.show_permanent_grid),
+        );
+        payload.values.insert(
+            "grid_extent".to_owned(),
+            serde_json::json!(preferences.grid_extent),
+        );
+        payload.values.insert(
+            "normal_grid_width".to_owned(),
+            serde_json::json!(preferences.normal_grid_width),
+        );
+        payload.values.insert(
+            "thick_grid_width".to_owned(),
+            serde_json::json!(preferences.thick_grid_width),
+        );
+        payload.values.insert(
+            "toolbar_flow_top_down".to_owned(),
+            serde_json::json!(preferences.toolbar_flow_top_down),
+        );
+        payload.values.insert(
+            "toolbars_visible".to_owned(),
+            serde_json::json!(preferences.toolbars_visible),
+        );
+        self.dispatch_command("ui.update_preferences", &payload);
     }
 
     fn show_profile_settings(&mut self, ui: &mut egui::Ui) {
@@ -2339,7 +2631,15 @@ impl MeshcraftApp {
                     }
                 }
             });
-        ui.checkbox(&mut self.preferences.toolbars_visible, "Show toolbars");
+        let mut toolbars_visible = self.preferences.toolbars_visible;
+        if ui
+            .checkbox(&mut toolbars_visible, "Show toolbars")
+            .changed()
+        {
+            let mut preferences = self.preferences.clone();
+            preferences.toolbars_visible = toolbars_visible;
+            self.dispatch_ui_preferences(&preferences);
+        }
     }
 
     fn show_inspector(&mut self, ui: &mut egui::Ui, height: f32) {
@@ -2586,6 +2886,35 @@ fn command_matches(command: &CommandDescriptor, raw_query: &str) -> bool {
     })
 }
 
+fn payload_f64(payload: &CommandPayload, name: &str, default: f64) -> Result<f64, String> {
+    match payload.values.get(name) {
+        None => Ok(default),
+        Some(value) => value
+            .as_f64()
+            .filter(|number| number.is_finite())
+            .ok_or_else(|| format!("{name} must be a finite number")),
+    }
+}
+
+fn payload_bool(payload: &CommandPayload, name: &str, default: bool) -> Result<bool, String> {
+    match payload.values.get(name) {
+        None => Ok(default),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| format!("{name} must be a boolean")),
+    }
+}
+
+fn payload_u32(payload: &CommandPayload, name: &str, default: u32) -> Result<u32, String> {
+    match payload.values.get(name) {
+        None => Ok(default),
+        Some(value) => value
+            .as_u64()
+            .and_then(|number| u32::try_from(number).ok())
+            .ok_or_else(|| format!("{name} must be an unsigned 32-bit integer")),
+    }
+}
+
 fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<Vec3, String> {
     let Some(value) = payload.values.get(name) else {
         return Ok(default);
@@ -2787,7 +3116,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(157, entries.len());
+        assert_eq!(177, entries.len());
         assert_eq!(
             74,
             entries
@@ -2894,6 +3223,33 @@ mod tests {
     }
 
     #[test]
+    fn inspector_section_toggles_are_palette_commands() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+
+        for (panel, _) in super::INSPECTOR_PANELS {
+            let id = format!("view.panel.{panel}.toggle");
+            assert!(shell_commands().get(&id).is_some(), "missing {id}");
+        }
+        assert_eq!(
+            Some(true),
+            app.query_command_state("view.panel.ui_settings.toggle")
+                .checked
+        );
+        app.run_command("view.panel.ui_settings.toggle");
+        assert_eq!(Some(&false), app.preferences.panel_open.get("ui_settings"));
+        assert_eq!(
+            Some(false),
+            app.query_command_state("view.panel.ui_settings.toggle")
+                .checked
+        );
+        app.run_command("view.panel.ui_settings.toggle");
+        assert_eq!(Some(&true), app.preferences.panel_open.get("ui_settings"));
+        assert!(app.preferences.panels_visible);
+        assert_eq!(initial_revision, app.document.revision());
+    }
+
+    #[test]
     fn structured_dispatch_uses_the_palette_registry_and_typed_cuboid_parameters() {
         let catalog = MeshcraftApp::command_catalog();
         let add_cuboid = catalog
@@ -2997,6 +3353,115 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(vec![3.0, 7.0], x_positions);
+    }
+
+    #[test]
+    fn model_settings_inspector_and_structured_command_share_transaction_validation() {
+        let mut app = test_app();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("unit_name".to_owned(), json!("meter"));
+        payload.values.insert("unit_size".to_owned(), json!(0.5));
+        payload.values.insert("grid_size".to_owned(), json!(0.25));
+        payload
+            .values
+            .insert("circle_segments".to_owned(), json!(32));
+        payload.values.insert("snap_radius".to_owned(), json!(8.0));
+
+        let result = app.dispatch_command("model.update_settings", &payload);
+
+        assert!(result.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Completed,
+            result.result.completion
+        );
+        assert_eq!(
+            Some(app.document.revision()),
+            result.result.document_revision
+        );
+        assert_eq!("meter", app.document.model_settings().unit_name);
+        assert_eq!(0.5, app.document.model_settings().unit_size);
+        assert_eq!(0.25, app.document.model_settings().grid_size);
+        assert_eq!(32, app.document.model_settings().circle_segments);
+        assert_eq!(8.0, app.document.model_settings().snap_radius);
+        assert_eq!(1, app.history.entries().len());
+
+        let before = app.document.clone();
+        let mut invalid = CommandPayload::default();
+        invalid.values.insert("grid_size".to_owned(), json!(0.0));
+        let rejected = app.dispatch_command("model.update_settings", &invalid);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected.result.completion
+        );
+        assert_eq!(before, app.document);
+        assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
+    fn ui_settings_command_applies_preferences_without_document_history() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+        app.run_command("ui.update_preferences");
+        assert!(app.preferences.panels_visible);
+        assert_eq!(Some(&true), app.preferences.panel_open.get("ui_settings"));
+
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("ui_text_scale".to_owned(), json!(1.25));
+        payload
+            .values
+            .insert("auto_collapse_toolbars".to_owned(), json!(true));
+        payload
+            .values
+            .insert("toolbar_icon_size".to_owned(), json!(40));
+        payload
+            .values
+            .insert("show_permanent_grid".to_owned(), json!(false));
+        payload.values.insert("grid_extent".to_owned(), json!(64));
+        payload
+            .values
+            .insert("normal_grid_width".to_owned(), json!(1.5));
+        payload
+            .values
+            .insert("thick_grid_width".to_owned(), json!(4.0));
+        payload
+            .values
+            .insert("toolbar_flow_top_down".to_owned(), json!(true));
+        payload
+            .values
+            .insert("toolbars_visible".to_owned(), json!(false));
+
+        let result = app.dispatch_command("ui.update_preferences", &payload);
+
+        assert!(result.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Completed,
+            result.result.completion
+        );
+        assert_eq!(1.25, app.preferences.ui_text_scale);
+        assert!(app.preferences.auto_collapse_toolbars);
+        assert_eq!(40, app.preferences.toolbar_icon_size);
+        assert!(!app.preferences.show_permanent_grid);
+        assert_eq!(64, app.preferences.grid_extent);
+        assert_eq!(1.5, app.preferences.normal_grid_width);
+        assert_eq!(4.0, app.preferences.thick_grid_width);
+        assert!(app.preferences.toolbar_flow_top_down);
+        assert!(!app.preferences.toolbars_visible);
+        assert_eq!(initial_revision, app.document.revision());
+        assert!(app.history.entries().is_empty());
+
+        let before = app.preferences.clone();
+        let mut invalid = CommandPayload::default();
+        invalid.values.insert("grid_extent".to_owned(), json!(257));
+        let rejected = app.dispatch_command("ui.update_preferences", &invalid);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected.result.completion
+        );
+        assert_eq!(before.grid_extent, app.preferences.grid_extent);
     }
 
     #[test]
