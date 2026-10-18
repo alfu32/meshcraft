@@ -3,9 +3,11 @@
 use crate::geometry::polygon::{PolygonSet, PolygonShape};
 use crate::geometry::{GeometryTolerance, Vec2, Vec3};
 use crate::tools::shapes::PlanarMesh;
+use std::collections::BTreeMap;
 
 const DEFAULT_CLOSE_DISTANCE: f64 = 0.15;
 const PATH_EPSILON: f64 = 1.0e-9;
+pub const FACE_OUTLINE_MERGE_TOLERANCE: f64 = 1.0e-4;
 const MAX_ARC_SAMPLES: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -342,6 +344,83 @@ pub fn build_polyline_mesh(path: &PolylinePath) -> Result<PlanarMesh, &'static s
     })
 }
 
+/// Extracts the outer boundary of a selected triangle set, omitting shared interior edges.
+pub fn build_face_outline_mesh(
+    triangles: &[[Vec3; 3]],
+    merge_tolerance: f64,
+) -> Result<PlanarMesh, &'static str> {
+    if !merge_tolerance.is_finite() || merge_tolerance <= 0.0 {
+        return Err("Face-outline tolerance must be finite and positive.");
+    }
+    let mut points = BTreeMap::<[i64; 3], Vec3>::new();
+    let mut edge_counts = BTreeMap::<([i64; 3], [i64; 3]), usize>::new();
+    for triangle in triangles {
+        if triangle.iter().any(|point| !point.is_finite()) {
+            return Err("Face-outline points must be finite.");
+        }
+        let keys = [
+            face_outline_point_key(triangle[0], merge_tolerance)?,
+            face_outline_point_key(triangle[1], merge_tolerance)?,
+            face_outline_point_key(triangle[2], merge_tolerance)?,
+        ];
+        for (point, key) in triangle.iter().zip(keys) {
+            points.entry(key).or_insert(*point);
+        }
+        for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+            let first = keys[first];
+            let second = keys[second];
+            if first == second {
+                continue;
+            }
+            let edge = if first <= second {
+                (first, second)
+            } else {
+                (second, first)
+            };
+            *edge_counts.entry(edge).or_default() += 1;
+        }
+    }
+
+    let mut vertex_indices = BTreeMap::<[i64; 3], usize>::new();
+    let mut vertices = Vec::new();
+    let mut segments = Vec::new();
+    for ((first, second), edge_count) in edge_counts {
+        if edge_count != 1 {
+            continue;
+        }
+        let first_index = *vertex_indices.entry(first).or_insert_with(|| {
+            let index = vertices.len();
+            vertices.push(points[&first]);
+            index
+        });
+        let second_index = *vertex_indices.entry(second).or_insert_with(|| {
+            let index = vertices.len();
+            vertices.push(points[&second]);
+            index
+        });
+        segments.push([first_index, second_index]);
+    }
+
+    Ok(PlanarMesh {
+        vertices,
+        segments,
+        triangles: Vec::new(),
+    })
+}
+
+fn face_outline_point_key(point: Vec3, merge_tolerance: f64) -> Result<[i64; 3], &'static str> {
+    let mut key = [0; 3];
+    for (index, coordinate) in [point.x, point.y, point.z].into_iter().enumerate() {
+        let quantized = coordinate / merge_tolerance;
+        let rounded = quantized.round();
+        if !rounded.is_finite() || rounded < i64::MIN as f64 || rounded >= -(i64::MIN as f64) {
+            return Err("Face-outline coordinates exceed the supported tolerance range.");
+        }
+        key[index] = rounded as i64;
+    }
+    Ok(key)
+}
+
 /// Builds two offset rails from a path. The returned paths retain matching point indices,
 /// which lets sweep and domain tools reuse the same corner joins.
 pub fn build_double_line_paths(
@@ -555,9 +634,10 @@ fn arc_samples(
 #[cfg(test)]
 mod tests {
     use super::{
-        PolylinePath, PolylinePickEffect, PolylineSegmentMode, PolylineToolState, arc_from_center,
-        arc_through, build_double_line_mesh, build_double_line_mesh_in_plane,
-        build_double_line_paths, build_double_line_paths_in_plane, build_polyline_mesh,
+        FACE_OUTLINE_MERGE_TOLERANCE, PolylinePath, PolylinePickEffect, PolylineSegmentMode,
+        PolylineToolState, arc_from_center, arc_through, build_double_line_mesh,
+        build_double_line_mesh_in_plane, build_double_line_paths, build_double_line_paths_in_plane,
+        build_face_outline_mesh, build_polyline_mesh,
     };
     use crate::geometry::Vec3;
 
@@ -666,6 +746,59 @@ mod tests {
             })
             .sum::<f64>();
         assert!((5.0 - area).abs() < 1.0e-8);
+    }
+
+    #[test]
+    fn face_outline_omits_shared_triangle_edges_and_merges_nearby_corners() {
+        let mesh = build_face_outline_mesh(
+            &[
+                [
+                    Vec3::ZERO,
+                    Vec3::new(2.0, 0.0, 0.0),
+                    Vec3::new(2.0, 0.0, 2.0),
+                ],
+                [
+                    Vec3::new(0.0, 0.00001, 0.0),
+                    Vec3::new(2.0, 0.00001, 2.0),
+                    Vec3::new(0.0, 0.0, 2.0),
+                ],
+            ],
+            1.0e-4,
+        )
+        .unwrap();
+
+        assert_eq!(4, mesh.vertices.len());
+        assert_eq!(4, mesh.segments.len());
+        assert!(mesh.triangles.is_empty());
+        assert!(mesh.segments.iter().all(|[first, second]| {
+            (mesh.vertices[*first].distance(mesh.vertices[*second]) - 2.0).abs() < 1.0e-9
+        }));
+    }
+
+    #[test]
+    fn face_outline_keeps_disconnected_boundaries_and_rejects_invalid_input() {
+        let triangles = [
+            [Vec3::ZERO, Vec3::X, Vec3::Z],
+            [
+                Vec3::new(4.0, 0.0, 0.0),
+                Vec3::new(5.0, 0.0, 0.0),
+                Vec3::new(4.0, 0.0, 1.0),
+            ],
+        ];
+        let mesh = build_face_outline_mesh(&triangles, FACE_OUTLINE_MERGE_TOLERANCE).unwrap();
+        assert_eq!(6, mesh.segments.len());
+        assert!(build_face_outline_mesh(&triangles, 0.0).is_err());
+        assert!(
+            build_face_outline_mesh(
+                &[[Vec3::ZERO, Vec3::X, Vec3::new(f64::NAN, 0.0, 0.0)]],
+                1.0e-4
+            )
+            .is_err()
+        );
+        assert!(
+            build_face_outline_mesh(&[[Vec3::new(1.0e20, 0.0, 0.0), Vec3::X, Vec3::Z]], 1.0e-4,)
+                .is_err()
+        );
     }
 
     #[test]

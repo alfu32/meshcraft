@@ -25,8 +25,9 @@ use meshcraft_core::tools::{
     ToolEvent,
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
-        PolylinePath, PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
-        build_double_line_mesh_in_plane, build_polyline_mesh,
+        FACE_OUTLINE_MERGE_TOLERANCE, PolylinePath, PolylinePickEffect, PolylineSegmentMode,
+        PolylineToolState, build_double_line_mesh_in_plane, build_face_outline_mesh,
+        build_polyline_mesh,
     },
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
@@ -575,6 +576,7 @@ enum ShellAction {
     UndoToolPoint,
     ToggleTransformCopyMode,
     PaintSelection,
+    FaceOutline,
     SetPaintColor,
     CancelActiveTool,
     PlaceGuide(ConstructionGuideKind),
@@ -1259,6 +1261,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
                 "polyline" => ShellAction::SelectToolAlias("Polyline"),
                 "double_line" => ShellAction::SelectToolAlias("Double Line"),
+                "face_outline" => ShellAction::FaceOutline,
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -1357,6 +1360,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
+        | ShellAction::FaceOutline
         | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
@@ -1412,6 +1416,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::Undo => CommandStateQuery::UndoAvailable,
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
         ShellAction::CopySelection => CommandStateQuery::SelectionAvailable,
+        ShellAction::FaceOutline => CommandStateQuery::SelectionAvailable,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
         ShellAction::CreateObject
@@ -2120,6 +2125,68 @@ impl MeshcraftApp {
             entity: SelectedEntity::Triangle(id),
         }));
         Ok(targets)
+    }
+
+    fn outline_selected_faces(&mut self) -> CommandResult {
+        let mut world_triangles = Vec::new();
+        for target in self.selection.selected() {
+            let SelectedEntity::Triangle(triangle_id) = target.entity else {
+                continue;
+            };
+            let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
+                continue;
+            };
+            let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+                continue;
+            };
+            let Some(triangle) = geometry.triangles.get(&triangle_id) else {
+                continue;
+            };
+            let [Some(a), Some(b), Some(c)] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            world_triangles
+                .push([a, b, c].map(|point| resolved.world_transform.transform_point(point)));
+        }
+        if world_triangles.is_empty() {
+            return CommandResult::failed("Select one or more faces to outline.");
+        }
+        let mesh = match build_face_outline_mesh(&world_triangles, FACE_OUTLINE_MERGE_TOLERANCE) {
+            Ok(mesh) if !mesh.segments.is_empty() => mesh,
+            Ok(_) => return CommandResult::failed("No outline found for the selected faces."),
+            Err(error) => return CommandResult::failed(error),
+        };
+        let edge_count = mesh.segments.len();
+        let face_count = world_triangles.len();
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let vertices = mesh
+            .vertices
+            .into_iter()
+            .map(|point| inverse.transform_point(point))
+            .collect();
+        let targets = match self.commit_local_planar_mesh(
+            owner,
+            occurrence,
+            vertices,
+            mesh.segments,
+            mesh.triangles,
+            "Face Outline",
+        ) {
+            Ok(targets) => targets,
+            Err(error) => return CommandResult::failed(error),
+        };
+        self.selection.apply(targets, SelectionMode::Replace);
+        self.status =
+            format!("Outlined {edge_count} boundary edge(s) from {face_count} selected face(s).");
+        let mut result = CommandResult::completed();
+        result.outputs.insert(
+            "outlined".to_owned(),
+            serde_json::json!({"edges": edge_count, "faces": face_count}),
+        );
+        result
     }
 
     fn finish_polyline(&mut self, closed: bool) -> CommandResult {
@@ -3301,6 +3368,7 @@ impl MeshcraftApp {
                     Err(error) => return CommandResult::failed(error),
                 }
             }
+            ShellAction::FaceOutline => return self.outline_selected_faces(),
             ShellAction::SetPaintColor => {
                 let channels = ["red", "green", "blue", "alpha"]
                     .map(|name| payload.values.get(name).and_then(serde_json::Value::as_u64));
@@ -4020,6 +4088,15 @@ impl MeshcraftApp {
         if id == "app.quit" {
             #[cfg(target_arch = "wasm32")]
             return CommandState::disabled("The browser tab cannot be closed by the app");
+        }
+        if id == "tool.builtin.face_outline"
+            && !self
+                .selection
+                .selected()
+                .iter()
+                .any(|target| matches!(target.entity, SelectedEntity::Triangle(_)))
+        {
+            return CommandState::disabled("select one or more faces first");
         }
         let line_distance_ready = matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && self.drawing_tool.anchor().is_some();
@@ -7315,9 +7392,9 @@ mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, PolylineToolState,
         Preferences, ReplacementDecision, SelectedEntity, SelectionClickTracker,
-        SelectionDisplayPolicy, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
-        ToolEvent, TransactionHistory, TransformTool, TransformToolState, UiProfile,
-        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
+        SelectionDisplayPolicy, SelectionMode, SelectionSession, SelectionTarget, ShapeToolState,
+        ToolCycleState, ToolEvent, TransactionHistory, TransformTool, TransformToolState,
+        UiProfile, command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -9142,6 +9219,72 @@ mod tests {
         let geometry = app.document.effective_geometry(&occurrence).unwrap();
         assert!(geometry.segments.is_empty());
         assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn face_outline_command_uses_selected_faces_and_omits_the_interior_diagonal() {
+        let mut app = test_app();
+        let (_, face_ids) = app
+            .document
+            .append_planar_mesh_to_scene_root(
+                vec![
+                    Vec3::ZERO,
+                    Vec3::X * 2.0,
+                    Vec3::new(2.0, 0.0, 2.0),
+                    Vec3::Z * 2.0,
+                ],
+                vec![[0, 1]],
+                vec![[0, 1, 2], [0, 2, 3]],
+            )
+            .unwrap();
+        let occurrence = OccurrenceRef::scene_root();
+        app.selection.apply(
+            face_ids.into_iter().map(|face| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(face),
+            }),
+            SelectionMode::Replace,
+        );
+        assert!(app.query_command_state("tool.builtin.face_outline").enabled);
+
+        let dispatch =
+            app.dispatch_command("tool.builtin.face_outline", &CommandPayload::default());
+
+        assert!(dispatch.accepted, "{}", app.status);
+        assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+        assert_eq!(
+            json!({"edges": 4, "faces": 2}),
+            dispatch.result.outputs["outlined"]
+        );
+        assert_eq!(4, app.selection.summary().edges);
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| matches!(target.entity, SelectedEntity::Segment(_)))
+        );
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert_eq!(1, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(1, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+    }
+
+    #[test]
+    fn face_outline_command_is_disabled_without_selected_faces() {
+        let app = test_app();
+
+        let state = app.query_command_state("tool.builtin.face_outline");
+
+        assert!(!state.enabled);
+        assert_eq!(
+            "select one or more faces first",
+            state.disabled_reason.as_deref().unwrap()
+        );
     }
 
     #[test]
