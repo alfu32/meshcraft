@@ -26,7 +26,16 @@ pub struct ExplodeReport {
     pub vertices: usize,
     pub segments: usize,
     pub triangles: usize,
+    pub dimensions: usize,
+    pub texts: usize,
     pub selected_results: Vec<SelectionTarget>,
+}
+
+/// Geometry and supported semantic payloads accumulated while materializing an occurrence tree.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExplodeContent {
+    pub geometry: GeometryBundle,
+    pub domain_records: BTreeMap<String, Vec<Value>>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -334,7 +343,7 @@ pub trait ObjectExplodeAdapter {
         document: &Document,
         occurrence: &OccurrenceRef,
         transform_to_parent: Affine3,
-        output: &mut GeometryBundle,
+        output: &mut ExplodeContent,
     ) -> Result<(), String>;
 }
 
@@ -348,12 +357,17 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
         document: &Document,
         occurrence: &OccurrenceRef,
         _transform_to_parent: Affine3,
-        _output: &mut GeometryBundle,
+        _output: &mut ExplodeContent,
     ) -> Result<(), String> {
         let resolved = document
             .resolve_occurrence(occurrence)
             .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
-        let has_legacy_annotations = ["dimensions", "texts"].iter().any(|field| {
+        let has_legacy_domain_arrays = resolved
+            .definition
+            .domain_entity_ids
+            .values()
+            .any(|identities| !identities.is_empty());
+        let has_legacy_annotations_without_ids = ["dimensions", "texts"].iter().any(|field| {
             resolved
                 .definition
                 .extensions
@@ -362,7 +376,8 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
                 .is_some_and(|records| !records.is_empty())
         });
         if !resolved.definition.domain_data.is_empty()
-            || has_legacy_annotations
+            || has_legacy_domain_arrays
+            || has_legacy_annotations_without_ids
             || resolved.edits.is_some_and(|edits| {
                 !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
             })
@@ -374,6 +389,131 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
         }
         Ok(())
     }
+}
+
+/// Preserves legacy dimensions and text as semantic entities while exploding mesh content.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LegacyAnnotationExplodeAdapter;
+
+impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
+    fn append_resolved_content(
+        &self,
+        document: &Document,
+        occurrence: &OccurrenceRef,
+        transform_to_parent: Affine3,
+        output: &mut ExplodeContent,
+    ) -> Result<(), String> {
+        let resolved = document
+            .resolve_occurrence(occurrence)
+            .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
+        if !resolved.definition.domain_data.is_empty()
+            || resolved
+                .definition
+                .domain_entity_ids
+                .iter()
+                .any(|(field, identities)| {
+                    !identities.is_empty() && field != "dimensions" && field != "texts"
+                })
+            || resolved.edits.is_some_and(|edits| {
+                !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
+            })
+        {
+            return Err(format!(
+                "object {:?} contains domain content without an explode adapter",
+                resolved.definition.name
+            ));
+        }
+        for field in ["dimensions", "texts"] {
+            let Some(records) = resolved
+                .definition
+                .extensions
+                .get(&format!("k3d.{field}"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for record in records {
+                output
+                    .domain_records
+                    .entry(field.to_owned())
+                    .or_default()
+                    .push(transform_annotation_record(
+                        field,
+                        record,
+                        transform_to_parent,
+                    )?);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn transform_annotation_record(
+    field: &str,
+    record: &Value,
+    transform: Affine3,
+) -> Result<Value, String> {
+    let mut record = record.clone();
+    let object = record
+        .as_object_mut()
+        .ok_or_else(|| format!("legacy {field} record is not an object"))?;
+    let vector_fields: &[(&str, bool)] = match field {
+        "dimensions" => &[("start", true), ("end", true), ("offset", true)],
+        "texts" => &[("position", true), ("normal", false), ("axisU", false)],
+        _ => return Err(format!("legacy {field} explode is not supported")),
+    };
+    let mut original_axis_u = None;
+    let mut original_normal = None;
+    for (key, is_point) in vector_fields {
+        let Some(value) = object.get(*key).cloned() else {
+            continue;
+        };
+        let vector: Vec3 = serde_json::from_value(value)
+            .map_err(|_| format!("legacy {field} field {key:?} is not a 3D vector"))?;
+        if !vector.is_finite() {
+            return Err(format!("legacy {field} field {key:?} is non-finite"));
+        }
+        if field == "texts" {
+            match *key {
+                "axisU" => original_axis_u = Some(vector),
+                "normal" => original_normal = Some(vector),
+                _ => {}
+            }
+        }
+        let transformed = if *is_point {
+            transform.transform_point(vector)
+        } else if *key == "normal" && vector.length() > GeometryTolerance::default().absolute {
+            transform
+                .transform_normal(vector, GeometryTolerance::default())
+                .ok_or_else(|| "legacy text normal cannot be transformed".to_owned())?
+        } else {
+            transform.transform_vector(vector)
+        };
+        object.insert(
+            (*key).to_owned(),
+            serde_json::to_value(transformed)
+                .map_err(|_| format!("could not encode transformed legacy {field} field"))?,
+        );
+    }
+    if field == "texts"
+        && let (Some(axis_u), Some(normal)) = (original_axis_u, original_normal)
+        && let Some(size) = object.get("size").and_then(Value::as_f64)
+        && let Some(glyph_up) = axis_u
+            .cross(normal)
+            .try_normalized(GeometryTolerance::default().absolute)
+    {
+        let transformed_size = size * transform.transform_vector(glyph_up).length();
+        if !transformed_size.is_finite() {
+            return Err("transformed legacy text size is non-finite".to_owned());
+        }
+        object.insert(
+            "size".to_owned(),
+            serde_json::Number::from_f64(transformed_size)
+                .map(Value::Number)
+                .ok_or_else(|| "transformed legacy text size is invalid".to_owned())?,
+        );
+    }
+    Ok(record)
 }
 
 /// Groups selected object instances into one reusable definition while preserving their local
@@ -1276,16 +1416,16 @@ pub fn explode_occurrences(
         let parent_inverse = parent_world
             .inverse(GeometryTolerance::default())
             .ok_or_else(|| "a selected object's parent transform is singular".to_owned())?;
-        let mut geometry = GeometryBundle::default();
+        let mut content = ExplodeContent::default();
         append_occurrence_tree(
             &mut candidate,
             occurrence,
             parent_inverse,
-            &mut geometry,
+            &mut content,
             adapter,
         )?;
-        geometry.validate()?;
-        materialized.push((parent, definition_name, geometry));
+        content.geometry.validate()?;
+        materialized.push((parent, definition_name, content));
     }
 
     candidate.remove_selected_occurrences(occurrences)?;
@@ -1293,29 +1433,84 @@ pub fn explode_occurrences(
         exploded_occurrences: materialized.len(),
         ..ExplodeReport::default()
     };
-    for (parent, definition_name, mut geometry) in materialized {
+    for (parent, definition_name, mut content) in materialized {
         let layout_id = child_layout_for_parent(&candidate, &parent)?;
-        geometry.id = GeometryBundleId(candidate.allocate_id());
+        content.geometry.id = GeometryBundleId(candidate.allocate_id());
         let definition_id = DefinitionId(candidate.allocate_id());
         let definition_name = format!("{definition_name} exploded");
-        report.vertices += geometry.vertices.len();
-        report.segments += geometry.segments.len();
-        report.triangles += geometry.triangles.len();
-        let vertex_ids = geometry.vertices.keys().copied().collect::<Vec<_>>();
-        let segment_ids = geometry.segments.keys().copied().collect::<Vec<_>>();
-        let triangle_ids = geometry.triangles.keys().copied().collect::<Vec<_>>();
+        report.vertices += content.geometry.vertices.len();
+        report.segments += content.geometry.segments.len();
+        report.triangles += content.geometry.triangles.len();
+        report.dimensions += content.domain_records.get("dimensions").map_or(0, Vec::len);
+        report.texts += content.domain_records.get("texts").map_or(0, Vec::len);
+        let vertex_ids = content
+            .geometry
+            .vertices
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        let segment_ids = content
+            .geometry
+            .segments
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        let triangle_ids = content
+            .geometry
+            .triangles
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        let mut domain_entity_ids = BTreeMap::new();
+        let mut extensions = BTreeMap::new();
+        for (field, records) in content.domain_records {
+            let identities = (0..records.len())
+                .map(|index| format!("meshcraft:explode:{}:{field}:{index}", definition_id.0))
+                .collect::<Vec<_>>();
+            if !records.is_empty() {
+                domain_entity_ids.insert(field.clone(), identities.clone());
+            }
+            let key = format!("k3d.{field}");
+            extensions.insert(key, Value::Array(records));
+        }
+        let semantic_targets = domain_entity_ids
+            .iter()
+            .flat_map(|(field, identities)| {
+                let kind = match field.as_str() {
+                    "dimensions" => SelectionKind::Dimension,
+                    "texts" => SelectionKind::Text,
+                    _ => return Vec::new(),
+                };
+                identities
+                    .iter()
+                    .map(|id| SelectionTarget {
+                        occurrence: parent.clone(),
+                        entity: SelectedEntity::SemanticHandle {
+                            kind,
+                            id: id.clone(),
+                        },
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let has_semantic_targets = !semantic_targets.is_empty();
+        let definition_kind = if domain_entity_ids.is_empty() {
+            DefinitionKind::Mesh
+        } else {
+            DefinitionKind::Hybrid
+        };
         candidate.definitions.insert(
             definition_id,
             Definition {
                 id: definition_id,
                 name: definition_name,
-                kind: DefinitionKind::Mesh,
+                kind: definition_kind,
                 frame: Affine3::IDENTITY,
-                geometry,
+                geometry: content.geometry,
                 default_child_layout: None,
                 domain_data: BTreeMap::new(),
-                domain_entity_ids: BTreeMap::new(),
-                extensions: BTreeMap::new(),
+                domain_entity_ids,
+                extensions,
                 legacy_aliases: Vec::new(),
             },
         );
@@ -1323,6 +1518,12 @@ pub fn explode_occurrences(
             .add_layout_entry(layout_id, definition_id, Affine3::IDENTITY)
             .ok_or_else(|| "could not insert exploded geometry in the parent graph".to_owned())?;
         let result = parent.child(entry_id);
+        report
+            .selected_results
+            .extend(semantic_targets.into_iter().map(|mut target| {
+                target.occurrence = result.clone();
+                target
+            }));
         if !triangle_ids.is_empty() || !segment_ids.is_empty() {
             report
                 .selected_results
@@ -1343,7 +1544,7 @@ pub fn explode_occurrences(
                     occurrence: result.clone(),
                     entity: SelectedEntity::Vertex(id),
                 }));
-        } else {
+        } else if !has_semantic_targets {
             report.selected_results.push(SelectionTarget {
                 occurrence: result,
                 entity: SelectedEntity::Occurrence,
@@ -1359,7 +1560,7 @@ fn append_occurrence_tree(
     document: &mut Document,
     occurrence: &OccurrenceRef,
     parent_inverse: Affine3,
-    output: &mut GeometryBundle,
+    output: &mut ExplodeContent,
     adapter: &impl ObjectExplodeAdapter,
 ) -> Result<(), String> {
     let (relative, source, child_ids) = {
@@ -1385,7 +1586,7 @@ fn append_occurrence_tree(
         (relative, source, child_ids)
     };
     if let Some(source) = source {
-        append_transformed_bundle(document, &source, relative, output);
+        append_transformed_bundle(document, &source, relative, &mut output.geometry);
     }
     adapter.append_resolved_content(document, occurrence, relative, output)?;
     for entry_id in child_ids {
@@ -1601,9 +1802,9 @@ fn rotation_between(from: Vec3, to: Vec3) -> Result<Affine3, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshOnlyExplodeAdapter, can_delete_selection, delete_selection, delete_unused_definition,
-        duplicate_occurrence, explode_occurrences, group_occurrences, group_selection,
-        place_definition,
+        LegacyAnnotationExplodeAdapter, MeshOnlyExplodeAdapter, can_delete_selection,
+        delete_selection, delete_unused_definition, duplicate_occurrence, explode_occurrences,
+        group_occurrences, group_selection, place_definition,
     };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec3};
@@ -1902,6 +2103,122 @@ mod tests {
     }
 
     #[test]
+    fn annotation_explode_transforms_and_selects_dimension_and_text_payloads() {
+        let mut document = Document::new();
+        let source = cube(&mut document, "annotated", Vec3::ZERO);
+        let definition_id = document.resolve_occurrence(&source).unwrap().definition.id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.dimensions".to_owned(),
+            serde_json::json!([{
+                "start": {"x": 0, "y": 0, "z": 0},
+                "end": {"x": 1, "y": 0, "z": 0},
+                "offset": {"x": 0, "y": 1, "z": 0}
+            }]),
+        );
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            serde_json::json!([
+                {
+                    "position": {"x": 2, "y": 0, "z": 0},
+                    "text": "Door",
+                    "size": 0.5,
+                    "normal": {"x": 0, "y": 1, "z": 0},
+                    "axisU": {"x": 1, "y": 0, "z": 0}
+                },
+                {
+                    "position": {"x": 0, "y": 0, "z": 1},
+                    "text": "Sparse",
+                    "size": 0.1,
+                    "normal": {"x": 0, "y": 0, "z": 0},
+                    "axisU": {"x": 0, "y": 0, "z": 0}
+                }
+            ]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
+        definition.domain_entity_ids.insert(
+            "texts".to_owned(),
+            vec!["text-1".to_owned(), "text-2".to_owned()],
+        );
+        let placed_id = document
+            .add_layout_entry(
+                document.root_layout(),
+                definition_id,
+                Affine3::from_translation(Vec3::new(7.0, 2.0, -3.0)),
+            )
+            .unwrap();
+        document.remove_selected_occurrences(&[source]).unwrap();
+        let instance = OccurrenceRef::root(placed_id);
+
+        let report = explode_occurrences(
+            &mut document,
+            std::slice::from_ref(&instance),
+            &LegacyAnnotationExplodeAdapter,
+        )
+        .unwrap();
+
+        assert_eq!(1, report.dimensions);
+        assert_eq!(2, report.texts);
+        let dimension_target = report
+            .selected_results
+            .iter()
+            .find(|target| {
+                matches!(
+                    target.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Dimension,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let definition = &document
+            .resolve_occurrence(&dimension_target.occurrence)
+            .unwrap()
+            .definition;
+        assert_eq!(crate::document::DefinitionKind::Hybrid, definition.kind);
+        assert_eq!(
+            Vec3::new(7.0, 2.0, -3.0),
+            serde_json::from_value(definition.extensions["k3d.dimensions"][0]["start"].clone())
+                .unwrap()
+        );
+        assert_eq!(
+            Vec3::new(8.0, 2.0, -3.0),
+            serde_json::from_value(definition.extensions["k3d.dimensions"][0]["end"].clone())
+                .unwrap()
+        );
+        assert_eq!(
+            Vec3::new(9.0, 2.0, -3.0),
+            serde_json::from_value(definition.extensions["k3d.texts"][0]["position"].clone())
+                .unwrap()
+        );
+        assert!(report.selected_results.iter().any(|target| matches!(
+            target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Text,
+                ..
+            }
+        )));
+        document.validate().unwrap();
+        let exported = crate::legacy::export_current_value(&document).unwrap();
+        let prototype = exported["prototypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|prototype| prototype["name"] == "annotated exploded")
+            .unwrap();
+        assert_eq!(
+            serde_json::json!({"x": 7.0, "y": 2.0, "z": -3.0}),
+            prototype["dimensions"][0]["start"]
+        );
+        assert_eq!(2, prototype["texts"].as_array().unwrap().len());
+        assert!(prototype["dimensions"][0].get("id").is_none());
+        assert!(prototype["texts"][0].get("id").is_none());
+    }
+
+    #[test]
     fn mesh_only_explode_rejects_legacy_annotations_without_losing_them() {
         let mut document = Document::new();
         let instance = cube(&mut document, "annotated mesh", Vec3::ZERO);
@@ -1944,6 +2261,36 @@ mod tests {
         assert!(error.contains("domain content without an explode adapter"));
         assert_eq!(before, document);
         document.validate().unwrap();
+    }
+
+    #[test]
+    fn annotation_explode_rejects_unhandled_domain_payload_atomically() {
+        let mut document = Document::new();
+        let instance = cube(&mut document, "hotspot object", Vec3::ZERO);
+        let definition_id = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.hotspots".to_owned(),
+            serde_json::json!([{"name": "door"}]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("hotspots".to_owned(), vec!["hotspot-1".to_owned()]);
+        let before = document.clone();
+
+        let error = explode_occurrences(
+            &mut document,
+            std::slice::from_ref(&instance),
+            &LegacyAnnotationExplodeAdapter,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("domain content without an explode adapter"));
+        assert_eq!(before, document);
     }
 
     #[test]

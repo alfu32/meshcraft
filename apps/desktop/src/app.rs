@@ -6035,7 +6035,7 @@ impl MeshcraftApp {
             modeling_objects::explode_selection(
                 document,
                 &selection,
-                &modeling_objects::MeshOnlyExplodeAdapter,
+                &modeling_objects::LegacyAnnotationExplodeAdapter,
             )
         }) {
             Ok(report) => report,
@@ -6044,8 +6044,12 @@ impl MeshcraftApp {
         self.selection
             .apply(report.selected_results.clone(), SelectionMode::Replace);
         self.status = format!(
-            "Exploded {} object(s) into {} edge(s) and {} face(s).",
-            report.exploded_occurrences, report.segments, report.triangles
+            "Exploded {} object(s) into {} edge(s), {} face(s), {} dimension(s) and {} text item(s).",
+            report.exploded_occurrences,
+            report.segments,
+            report.triangles,
+            report.dimensions,
+            report.texts
         );
         let mut result = CommandResult::completed();
         result.outputs.insert(
@@ -6058,6 +6062,12 @@ impl MeshcraftApp {
         result
             .outputs
             .insert("face_count".to_owned(), report.triangles.into());
+        result
+            .outputs
+            .insert("dimension_count".to_owned(), report.dimensions.into());
+        result
+            .outputs
+            .insert("text_count".to_owned(), report.texts.into());
         let result_occurrences = report
             .selected_results
             .iter()
