@@ -2546,6 +2546,51 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T53",
+      "title": "Delete selected mesh entities and object instances (#4)",
+      "phase": "desktop",
+      "dependencies": [
+        "T04",
+        "T12",
+        "T15",
+        "T16"
+      ],
+      "requirements": [
+        "I06"
+      ],
+      "acceptance": [
+        "C06",
+        "C11",
+        "C35"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/operations/objects.rs",
+        "crates/meshcraft-core/src/document.rs",
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftLineStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/DraftFaceStore.kt"
+      ],
+      "source_symbols": [
+        "deleteSelection",
+        "deleteSelected"
+      ],
+      "slices": [
+        "Implement an atomic Delete Selection operation for supported selected object occurrences, vertices, segments and triangles, preserving shared definitions and nested occurrence isolation.",
+        "Enable Delete Selection for every valid supported selection and route the command, Delete key and Edit/menu/button entry through the same undoable operation; report unsupported or stale targets without partial edits.",
+        "Cover realistic viewport selections, mixed and nested selections, dependent mesh topology, active-instance isolation, command-state readiness, undo/redo and every user-facing Delete route."
+      ],
+      "done": [
+        "Selecting any supported object or mesh entity and invoking Delete removes the intended selection, clears removed targets and creates one undo step; undo and redo restore the corresponding document states.",
+        "Delete Selection is enabled for valid supported selections and behaves identically through the palette, Delete key and Edit menu/button; invalid or unsupported selections fail atomically with a clear diagnostic."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

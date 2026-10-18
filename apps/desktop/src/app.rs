@@ -4793,25 +4793,32 @@ impl MeshcraftApp {
             }
             ShellAction::CopySelection => return self.copy_selection(),
             ShellAction::DeleteSelection => {
-                let selected = self.selected_occurrences();
-                let removed = match self
-                    .commit_document_edit("Delete selected objects", |document| {
-                        document.remove_selected_occurrences(&selected)
-                    }) {
-                    Ok(removed) => removed,
+                let selection = self.selection.clone();
+                let deleted = match self.commit_document_edit("Delete selection", |document| {
+                    modeling_objects::delete_selection(document, &selection)
+                }) {
+                    Ok(deleted) => deleted,
                     Err(error) => return CommandResult::failed(error),
                 };
                 self.selection.clear();
                 self.object_name_edit = None;
-                self.status = if removed == 1 {
-                    "Deleted 1 selected object.".to_owned()
-                } else {
-                    format!("Deleted {removed} selected objects.")
-                };
+                self.status = format!(
+                    "Deleted {} object(s), {} vertex/vertices, {} edge(s) and {} face(s).",
+                    deleted.occurrences, deleted.vertices, deleted.segments, deleted.triangles
+                );
                 let mut result = CommandResult::completed();
                 result
                     .outputs
-                    .insert("deleted_count".to_owned(), removed.into());
+                    .insert("deleted_count".to_owned(), deleted.deleted_count().into());
+                result.outputs.insert(
+                    "deleted".to_owned(),
+                    serde_json::json!({
+                        "objects": deleted.occurrences,
+                        "vertices": deleted.vertices,
+                        "edges": deleted.segments,
+                        "faces": deleted.triangles,
+                    }),
+                );
                 return result;
             }
             ShellAction::ClearSelection => {
@@ -5698,25 +5705,10 @@ impl MeshcraftApp {
                 CommandState::disabled("select objects or mesh entities first")
             }
             CommandStateQuery::DeleteSelectionAvailable => {
-                let selection = self.selected_occurrences();
-                let mut paths = BTreeSet::new();
-                let existing = !selection.is_empty()
-                    && selection.iter().all(|item| {
-                        !item.path.is_empty()
-                            && self.document.resolve_occurrence(item).is_some()
-                            && paths.insert(item.path.clone())
-                    });
-                let overlaps = paths.iter().any(|path| {
-                    paths
-                        .iter()
-                        .any(|other| path.len() < other.len() && other.starts_with(path))
-                });
-                if existing && !overlaps {
+                if modeling_objects::can_delete_selection(&self.document, &self.selection) {
                     CommandState::default()
                 } else {
-                    CommandState::disabled(
-                        "select existing objects without selecting both a parent and its child",
-                    )
+                    CommandState::disabled("select existing objects or mesh entities to delete")
                 }
             }
             CommandStateQuery::RootSelectionAvailable => {
@@ -9624,14 +9616,14 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, CutTool, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
-        MeshcraftApp, OrthoView, PolylineToolState, Preferences, PrimitiveToolState,
-        ReplacementDecision, RevolveToolState, SelectedEntity, SelectionClickTracker,
-        SelectionDisplayPolicy, SelectionMode, SelectionSession, SelectionTarget, ShapeToolState,
-        ToolCycleState, ToolEvent, TransactionHistory, TransformPick, TransformTool,
-        TransformToolState, UiProfile, command_matches, point_feedback_text,
-        push_pull_feedback_text, registry_has_unique_ids, shell_commands, tool_command_id,
-        vector_feedback_text,
+        CommandPayload, CutTool, DrawingToolState, EditContext, LEGACY_TOOLBAR_COMMAND_IDS,
+        LineOffsetToolState, MeshToolState, MeshcraftApp, OrthoView, PolylineToolState,
+        Preferences, PrimitiveToolState, ReplacementDecision, RevolveToolState, SelectedEntity,
+        SelectionClickTracker, SelectionDisplayPolicy, SelectionMode, SelectionSession,
+        SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent, TransactionHistory,
+        TransformPick, TransformTool, TransformToolState, UiProfile, command_matches,
+        point_feedback_text, push_pull_feedback_text, registry_has_unique_ids, shell_commands,
+        tool_command_id, vector_feedback_text,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, SelectionGesture,
@@ -9830,6 +9822,43 @@ mod tests {
             array_preview: None,
             pending_selection_volume: None,
         }
+    }
+
+    fn click_visible_cube_face(
+        app: &mut MeshcraftApp,
+        occurrence: &OccurrenceRef,
+    ) -> SelectionTarget {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let resolved = app.document.resolve_occurrence(occurrence).unwrap();
+        let geometry = app.document.effective_geometry(occurrence).unwrap();
+        let (position, world_point, target) = geometry
+            .triangles
+            .values()
+            .find_map(|triangle| {
+                let points = triangle.vertices.map(|reference| {
+                    resolved
+                        .world_transform
+                        .transform_point(geometry.vertex_position(reference).unwrap())
+                });
+                let world_point = (points[0] + points[1] + points[2]) / 3.0;
+                let position = app.viewport.world_to_screen(rect, world_point);
+                let target = app.viewport.pick_selection_target(
+                    rect,
+                    &app.document,
+                    position,
+                    SnapScope::Document,
+                    &app.selection_display_policy,
+                )?;
+                matches!(target.entity, SelectedEntity::Triangle(_)).then_some((
+                    position,
+                    world_point,
+                    target,
+                ))
+            })
+            .expect("a cuboid triangle should be visible to the viewport picker");
+        app.handle_viewport_click_at_point(rect, position, None, Some(world_point));
+        assert!(app.selection.selected().contains(&target));
+        target
     }
 
     fn run_workspace_frame(
@@ -13866,6 +13895,63 @@ mod tests {
     }
 
     #[test]
+    fn delete_selection_removes_a_viewport_picked_face_and_is_undoable() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "picked face",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(-1.0, -1.0, -1.0),
+            )
+            .unwrap();
+        let target = click_visible_cube_face(&mut app, &occurrence);
+        let SelectedEntity::Triangle(face) = target.entity else {
+            unreachable!();
+        };
+        let original = app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .len();
+
+        assert!(app.query_command_state("edit.delete_selection").enabled);
+        let deleted = app.dispatch_command("edit.delete_selection", &CommandPayload::default());
+
+        assert!(deleted.accepted, "{:?}", deleted.result);
+        assert_eq!(json!(1), deleted.result.outputs["deleted_count"]);
+        assert!(
+            !app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .contains_key(&face)
+        );
+        assert!(app.selection.selected().is_empty());
+        assert_eq!(1, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        assert_eq!(
+            original,
+            app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        app.run_command("edit.redo");
+        assert_eq!(
+            original - 1,
+            app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .len()
+        );
+    }
+
+    #[test]
     fn delete_command_handles_selection_across_separate_groups() {
         let mut app = test_app();
         let make_pair = |app: &mut MeshcraftApp, prefix: &str, offset: f64| {
@@ -13951,6 +14037,47 @@ mod tests {
     }
 
     #[test]
+    fn delete_key_removes_a_viewport_selected_mesh_face() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "keyboard face",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(-1.0, -1.0, -1.0),
+            )
+            .unwrap();
+        let target = click_visible_cube_face(&mut app, &occurrence);
+        let SelectedEntity::Triangle(face) = target.entity else {
+            unreachable!();
+        };
+        assert!(app.query_command_state("edit.delete_selection").enabled);
+
+        let context = egui::Context::default();
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::Delete,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+
+        assert!(app.selection.selected().is_empty());
+        assert!(
+            !app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .contains_key(&face)
+        );
+        assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
     fn delete_command_is_searchable_from_the_palette() {
         let command = shell_commands()
             .get("edit.delete_selection")
@@ -13958,6 +14085,13 @@ mod tests {
         assert!(command_matches(&command.descriptor, "delete selection"));
         assert_eq!(Some("Delete"), command.descriptor.shortcut.as_deref());
         assert_eq!(CommandKind::DocumentMutation, command.descriptor.kind);
+        assert!(
+            LEGACY_TOOLBAR_COMMAND_IDS
+                .iter()
+                .any(|(toolbar, ids)| *toolbar == "actions"
+                    && ids.contains(&"edit.delete_selection"))
+        );
+        assert_eq!(vec!["Edit"], command.descriptor.presentation.menu_path);
     }
 
     #[test]

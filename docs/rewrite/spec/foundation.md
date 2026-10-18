@@ -138,6 +138,8 @@ Selection spans edges, faces, objects, voxels, dimensions, text, hotspots, archi
 
 **User-confirmed rule.** Modeling operators must work on every supported selected entity type, not only object instances.
 
+**Delete selection behavior (issue #4).** The Delete Selection command, Delete key, Edit menu and Actions toolbar button share one undoable operation. It removes selected object instances and supported mesh vertices, edges and faces. Deleting a vertex also removes incident edges and faces to keep topology valid. Geometry deleted from an ordinary instance remains instance-local; edits in the active definition context affect that prototype. Domain handles are never silently ignored and require their domain deletion operation.
+
 Source: `K/tools/SelectTool.kt`, selection/display callbacks in `K/Main.kt`. Acceptance: C11, C12, C15.
 
 ### I07 Tool lifecycle, numeric input, and operators

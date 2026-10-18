@@ -2,8 +2,8 @@
 
 use crate::document::{
     ChildLayout, ChildLayoutId, Definition, DefinitionId, DefinitionKind, Document, GeometryBundle,
-    GeometryBundleId, LayoutEntry, LayoutEntryId, OccurrenceRef, Segment, SegmentId, Triangle,
-    TriangleId, Vertex, VertexId, VertexRef,
+    GeometryBundleId, InstanceEdits, LayoutEntry, LayoutEntryId, OccurrenceRef, Segment, SegmentId,
+    Triangle, TriangleId, Vertex, VertexId, VertexRef,
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use crate::selection::{EditContext, SelectedEntity, SelectionSession, SelectionTarget};
@@ -16,6 +16,281 @@ pub struct ExplodeReport {
     pub segments: usize,
     pub triangles: usize,
     pub selected_results: Vec<SelectionTarget>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DeleteReport {
+    pub occurrences: usize,
+    pub vertices: usize,
+    pub segments: usize,
+    pub triangles: usize,
+}
+
+impl DeleteReport {
+    pub fn deleted_count(&self) -> usize {
+        self.occurrences + self.vertices + self.segments + self.triangles
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct MeshDeleteSet {
+    vertices: BTreeSet<VertexId>,
+    segments: BTreeSet<SegmentId>,
+    triangles: BTreeSet<TriangleId>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum MeshDeleteOwner {
+    Definition(DefinitionId),
+    Occurrence(OccurrenceRef),
+}
+
+fn mesh_delete_owner(
+    selection: &SelectionSession,
+    occurrence: &OccurrenceRef,
+    definition: DefinitionId,
+) -> MeshDeleteOwner {
+    let prototype_edit = match &selection.context {
+        EditContext::Definition(active) => *active == definition,
+        EditContext::Occurrence(active) => active == occurrence,
+        EditContext::Document => occurrence.is_scene_root(),
+    };
+    if prototype_edit {
+        MeshDeleteOwner::Definition(definition)
+    } else {
+        MeshDeleteOwner::Occurrence(occurrence.clone())
+    }
+}
+
+/// Returns whether the current selection contains only existing targets supported by Delete.
+pub fn can_delete_selection(document: &Document, selection: &SelectionSession) -> bool {
+    !selection.selected().is_empty()
+        && selection.selected().iter().all(|target| {
+            let Some(geometry) = document.effective_geometry(&target.occurrence) else {
+                return false;
+            };
+            match target.entity {
+                SelectedEntity::Occurrence => {
+                    !target.occurrence.is_scene_root()
+                        && document.resolve_occurrence(&target.occurrence).is_some()
+                }
+                SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
+                SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
+                SelectedEntity::Triangle(id) => geometry.triangles.contains_key(&id),
+                SelectedEntity::SemanticHandle { .. } => false,
+            }
+        })
+}
+
+/// Deletes selected instances and mesh entities in one atomic edit, isolating ordinary instance
+/// geometry edits while preserving prototype edits in the active object context.
+pub fn delete_selection(
+    document: &mut Document,
+    selection: &SelectionSession,
+) -> Result<DeleteReport, String> {
+    if selection.selected().is_empty() {
+        return Err("select objects or mesh entities to delete".to_owned());
+    }
+    for target in selection.selected() {
+        if matches!(target.entity, SelectedEntity::SemanticHandle { .. }) {
+            return Err(
+                "delete this semantic selection through its domain-specific command".to_owned(),
+            );
+        }
+        if document.resolve_occurrence(&target.occurrence).is_none() {
+            return Err("a selected object or mesh owner no longer exists".to_owned());
+        }
+    }
+
+    let selected_occurrences = selection
+        .selected()
+        .iter()
+        .filter(|target| target.entity == SelectedEntity::Occurrence)
+        .map(|target| target.occurrence.clone())
+        .collect::<BTreeSet<_>>();
+    if selected_occurrences
+        .iter()
+        .any(OccurrenceRef::is_scene_root)
+    {
+        return Err("the scene root cannot be deleted as an object instance".to_owned());
+    }
+    let occurrence_roots = selected_occurrences
+        .iter()
+        .filter(|occurrence| {
+            !selected_occurrences.iter().any(|parent| {
+                parent.path.len() < occurrence.path.len()
+                    && occurrence.path.starts_with(&parent.path)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut mesh_selections = BTreeMap::<MeshDeleteOwner, MeshDeleteSet>::new();
+    for target in selection.selected() {
+        if target.entity == SelectedEntity::Occurrence
+            || occurrence_roots
+                .iter()
+                .any(|occurrence| target.occurrence.path.starts_with(&occurrence.path))
+        {
+            continue;
+        }
+        let resolved = document
+            .resolve_occurrence(&target.occurrence)
+            .expect("selected occurrence was validated above");
+        let geometry = document
+            .effective_geometry(&target.occurrence)
+            .expect("resolved mesh owner has effective geometry");
+        let owner = match target.entity {
+            SelectedEntity::Vertex(id) => {
+                if !geometry.vertices.contains_key(&id) {
+                    return Err(format!("selected vertex {} no longer exists", id.0));
+                }
+                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+            }
+            SelectedEntity::Segment(id) => {
+                if !geometry.segments.contains_key(&id) {
+                    return Err(format!("selected segment {} no longer exists", id.0));
+                }
+                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+            }
+            SelectedEntity::Triangle(id) => {
+                if !geometry.triangles.contains_key(&id) {
+                    return Err(format!("selected face {} no longer exists", id.0));
+                }
+                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+            }
+            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => unreachable!(),
+        };
+        let entities = mesh_selections.entry(owner).or_default();
+        match target.entity {
+            SelectedEntity::Vertex(id) => {
+                entities.vertices.insert(id);
+            }
+            SelectedEntity::Segment(id) => {
+                entities.segments.insert(id);
+            }
+            SelectedEntity::Triangle(id) => {
+                entities.triangles.insert(id);
+            }
+            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => unreachable!(),
+        }
+    }
+
+    if occurrence_roots.is_empty() && mesh_selections.is_empty() {
+        return Err("the selection contains no deletable objects or mesh entities".to_owned());
+    }
+
+    let mut candidate = document.clone();
+    let mut report = DeleteReport::default();
+    for (owner, selected) in mesh_selections {
+        let mut geometry = match &owner {
+            MeshDeleteOwner::Definition(id) => candidate
+                .definitions
+                .get(id)
+                .ok_or_else(|| format!("mesh definition {} no longer exists", id.0))?
+                .geometry
+                .clone(),
+            MeshDeleteOwner::Occurrence(occurrence) => candidate
+                .effective_geometry(occurrence)
+                .cloned()
+                .ok_or_else(|| "the selected mesh owner no longer exists".to_owned())?,
+        };
+        for id in &selected.vertices {
+            if !geometry.vertices.contains_key(id) {
+                return Err(format!(
+                    "selected vertex {} is not in the active mesh graph",
+                    id.0
+                ));
+            }
+        }
+        for id in &selected.segments {
+            if !geometry.segments.contains_key(id) {
+                return Err(format!(
+                    "selected edge {} is not in the active mesh graph",
+                    id.0
+                ));
+            }
+        }
+        for id in &selected.triangles {
+            if !geometry.triangles.contains_key(id) {
+                return Err(format!(
+                    "selected face {} is not in the active mesh graph",
+                    id.0
+                ));
+            }
+        }
+
+        for vertex in &selected.vertices {
+            geometry.vertices.remove(vertex);
+        }
+        let mut incident_segments = BTreeSet::new();
+        for (id, segment) in &geometry.segments {
+            if segment
+                .endpoints
+                .iter()
+                .any(|reference| selected.vertices.contains(&reference.id))
+            {
+                incident_segments.insert(*id);
+            }
+        }
+        let mut incident_triangles = BTreeSet::new();
+        for (id, triangle) in &geometry.triangles {
+            if triangle
+                .vertices
+                .iter()
+                .any(|reference| selected.vertices.contains(&reference.id))
+            {
+                incident_triangles.insert(*id);
+            }
+        }
+        for id in selected.segments.union(&incident_segments) {
+            report.segments += if geometry.segments.remove(id).is_some() {
+                1
+            } else {
+                0
+            };
+        }
+        for id in selected.triangles.union(&incident_triangles) {
+            report.triangles += if geometry.triangles.remove(id).is_some() {
+                1
+            } else {
+                0
+            };
+        }
+        report.vertices += selected.vertices.len();
+
+        match owner {
+            MeshDeleteOwner::Definition(id) => {
+                candidate
+                    .definitions
+                    .get_mut(&id)
+                    .expect("definition was validated above")
+                    .geometry = geometry;
+            }
+            MeshDeleteOwner::Occurrence(occurrence) => {
+                let mut edits = candidate
+                    .occurrence_edits
+                    .get(&occurrence)
+                    .cloned()
+                    .unwrap_or_else(InstanceEdits::default);
+                edits.geometry_replacement = Some(geometry);
+                if !candidate.set_occurrence_edits(occurrence, edits) {
+                    return Err("could not store the selected instance's mesh edit".to_owned());
+                }
+            }
+        }
+    }
+
+    if !occurrence_roots.is_empty() {
+        report.occurrences = candidate.remove_selected_occurrences(&occurrence_roots)?;
+    }
+    candidate.revision = document
+        .revision
+        .checked_add(1)
+        .ok_or_else(|| "document revision counter is exhausted".to_owned())?;
+    candidate.validate()?;
+    *document = candidate;
+    Ok(report)
 }
 
 /// Domain implementations can append their resolved mesh output during explode.
@@ -1166,19 +1441,139 @@ fn rotation_between(from: Vec3, to: Vec3) -> Result<Affine3, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshOnlyExplodeAdapter, delete_unused_definition, duplicate_occurrence,
-        explode_occurrences, group_occurrences, group_selection, place_definition,
+        MeshOnlyExplodeAdapter, can_delete_selection, delete_selection, delete_unused_definition,
+        duplicate_occurrence, explode_occurrences, group_occurrences, group_selection,
+        place_definition,
     };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec3};
     use crate::selection::{
-        EditContext, SelectedEntity, SelectionMode, SelectionSession, SelectionTarget,
+        EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionSession,
+        SelectionTarget,
     };
 
     fn cube(document: &mut Document, name: &str, offset: Vec3) -> OccurrenceRef {
         document
             .add_cuboid(name, Vec3::new(1.0, 1.0, 1.0), offset)
             .unwrap()
+    }
+
+    #[test]
+    fn deleting_a_face_from_one_instance_keeps_other_shared_instances_unchanged() {
+        let mut document = Document::new();
+        let first = cube(&mut document, "first", Vec3::ZERO);
+        let second = document
+            .copy_root_occurrence(&first, Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        let first_geometry = document.effective_geometry(&first).unwrap();
+        let face = *first_geometry.triangles.keys().next().unwrap();
+        let target = SelectionTarget {
+            occurrence: first.clone(),
+            entity: SelectedEntity::Triangle(face),
+        };
+        let mut selection = SelectionSession::default();
+        selection.select(target);
+
+        assert!(can_delete_selection(&document, &selection));
+        let report = delete_selection(&mut document, &selection).unwrap();
+
+        assert_eq!(1, report.triangles);
+        assert_eq!(
+            11,
+            document.effective_geometry(&first).unwrap().triangles.len()
+        );
+        assert_eq!(
+            12,
+            document
+                .effective_geometry(&second)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_a_vertex_cascades_to_incident_edges_and_faces() {
+        let mut document = Document::new();
+        let cube = cube(&mut document, "cube", Vec3::ZERO);
+        let vertex = *document
+            .effective_geometry(&cube)
+            .unwrap()
+            .vertices
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: cube.clone(),
+            entity: SelectedEntity::Vertex(vertex),
+        });
+
+        let report = delete_selection(&mut document, &selection).unwrap();
+
+        assert_eq!(1, report.vertices);
+        assert!(report.segments > 0);
+        assert!(report.triangles > 0);
+        let geometry = document.effective_geometry(&cube).unwrap();
+        assert!(!geometry.vertices.contains_key(&vertex));
+        assert!(geometry.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_a_selected_parent_and_child_removes_the_parent_once() {
+        let mut document = Document::new();
+        let parent_mesh = cube(&mut document, "parent mesh", Vec3::ZERO);
+        let parent = group_occurrences(&mut document, &[parent_mesh], "parent").unwrap();
+        let child = document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|occurrence| occurrence.path.len() == 2)
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.apply(
+            [parent.clone(), child]
+                .into_iter()
+                .map(|occurrence| SelectionTarget {
+                    occurrence,
+                    entity: SelectedEntity::Occurrence,
+                }),
+            SelectionMode::Replace,
+        );
+
+        let report = delete_selection(&mut document, &selection).unwrap();
+
+        assert_eq!(1, report.occurrences);
+        assert!(document.occurrence_refs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unsupported_semantic_selection_does_not_partially_delete_objects() {
+        let mut document = Document::new();
+        let occurrence = cube(&mut document, "selected", Vec3::ZERO);
+        let before = document.clone();
+        let mut selection = SelectionSession::default();
+        selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Occurrence,
+                },
+                SelectionTarget {
+                    occurrence,
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Hotspot,
+                        id: "handle-1".to_owned(),
+                    },
+                },
+            ],
+            SelectionMode::Replace,
+        );
+
+        assert!(!can_delete_selection(&document, &selection));
+        assert!(delete_selection(&mut document, &selection).is_err());
+        assert_eq!(before, document);
     }
 
     #[test]
