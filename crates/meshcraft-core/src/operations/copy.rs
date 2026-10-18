@@ -7,6 +7,8 @@ use crate::selection::{SelectedEntity, SelectionMode, SelectionSession, Selectio
 use std::collections::BTreeSet;
 
 pub const MAX_LINEAR_ARRAY_COPIES: usize = 10_000;
+pub const MAX_MULTIPLE_ARRAY_COPIES: usize = 2_048;
+pub const MAX_MULTIPLE_ARRAY_PREVIEW_COPIES: usize = 10_000;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LinearArrayReport {
@@ -66,6 +68,30 @@ pub fn linear_array(
     if !step.is_finite() || step.length_squared() <= zero_step * zero_step {
         return Err("linear array step must be finite and nonzero".to_owned());
     }
+    let offsets = (1..=copies)
+        .map(|index| step * index as f64)
+        .collect::<Vec<_>>();
+    translated_array(document, selection, &offsets)
+}
+
+/// Copies the supported selection once at each supplied world-space translation.
+/// The source selection is never transformed, and generated results replace it atomically.
+pub fn translated_array(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    offsets: &[Vec3],
+) -> Result<LinearArrayReport, String> {
+    if offsets.is_empty() || offsets.len() > MAX_LINEAR_ARRAY_COPIES {
+        return Err(format!(
+            "array copy count must be between 1 and {MAX_LINEAR_ARRAY_COPIES}"
+        ));
+    }
+    if offsets
+        .iter()
+        .any(|offset| !offset.is_finite() || offset.length_squared() <= f64::EPSILON.powi(2))
+    {
+        return Err("array offsets must be finite and nonzero".to_owned());
+    }
     if !can_linear_array_selection(document, selection) {
         return Err("select supported object instances or mesh entities to array".to_owned());
     }
@@ -76,13 +102,11 @@ pub fn linear_array(
     resulting_selection.clear();
     let mut result_targets = BTreeSet::new();
     let mut report = LinearArrayReport {
-        copies,
+        copies: offsets.len(),
         ..LinearArrayReport::default()
     };
 
-    for index in 1..=copies {
-        let distance = index as f64;
-        let offset = step * distance;
+    for offset in offsets {
         if !offset.is_finite() {
             return Err("linear array offsets exceed the supported coordinate range".to_owned());
         }
@@ -90,7 +114,7 @@ pub fn linear_array(
         let transform_report = transforms::transform_selection(
             &mut candidate,
             &mut copy_selection,
-            Affine3::from_translation(offset),
+            Affine3::from_translation(*offset),
             true,
         )?;
         if !transform_report.changed() || copy_selection.selected().is_empty() {
@@ -111,9 +135,99 @@ pub fn linear_array(
     Ok(report)
 }
 
+/// Builds the legacy XZ translation grid from origin, one measured step, and a span point.
+pub fn planar_translation_offsets(origin: Vec3, measure: Vec3, extent: Vec3) -> (Vec<Vec3>, bool) {
+    planar_translation_offsets_limited(origin, measure, extent, MAX_MULTIPLE_ARRAY_COPIES)
+}
+
+pub fn planar_translation_offsets_limited(
+    origin: Vec3,
+    measure: Vec3,
+    extent: Vec3,
+    limit: usize,
+) -> (Vec<Vec3>, bool) {
+    grid_translation_offsets(origin, measure, extent, [true, false, true], limit)
+}
+
+/// Builds the legacy XYZ translation grid from origin, one measured step, and a span point.
+pub fn volumetric_translation_offsets(
+    origin: Vec3,
+    measure: Vec3,
+    extent: Vec3,
+) -> (Vec<Vec3>, bool) {
+    volumetric_translation_offsets_limited(origin, measure, extent, MAX_MULTIPLE_ARRAY_COPIES)
+}
+
+pub fn volumetric_translation_offsets_limited(
+    origin: Vec3,
+    measure: Vec3,
+    extent: Vec3,
+    limit: usize,
+) -> (Vec<Vec3>, bool) {
+    grid_translation_offsets(origin, measure, extent, [true, true, true], limit)
+}
+
+fn grid_translation_offsets(
+    origin: Vec3,
+    measure: Vec3,
+    extent: Vec3,
+    axes: [bool; 3],
+    limit: usize,
+) -> (Vec<Vec3>, bool) {
+    if !origin.is_finite() || !measure.is_finite() || !extent.is_finite() {
+        return (Vec::new(), false);
+    }
+    let step = measure - origin;
+    let span = extent - origin;
+    let steps = [step.x, step.y, step.z];
+    let spans = [span.x, span.y, span.z];
+    let counts: [usize; 3] = std::array::from_fn(|axis| {
+        if axes[axis] {
+            axis_copy_count(steps[axis], spans[axis], limit)
+        } else {
+            0
+        }
+    });
+    let mut offsets = Vec::new();
+    let mut capped = false;
+    for ix in 0..=counts[0] {
+        for iy in 0..=counts[1] {
+            for iz in 0..=counts[2] {
+                if ix == 0 && iy == 0 && iz == 0 {
+                    continue;
+                }
+                if offsets.len() == limit {
+                    capped = true;
+                    return (offsets, capped);
+                }
+                offsets.push(Vec3::new(
+                    steps[0] * ix as f64,
+                    steps[1] * iy as f64,
+                    steps[2] * iz as f64,
+                ));
+            }
+        }
+    }
+    (offsets, capped)
+}
+
+fn axis_copy_count(step: f64, span: f64, limit: usize) -> usize {
+    if !step.is_finite() || !span.is_finite() || step.abs() <= f64::EPSILON {
+        return 0;
+    }
+    let ratio = span / step;
+    if !ratio.is_finite() || ratio < 1.0 {
+        return 0;
+    }
+    ratio.floor().min(limit.saturating_add(1) as f64) as usize
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{can_linear_array_selection, linear_array};
+    use super::{
+        can_linear_array_selection, linear_array, planar_translation_offsets, translated_array,
+        volumetric_translation_offsets,
+    };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::Vec3;
     use crate::selection::{SelectedEntity, SelectionMode, SelectionSession, SelectionTarget};
@@ -252,5 +366,69 @@ mod tests {
 
         assert_eq!(before_document, document);
         assert_eq!(before_selection, selection);
+    }
+
+    #[test]
+    fn planar_array_uses_signed_xz_counts_and_excludes_the_source_cell() {
+        let (offsets, capped) = planar_translation_offsets(
+            Vec3::ZERO,
+            Vec3::new(-2.0, 7.0, 3.0),
+            Vec3::new(-4.5, -10.0, 6.1),
+        );
+
+        assert!(!capped);
+        assert_eq!(8, offsets.len());
+        assert!(offsets.contains(&Vec3::new(-2.0, 0.0, 0.0)));
+        assert!(offsets.contains(&Vec3::new(0.0, 0.0, 6.0)));
+        assert!(offsets.contains(&Vec3::new(-4.0, 0.0, 6.0)));
+        assert!(!offsets.contains(&Vec3::ZERO));
+    }
+
+    #[test]
+    fn volumetric_array_uses_xyz_steps_and_caps_output() {
+        let (offsets, capped) = volumetric_translation_offsets(
+            Vec3::ZERO,
+            Vec3::new(1.0, 1.0, 1.0),
+            Vec3::new(20.0, 20.0, 20.0),
+        );
+
+        assert_eq!(super::MAX_MULTIPLE_ARRAY_COPIES, offsets.len());
+        assert!(capped);
+        assert!(!offsets.contains(&Vec3::ZERO));
+    }
+
+    #[test]
+    fn translated_array_copies_each_selected_target_at_the_supplied_offsets() {
+        let mut document = Document::new();
+        let source = cube(&mut document, "source", Vec3::ZERO);
+        let face = *document
+            .effective_geometry(&source)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: source.clone(),
+            entity: SelectedEntity::Triangle(face),
+        });
+
+        let report = translated_array(
+            &mut document,
+            &mut selection,
+            &[Vec3::X * 2.0, Vec3::Z * 3.0],
+        )
+        .unwrap();
+
+        assert_eq!(2, report.copies);
+        assert_eq!(2, report.selected_results.len());
+        assert!(
+            document
+                .effective_geometry(&source)
+                .unwrap()
+                .triangles
+                .contains_key(&face)
+        );
     }
 }

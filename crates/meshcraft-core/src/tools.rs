@@ -2,6 +2,7 @@
 
 use crate::geometry::Vec3;
 
+pub mod arrays;
 pub mod object_place;
 pub mod paths;
 pub mod primitives;

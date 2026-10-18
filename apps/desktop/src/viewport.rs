@@ -280,6 +280,11 @@ pub enum ToolPreview {
         copies: usize,
         displacement: Vec3,
     },
+    ArrayOffsets {
+        edges: Vec<[Vec3; 2]>,
+        offsets: Vec<Vec3>,
+        capped: bool,
+    },
     LineOffset {
         edges: Vec<[Vec3; 2]>,
         target: Vec3,
@@ -899,6 +904,11 @@ impl Viewport {
                     for index in 1..=*copies {
                         let translation = *displacement * index as f64;
                         self.draw_translated_transform_preview(&painter, rect, edges, translation);
+                    }
+                }
+                ToolPreview::ArrayOffsets { edges, offsets, .. } => {
+                    for translation in offsets {
+                        self.draw_translated_transform_preview(&painter, rect, edges, *translation);
                     }
                 }
                 ToolPreview::LineOffset {
