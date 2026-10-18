@@ -60,6 +60,7 @@ pub enum RotationalArrayKind {
     Planar,
     Helicoidal,
     RotationalArray,
+    HelicalArray,
 }
 
 impl RotationalArrayKind {
@@ -68,6 +69,7 @@ impl RotationalArrayKind {
             "Planar Rotate Multiple" => Some(Self::Planar),
             "Helicoidal Rotate Multiple" => Some(Self::Helicoidal),
             "Rotational Array" => Some(Self::RotationalArray),
+            "Helical Array" => Some(Self::HelicalArray),
             _ => None,
         }
     }
@@ -77,11 +79,34 @@ impl RotationalArrayKind {
             Self::Planar => "Planar Rotate Multiple",
             Self::Helicoidal => "Helicoidal Rotate Multiple",
             Self::RotationalArray => "Rotational Array",
+            Self::HelicalArray => "Helical Array",
         }
     }
 
     fn helicoidal(self) -> bool {
         self == Self::Helicoidal
+    }
+
+    fn transforms(
+        self,
+        center: Vec3,
+        reference: Vec3,
+        increment: Vec3,
+        extent: Vec3,
+        limit: usize,
+    ) -> (Vec<Affine3>, bool) {
+        if self == Self::HelicalArray {
+            helical_array_transforms(center, reference, increment, extent, limit)
+        } else {
+            rotational_array_transforms(
+                center,
+                reference,
+                increment,
+                extent,
+                self.helicoidal(),
+                limit,
+            )
+        }
     }
 }
 
@@ -149,12 +174,11 @@ impl RotationalArrayToolState {
                 Ok(RotationalArrayPick::NeedExtent)
             }
             _ => {
-                let (transforms, capped) = rotational_array_transforms(
+                let (transforms, capped) = kind.transforms(
                     self.points[0],
                     self.points[1],
                     self.points[2],
                     point,
-                    kind.helicoidal(),
                     crate::operations::copy::MAX_MULTIPLE_ARRAY_COPIES,
                 );
                 self.points.clear();
@@ -168,12 +192,11 @@ impl RotationalArrayToolState {
         if self.points.len() != 3 || !point.is_finite() {
             return None;
         }
-        Some(rotational_array_transforms(
+        Some(kind.transforms(
             self.points[0],
             self.points[1],
             self.points[2],
             point,
-            kind.helicoidal(),
             MAX_MULTIPLE_ARRAY_PREVIEW_COPIES,
         ))
     }
@@ -255,6 +278,105 @@ pub fn rotational_array_transforms(
                 axis,
                 step_angle * index as f64,
                 lift_per_step * index as f64,
+            )
+        })
+        .collect();
+    (transforms, capped)
+}
+
+/// Resolves the legacy Y-axis fixed-step helical array from center, reference, unit, and end.
+pub fn helical_array_transforms(
+    center: Vec3,
+    reference: Vec3,
+    unit: Vec3,
+    extent: Vec3,
+    limit: usize,
+) -> (Vec<Affine3>, bool) {
+    if !center.is_finite() || !reference.is_finite() || !unit.is_finite() || !extent.is_finite() {
+        return (Vec::new(), false);
+    }
+    let axis = Vec3::Y;
+    let reference_vector = reference - center;
+    let unit_vector = unit - center;
+    let extent_vector = extent - center;
+    let reference_projected = project_to_rotation_plane(reference_vector, axis);
+    let unit_projected = project_to_rotation_plane(unit_vector, axis);
+    let extent_projected = project_to_rotation_plane(extent_vector, axis);
+    if reference_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+        || unit_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+        || extent_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+    {
+        return (Vec::new(), false);
+    }
+    let step_angle = signed_angle(reference_projected, unit_projected, axis);
+    if step_angle.abs() <= 1.0e-4 {
+        return (Vec::new(), false);
+    }
+    let step_lift = unit.y - reference.y;
+    let raw_sweep = signed_angle(reference_projected, extent_projected, axis);
+    let raw_copies = if step_lift.abs() <= 1.0e-4 {
+        let direction = step_angle.signum();
+        let sweep = normalize_sweep(raw_sweep, direction);
+        let mut copies = (sweep.abs() / step_angle.abs()).floor();
+        if (sweep.abs() - std::f64::consts::TAU).abs() <= 1.0e-3 && copies > 1.0 {
+            copies -= 1.0;
+        }
+        copies
+    } else {
+        let height_estimate = (extent.y - reference.y) / step_lift;
+        if !height_estimate.is_finite() || height_estimate <= 0.0 {
+            return (Vec::new(), false);
+        }
+        let approximate_sweep = (step_angle * height_estimate).abs();
+        let estimated_turns = if approximate_sweep.is_finite() {
+            (approximate_sweep / std::f64::consts::TAU)
+                .floor()
+                .min(limit as f64) as usize
+        } else {
+            limit
+        };
+        let max_turns = estimated_turns.saturating_add(8).min(limit);
+        let direction = step_angle.signum();
+        let mut best_copies = 0.0;
+        let mut best_score = f64::INFINITY;
+        for turns in 0..=max_turns {
+            let mut candidate_sweep = raw_sweep + std::f64::consts::TAU * direction * turns as f64;
+            if candidate_sweep * direction <= 0.0 {
+                candidate_sweep += std::f64::consts::TAU * direction;
+            }
+            if candidate_sweep * direction <= 0.0 {
+                continue;
+            }
+            let candidate_count = candidate_sweep / step_angle;
+            if candidate_count <= 0.0 || !candidate_count.is_finite() {
+                continue;
+            }
+            let rounded_count = candidate_count.round().max(1.0);
+            let score = (rounded_count - height_estimate).abs()
+                + (candidate_count - rounded_count).abs() * 0.25;
+            if score < best_score {
+                best_score = score;
+                best_copies = rounded_count;
+            }
+        }
+        if best_copies == 0.0 {
+            height_estimate.round().max(1.0)
+        } else {
+            best_copies
+        }
+    };
+    let capped = raw_copies > limit as f64;
+    let copies = raw_copies.min(limit as f64) as usize;
+    if copies == 0 {
+        return (Vec::new(), capped);
+    }
+    let transforms = (1..=copies)
+        .map(|index| {
+            rotation_about_axis(
+                center,
+                axis,
+                step_angle * index as f64,
+                step_lift * index as f64,
             )
         })
         .collect();
@@ -509,6 +631,32 @@ mod tests {
             transforms[1]
                 .transform_point(Vec3::X)
                 .distance(Vec3::new(-1.0, 0.0, 4.0))
+                < 1.0e-9
+        );
+    }
+
+    #[test]
+    fn helical_array_uses_the_world_y_axis_and_the_measured_unit_lift() {
+        let (transforms, capped) = super::helical_array_transforms(
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::new(0.0, 2.0, -1.0),
+            Vec3::new(-1.0, 4.0, 0.0),
+            2_048,
+        );
+
+        assert!(!capped);
+        assert_eq!(2, transforms.len());
+        assert!(
+            transforms[0]
+                .transform_point(Vec3::X)
+                .distance(Vec3::new(0.0, 2.0, -1.0))
+                < 1.0e-9
+        );
+        assert!(
+            transforms[1]
+                .transform_point(Vec3::X)
+                .distance(Vec3::new(-1.0, 4.0, 0.0))
                 < 1.0e-9
         );
     }
