@@ -277,6 +277,10 @@ pub enum ToolPreview {
         target: Vec3,
         signed_offset: Option<f64>,
     },
+    PushPull {
+        edges: Vec<[Vec3; 2]>,
+        triangles: Vec<([Vec3; 3], meshcraft_core::document::Rgba8)>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -878,6 +882,9 @@ impl Viewport {
                             Color32::WHITE,
                         );
                     }
+                }
+                ToolPreview::PushPull { edges, triangles } => {
+                    self.draw_push_pull_preview(&painter, rect, edges, triangles);
                 }
             }
         }
@@ -3369,6 +3376,33 @@ impl Viewport {
                 Stroke::new(1.8, color),
             );
         }
+    }
+
+    fn draw_push_pull_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        edges: &[[Vec3; 2]],
+        triangles: &[([Vec3; 3], meshcraft_core::document::Rgba8)],
+    ) {
+        for (triangle, color) in triangles {
+            if triangle
+                .iter()
+                .any(|point| !self.point_in_front_of_camera(*point))
+            {
+                continue;
+            }
+            let points = triangle
+                .iter()
+                .map(|point| self.world_to_screen(rect, *point))
+                .collect();
+            painter.add(Shape::convex_polygon(
+                points,
+                Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, 96),
+                Stroke::new(0.8, Color32::from_rgb(245, 130, 58)),
+            ));
+        }
+        self.draw_transform_preview(painter, rect, edges);
     }
 
     fn draw_planar_shape_preview(

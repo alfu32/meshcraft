@@ -114,7 +114,7 @@ pub fn extrude_region(
                 return Err("Push/Pull selection contains a non-manifold edge.");
             }
         }
-        keyed_faces.push((keys, face.color));
+        keyed_faces.push((keys, face.color, normal.dot(displacement) < 0.0));
     }
 
     let mut mesh = ExtrudedRegionMesh::default();
@@ -133,9 +133,12 @@ pub fn extrude_region(
         index
     };
 
-    for (keys, color) in keyed_faces {
+    for (keys, color, reverse_top) in keyed_faces {
         let [a, b, c] = [keys[0], keys[1], keys[2]];
-        let top = [a, b, c].map(|key| intern(true, key, &mut mesh, &mut indexed_points));
+        let mut top = [a, b, c].map(|key| intern(true, key, &mut mesh, &mut indexed_points));
+        if reverse_top {
+            top.swap(1, 2);
+        }
         mesh.triangles.push(ExtrudedTriangle {
             vertices: top,
             color,
@@ -204,6 +207,7 @@ mod tests {
     use super::{ExtrudeSourceTriangle, extrude_region};
     use crate::document::Rgba8;
     use crate::geometry::Vec3;
+    use std::collections::BTreeMap;
 
     const TOLERANCE: f64 = 1.0e-6;
 
@@ -237,6 +241,55 @@ mod tests {
             let points = triangle.vertices.map(|index| mesh.vertices[index]);
             points.iter().all(|point| point.y == 0.0)
         }));
+    }
+
+    #[test]
+    fn square_extrusion_forms_a_closed_prism_with_expected_volume() {
+        let source = square(Rgba8::WHITE);
+        for displacement in [Vec3::Y * 2.0, -Vec3::Y * 2.0] {
+            let mesh = extrude_region(&source, displacement, TOLERANCE).unwrap();
+            let mut triangles = source
+                .iter()
+                .map(|face| {
+                    let mut vertices = face.vertices;
+                    let [a, b, c] = vertices;
+                    if (b - a).cross(c - a).dot(displacement) > 0.0 {
+                        vertices.swap(1, 2);
+                    }
+                    vertices
+                })
+                .collect::<Vec<_>>();
+            triangles.extend(
+                mesh.triangles
+                    .iter()
+                    .map(|triangle| triangle.vertices.map(|index| mesh.vertices[index])),
+            );
+
+            let point_key = |point: Vec3| {
+                [point.x, point.y, point.z]
+                    .map(|coordinate| (coordinate / TOLERANCE).round() as i64)
+            };
+            let mut edge_uses = BTreeMap::new();
+            let mut signed_volume = 0.0;
+            for [a, b, c] in triangles {
+                signed_volume += a.dot(b.cross(c)) / 6.0;
+                for [start, end] in [[a, b], [b, c], [c, a]] {
+                    let [start, end] = [point_key(start), point_key(end)];
+                    let edge = if start <= end {
+                        [start, end]
+                    } else {
+                        [end, start]
+                    };
+                    *edge_uses.entry(edge).or_insert(0_usize) += 1;
+                }
+            }
+
+            assert!(edge_uses.values().all(|uses| *uses == 2));
+            assert!(
+                (signed_volume.abs() - 2.0).abs() < 1.0e-12,
+                "expected prism volume 2, got {signed_volume}"
+            );
+        }
     }
 
     #[test]

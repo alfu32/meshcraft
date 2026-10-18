@@ -12,10 +12,11 @@ use meshcraft_core::commands::{
     CommandState, CommandStateQuery, CommandValueType,
 };
 use meshcraft_core::document::{
-    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, VertexId,
+    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, TriangleId, VertexId,
 };
 use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
 use meshcraft_core::operations::drawing::{self, LineOwner};
+use meshcraft_core::operations::extrude::{ExtrudeSourceTriangle, extrude_region};
 use meshcraft_core::operations::objects as modeling_objects;
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
@@ -68,6 +69,21 @@ use std::time::Duration;
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
+
+fn push_pull_feedback_text(displacement: Vec3, unit_name: &str) -> String {
+    let unit_name = if unit_name.trim().is_empty() {
+        "units"
+    } else {
+        unit_name.trim()
+    };
+    format!(
+        "Push/Pull: {:.2} {unit_name} | ΔX {:.2}, ΔY {:.2}, ΔZ {:.2} {unit_name}",
+        displacement.length(),
+        displacement.x,
+        displacement.y,
+        displacement.z,
+    )
+}
 const ARCHITECTURE_PANEL_IDS: &[&str] = &[
     "architecture_walls",
     "architecture_slabs",
@@ -1271,6 +1287,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "polyline_mesh" => ShellAction::PolylineMesh,
                 "line_offset" => ShellAction::SelectToolAlias("Line Offset"),
                 "mesh" => ShellAction::SelectToolAlias("Mesh"),
+                "push_pull" => ShellAction::SelectToolAlias("Push/Pull"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -1793,6 +1810,13 @@ pub struct MeshcraftApp {
     polyline_tool_state: PolylineToolState,
     mesh_tool_state: MeshToolState,
     line_offset_tool_state: LineOffsetToolState,
+    push_pull_reference: Option<Vec3>,
+    push_pull_pointer: Option<Vec3>,
+    push_pull_faces: Vec<(TriangleId, ExtrudeSourceTriangle)>,
+    push_pull_owner: Option<LineOwner>,
+    push_pull_occurrence: Option<OccurrenceRef>,
+    push_pull_distance_focused: bool,
+    push_pull_numeric_input: String,
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
@@ -1934,6 +1958,13 @@ impl MeshcraftApp {
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
             line_offset_tool_state: LineOffsetToolState::default(),
+            push_pull_reference: None,
+            push_pull_pointer: None,
+            push_pull_faces: Vec::new(),
+            push_pull_owner: None,
+            push_pull_occurrence: None,
+            push_pull_distance_focused: false,
+            push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -2401,6 +2432,207 @@ impl MeshcraftApp {
                 }
             }
             Err(error) => self.status = error.to_owned(),
+        }
+    }
+
+    fn clear_push_pull_transient(&mut self) {
+        self.push_pull_reference = None;
+        self.push_pull_pointer = None;
+        self.push_pull_faces.clear();
+        self.push_pull_owner = None;
+        self.push_pull_occurrence = None;
+        self.push_pull_distance_focused = false;
+        self.push_pull_numeric_input.clear();
+    }
+
+    fn push_pull_displacement(&self) -> Option<Vec3> {
+        let reference = self.push_pull_reference?;
+        let target = self.push_pull_pointer?;
+        let mut displacement = target - reference;
+        if self.push_pull_distance_focused
+            && let Ok(distance) = self.push_pull_numeric_input.parse::<f64>()
+            && let Some(direction) = displacement.try_normalized(1.0e-12)
+        {
+            displacement = direction * distance;
+        }
+        Some(displacement)
+    }
+
+    fn selected_push_pull_faces(
+        &self,
+        occurrence: &OccurrenceRef,
+    ) -> Vec<(TriangleId, ExtrudeSourceTriangle)> {
+        let Some(resolved) = self.document.resolve_occurrence(occurrence) else {
+            return Vec::new();
+        };
+        let Some(geometry) = self.document.effective_geometry(occurrence) else {
+            return Vec::new();
+        };
+        self.selection
+            .selected()
+            .iter()
+            .filter_map(|target| {
+                if &target.occurrence != occurrence {
+                    return None;
+                }
+                let SelectedEntity::Triangle(id) = target.entity else {
+                    return None;
+                };
+                let triangle = geometry.triangles.get(&id)?;
+                let points = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                    .into_iter()
+                    .collect::<Option<Vec<_>>>()?;
+                let [a, b, c] = [points[0], points[1], points[2]];
+                Some((
+                    id,
+                    ExtrudeSourceTriangle {
+                        vertices: [a, b, c]
+                            .map(|point| resolved.world_transform.transform_point(point)),
+                        color: triangle.color,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    fn pick_push_pull_point(&mut self, point: Vec3) {
+        let Some(reference) = self.push_pull_reference else {
+            let (owner, occurrence, _) = self.line_geometry_context();
+            let faces = self.selected_push_pull_faces(&occurrence);
+            if faces.is_empty() {
+                self.status =
+                    "Push/Pull requires selected faces in the active edit context.".to_owned();
+                return;
+            }
+            self.push_pull_faces = faces;
+            self.push_pull_owner = Some(owner);
+            self.push_pull_occurrence = Some(occurrence);
+            self.push_pull_reference = Some(point);
+            self.push_pull_pointer = Some(point);
+            self.status =
+                "Push/Pull: pick extrusion point or Ctrl+N for a signed distance.".to_owned();
+            return;
+        };
+        self.push_pull_pointer = Some(point);
+        if let Err(error) = self.commit_push_pull(point - reference) {
+            self.status = error;
+        }
+    }
+
+    fn commit_push_pull(&mut self, displacement: Vec3) -> Result<(), String> {
+        let source_faces = self
+            .push_pull_faces
+            .iter()
+            .map(|(_, face)| *face)
+            .collect::<Vec<_>>();
+        let mesh = extrude_region(&source_faces, displacement, FACE_OUTLINE_MERGE_TOLERANCE)?;
+        let owner = self
+            .push_pull_owner
+            .ok_or_else(|| "Push/Pull has no active geometry owner".to_owned())?;
+        let occurrence = self
+            .push_pull_occurrence
+            .clone()
+            .ok_or_else(|| "Push/Pull has no active occurrence".to_owned())?;
+        let inverse = self
+            .document
+            .resolve_occurrence(&occurrence)
+            .and_then(|resolved| {
+                resolved
+                    .world_transform
+                    .inverse(GeometryTolerance::default())
+            })
+            .ok_or_else(|| "the active geometry transform cannot be inverted".to_owned())?;
+        let vertices = mesh
+            .vertices
+            .iter()
+            .map(|point| inverse.transform_point(*point))
+            .collect::<Vec<_>>();
+        let segments = mesh
+            .segments
+            .iter()
+            .map(|segment| (segment.endpoints, segment.color))
+            .collect::<Vec<_>>();
+        let triangles = mesh
+            .triangles
+            .iter()
+            .map(|triangle| (triangle.vertices, triangle.color))
+            .collect::<Vec<_>>();
+        let reverse_source_faces = self
+            .push_pull_faces
+            .iter()
+            .filter_map(|(id, face)| {
+                let [a, b, c] = face.vertices;
+                ((b - a).cross(c - a).dot(displacement) > 0.0).then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        let edge_count = segments.len();
+        let face_count = triangles.len();
+        let inserted = self.commit_document_edit("Push/Pull", |document| match owner {
+            LineOwner::SceneRoot => {
+                document.reverse_triangle_winding_in_scene_root(&reverse_source_faces)?;
+                document.append_colored_indexed_mesh_to_scene_root(vertices, segments, triangles)
+            }
+            LineOwner::Definition(definition) => {
+                document
+                    .reverse_triangle_winding_in_definition(definition, &reverse_source_faces)?;
+                document.append_colored_indexed_mesh_to_definition(
+                    definition, vertices, segments, triangles,
+                )
+            }
+        })?;
+        let (segment_ids, triangle_ids) = inserted;
+        let targets = segment_ids
+            .into_iter()
+            .map(|segment| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(segment),
+            })
+            .chain(triangle_ids.into_iter().map(|triangle| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(triangle),
+            }))
+            .collect::<Vec<_>>();
+        self.selection.apply(targets, SelectionMode::Replace);
+        let distance = displacement.length();
+        let unit_name = self.document.model_settings().unit_name.trim().to_owned();
+        let unit_name = if unit_name.is_empty() {
+            "units"
+        } else {
+            unit_name.as_str()
+        };
+        self.clear_push_pull_transient();
+        self.status = format!(
+            "Push/Pull created {face_count} face(s) and {edge_count} edge(s) at {distance:.2} {unit_name}."
+        );
+        Ok(())
+    }
+
+    fn finish_push_pull_distance(&mut self) -> CommandResult {
+        if !self.push_pull_distance_focused {
+            return CommandResult::failed("Push/Pull numeric input is not active.");
+        }
+        let distance = match self.push_pull_numeric_input.parse::<f64>() {
+            Ok(distance) if distance.is_finite() => distance,
+            _ => return CommandResult::failed("Enter a finite signed Push/Pull distance."),
+        };
+        let Some(reference) = self.push_pull_reference else {
+            return CommandResult::failed("Pick a Push/Pull reference point first.");
+        };
+        let Some(pointer) = self.push_pull_pointer else {
+            return CommandResult::failed("Move the pointer to set Push/Pull direction first.");
+        };
+        let Some(direction) = (pointer - reference)
+            .try_normalized(GeometryTolerance::default().linear_at(reference.length()))
+        else {
+            return CommandResult::failed(
+                "Move the pointer away from the reference to set direction.",
+            );
+        };
+        match self.commit_push_pull(direction * distance) {
+            Ok(()) => CommandResult::completed(),
+            Err(error) => CommandResult::failed(error),
         }
     }
 
@@ -3404,6 +3636,7 @@ impl MeshcraftApp {
     fn activate_tool(&mut self, tool: &str) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
+        self.clear_push_pull_transient();
         self.active_tool = tool.to_owned();
         if tool == "Orbit" {
             self.viewport.set_perspective_view();
@@ -3439,6 +3672,7 @@ impl MeshcraftApp {
             }
             "Mesh" => "Mesh: pick points to add connecting edges and nearest-point triangles. Enter starts a new mesh chain; Escape exits.".to_owned(),
             "Line Offset" => "Line Offset: select edges, then pick a reference point and target point.".to_owned(),
+            "Push/Pull" => "Push/Pull: select faces, pick a reference point and extrusion point; Ctrl+N accepts a signed distance.".to_owned(),
             "Construction Line" => {
                 "Construction Line: click two points; the tool stays active for another segment."
                     .to_owned()
@@ -3500,6 +3734,17 @@ impl MeshcraftApp {
                 self.status = "Hotspot placement canceled.".to_owned();
             }
             ShellAction::FocusToolDistance => {
+                if self.active_tool == "Push/Pull" {
+                    if self.push_pull_reference.is_none() {
+                        self.status = "Pick the Push/Pull reference point before entering a value."
+                            .to_owned();
+                    } else {
+                        self.push_pull_distance_focused = true;
+                        self.push_pull_numeric_input.clear();
+                        self.status = "Push/Pull input: move the pointer for direction, type a signed distance, then press Enter.".to_owned();
+                    }
+                    return CommandResult::completed();
+                }
                 if self.transform_tool_state.active().is_some() {
                     if self.transform_tool_state.points().is_empty() {
                         self.status = "Pick the transform reference point before entering a value."
@@ -3520,6 +3765,9 @@ impl MeshcraftApp {
             ShellAction::FinishToolInput => {
                 if self.transform_tool_state.active().is_some() {
                     return self.finish_transform_input();
+                }
+                if self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
+                    return self.finish_push_pull_distance();
                 }
                 if self.mesh_tool_state.active() {
                     self.mesh_tool_state.finish_chain();
@@ -3542,6 +3790,15 @@ impl MeshcraftApp {
                         return CommandResult::failed("there is no transform input to undo");
                     }
                     self.status = "Removed the last transform input or point.".to_owned();
+                    return CommandResult::completed();
+                }
+                if self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
+                    if self.push_pull_numeric_input.pop().is_none() {
+                        return CommandResult::failed(
+                            "there is no Push/Pull numeric input to undo",
+                        );
+                    }
+                    self.status = "Removed the last Push/Pull distance character.".to_owned();
                     return CommandResult::completed();
                 }
                 if self.mesh_tool_state.active() {
@@ -4344,6 +4601,19 @@ impl MeshcraftApp {
         {
             return CommandState::disabled("select edges before starting Line Offset");
         }
+        if id == "tool.builtin.push_pull"
+            && !self
+                .selection
+                .selected()
+                .iter()
+                .any(|target| matches!(target.entity, SelectedEntity::Triangle(_)))
+        {
+            return CommandState::disabled("select one or more faces before starting Push/Pull");
+        }
+        let push_pull_input_ready = self.active_tool == "Push/Pull"
+            && self.push_pull_reference.is_some()
+            && self.push_pull_distance_focused
+            && !self.push_pull_numeric_input.is_empty();
         let line_distance_ready = matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
@@ -4356,14 +4626,19 @@ impl MeshcraftApp {
         let polyline_undo_ready = path_tool_active
             && (self.polyline_tool_state.arc_control().is_some()
                 || !self.polyline_tool_state.points().is_empty());
-        if id == "tool.distance" && !line_distance_ready && !transform_input_ready {
+        if id == "tool.distance"
+            && !line_distance_ready
+            && !transform_input_ready
+            && !(self.active_tool == "Push/Pull" && self.push_pull_reference.is_some())
+        {
             return CommandState::disabled(
-                "place a line anchor or transform reference point before entering a value",
+                "place a line, transform, or Push/Pull reference point before entering a value",
             );
         }
         if id == "tool.finish"
             && !line_distance_ready
             && !transform_input_ready
+            && !push_pull_input_ready
             && !polyline_finish_ready
             && !mesh_finish_ready
         {
@@ -4814,6 +5089,7 @@ impl MeshcraftApp {
         self.polyline_tool_state.cancel();
         self.mesh_tool_state.cancel();
         self.line_offset_tool_state.cancel();
+        self.clear_push_pull_transient();
         self.status = "Current tool operation canceled.".to_owned();
     }
 
@@ -5122,6 +5398,15 @@ impl MeshcraftApp {
                 return;
             };
             self.pick_mesh_point(point, snap.map(|result| result.normal));
+            return;
+        }
+
+        if self.active_tool == "Push/Pull" {
+            let Some(point) = construction_point else {
+                self.status = "Push/Pull needs a point in the active construction view.".to_owned();
+                return;
+            };
+            self.pick_push_pull_point(point);
             return;
         }
 
@@ -5850,6 +6135,39 @@ impl MeshcraftApp {
                 });
             }
         }
+        if let (Some(reference), Some(displacement)) =
+            (self.push_pull_reference, self.push_pull_displacement())
+        {
+            let selected = self
+                .push_pull_faces
+                .iter()
+                .map(|(_, face)| *face)
+                .collect::<Vec<_>>();
+            if let Ok(mesh) = extrude_region(&selected, displacement, FACE_OUTLINE_MERGE_TOLERANCE)
+            {
+                let triangles = mesh
+                    .triangles
+                    .iter()
+                    .map(|triangle| {
+                        (
+                            triangle.vertices.map(|index| mesh.vertices[index]),
+                            triangle.color,
+                        )
+                    })
+                    .collect();
+                let mut edges = mesh
+                    .segments
+                    .iter()
+                    .map(|segment| segment.endpoints.map(|index| mesh.vertices[index]))
+                    .collect::<Vec<_>>();
+                edges.push([reference, reference + displacement]);
+                return Some(ToolPreview::PushPull { edges, triangles });
+            }
+            return Some(ToolPreview::Line {
+                start: reference,
+                end: reference + displacement,
+            });
+        }
         match self.active_tool.as_str() {
             "Cuboid" => {
                 let (first, opposite) = self.cuboid_base?;
@@ -6367,6 +6685,14 @@ impl MeshcraftApp {
             });
             self.line_offset_tool_state.set_pointer(point);
         }
+        if self.active_tool == "Push/Pull" && self.push_pull_reference.is_some() {
+            self.push_pull_pointer = pointer.and_then(|position| {
+                snap.map(|snap| snap.point).or_else(|| {
+                    self.viewport
+                        .screen_to_construction_plane(predicted_rect, position)
+                })
+            });
+        }
         let visible_guides = if self.preferences.show_construction_guides {
             self.guides.as_slice()
         } else {
@@ -6460,6 +6786,31 @@ impl MeshcraftApp {
                 .show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                         ui.label(text);
+                    });
+                });
+        }
+        if self.active_tool == "Push/Pull"
+            && let Some(displacement) = self.push_pull_displacement()
+        {
+            let position = input.rect.left_top() + egui::vec2(18.0, 82.0);
+            let unit_name = &self.document.model_settings().unit_name;
+            let feedback = push_pull_feedback_text(displacement, unit_name);
+            let numeric_hint = self.push_pull_distance_focused.then(|| {
+                if self.push_pull_numeric_input.is_empty() {
+                    "Signed distance: type a value".to_owned()
+                } else {
+                    format!("Signed distance: {}", self.push_pull_numeric_input)
+                }
+            });
+            egui::Area::new(egui::Id::unique("push-pull-feedback"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(position)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(feedback);
+                        if let Some(hint) = numeric_hint {
+                            ui.label(hint);
+                        }
                     });
                 });
         }
@@ -7280,6 +7631,28 @@ impl MeshcraftApp {
                 self.finish_transform_input();
             }
         }
+        if shortcuts_allowed && self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
+            let typed = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Text(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            });
+            self.push_pull_numeric_input
+                .extend(typed.chars().filter(|character| {
+                    character.is_ascii_digit() || matches!(character, '-' | '+' | '.' | 'e' | 'E')
+                }));
+            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
+                self.push_pull_numeric_input.pop();
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                self.run_command("tool.finish");
+            }
+        }
         let distance_input_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::N));
         if distance_input_shortcut {
@@ -7762,7 +8135,7 @@ mod tests {
         SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionMode,
         SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
         TransactionHistory, TransformTool, TransformToolState, UiProfile, command_matches,
-        registry_has_unique_ids, shell_commands, tool_command_id,
+        push_pull_feedback_text, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -7942,6 +8315,13 @@ mod tests {
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
             line_offset_tool_state: LineOffsetToolState::default(),
+            push_pull_reference: None,
+            push_pull_pointer: None,
+            push_pull_faces: Vec::new(),
+            push_pull_owner: None,
+            push_pull_occurrence: None,
+            push_pull_distance_focused: false,
+            push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -9562,6 +9942,245 @@ mod tests {
         app.handle_escape();
         assert_eq!("Select", app.active_tool);
         assert!(!app.mesh_tool_state.active());
+    }
+
+    #[test]
+    fn push_pull_extrudes_selected_faces_with_color_preview_and_selected_results() {
+        let mut app = test_app();
+        let (_, face_ids) = app
+            .document
+            .append_planar_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Z, Vec3::Z],
+                vec![[0, 1], [1, 2], [2, 3], [3, 0]],
+                vec![[0, 1, 2], [0, 2, 3]],
+            )
+            .unwrap();
+        app.selection.apply(
+            face_ids.iter().copied().map(|face| SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::Triangle(face),
+            }),
+            SelectionMode::Replace,
+        );
+        let color = Rgba8::new(35, 120, 210, 180);
+        app.current_paint_color = color;
+        app.run_command("paint.apply_selection");
+        assert!(app.query_command_state("tool.builtin.push_pull").enabled);
+
+        let activation = app.dispatch_command("tool.builtin.push_pull", &CommandPayload::default());
+        assert!(activation.accepted, "{}", app.status);
+        assert_eq!("Push/Pull", app.active_tool);
+        assert_eq!(
+            "Push/Pull: 3.74 meter | ΔX -1.00, ΔY 2.00, ΔZ 3.00 meter",
+            push_pull_feedback_text(Vec3::new(-1.0, 2.0, 3.0), "meter")
+        );
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click(
+            rect,
+            Pos2::ZERO,
+            Some(SnapResult {
+                point: Vec3::ZERO,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            }),
+        );
+        app.push_pull_pointer = Some(Vec3::Y * 2.0);
+        let Some(ToolPreview::PushPull { triangles, edges }) =
+            app.tool_preview(rect, Some(Pos2::ZERO), None)
+        else {
+            panic!("Push/Pull should preview its colored top and side faces");
+        };
+        assert_eq!(10, triangles.len());
+        assert!(triangles.iter().all(|(_, face_color)| *face_color == color));
+        assert_eq!(9, edges.len());
+
+        app.handle_viewport_click(
+            rect,
+            Pos2::ZERO,
+            Some(SnapResult {
+                point: Vec3::Y * 2.0,
+                normal: Vec3::Y,
+                kind: SnapKind::Grid,
+                screen_distance: 0.0,
+            }),
+        );
+
+        assert_eq!(2, app.history.entries().len());
+        assert_eq!(10, app.selection.summary().faces);
+        assert_eq!(8, app.selection.summary().edges);
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(12, geometry.triangles.len());
+        assert_eq!(12, geometry.segments.len());
+        assert!(app.selection.selected().iter().all(|target| {
+            !matches!(target.entity, SelectedEntity::Triangle(id) if geometry.triangles[&id].color != color)
+        }));
+
+        app.run_command("edit.undo");
+        assert_eq!(
+            2,
+            app.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .triangles
+                .len()
+        );
+    }
+
+    #[test]
+    fn push_pull_numeric_input_uses_signed_distance_and_zero_is_atomic() {
+        let mut app = test_app();
+        let (_, face_ids) = app
+            .document
+            .append_planar_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X, Vec3::Z],
+                vec![[0, 1], [1, 2], [2, 0]],
+                vec![[0, 1, 2]],
+            )
+            .unwrap();
+        let source_face = face_ids[0];
+        let source_winding = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap()
+            .triangles[&source_face]
+            .vertices;
+        app.selection.apply(
+            face_ids.into_iter().map(|face| SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::Triangle(face),
+            }),
+            SelectionMode::Replace,
+        );
+        app.run_command("tool.builtin.push_pull");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.push_pull_pointer = Some(Vec3::Y * 2.0);
+        assert!(app.query_command_state("tool.distance").enabled);
+        app.run_command("tool.distance");
+        app.push_pull_numeric_input = "-1.5".to_owned();
+        assert!(app.query_command_state("tool.finish").enabled);
+        app.run_command("tool.finish");
+        assert!(app.status.contains("1.50 unit"));
+        let extruded_winding = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap()
+            .triangles[&source_face]
+            .vertices;
+        assert_eq!(source_winding[0], extruded_winding[0]);
+        assert_eq!(source_winding[1], extruded_winding[2]);
+        assert_eq!(source_winding[2], extruded_winding[1]);
+        let before = app.document.clone();
+        let history_count = app.history.entries().len();
+
+        app.run_command("tool.builtin.push_pull");
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+
+        assert_eq!(before, app.document);
+        assert_eq!(history_count, app.history.entries().len());
+        assert!(app.status.contains("too small"));
+        assert_eq!("Push/Pull", app.active_tool);
+    }
+
+    #[test]
+    fn push_pull_in_an_entered_instance_edits_its_definition_and_is_undoable() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "translated editable",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let definition_id = app
+            .document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let geometry_before = app.document.effective_geometry(&occurrence).unwrap();
+        let triangle = *geometry_before.triangles.keys().next().unwrap();
+        let triangle_count_before = geometry_before.triangles.len();
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        app.selection.apply(
+            [SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(triangle),
+            }],
+            SelectionMode::Replace,
+        );
+        let before_extrusion = app.document.clone();
+        let definition_geometry_before = before_extrusion
+            .definition(definition_id)
+            .unwrap()
+            .geometry
+            .clone();
+        app.run_command("tool.builtin.push_pull");
+        let reference = Vec3::new(11.0, 1.0, 1.0);
+        let target = reference + Vec3::Y;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(reference));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(target));
+
+        let edited = app.document.definition(definition_id).unwrap();
+        assert!(edited.geometry.triangles.len() > triangle_count_before);
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| { target.occurrence == occurrence })
+        );
+        assert!(
+            app.document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .len()
+                > triangle_count_before
+        );
+
+        app.run_command("edit.undo");
+        assert_eq!(
+            &definition_geometry_before,
+            &app.document.definition(definition_id).unwrap().geometry
+        );
+    }
+
+    #[test]
+    fn push_pull_escape_cancels_without_changing_geometry_or_history() {
+        let mut app = test_app();
+        let (_, faces) = app
+            .document
+            .append_planar_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X, Vec3::Z],
+                vec![[0, 1], [1, 2], [2, 0]],
+                vec![[0, 1, 2]],
+            )
+            .unwrap();
+        app.selection.apply(
+            faces.into_iter().map(|face| SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::Triangle(face),
+            }),
+            SelectionMode::Replace,
+        );
+        let before = app.document.clone();
+        let history_count = app.history.entries().len();
+        app.run_command("tool.builtin.push_pull");
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.handle_escape();
+
+        assert_eq!(before, app.document);
+        assert_eq!(history_count, app.history.entries().len());
+        assert_eq!("Select", app.active_tool);
+        assert!(app.push_pull_reference.is_none());
     }
 
     #[test]

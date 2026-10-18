@@ -1213,6 +1213,228 @@ impl Document {
         Ok(triangle_ids)
     }
 
+    /// Appends a colored indexed mesh, reusing graph vertices at matching local points.
+    /// Segment entries pair endpoint indices with colors; triangle entries pair corner indices
+    /// with colors. Per-corner source offsets are retained when matching existing vertices.
+    pub fn append_colored_indexed_mesh_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        vertices: Vec<Vec3>,
+        segments: Vec<([usize; 2], Rgba8)>,
+        triangles: Vec<([usize; 3], Rgba8)>,
+    ) -> Result<(Vec<SegmentId>, Vec<TriangleId>), String> {
+        if segments.is_empty() && triangles.is_empty() {
+            return Err("mesh insertion needs at least one edge or face".to_owned());
+        }
+        validate_indexed_geometry_input(
+            &vertices,
+            &segments.iter().map(|(edge, _)| *edge).collect::<Vec<_>>(),
+            &triangles.iter().map(|(face, _)| *face).collect::<Vec<_>>(),
+        )?;
+
+        let mut staged = self.clone();
+        let Some(definition) = staged.definitions.get(&definition_id) else {
+            return Err(format!("missing definition {}", definition_id.0));
+        };
+        let mut geometry = definition.geometry.clone();
+        let model_scale = vertices
+            .iter()
+            .map(|point| point.length())
+            .chain(
+                geometry
+                    .vertices
+                    .values()
+                    .map(|vertex| vertex.position.length()),
+            )
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(model_scale);
+        if !tolerance.is_finite() || tolerance <= 0.0 {
+            return Err("mesh coordinates exceed the supported range".to_owned());
+        }
+
+        let mut vertex_refs = Vec::with_capacity(vertices.len());
+        for position in &vertices {
+            let matching_ref = geometry
+                .segments
+                .values()
+                .flat_map(|segment| segment.endpoints)
+                .chain(
+                    geometry
+                        .triangles
+                        .values()
+                        .flat_map(|triangle| triangle.vertices),
+                )
+                .filter_map(|reference| {
+                    let resolved = geometry.vertex_position(reference)?;
+                    (resolved.distance(*position) <= tolerance)
+                        .then_some((resolved.distance(*position), reference.id))
+                })
+                .min_by(|left, right| left.0.total_cmp(&right.0));
+            if let Some((_, id)) = matching_ref {
+                let base = geometry
+                    .vertices
+                    .get(&id)
+                    .ok_or_else(|| "mesh insertion found a missing source vertex".to_owned())?;
+                vertex_refs.push(VertexRef {
+                    id,
+                    position_offset: *position - base.position,
+                });
+            } else if let Some(vertex) = geometry
+                .vertices
+                .values()
+                .filter(|vertex| vertex.position.distance(*position) <= tolerance)
+                .min_by(|left, right| {
+                    left.position
+                        .distance(*position)
+                        .total_cmp(&right.position.distance(*position))
+                })
+            {
+                vertex_refs.push(VertexRef {
+                    id: vertex.id,
+                    position_offset: *position - vertex.position,
+                });
+            } else {
+                let id = VertexId(staged.allocate_id());
+                geometry.vertices.insert(
+                    id,
+                    Vertex {
+                        id,
+                        position: *position,
+                        legacy_aliases: Vec::new(),
+                    },
+                );
+                vertex_refs.push(VertexRef::new(id));
+            }
+        }
+
+        let mut segment_ids = Vec::with_capacity(segments.len());
+        for ([start, end], color) in segments {
+            let [start_point, end_point] = [vertices[start], vertices[end]];
+            if start_point.distance(end_point) <= tolerance {
+                return Err("mesh insertion contains a degenerate edge".to_owned());
+            }
+            let existing = geometry.segments.values().find(|segment| {
+                let [Some(a), Some(b)] = segment
+                    .endpoints
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    return false;
+                };
+                (a.distance(start_point) <= tolerance && b.distance(end_point) <= tolerance)
+                    || (a.distance(end_point) <= tolerance && b.distance(start_point) <= tolerance)
+            });
+            if let Some(existing) = existing {
+                segment_ids.push(existing.id);
+                continue;
+            }
+            let id = SegmentId(staged.allocate_id());
+            geometry.segments.insert(
+                id,
+                Segment {
+                    id,
+                    endpoints: [vertex_refs[start], vertex_refs[end]],
+                    color,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+            segment_ids.push(id);
+        }
+
+        let mut triangle_ids = Vec::with_capacity(triangles.len());
+        for ([first, second, third], color) in triangles {
+            let [a, b, c] = [vertices[first], vertices[second], vertices[third]];
+            if (b - a).cross(c - a).length() <= tolerance * tolerance {
+                return Err("mesh insertion contains a degenerate face".to_owned());
+            }
+            let id = TriangleId(staged.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: [vertex_refs[first], vertex_refs[second], vertex_refs[third]],
+                    color,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+            triangle_ids.push(id);
+        }
+
+        geometry.validate()?;
+        staged
+            .definitions
+            .get_mut(&definition_id)
+            .expect("definition was checked before mesh insertion")
+            .geometry = geometry;
+        staged.revision = staged.revision.saturating_add(1);
+        *self = staged;
+        Ok((segment_ids, triangle_ids))
+    }
+
+    /// Appends a colored indexed mesh to the scene-root graph.
+    pub fn append_colored_indexed_mesh_to_scene_root(
+        &mut self,
+        vertices: Vec<Vec3>,
+        segments: Vec<([usize; 2], Rgba8)>,
+        triangles: Vec<([usize; 3], Rgba8)>,
+    ) -> Result<(Vec<SegmentId>, Vec<TriangleId>), String> {
+        let mut staged = self.clone();
+        let definition_id = staged.ensure_scene_root();
+        let inserted = staged.append_colored_indexed_mesh_to_definition(
+            definition_id,
+            vertices,
+            segments,
+            triangles,
+        )?;
+        *self = staged;
+        Ok(inserted)
+    }
+
+    /// Reverses the winding of triangles in one definition as an atomic edit.
+    pub fn reverse_triangle_winding_in_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        triangle_ids: &[TriangleId],
+    ) -> Result<(), String> {
+        if triangle_ids.is_empty() {
+            return Ok(());
+        }
+        let mut staged = self.clone();
+        let Some(definition) = staged.definitions.get(&definition_id) else {
+            return Err(format!("missing definition {}", definition_id.0));
+        };
+        let mut geometry = definition.geometry.clone();
+        for triangle_id in triangle_ids {
+            let triangle = geometry
+                .triangles
+                .get_mut(triangle_id)
+                .ok_or_else(|| format!("missing triangle {}", triangle_id.0))?;
+            triangle.vertices.swap(1, 2);
+        }
+        geometry.validate()?;
+        staged
+            .definitions
+            .get_mut(&definition_id)
+            .expect("definition was checked before winding update")
+            .geometry = geometry;
+        staged.revision = staged.revision.saturating_add(1);
+        *self = staged;
+        Ok(())
+    }
+
+    /// Reverses triangle winding in the scene-root graph.
+    pub fn reverse_triangle_winding_in_scene_root(
+        &mut self,
+        triangle_ids: &[TriangleId],
+    ) -> Result<(), String> {
+        let mut staged = self.clone();
+        let definition_id = staged.ensure_scene_root();
+        staged.reverse_triangle_winding_in_definition(definition_id, triangle_ids)?;
+        *self = staged;
+        Ok(())
+    }
+
     /// Inserts a planar mesh directly into the scene-root graph.
     pub fn append_planar_mesh_to_scene_root(
         &mut self,
