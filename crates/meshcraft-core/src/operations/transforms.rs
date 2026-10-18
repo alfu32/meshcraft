@@ -6,7 +6,7 @@ use crate::document::{
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use crate::selection::{
-    EditContext, SelectedEntity, SelectionMode, SelectionSession, SelectionTarget,
+    EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionSession, SelectionTarget,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,6 +18,8 @@ pub struct TransformReport {
     pub copied_triangles: usize,
     pub transformed_occurrences: usize,
     pub copied_occurrences: usize,
+    pub transformed_domain_entities: usize,
+    pub copied_domain_entities: usize,
 }
 
 impl TransformReport {
@@ -28,6 +30,8 @@ impl TransformReport {
             || self.copied_triangles > 0
             || self.transformed_occurrences > 0
             || self.copied_occurrences > 0
+            || self.transformed_domain_entities > 0
+            || self.copied_domain_entities > 0
     }
 }
 
@@ -57,6 +61,12 @@ struct GeometrySelection {
     segments: BTreeSet<SegmentId>,
     triangles: BTreeSet<TriangleId>,
     transform_occurrence: Option<OccurrenceRef>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DomainSelection {
+    occurrence_targets: BTreeSet<OccurrenceRef>,
+    ids_by_field: BTreeMap<&'static str, BTreeSet<String>>,
 }
 
 /// Applies one world-space affine transform to the selected mesh entities and object instances.
@@ -123,13 +133,8 @@ pub(crate) fn transform_selection_with_path_remaps(
         })
         .cloned()
         .collect::<BTreeSet<_>>();
-    if selected
-        .iter()
-        .any(|target| matches!(target.entity, SelectedEntity::SemanticHandle { .. }))
-    {
-        return Err("semantic/domain transform adapters are not supported yet".to_owned());
-    }
     let mut geometry = BTreeMap::<GeometryOwner, GeometrySelection>::new();
+    let mut domain = BTreeMap::<DefinitionId, DomainSelection>::new();
     for target in &selected {
         if matches!(target.entity, SelectedEntity::Occurrence)
             || selected_objects
@@ -141,6 +146,31 @@ pub(crate) fn transform_selection_with_path_remaps(
         let Some(resolved) = document.resolve_occurrence(&target.occurrence) else {
             continue;
         };
+        if let SelectedEntity::SemanticHandle { kind, id } = &target.entity {
+            let field = match kind {
+                SelectionKind::Dimension => "dimensions",
+                SelectionKind::Text => "texts",
+                _ => {
+                    return Err(format!(
+                        "transform does not support semantic selection kind {kind:?}"
+                    ));
+                }
+            };
+            let owner = geometry_owner(&selection.context, target, resolved.definition.id);
+            let GeometryOwner::Definition(definition) = owner else {
+                return Err(format!(
+                    "transforming {field} on an inherited object instance needs occurrence-level domain overrides"
+                ));
+            };
+            let group = domain.entry(definition).or_default();
+            group.occurrence_targets.insert(target.occurrence.clone());
+            group
+                .ids_by_field
+                .entry(field)
+                .or_default()
+                .insert(id.clone());
+            continue;
+        }
         let owner = geometry_owner(&selection.context, target, resolved.definition.id);
         let group = geometry.entry(owner).or_default();
         group.occurrence_targets.insert(target.occurrence.clone());
@@ -179,8 +209,13 @@ pub(crate) fn transform_selection_with_path_remaps(
             | SelectedEntity::Vertex(_) => {}
         }
     }
-    if selected_objects.is_empty() && !geometry.values().any(|group| !group.vertices.is_empty()) {
-        return Err("transform needs selected mesh geometry or an object instance".to_owned());
+    if selected_objects.is_empty()
+        && !geometry.values().any(|group| !group.vertices.is_empty())
+        && domain.is_empty()
+    {
+        return Err(
+            "transform needs selected mesh geometry, annotation, or object instance".to_owned(),
+        );
     }
 
     let mut candidate = document.clone();
@@ -199,6 +234,7 @@ pub(crate) fn transform_selection_with_path_remaps(
             if let Some(remap) = remap {
                 remap_occurrence_set(&mut selected_objects, &remap);
                 remap_geometry_selections(&mut geometry, &remap);
+                remap_domain_selections(&mut domain, &remap);
                 copy_targets = remap_selection_targets(copy_targets, &remap);
                 path_remaps.push(remap);
             }
@@ -212,6 +248,15 @@ pub(crate) fn transform_selection_with_path_remaps(
             report.transformed_occurrences += 1;
         }
     }
+
+    transform_domain_selections(
+        &mut candidate,
+        &domain,
+        world_transform,
+        copy,
+        &mut report,
+        &mut copy_targets,
+    )?;
 
     for (owner, group) in geometry {
         let Some(occurrence) = group.transform_occurrence.as_ref() else {
@@ -285,7 +330,7 @@ pub(crate) fn transform_selection_with_path_remaps(
     }
     if copy {
         if copy_targets.is_empty() {
-            return Err("copy mode needs a selected mesh entity or object".to_owned());
+            return Err("copy mode needs a selected entity or object".to_owned());
         }
         candidate_selection.apply(copy_targets, SelectionMode::Replace);
     }
@@ -362,6 +407,162 @@ fn remap_geometry_selections(
             destination.transform_occurrence = group.transform_occurrence;
         }
     }
+}
+
+fn remap_domain_selections(
+    groups: &mut BTreeMap<DefinitionId, DomainSelection>,
+    remap: &crate::operations::objects::OccurrencePathRemap,
+) {
+    for group in groups.values_mut() {
+        remap_occurrence_set(&mut group.occurrence_targets, remap);
+    }
+}
+
+fn transform_domain_selections(
+    document: &mut Document,
+    groups: &BTreeMap<DefinitionId, DomainSelection>,
+    world_transform: Affine3,
+    copy: bool,
+    report: &mut TransformReport,
+    copy_targets: &mut BTreeSet<SelectionTarget>,
+) -> Result<(), String> {
+    for (definition_id, group) in groups {
+        let mut local_transform = None;
+        for occurrence in &group.occurrence_targets {
+            let resolved = document.resolve_occurrence(occurrence).ok_or_else(|| {
+                "selected annotation occurrence is no longer resolvable".to_owned()
+            })?;
+            if resolved.definition.id != *definition_id {
+                return Err("selected annotation no longer belongs to its definition".to_owned());
+            }
+            let inverse = resolved
+                .world_transform
+                .inverse(GeometryTolerance::default())
+                .ok_or_else(|| "selected annotation has a singular world transform".to_owned())?;
+            let occurrence_transform = inverse
+                .compose(world_transform)
+                .compose(resolved.world_transform);
+            if local_transform.is_some_and(|existing| existing != occurrence_transform) {
+                return Err(
+                    "shared annotations selected through different instances need different local transforms"
+                        .to_owned(),
+                );
+            }
+            local_transform = Some(occurrence_transform);
+        }
+        let local_transform = local_transform
+            .ok_or_else(|| "selected annotation has no resolvable occurrence".to_owned())?;
+
+        let field_records = {
+            let definition = document
+                .definitions
+                .get(definition_id)
+                .ok_or_else(|| format!("selected definition {} is missing", definition_id.0))?;
+            group
+                .ids_by_field
+                .iter()
+                .map(|(field, selected_ids)| {
+                    let key = format!("k3d.{field}");
+                    let records = definition
+                        .extensions
+                        .get(&key)
+                        .and_then(serde_json::Value::as_array)
+                        .cloned()
+                        .ok_or_else(|| format!("selected {field} records are missing"))?;
+                    let identities = definition
+                        .domain_entity_ids
+                        .get(*field)
+                        .cloned()
+                        .ok_or_else(|| format!("selected {field} identities are missing"))?;
+                    if identities.len() != records.len() {
+                        return Err(format!(
+                            "selected {field} records and identities do not align"
+                        ));
+                    }
+                    Ok((*field, selected_ids, records, identities))
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        };
+        let mut updates = Vec::new();
+        let mut generated = Vec::new();
+        for (field, selected_ids, records, identities) in field_records {
+            let key = format!("k3d.{field}");
+            let mut next_records = records.clone();
+            let mut next_identities = identities.clone();
+            let mut changed = false;
+            for selected_id in selected_ids {
+                let mut matches = identities
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, identity)| *identity == selected_id);
+                let Some((index, _)) = matches.next() else {
+                    return Err(format!(
+                        "selected {field} identity {selected_id:?} is missing"
+                    ));
+                };
+                if matches.next().is_some() {
+                    return Err(format!(
+                        "selected {field} identity {selected_id:?} is ambiguous"
+                    ));
+                }
+                let transformed = crate::operations::objects::transform_annotation_record(
+                    field,
+                    &records[index],
+                    local_transform,
+                )?;
+                if copy {
+                    let fresh = document.allocate_id();
+                    let new_id = format!("meshcraft:transform:{}:{field}:{fresh}", definition_id.0);
+                    next_records.push(transformed);
+                    next_identities.push(new_id.clone());
+                    generated.push((field, new_id));
+                    report.copied_domain_entities += 1;
+                    changed = true;
+                } else if transformed != records[index] {
+                    next_records[index] = transformed;
+                    report.transformed_domain_entities += 1;
+                    changed = true;
+                }
+            }
+            if changed {
+                updates.push((key, field, next_records, next_identities));
+            }
+        }
+
+        if !updates.is_empty() {
+            let definition = document
+                .definitions
+                .get_mut(definition_id)
+                .ok_or_else(|| format!("selected definition {} is missing", definition_id.0))?;
+            for (key, field, records, identities) in updates {
+                definition
+                    .extensions
+                    .insert(key, serde_json::Value::Array(records));
+                definition
+                    .domain_entity_ids
+                    .insert(field.to_owned(), identities);
+            }
+        }
+        if copy {
+            for occurrence in &group.occurrence_targets {
+                for (field, id) in &generated {
+                    let kind = match *field {
+                        "dimensions" => SelectionKind::Dimension,
+                        "texts" => SelectionKind::Text,
+                        _ => unreachable!("domain transform fields are validated at collection"),
+                    };
+                    copy_targets.insert(SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity: SelectedEntity::SemanticHandle {
+                            kind,
+                            id: id.clone(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Applies the current RGBA value to selected faces and edges in the active edit context.
@@ -863,6 +1064,44 @@ mod tests {
         Affine3::from_translation(delta)
     }
 
+    fn add_annotations(
+        document: &mut Document,
+        occurrence: &OccurrenceRef,
+    ) -> (crate::document::DefinitionId, String, String) {
+        let definition_id = document
+            .resolve_occurrence(occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.dimensions".to_owned(),
+            serde_json::json!([{
+                "start": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "end": {"x": 1.0, "y": 0.0, "z": 0.0},
+                "offset": {"x": 0.0, "y": 1.0, "z": 0.0},
+                "label": "length"
+            }]),
+        );
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            serde_json::json!([{
+                "position": {"x": 2.0, "y": 0.0, "z": 1.0},
+                "text": "Door",
+                "size": 0.5,
+                "normal": {"x": 0.0, "y": 1.0, "z": 0.0},
+                "axisU": {"x": 1.0, "y": 0.0, "z": 0.0}
+            }]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
+        definition
+            .domain_entity_ids
+            .insert("texts".to_owned(), vec!["text-1".to_owned()]);
+        (definition_id, "dimension-1".to_owned(), "text-1".to_owned())
+    }
+
     #[test]
     fn moving_one_instance_face_changes_shared_vertices_once_and_keeps_siblings() {
         let mut document = Document::new();
@@ -1155,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn transform_rejects_semantic_handles_until_domain_adapters_exist() {
+    fn transform_rejects_semantic_kinds_without_domain_adapters_atomically() {
         let mut document = Document::new();
         let occurrence = document
             .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
@@ -1178,7 +1417,139 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.contains("semantic/domain transform adapters"));
+        assert!(error.contains("semantic selection kind Wall"));
         assert_eq!(revision, document.revision());
+    }
+
+    #[test]
+    fn move_transforms_selected_dimensions_and_text_in_definition_context() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("annotated", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let (definition_id, dimension_id, text_id) = add_annotations(&mut document, &occurrence);
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Definition(definition_id));
+        selection.apply(
+            [
+                selected(
+                    occurrence.clone(),
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Dimension,
+                        id: dimension_id,
+                    },
+                ),
+                selected(
+                    occurrence.clone(),
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Text,
+                        id: text_id,
+                    },
+                ),
+            ],
+            crate::selection::SelectionMode::Replace,
+        );
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(2.0, 3.0, 4.0)),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(2, report.transformed_domain_entities);
+        let definition = document.definition(definition_id).unwrap();
+        let dimension = &definition.extensions["k3d.dimensions"][0];
+        let text = &definition.extensions["k3d.texts"][0];
+        let start: Vec3 = serde_json::from_value(dimension["start"].clone()).unwrap();
+        let position: Vec3 = serde_json::from_value(text["position"].clone()).unwrap();
+        assert_eq!(Vec3::new(2.0, 3.0, 4.0), start);
+        assert_eq!(Vec3::new(4.0, 3.0, 5.0), position);
+        assert_eq!("length", dimension["label"]);
+        assert_eq!("Door", text["text"]);
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn copy_duplicates_only_selected_annotation_and_selects_the_new_handle() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("annotated", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let (definition_id, _, text_id) = add_annotations(&mut document, &occurrence);
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Definition(definition_id));
+        selection.select(selected(
+            occurrence.clone(),
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Text,
+                id: text_id.clone(),
+            },
+        ));
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(4.0, 0.0, 0.0)),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(1, report.copied_domain_entities);
+        assert_eq!(1, selection.selected().len());
+        let SelectedEntity::SemanticHandle {
+            kind: SelectionKind::Text,
+            id: copied_id,
+        } = &selection.selected().first().unwrap().entity
+        else {
+            panic!("copy should select its new text handle");
+        };
+        assert_ne!(text_id.as_str(), copied_id.as_str());
+        let definition = document.definition(definition_id).unwrap();
+        assert_eq!(
+            2,
+            definition.extensions["k3d.texts"].as_array().unwrap().len()
+        );
+        assert_eq!(2, definition.domain_entity_ids["texts"].len());
+        let original_position: Vec3 =
+            serde_json::from_value(definition.extensions["k3d.texts"][0]["position"].clone())
+                .unwrap();
+        let copied_position: Vec3 =
+            serde_json::from_value(definition.extensions["k3d.texts"][1]["position"].clone())
+                .unwrap();
+        assert_eq!(Vec3::new(2.0, 0.0, 1.0), original_position);
+        assert_eq!(Vec3::new(6.0, 0.0, 1.0), copied_position);
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn inherited_instance_annotation_transform_is_rejected_without_mutation() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("annotated", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let (_, dimension_id, _) = add_annotations(&mut document, &occurrence);
+        let before = document.clone();
+        let mut selection = SelectionSession::default();
+        selection.select(selected(
+            occurrence,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Dimension,
+                id: dimension_id,
+            },
+        ));
+
+        let error = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::X),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("occurrence-level domain overrides"));
+        assert_eq!(before, document);
+        assert!(document.validate().is_ok());
     }
 }

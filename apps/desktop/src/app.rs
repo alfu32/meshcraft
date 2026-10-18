@@ -10012,16 +10012,19 @@ fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<V
 fn transform_status(report: &modeling_transforms::TransformReport, copied: bool) -> String {
     if copied {
         format!(
-            "Copied {} vertex/vertices, {} edge(s), {} face(s), and {} object(s).",
+            "Copied {} vertex/vertices, {} edge(s), {} face(s), {} annotation(s), and {} object(s).",
             report.copied_vertices,
             report.copied_segments,
             report.copied_triangles,
+            report.copied_domain_entities,
             report.copied_occurrences
         )
     } else {
         format!(
-            "Transformed {} vertex/vertices and {} object(s).",
-            report.transformed_vertices, report.transformed_occurrences
+            "Transformed {} vertex/vertices, {} annotation(s), and {} object(s).",
+            report.transformed_vertices,
+            report.transformed_domain_entities,
+            report.transformed_occurrences
         )
     }
 }

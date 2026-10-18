@@ -473,7 +473,7 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
     }
 }
 
-fn transform_annotation_record(
+pub(crate) fn transform_annotation_record(
     field: &str,
     record: &Value,
     transform: Affine3,
