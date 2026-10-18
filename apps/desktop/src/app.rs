@@ -78,7 +78,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
 #[cfg(not(target_arch = "wasm32"))]
@@ -1971,6 +1971,10 @@ pub struct MeshcraftApp {
     panel_focus: Option<String>,
     document: Document,
     saved_revision: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    autosave_observed_revision: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    autosave_deadline: Option<Instant>,
     history: TransactionHistory<SystemHistoryClock>,
     legacy_history: Option<OpaqueLegacyHistory>,
     legacy_active_index: Option<usize>,
@@ -2124,6 +2128,10 @@ impl MeshcraftApp {
             panel_focus: None,
             document,
             saved_revision,
+            #[cfg(not(target_arch = "wasm32"))]
+            autosave_observed_revision: saved_revision,
+            #[cfg(not(target_arch = "wasm32"))]
+            autosave_deadline: None,
             history: TransactionHistory::default(),
             legacy_history,
             legacy_active_index,
@@ -3948,6 +3956,7 @@ impl MeshcraftApp {
             Ok(Ok(())) => {
                 self.saved_revision = pending.input_revision;
                 self.current_project_path = Some(pending.path.clone());
+                self.reset_autosave_after_save(Instant::now());
                 let replacement = self.replacement_after_save.take();
                 self.status = if self.document_is_dirty() {
                     format!(
@@ -4002,6 +4011,52 @@ impl MeshcraftApp {
                 }
             }
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reset_autosave_after_save(&mut self, now: Instant) {
+        self.autosave_observed_revision = self.document.revision();
+        self.autosave_deadline = if self.document_is_dirty() && self.current_project_path.is_some()
+        {
+            Some(now + Duration::from_millis(1500))
+        } else {
+            None
+        };
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_autosave(&mut self, now: Instant) -> Option<Duration> {
+        let revision = self.document.revision();
+        if revision != self.autosave_observed_revision {
+            self.autosave_observed_revision = revision;
+            self.autosave_deadline =
+                if self.document_is_dirty() && self.current_project_path.is_some() {
+                    Some(now + Duration::from_millis(1500))
+                } else {
+                    None
+                };
+        }
+
+        if !self.document_is_dirty() {
+            self.autosave_deadline = None;
+            return None;
+        }
+
+        let due = self
+            .autosave_deadline
+            .is_some_and(|deadline| now >= deadline);
+        if due
+            && self.current_project_path.is_some()
+            && self.pending_project_load.is_none()
+            && self.pending_project_save.is_none()
+            && self.pending_replacement.is_none()
+        {
+            self.autosave_deadline = None;
+            let _ = self.save_project_native(false, &CommandPayload::default());
+        }
+
+        self.autosave_deadline
+            .map(|deadline| deadline.saturating_duration_since(now))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -4264,6 +4319,8 @@ impl MeshcraftApp {
     ) -> CommandResult {
         self.document = project.document;
         self.saved_revision = self.document.revision();
+        self.autosave_observed_revision = self.document.revision();
+        self.autosave_deadline = None;
         self.history.clear();
         self.legacy_active_index = project
             .history
@@ -9376,8 +9433,14 @@ impl MeshcraftApp {
         {
             self.poll_project_load();
             self.poll_project_save();
+            let autosave_wait = self.poll_autosave(Instant::now());
             if self.pending_project_load.is_some() || self.pending_project_save.is_some() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
+            } else if self.pending_replacement.is_none()
+                && let Some(wait) = autosave_wait
+            {
+                ui.ctx()
+                    .request_repaint_after(wait.max(Duration::from_millis(1)));
             }
         }
         ui.ctx()
@@ -10162,6 +10225,10 @@ mod tests {
             panel_focus: None,
             document: Document::new(),
             saved_revision: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            autosave_observed_revision: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            autosave_deadline: None,
             history: TransactionHistory::default(),
             legacy_history: None,
             legacy_active_index: None,
@@ -17006,6 +17073,62 @@ mod tests {
             reloaded_camera["fieldOfView"]
         );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn autosave_debounces_named_documents_without_saving_untitled_documents() {
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-autosave-{}-{}.octd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = test_app();
+        app.current_project_path = Some(path.clone());
+        let start = std::time::Instant::now();
+
+        app.run_command("geometry.add_cuboid");
+        assert_eq!(Some(Duration::from_millis(1500)), app.poll_autosave(start));
+        app.run_command("geometry.add_cuboid");
+        assert_eq!(
+            Some(Duration::from_millis(1500)),
+            app.poll_autosave(start + Duration::from_millis(700))
+        );
+        assert!(app.pending_project_save.is_none());
+        assert_eq!(
+            Some(Duration::from_millis(1)),
+            app.poll_autosave(start + Duration::from_millis(2199))
+        );
+        assert!(app.pending_project_save.is_none());
+        assert_eq!(None, app.poll_autosave(start + Duration::from_millis(2200)));
+
+        let job_id = app.pending_project_save.as_ref().unwrap().job_id.clone();
+        wait_for_project_save(&mut app, &job_id);
+        assert!(!app.document_is_dirty());
+        assert!(
+            read_project(&std::fs::read(&path).unwrap())
+                .unwrap()
+                .document
+                .occurrence_refs()
+                .unwrap()
+                .len()
+                > 1
+        );
+        std::fs::remove_file(path).unwrap();
+
+        let mut untitled = test_app();
+        let untitled_start = std::time::Instant::now();
+        untitled.run_command("geometry.add_cuboid");
+        assert_eq!(None, untitled.poll_autosave(untitled_start));
+        assert_eq!(
+            None,
+            untitled.poll_autosave(untitled_start + Duration::from_secs(2))
+        );
+        assert!(untitled.pending_project_save.is_none());
+        assert!(untitled.document_is_dirty());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
