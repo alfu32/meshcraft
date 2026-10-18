@@ -1463,8 +1463,78 @@ impl eframe::App for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        Preferences, SHELL_COMMANDS, command_matches, registry_has_unique_ids, tool_command_id,
+        MeshcraftApp, Preferences, SHELL_COMMANDS, command_matches, registry_has_unique_ids,
+        tool_command_id,
     };
+    use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
+    use meshcraft_core::document::Document;
+    use std::collections::BTreeMap;
+
+    fn test_app() -> MeshcraftApp {
+        MeshcraftApp {
+            preferences: Preferences::default(),
+            icon_atlas: None,
+            icon_regions: BTreeMap::new(),
+            active_tool: "Select".to_owned(),
+            status: String::new(),
+            pointer_in_viewport: None,
+            viewport_size: Vec2::ZERO,
+            open_file_menu: false,
+            command_palette_open: false,
+            command_search: String::new(),
+            command_selection: 0,
+            focus_command_search: false,
+            document: Document::new(),
+            selection: Vec::new(),
+            viewport: Default::default(),
+            cuboid_first: None,
+            cuboid_base: None,
+            line_first: None,
+            rectangle_first: None,
+            array_count: 12,
+            array_spacing: 3.0,
+        }
+    }
+
+    fn run_workspace_frame(
+        app: &mut MeshcraftApp,
+        context: &egui::Context,
+        events: Vec<Event>,
+    ) -> egui::FullOutput {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 900.0))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                egui::Frame::central_panel(ui.style()).show(ui, |ui| app.show_workspace(ui));
+            },
+        );
+        output.textures_delta.clear();
+        output
+    }
+
+    fn open_palette(app: &mut MeshcraftApp, context: &egui::Context) {
+        run_workspace_frame(app, context, {
+            let modifiers = Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Default::default()
+            };
+            vec![
+                Event::ModifiersChanged(modifiers),
+                Event::Key {
+                    key: Key::P,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ]
+        });
+        assert!(app.command_palette_open);
+    }
 
     #[test]
     fn every_shell_command_has_a_unique_stable_id() {
@@ -1533,5 +1603,43 @@ mod tests {
         assert_eq!(1.0, preferences.normal_grid_width);
         assert_eq!(3.0, preferences.thick_grid_width);
         assert!(preferences.panels_visible);
+    }
+
+    #[test]
+    fn command_palette_search_receives_text_and_ime_composition() {
+        let mut app = test_app();
+        let context = egui::Context::default();
+        open_palette(&mut app, &context);
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Text("rectangle".to_owned())],
+        );
+        assert_eq!(app.command_search, "rectangle");
+        assert!(
+            app.matching_commands()
+                .iter()
+                .any(|command| { command.id == "tool.rectangle" })
+        );
+
+        app.command_search.clear();
+        let preedit = run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Ime(ImeEvent::Preedit {
+                text: "かな".to_owned(),
+                active_range_chars: Some(0..2),
+            })],
+        );
+        assert_eq!(app.command_search, "かな");
+        assert!(preedit.platform_output.ime.is_some());
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Ime(ImeEvent::Commit("かな".to_owned()))],
+        );
+        assert_eq!(app.command_search, "かな");
     }
 }
