@@ -1046,7 +1046,7 @@
         "EqualizedHelicalArrayTool"
       ],
       "slices": [
-        "Write a compact per-tool state/count/endpoint/payload matrix; implement shared mixed-payload cloning and translation patterns.",
+        "Write a compact per-tool state/count/endpoint/payload matrix; implement shared mixed-payload cloning and translation patterns. The existing numeric linear array must accept selected mesh entities as well as object occurrences, preserve source selection while creating copies, and select the generated results.",
         "Implement Copy Multiple, planar and volumetric translation with exact count/extent/numeric semantics.",
         "Implement planar/helicoidal rotate-multiple and Rotate2 reference stages separately from Rotate.",
         "Implement fixed-step rotational/helical and equalized rotational/helical arrays; bound previews and retain result selection/undo behavior."
@@ -1067,7 +1067,7 @@
         "ROTATIONAL_ARRAY_EQUALIZED",
         "HELICAL_ARRAY_EQUALIZED"
       ],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T22",

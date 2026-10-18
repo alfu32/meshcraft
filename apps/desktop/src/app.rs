@@ -16,6 +16,7 @@ use meshcraft_core::document::{
     VertexId,
 };
 use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
+use meshcraft_core::operations::copy as modeling_copy;
 use meshcraft_core::operations::cuts::{
     CutSegment3, CutSourceTriangle, CutTool, cut_selected_faces as cut_selected_face_mesh,
 };
@@ -880,9 +881,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ),
             (
                 "object.array_selection",
-                "Objects> Array Selected Object",
+                "Objects> Array Selection",
                 "Objects",
-                "repeat copies distribute",
+                "repeat copies distribute selected mesh objects linear array",
                 None,
                 ShellAction::ArraySelection,
             ),
@@ -1525,7 +1526,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ToggleObjectPlaceGlue => {
             CommandStateQuery::ActiveTool("Object Place".to_owned())
         }
-        ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
+        ShellAction::ArraySelection => CommandStateQuery::SelectionAvailable,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
             CommandStateQuery::ActiveTool(tool.to_owned())
         }
@@ -1988,7 +1989,7 @@ pub struct MeshcraftApp {
     current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
-    array_preview: Option<OccurrenceRef>,
+    array_preview: bool,
     pending_selection_volume: Option<Vec3>,
 }
 
@@ -2139,7 +2140,7 @@ impl MeshcraftApp {
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
-            array_preview: None,
+            array_preview: false,
             pending_selection_volume: None,
         }
     }
@@ -4440,7 +4441,7 @@ impl MeshcraftApp {
     fn activate_tool(&mut self, tool: &str) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
-        self.array_preview = None;
+        self.array_preview = false;
         self.clear_push_pull_transient();
         self.active_tool = tool.to_owned();
         if tool == "Orbit" {
@@ -5701,6 +5702,15 @@ impl MeshcraftApp {
             CommandStateQuery::RedoAvailable if !self.can_redo_document() => {
                 CommandState::disabled("there is no later document state")
             }
+            CommandStateQuery::SelectionAvailable
+                if command.descriptor.id.as_str() == "object.array_selection"
+                    && !modeling_copy::can_linear_array_selection(
+                        &self.document,
+                        &self.selection,
+                    ) =>
+            {
+                CommandState::disabled("select supported object instances or mesh entities first")
+            }
             CommandStateQuery::SelectionAvailable if self.selection.selected().is_empty() => {
                 CommandState::disabled("select objects or mesh entities first")
             }
@@ -5952,21 +5962,40 @@ impl MeshcraftApp {
     }
 
     fn array_selection(&mut self, count: usize, spacing: f64) -> CommandResult {
-        let selection = self.selected_occurrences();
-        if selection.len() != 1 || selection[0].path.len() != 1 {
-            return CommandResult::failed("Array requires one selected root object.");
-        }
-        let source = selection[0].clone();
-        match self.commit_document_edit("Array object", |document| {
-            document
-                .array_root_occurrence(&source, count, Vec3::new(spacing, 0.0, 0.0))
-                .ok_or_else(|| "Array could not create the requested object instances.".to_owned())
+        let mut result_selection = self.selection.clone();
+        match self.commit_document_edit("Array selection", |document| {
+            modeling_copy::linear_array(
+                document,
+                &mut result_selection,
+                count,
+                Vec3::new(spacing, 0.0, 0.0),
+            )
         }) {
-            Ok(copies) => {
-                self.array_preview = None;
-                self.set_selection(copies.clone());
+            Ok(report) => {
+                self.array_preview = false;
+                self.selection = result_selection;
                 self.status = format!("Created {} array copies.", count);
-                command_result_with_occurrences(CommandResult::completed(), &copies)
+                let occurrences = report
+                    .selected_results
+                    .iter()
+                    .filter(|target| target.entity == SelectedEntity::Occurrence)
+                    .map(|target| target.occurrence.clone())
+                    .collect::<Vec<_>>();
+                let mut result =
+                    command_result_with_occurrences(CommandResult::completed(), &occurrences);
+                result
+                    .outputs
+                    .insert("copy_count".to_owned(), report.copies.into());
+                result
+                    .outputs
+                    .insert("vertex_count".to_owned(), report.copied_vertices.into());
+                result
+                    .outputs
+                    .insert("edge_count".to_owned(), report.copied_segments.into());
+                result
+                    .outputs
+                    .insert("face_count".to_owned(), report.copied_triangles.into());
+                result
             }
             Err(error) => CommandResult::failed(error),
         }
@@ -5975,7 +6004,7 @@ impl MeshcraftApp {
     fn cancel_active_tool(&mut self) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
-        self.array_preview = None;
+        self.array_preview = false;
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
         self.cuboid_base = None;
@@ -6986,13 +7015,16 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
-        if let Some(source) = self.array_preview.clone() {
-            let selected = self.selected_occurrences();
-            if selected.len() != 1 || selected.first() != Some(&source) {
-                self.array_preview = None;
+        if self.array_preview {
+            if !modeling_copy::can_linear_array_selection(&self.document, &self.selection) {
+                self.array_preview = false;
                 return None;
             }
-            if self.array_count == 0 || !self.array_spacing.is_finite() {
+            if self.array_count == 0
+                || self.array_count > modeling_copy::MAX_LINEAR_ARRAY_COPIES
+                || !self.array_spacing.is_finite()
+                || self.array_spacing.abs() <= GeometryTolerance::default().absolute
+            {
                 return None;
             }
             let edges = modeling_transforms::preview_selection_transform(
@@ -7420,7 +7452,7 @@ impl MeshcraftApp {
         preview: Option<&ToolPreview>,
     ) -> Option<ToolFeedback> {
         let screen_position = pointer?;
-        if self.array_preview.is_none()
+        if !self.array_preview
             && (self.active_tool == "Select"
                 || matches!(
                     self.active_tool.as_str(),
@@ -8910,7 +8942,7 @@ impl MeshcraftApp {
                                     .prefix("Spacing: "),
                             );
                             let array_state = self.query_command_state("object.array_selection");
-                            let preview_label = if self.array_preview.is_some() {
+                            let preview_label = if self.array_preview {
                                 "Hide Array Preview"
                             } else {
                                 "Preview Array"
@@ -8919,11 +8951,7 @@ impl MeshcraftApp {
                                 .add_enabled(array_state.enabled, egui::Button::new(preview_label))
                                 .clicked()
                             {
-                                self.array_preview = if self.array_preview.is_some() {
-                                    None
-                                } else {
-                                    self.selected_occurrences().into_iter().next()
-                                };
+                                self.array_preview = !self.array_preview;
                             }
                             ui.horizontal(|ui| {
                                 if ui.button("Copy").clicked() {
@@ -9819,7 +9847,7 @@ mod tests {
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
-            array_preview: None,
+            array_preview: false,
             pending_selection_volume: None,
         }
     }
@@ -14336,13 +14364,87 @@ mod tests {
     }
 
     #[test]
+    fn array_command_copies_selected_mesh_and_selects_the_generated_faces() {
+        let mut app = test_app();
+        assert!(!app.query_command_state("object.array_selection").enabled);
+        app.run_command("geometry.add_cuboid");
+        let occurrence = app.selected_occurrences()[0].clone();
+        let source_face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let original_face_count = app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .len();
+        app.selection.clear();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(source_face),
+        });
+        app.array_count = 2;
+        app.array_spacing = 3.0;
+
+        assert!(app.query_command_state("object.array_selection").enabled);
+        app.selection.clear();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: super::SelectionKind::Hotspot,
+                id: "hotspot-1".to_owned(),
+            },
+        });
+        assert!(!app.query_command_state("object.array_selection").enabled);
+        app.selection.clear();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(source_face),
+        });
+        app.array_preview = true;
+        let preview = app
+            .tool_preview(Rect::NOTHING, None, None)
+            .expect("a mesh selection should have an array preview");
+        assert!(matches!(preview, ToolPreview::Array { copies: 2, .. }));
+
+        let mut payload = CommandPayload::default();
+        payload.values.insert("count".to_owned(), json!(2));
+        payload.values.insert("spacing".to_owned(), json!(3.0));
+        let result = app.dispatch_command("object.array_selection", &payload);
+
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!(2, result.result.outputs["copy_count"]);
+        assert_eq!(2, result.result.outputs["face_count"]);
+        assert_eq!(
+            0,
+            result.result.outputs["occurrences"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(2, app.selection.selected().len());
+        assert!(app.selection.selected().iter().all(|target| {
+            target.occurrence == occurrence
+                && matches!(target.entity, SelectedEntity::Triangle(id) if id != source_face)
+        }));
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(original_face_count + 2, geometry.triangles.len());
+        assert!(geometry.triangles.contains_key(&source_face));
+        assert!(!app.array_preview);
+    }
+
+    #[test]
     fn array_preview_tracks_parameters_and_matches_committed_copy_geometry() {
         let mut app = test_app();
         app.run_command("geometry.add_cuboid");
-        let source = app.selected_occurrences()[0].clone();
         app.array_count = 2;
         app.array_spacing = 4.0;
-        app.array_preview = Some(source);
+        app.array_preview = true;
 
         let preview = app
             .tool_preview(Rect::NOTHING, None, None)
@@ -14367,7 +14469,7 @@ mod tests {
         let expected_start = edges[0][0] + *displacement;
         let result = app.array_selection(2, 4.0);
         assert_eq!(CommandCompletion::Completed, result.completion);
-        assert_eq!(None, app.array_preview);
+        assert!(!app.array_preview);
         let copies = app.selected_occurrences();
         let actual_copy_points = copies
             .iter()
