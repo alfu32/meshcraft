@@ -22,7 +22,7 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 ## Current Activity
 
-T05 now applies explicit schema-17 defaults to sparse segment and face DTOs in prototype geometry and instance overrides. The focused regression, all 77 core/67 desktop/14 IO workspace tests, formatting, diff checks, plan validation, workspace Clippy, and desktop WASM check pass. Next: continue defaults coverage for the remaining DTO families and complete Kotlin/Rust fixture parity.
+T05’s canonical comparator allows at most eight ULPs for floating-point fields while keeping structure and nonnumeric values exact. All 60 pinned fixtures, 77 core/67 desktop/14 IO workspace tests, formatting, plan validation, diff checks, and all-target Clippy pass; one documented empty-root basis repair warning remains. Next: pursue Kotlin reopen parity and remaining DTO coverage.
 
 ## Task Statuses
 
