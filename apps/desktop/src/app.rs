@@ -20,9 +20,7 @@ use meshcraft_core::transactions::{
 use meshcraft_io::project::{DecodeProgress, read_project_with, write_project};
 use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-#[cfg(test)]
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::{self, OpenOptions};
 #[cfg(not(target_arch = "wasm32"))]
@@ -327,6 +325,7 @@ enum ShellAction {
     SelectToolAlias(&'static str),
     AddCuboid,
     CopySelection,
+    DeleteSelection,
     CreateObject,
     ArraySelection,
     UpdateModelSettings,
@@ -446,6 +445,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "duplicate clone",
                 None,
                 ShellAction::CopySelection,
+            ),
+            (
+                "edit.delete_selection",
+                "Edit> Delete Selection",
+                "Edit",
+                "remove erase objects",
+                None,
+                ShellAction::DeleteSelection,
             ),
             (
                 "object.create_from_selection",
@@ -803,6 +810,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::SelectTool(_) | ShellAction::SelectToolAlias(_) => CommandKind::ToolActivation,
         ShellAction::AddCuboid
         | ShellAction::CopySelection
+        | ShellAction::DeleteSelection
         | ShellAction::CreateObject
         | ShellAction::ArraySelection
         | ShellAction::UpdateModelSettings
@@ -835,6 +843,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::Undo => CommandStateQuery::UndoAvailable,
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
         ShellAction::CopySelection => CommandStateQuery::SingleRootSelection,
+        ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::CreateObject => CommandStateQuery::RootSelectionAvailable,
         ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
@@ -878,6 +887,9 @@ fn register_shell_command(
     }
     if id == "file.save" {
         descriptor.shortcut = Some("Ctrl+S".to_owned());
+    }
+    if id == "edit.delete_selection" {
+        descriptor.shortcut = Some("Delete".to_owned());
     }
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
@@ -1946,10 +1958,12 @@ impl MeshcraftApp {
                     "Cuboid" => {
                         "Cuboid: click two ground-plane corners, then click the height.".to_owned()
                     }
-                    "Line" => {
-                        "Line: click a start point and an end point on the ground plane.".to_owned()
+                    "Line" => "Line: click a start and end point in the active construction plane."
+                        .to_owned(),
+                    "Rectangle" => {
+                        "Rectangle: click two opposite corners in the active construction plane."
+                            .to_owned()
                     }
-                    "Rectangle" => "Rectangle: click two opposite ground-plane corners.".to_owned(),
                     _ => format!("{tool} tool selected."),
                 };
             }
@@ -1983,6 +1997,28 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::CopySelection => return self.copy_selection(),
+            ShellAction::DeleteSelection => {
+                let selected = self.selected_occurrences();
+                let removed = match self
+                    .commit_document_edit("Delete selected objects", |document| {
+                        document.remove_selected_occurrences(&selected)
+                    }) {
+                    Ok(removed) => removed,
+                    Err(error) => return CommandResult::failed(error),
+                };
+                self.selection.clear();
+                self.object_name_edit = None;
+                self.status = if removed == 1 {
+                    "Deleted 1 selected object.".to_owned()
+                } else {
+                    format!("Deleted {removed} selected objects.")
+                };
+                let mut result = CommandResult::completed();
+                result
+                    .outputs
+                    .insert("deleted_count".to_owned(), removed.into());
+                return result;
+            }
             ShellAction::CreateObject => return self.create_object_from_selection(),
             ShellAction::ArraySelection => {
                 let count = match payload.values.get("count") {
@@ -2336,6 +2372,28 @@ impl MeshcraftApp {
             }
             CommandStateQuery::SelectionAvailable if self.selected_occurrences().is_empty() => {
                 CommandState::disabled("select an object first")
+            }
+            CommandStateQuery::DeleteSelectionAvailable => {
+                let selection = self.selected_occurrences();
+                let mut paths = BTreeSet::new();
+                let existing = !selection.is_empty()
+                    && selection.iter().all(|item| {
+                        !item.path.is_empty()
+                            && self.document.resolve_occurrence(item).is_some()
+                            && paths.insert(item.path.clone())
+                    });
+                let overlaps = paths.iter().any(|path| {
+                    paths
+                        .iter()
+                        .any(|other| path.len() < other.len() && other.starts_with(path))
+                });
+                if existing && !overlaps {
+                    CommandState::default()
+                } else {
+                    CommandState::disabled(
+                        "select existing objects without selecting both a parent and its child",
+                    )
+                }
             }
             CommandStateQuery::RootSelectionAvailable => {
                 let selection = self.selected_occurrences();
@@ -2870,7 +2928,7 @@ impl MeshcraftApp {
             ui.menu_button("Edit", |ui| {
                 self.show_command_menu_item(ui, "edit.undo");
                 self.show_command_menu_item(ui, "edit.redo");
-                ui.add_enabled(false, egui::Button::new("Delete"));
+                self.show_command_menu_item(ui, "edit.delete_selection");
                 ui.add_enabled(false, egui::Button::new("Clear Selection"));
                 ui.separator();
                 self.show_command_menu_item(ui, "edit.copy_selection");
@@ -3567,6 +3625,12 @@ impl MeshcraftApp {
         if save_as_shortcut {
             self.run_command("file.save_as");
         }
+        let delete_shortcut = !self.command_palette_open
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| input.key_pressed(egui::Key::Delete));
+        if delete_shortcut {
+            self.run_command("edit.delete_selection");
+        }
         let toggle_command_palette = ui.input(|input| {
             input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
         });
@@ -4106,7 +4170,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(181, entries.len());
+        assert_eq!(182, entries.len());
         assert_eq!(
             74,
             entries
@@ -4129,6 +4193,7 @@ mod tests {
                 .count()
         );
         assert!(shell_commands().get("edit.group").is_some());
+        assert!(shell_commands().get("edit.delete_selection").is_some());
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4165,6 +4230,7 @@ mod tests {
         let initial_revision = app.document.revision();
         assert!(!app.query_command_state("edit.undo").enabled);
         assert!(!app.query_command_state("edit.copy_selection").enabled);
+        assert!(!app.query_command_state("edit.delete_selection").enabled);
 
         app.run_command("edit.undo");
         assert!(app.status.contains("no earlier document state"));
@@ -4328,6 +4394,136 @@ mod tests {
         assert_eq!(Some(&true), app.preferences.panel_open.get("ui_settings"));
         assert!(app.preferences.panels_visible);
         assert_eq!(initial_revision, app.document.revision());
+    }
+
+    #[test]
+    fn delete_selection_command_is_undoable_and_clears_selection() {
+        let mut app = test_app();
+        let first = app
+            .document
+            .add_cuboid(
+                "first",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::ZERO,
+            )
+            .unwrap();
+        let second = app
+            .document
+            .add_cuboid(
+                "second",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::new(3.0, 0.0, 0.0),
+            )
+            .unwrap();
+        app.set_selection([first, second]);
+        assert!(app.query_command_state("edit.delete_selection").enabled);
+
+        let deleted = app.dispatch_command("edit.delete_selection", &CommandPayload::default());
+
+        assert!(deleted.accepted);
+        assert_eq!(2, deleted.result.outputs["deleted_count"]);
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+        assert!(app.selected_occurrences().is_empty());
+        assert!(app.can_undo_document());
+        app.run_command("edit.undo");
+        assert_eq!(2, app.document.occurrence_refs().unwrap().len());
+        app.run_command("edit.redo");
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_command_handles_selection_across_separate_groups() {
+        let mut app = test_app();
+        let make_pair = |app: &mut MeshcraftApp, prefix: &str, offset: f64| {
+            let first = app
+                .document
+                .add_cuboid(
+                    format!("{prefix}-first"),
+                    meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                    meshcraft_core::geometry::Vec3::new(offset, 0.0, 0.0),
+                )
+                .unwrap();
+            let second = app
+                .document
+                .add_cuboid(
+                    format!("{prefix}-second"),
+                    meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                    meshcraft_core::geometry::Vec3::new(offset + 2.0, 0.0, 0.0),
+                )
+                .unwrap();
+            app.document
+                .create_object_from_root_occurrences(&[first, second], format!("{prefix}-pair"))
+                .unwrap()
+        };
+        let first_group = make_pair(&mut app, "first", 0.0);
+        let second_group = make_pair(&mut app, "second", 8.0);
+        let selected = [first_group.clone(), second_group.clone()]
+            .into_iter()
+            .map(|group| {
+                app.document
+                    .occurrence_refs()
+                    .unwrap()
+                    .into_iter()
+                    .find(|item| item.path.len() == 2 && item.path[0] == group.path[0])
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        app.set_selection(selected);
+
+        assert!(app.query_command_state("edit.delete_selection").enabled);
+        let dispatch = app.dispatch_command("edit.delete_selection", &CommandPayload::default());
+
+        assert!(dispatch.accepted);
+        assert_eq!(json!(2), dispatch.result.outputs["deleted_count"]);
+        for group in [first_group, second_group] {
+            assert_eq!(
+                1,
+                app.document
+                    .occurrence_refs()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| item.path.len() == 2 && item.path[0] == group.path[0])
+                    .count()
+            );
+        }
+        assert!(app.document.validate().is_ok());
+    }
+
+    #[test]
+    fn delete_key_uses_the_shared_command_when_viewport_owns_focus() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "selected",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::ZERO,
+            )
+            .unwrap();
+        app.set_selection([occurrence]);
+        let context = egui::Context::default();
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::Delete,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_command_is_searchable_from_the_palette() {
+        let command = shell_commands()
+            .get("edit.delete_selection")
+            .expect("delete command is registered");
+        assert!(command_matches(&command.descriptor, "delete selection"));
+        assert_eq!(Some("Delete"), command.descriptor.shortcut.as_deref());
+        assert_eq!(CommandKind::DocumentMutation, command.descriptor.kind);
     }
 
     #[test]

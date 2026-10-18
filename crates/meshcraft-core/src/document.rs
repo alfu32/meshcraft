@@ -1025,6 +1025,171 @@ impl Document {
             .and_then(|copies| copies.into_iter().next())
     }
 
+    /// Removes selected occurrences without changing shared child layouts.
+    ///
+    /// Root entries are removed from the unique root layout. For nested placements, the active
+    /// child layout is copied onto the parent occurrence and its surviving entry IDs are remapped,
+    /// so deleting children from one or more groups does not edit other instances of those groups.
+    /// A selection cannot contain both a parent occurrence and one of its descendants.
+    pub fn remove_selected_occurrences(
+        &mut self,
+        occurrences: &[OccurrenceRef],
+    ) -> Result<usize, String> {
+        let mut selected_paths = BTreeSet::new();
+        let mut groups: BTreeMap<Vec<LayoutEntryId>, BTreeSet<LayoutEntryId>> = BTreeMap::new();
+        for occurrence in occurrences {
+            if occurrence.path.is_empty()
+                || self.resolve_occurrence(occurrence).is_none()
+                || !selected_paths.insert(occurrence.path.clone())
+            {
+                return Err("delete requires distinct, existing object selections".to_owned());
+            }
+            let parent_path = occurrence.path[..occurrence.path.len() - 1].to_vec();
+            groups
+                .entry(parent_path)
+                .or_default()
+                .insert(*occurrence.path.last().expect("non-empty path"));
+        }
+        if selected_paths.is_empty() {
+            return Err("select one or more objects to delete".to_owned());
+        }
+        for path in &selected_paths {
+            if selected_paths
+                .iter()
+                .any(|other| path.len() < other.len() && other.starts_with(path))
+            {
+                return Err("delete a parent or its descendants in separate operations".to_owned());
+            }
+        }
+
+        let mut groups = groups.into_iter().collect::<Vec<_>>();
+        groups.sort_by_key(|(parent, _)| std::cmp::Reverse(parent.len()));
+
+        // Validate every target and child layout before applying any group, keeping failures
+        // atomic even when the selection spans several parents.
+        for (parent_path, selected_ids) in &groups {
+            if parent_path.is_empty() {
+                let root = self
+                    .child_layouts
+                    .get(&self.root_layout)
+                    .ok_or_else(|| "document root layout is missing".to_owned())?;
+                if selected_ids
+                    .iter()
+                    .any(|id| !root.entries.iter().any(|entry| entry.id == *id))
+                {
+                    return Err("a selected root object is no longer present".to_owned());
+                }
+                continue;
+            }
+
+            let parent = OccurrenceRef {
+                path: parent_path.clone(),
+            };
+            let resolved_parent = self
+                .resolve_occurrence(&parent)
+                .ok_or_else(|| "the selected objects have an invalid parent".to_owned())?;
+            let source_layout_id = resolved_parent
+                .edits
+                .and_then(|edits| edits.child_layout)
+                .or(resolved_parent.definition.default_child_layout)
+                .ok_or_else(|| "the selected parent has no child layout".to_owned())?;
+            let source_layout = self
+                .child_layouts
+                .get(&source_layout_id)
+                .ok_or_else(|| "the selected parent child layout is missing".to_owned())?;
+            if selected_ids
+                .iter()
+                .any(|id| !source_layout.entries.iter().any(|entry| entry.id == *id))
+            {
+                return Err("a selected object is no longer present under its parent".to_owned());
+            }
+            for path in self.occurrence_edits.keys() {
+                if path.path.starts_with(parent_path) && path.path.len() > parent_path.len() {
+                    let child_id = path.path[parent_path.len()];
+                    if !source_layout
+                        .entries
+                        .iter()
+                        .any(|entry| entry.id == child_id)
+                    {
+                        return Err(
+                            "an occurrence edit is outside the selected child layout".to_owned()
+                        );
+                    }
+                }
+            }
+        }
+
+        for (parent_path, selected_ids) in groups {
+            if parent_path.is_empty() {
+                let root = self
+                    .child_layouts
+                    .get_mut(&self.root_layout)
+                    .expect("root layout was validated above");
+                root.entries
+                    .retain(|entry| !selected_ids.contains(&entry.id));
+                self.occurrence_edits.retain(|path, _| {
+                    path.path
+                        .first()
+                        .is_none_or(|entry| !selected_ids.contains(entry))
+                });
+                continue;
+            }
+
+            let parent = OccurrenceRef {
+                path: parent_path.clone(),
+            };
+            let resolved_parent = self
+                .resolve_occurrence(&parent)
+                .expect("parent paths were validated above");
+            let source_layout_id = resolved_parent
+                .edits
+                .and_then(|edits| edits.child_layout)
+                .or(resolved_parent.definition.default_child_layout)
+                .expect("parent child layouts were validated above");
+            let source_layout = self.child_layouts[&source_layout_id].clone();
+            let mut entry_remap = BTreeMap::new();
+            let mut entries = Vec::with_capacity(source_layout.entries.len() - selected_ids.len());
+            for mut entry in source_layout.entries {
+                if selected_ids.contains(&entry.id) {
+                    continue;
+                }
+                let old_id = entry.id;
+                entry.id = LayoutEntryId(self.allocate_id());
+                entry_remap.insert(old_id, entry.id);
+                entries.push(entry);
+            }
+            let child_layout_id = ChildLayoutId(self.allocate_id());
+            let mut remapped_edits = BTreeMap::new();
+            for (path, edits) in &self.occurrence_edits {
+                let mut path = path.clone();
+                if path.path.starts_with(&parent_path) && path.path.len() > parent_path.len() {
+                    let child_index = parent_path.len();
+                    let child_id = path.path[child_index];
+                    if selected_ids.contains(&child_id) {
+                        continue;
+                    }
+                    path.path[child_index] = entry_remap[&child_id];
+                }
+                remapped_edits.insert(path, edits.clone());
+            }
+            let mut parent_edits = remapped_edits.get(&parent).cloned().unwrap_or_default();
+            parent_edits.child_layout = Some(child_layout_id);
+            remapped_edits.insert(parent, parent_edits);
+            self.child_layouts.insert(
+                child_layout_id,
+                ChildLayout {
+                    id: child_layout_id,
+                    entries,
+                    extensions: source_layout.extensions,
+                },
+            );
+            self.occurrence_edits = remapped_edits;
+        }
+
+        self.revision = self.revision.saturating_add(1);
+        Ok(selected_paths.len())
+    }
+
     /// Adds `count` root placements using one deterministic translation step.
     pub fn array_root_occurrence(
         &mut self,
@@ -2251,6 +2416,184 @@ mod tests {
             copied.edits.unwrap().values["material.tint"],
             serde_json::json!("red")
         );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_nested_siblings_isolated_to_the_selected_instance() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("first", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .add_cuboid("second", Vec3::new(1.0, 1.0, 1.0), Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        let group = document
+            .create_object_from_root_occurrences(&[first, second], "pair")
+            .unwrap();
+        let group_copy = document
+            .copy_root_occurrence(&group, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let mut original_children = document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.path.len() == 2 && item.path[0] == group.path[0])
+            .collect::<Vec<_>>();
+        let copied_children = document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.path.len() == 2 && item.path[0] == group_copy.path[0])
+            .collect::<Vec<_>>();
+        assert_eq!(2, original_children.len());
+        assert_eq!(2, copied_children.len());
+
+        let removed = document
+            .remove_selected_occurrences(&[original_children.remove(0)])
+            .unwrap();
+
+        assert_eq!(1, removed);
+        assert_eq!(
+            1,
+            document
+                .occurrence_refs()
+                .unwrap()
+                .iter()
+                .filter(|item| { item.path.len() == 2 && item.path[0] == group.path[0] })
+                .count()
+        );
+        assert_eq!(
+            2,
+            document
+                .occurrence_refs()
+                .unwrap()
+                .iter()
+                .filter(|item| { item.path.len() == 2 && item.path[0] == group_copy.path[0] })
+                .count()
+        );
+        assert!(
+            copied_children
+                .iter()
+                .all(|item| document.resolve_occurrence(item).is_some())
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_root_siblings_removes_their_occurrence_edits() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("first", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .add_cuboid("second", Vec3::new(1.0, 1.0, 1.0), Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        assert!(document.set_occurrence_edits(
+            second.clone(),
+            InstanceEdits {
+                values: BTreeMap::from([("custom.value".to_owned(), serde_json::json!(7))]),
+                ..InstanceEdits::default()
+            }
+        ));
+
+        assert_eq!(
+            1,
+            document
+                .remove_selected_occurrences(std::slice::from_ref(&first))
+                .unwrap()
+        );
+
+        assert!(document.resolve_occurrence(&first).is_none());
+        assert!(document.resolve_occurrence(&second).is_some());
+        assert!(document.occurrence_edits(&second).is_some());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_selection_across_parent_groups_preserves_each_shared_definition() {
+        let mut document = Document::new();
+        let create_pair = |document: &mut Document, prefix: &str, offset: f64| {
+            let first = document
+                .add_cuboid(
+                    format!("{prefix}-first"),
+                    Vec3::new(1.0, 1.0, 1.0),
+                    Vec3::new(offset, 0.0, 0.0),
+                )
+                .unwrap();
+            let second = document
+                .add_cuboid(
+                    format!("{prefix}-second"),
+                    Vec3::new(1.0, 1.0, 1.0),
+                    Vec3::new(offset + 2.0, 0.0, 0.0),
+                )
+                .unwrap();
+            document
+                .create_object_from_root_occurrences(&[first, second], format!("{prefix}-pair"))
+                .unwrap()
+        };
+        let first_group = create_pair(&mut document, "first", 0.0);
+        let second_group = create_pair(&mut document, "second", 8.0);
+        let targets = [first_group.clone(), second_group.clone()]
+            .into_iter()
+            .map(|group| {
+                document
+                    .occurrence_refs()
+                    .unwrap()
+                    .into_iter()
+                    .find(|item| item.path.len() == 2 && item.path[0] == group.path[0])
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(2, document.remove_selected_occurrences(&targets).unwrap());
+
+        let occurrences = document.occurrence_refs().unwrap();
+        assert_eq!(
+            1,
+            occurrences
+                .iter()
+                .filter(|item| item.path.len() == 2 && item.path[0] == first_group.path[0])
+                .count()
+        );
+        assert_eq!(
+            1,
+            occurrences
+                .iter()
+                .filter(|item| item.path.len() == 2 && item.path[0] == second_group.path[0])
+                .count()
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn deleting_a_parent_and_its_descendant_is_rejected_without_changes() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("first", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .add_cuboid("second", Vec3::new(1.0, 1.0, 1.0), Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let group = document
+            .create_object_from_root_occurrences(&[first, second], "pair")
+            .unwrap();
+        let child = document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|item| item.path.len() == 2 && item.path[0] == group.path[0])
+            .unwrap();
+        let revision = document.revision();
+
+        assert!(
+            document
+                .remove_selected_occurrences(&[group, child])
+                .is_err()
+        );
+
+        assert_eq!(revision, document.revision());
+        assert_eq!(3, document.occurrence_refs().unwrap().len());
         assert!(document.validate().is_ok());
     }
 }

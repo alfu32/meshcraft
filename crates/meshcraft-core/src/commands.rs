@@ -92,6 +92,7 @@ pub enum CommandStateQuery {
     RedoAvailable,
     SelectionAvailable,
     RootSelectionAvailable,
+    DeleteSelectionAvailable,
     SingleRootSelection,
     ActiveTool(String),
     ActiveProfile(String),
