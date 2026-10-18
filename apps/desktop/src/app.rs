@@ -26,7 +26,7 @@ use meshcraft_core::tools::{
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
         PolylinePath, PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
-        build_polyline_mesh,
+        build_double_line_mesh_in_plane, build_polyline_mesh,
     },
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
@@ -1258,6 +1258,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "line" => ShellAction::SelectToolAlias("Line"),
                 "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
                 "polyline" => ShellAction::SelectToolAlias("Polyline"),
+                "double_line" => ShellAction::SelectToolAlias("Double Line"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -2080,8 +2081,25 @@ impl MeshcraftApp {
             .into_iter()
             .map(|point| inverse.transform_point(point))
             .collect::<Vec<_>>();
-        let segments = mesh.segments;
-        let triangles = mesh.triangles;
+        self.commit_local_planar_mesh(
+            owner,
+            occurrence,
+            vertices,
+            mesh.segments,
+            mesh.triangles,
+            label,
+        )
+    }
+
+    fn commit_local_planar_mesh(
+        &mut self,
+        owner: LineOwner,
+        occurrence: OccurrenceRef,
+        vertices: Vec<Vec3>,
+        segments: Vec<[usize; 2]>,
+        triangles: Vec<[usize; 3]>,
+        label: &'static str,
+    ) -> Result<Vec<SelectionTarget>, String> {
         let (segment_ids, triangle_ids) =
             self.commit_document_edit(&format!("Create {label}"), |document| match owner {
                 LineOwner::SceneRoot => {
@@ -2121,16 +2139,24 @@ impl MeshcraftApp {
         let result = self.commit_polyline_path(path);
         if result.completion == CommandCompletion::Failed {
             self.polyline_tool_state = previous;
+            let tool_name = if self.active_tool == "Double Line" {
+                "Double Line"
+            } else {
+                "Polyline"
+            };
             self.status = result
                 .diagnostics
                 .first()
                 .cloned()
-                .unwrap_or_else(|| "Polyline could not be created.".to_owned());
+                .unwrap_or_else(|| format!("{tool_name} could not be created."));
         }
         result
     }
 
     fn commit_polyline_path(&mut self, path: PolylinePath) -> CommandResult {
+        if self.active_tool == "Double Line" {
+            return self.commit_double_line_path(path);
+        }
         let mesh = match build_polyline_mesh(&path) {
             Ok(mesh) => mesh,
             Err(error) => return CommandResult::failed(error),
@@ -2142,6 +2168,50 @@ impl MeshcraftApp {
                     "Created {} polyline point(s){} in the active geometry graph.",
                     path.points.len(),
                     if path.closed { " as a closed mesh" } else { "" }
+                );
+                CommandResult::completed()
+            }
+            Err(error) => CommandResult::failed(error),
+        }
+    }
+
+    fn commit_double_line_path(&mut self, path: PolylinePath) -> CommandResult {
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let local_path = PolylinePath {
+            points: path
+                .points
+                .iter()
+                .map(|point| inverse.transform_point(*point))
+                .collect(),
+            closed: path.closed,
+        };
+        let settings = self.document.model_settings();
+        let local_plane_normal = inverse
+            .transform_vector(self.viewport.construction_plane_normal())
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::Y);
+        let mesh = match build_double_line_mesh_in_plane(
+            &local_path,
+            settings.double_line_size,
+            settings.double_line_offset,
+            local_plane_normal,
+        ) {
+            Ok(mesh) => mesh,
+            Err(error) => return CommandResult::failed(error),
+        };
+        match self.commit_local_planar_mesh(
+            owner,
+            occurrence.clone(),
+            mesh.vertices,
+            mesh.segments,
+            mesh.triangles,
+            "Double Line",
+        ) {
+            Ok(targets) => {
+                self.selection.apply(targets, SelectionMode::Replace);
+                self.status = format!(
+                    "Created double-line ribbon from {} point(s) in the active geometry graph.",
+                    path.points.len()
                 );
                 CommandResult::completed()
             }
@@ -3061,7 +3131,8 @@ impl MeshcraftApp {
         }
         self.cuboid_first = None;
         self.cuboid_base = None;
-        self.polyline_tool_state.activate(tool == "Polyline");
+        self.polyline_tool_state
+            .activate(matches!(tool, "Polyline" | "Double Line"));
         self.drawing_tool.handle(ToolEvent::Activate(match tool {
             "Line" => DrawingTool::Line,
             "Construction Line" => DrawingTool::ConstructionLine,
@@ -3078,6 +3149,9 @@ impl MeshcraftApp {
             }
             "Polyline" => {
                 "Polyline: click to start; A selects three-point arc, C center arc, L line. Enter finishes.".to_owned()
+            }
+            "Double Line" => {
+                "Double Line: click a center path; A/C/L switch arc modes, Enter finishes the ribbon.".to_owned()
             }
             "Construction Line" => {
                 "Construction Line: click two points; the tool stays active for another segment."
@@ -3161,7 +3235,7 @@ impl MeshcraftApp {
                 if self.transform_tool_state.active().is_some() {
                     return self.finish_transform_input();
                 }
-                if self.active_tool == "Polyline" {
+                if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
                     return self.finish_polyline(false);
                 }
                 self.sync_drawing_tool_state();
@@ -3179,12 +3253,11 @@ impl MeshcraftApp {
                     self.status = "Removed the last transform input or point.".to_owned();
                     return CommandResult::completed();
                 }
-                if self.active_tool == "Polyline" {
+                if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
                     if !self.polyline_tool_state.backspace() {
-                        return CommandResult::failed("there is no polyline point to undo");
+                        return CommandResult::failed("there is no path point to undo");
                     }
-                    self.status =
-                        "Removed the last polyline point or arc control point.".to_owned();
+                    self.status = "Removed the last path point or arc control point.".to_owned();
                     return CommandResult::completed();
                 }
                 self.sync_drawing_tool_state();
@@ -3952,9 +4025,10 @@ impl MeshcraftApp {
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
             && !self.transform_tool_state.points().is_empty();
+        let path_tool_active = matches!(self.active_tool.as_str(), "Polyline" | "Double Line");
         let polyline_finish_ready =
-            self.active_tool == "Polyline" && self.polyline_tool_state.points().len() >= 2;
-        let polyline_undo_ready = self.active_tool == "Polyline"
+            path_tool_active && self.polyline_tool_state.points().len() >= 2;
+        let polyline_undo_ready = path_tool_active
             && (self.polyline_tool_state.arc_control().is_some()
                 || !self.polyline_tool_state.points().is_empty());
         if id == "tool.distance" && !line_distance_ready && !transform_input_ready {
@@ -3967,7 +4041,9 @@ impl MeshcraftApp {
             && !transform_input_ready
             && !polyline_finish_ready
         {
-            return CommandState::disabled("start a Line, Construction Line, or Polyline first");
+            return CommandState::disabled(
+                "start a Line, Construction Line, Polyline, or Double Line first",
+            );
         }
         if id == "tool.undo_point"
             && !line_distance_ready
@@ -4712,9 +4788,10 @@ impl MeshcraftApp {
             return;
         }
 
-        if self.active_tool == "Polyline" {
+        if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+            let tool_name = self.active_tool.clone();
             let Some(point) = construction_point else {
-                self.status = "Polyline needs a point in the active construction view.".to_owned();
+                self.status = format!("{tool_name} needs a point in the active construction view.");
                 return;
             };
             let effect = self
@@ -4722,23 +4799,23 @@ impl MeshcraftApp {
                 .pick(point, self.document.model_settings().arc_max_length);
             match effect {
                 Ok(PolylinePickEffect::Started) => {
-                    self.status =
-                        "Polyline: choose the next point; A arc through, C arc center, L line."
-                            .to_owned();
+                    self.status = format!(
+                        "{tool_name}: choose the next point; A arc through, C arc center, L line."
+                    );
                 }
                 Ok(PolylinePickEffect::Added) => {
                     self.status =
-                        "Polyline: choose the next point or press Enter to finish.".to_owned();
+                        format!("{tool_name}: choose the next point or press Enter to finish.");
                 }
                 Ok(PolylinePickEffect::NeedArcEndpoint) => {
                     self.status = match self.polyline_tool_state.mode() {
                         PolylineSegmentMode::ArcThrough => {
-                            "Polyline arc: choose its endpoint.".to_owned()
+                            format!("{tool_name} arc: choose its endpoint.")
                         }
                         PolylineSegmentMode::ArcCenter => {
-                            "Polyline arc: choose its endpoint after the center.".to_owned()
+                            format!("{tool_name} arc: choose its endpoint after the center.")
                         }
-                        PolylineSegmentMode::Line => "Polyline: choose the next point.".to_owned(),
+                        PolylineSegmentMode::Line => format!("{tool_name}: choose the next point."),
                     };
                 }
                 Ok(PolylinePickEffect::Closed) => {
@@ -5310,6 +5387,44 @@ impl MeshcraftApp {
             let preview = self
                 .polyline_tool_state
                 .preview(point, self.document.model_settings().arc_max_length)?;
+            if self.active_tool == "Double Line" {
+                let (_, occurrence, inverse) = self.line_geometry_context();
+                let local_path = PolylinePath {
+                    points: preview
+                        .points
+                        .iter()
+                        .map(|point| inverse.transform_point(*point))
+                        .collect(),
+                    closed: preview.closed,
+                };
+                let settings = self.document.model_settings();
+                let local_plane_normal = inverse
+                    .transform_vector(self.viewport.construction_plane_normal())
+                    .try_normalized(1.0e-12)
+                    .unwrap_or(Vec3::Y);
+                let mesh = build_double_line_mesh_in_plane(
+                    &local_path,
+                    settings.double_line_size,
+                    settings.double_line_offset,
+                    local_plane_normal,
+                )
+                .ok()?;
+                let world_transform = self
+                    .document
+                    .resolve_occurrence(&occurrence)?
+                    .world_transform;
+                let edges = mesh
+                    .segments
+                    .iter()
+                    .map(|[start, end]| {
+                        [
+                            world_transform.transform_point(mesh.vertices[*start]),
+                            world_transform.transform_point(mesh.vertices[*end]),
+                        ]
+                    })
+                    .collect();
+                return Some(ToolPreview::Transform { edges });
+            }
             return Some(ToolPreview::Polyline {
                 outline: preview.points,
                 closed: preview.closed,
@@ -6669,11 +6784,12 @@ impl MeshcraftApp {
                 self.handle_drawing_tool_effect(effect, None);
             }
         }
-        if shortcuts_allowed && self.active_tool == "Polyline" {
+        if shortcuts_allowed && matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+            let tool_name = self.active_tool.clone();
             if ui.input(|input| input.key_pressed(egui::Key::Backspace))
                 && self.polyline_tool_state.backspace()
             {
-                self.status = "Removed the last polyline point or arc control point.".to_owned();
+                self.status = "Removed the last path point or arc control point.".to_owned();
             }
             if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                 self.run_command("tool.finish");
@@ -6691,15 +6807,12 @@ impl MeshcraftApp {
             });
             if let Some(mode) = mode {
                 self.polyline_tool_state.set_mode(mode);
-                self.status = match mode {
-                    PolylineSegmentMode::Line => "Polyline mode: line segment.".to_owned(),
-                    PolylineSegmentMode::ArcThrough => {
-                        "Polyline mode: arc through a picked point.".to_owned()
-                    }
-                    PolylineSegmentMode::ArcCenter => {
-                        "Polyline mode: arc from a picked center.".to_owned()
-                    }
+                let mode_name = match mode {
+                    PolylineSegmentMode::Line => "line segment",
+                    PolylineSegmentMode::ArcThrough => "arc through a picked point",
+                    PolylineSegmentMode::ArcCenter => "arc from a picked center",
                 };
+                self.status = format!("{tool_name} mode: {mode_name}.");
             }
         }
         if shortcuts_allowed && self.transform_tool_state.active().is_some() {
@@ -8990,6 +9103,45 @@ mod tests {
         let result = app.dispatch_command("model.update_settings", &invalid);
         assert_eq!(CommandCompletion::Failed, result.result.completion);
         assert_eq!(revision, app.document.revision());
+    }
+
+    #[test]
+    fn double_line_command_creates_and_selects_a_ribbon_from_a_point_path() {
+        let mut app = test_app();
+        let activated =
+            app.dispatch_command("tool.builtin.double_line", &CommandPayload::default());
+        assert!(activated.accepted);
+        assert_eq!("Double Line", app.active_tool);
+        assert!(app.polyline_tool_state.active());
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for point in [Vec3::ZERO, Vec3::X * 3.0] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+        }
+        assert!(app.query_command_state("tool.finish").enabled);
+        let result = app.dispatch_command("tool.finish", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+
+        let occurrence = app
+            .selection
+            .selected()
+            .iter()
+            .next()
+            .unwrap()
+            .occurrence
+            .clone();
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert_eq!(4, app.selection.summary().edges);
+        assert_eq!(2, app.selection.summary().faces);
+        assert_eq!(1, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert!(geometry.segments.is_empty());
+        assert!(geometry.triangles.is_empty());
     }
 
     #[test]

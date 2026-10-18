@@ -258,24 +258,7 @@ pub fn arc_through(start: Vec3, middle: Vec3, end: Vec3, max_length: f64) -> Vec
 
 /// Converts an open or closed path into authored segment and face geometry.
 pub fn build_polyline_mesh(path: &PolylinePath) -> Result<PlanarMesh, &'static str> {
-    if path.points.iter().any(|point| !point.is_finite()) {
-        return Err("Polyline points must be finite.");
-    }
-    let mut points = Vec::with_capacity(path.points.len());
-    for point in &path.points {
-        if points
-            .last()
-            .is_none_or(|previous: &Vec3| previous.distance(*point) > PATH_EPSILON)
-        {
-            points.push(*point);
-        }
-    }
-    if path.closed
-        && points.len() > 1
-        && points[0].distance(*points.last().unwrap()) <= PATH_EPSILON
-    {
-        points.pop();
-    }
+    let points = sanitized_path_points(path)?;
     if points.len() < 2 {
         return Err("Polyline needs at least two distinct points.");
     }
@@ -359,6 +342,182 @@ pub fn build_polyline_mesh(path: &PolylinePath) -> Result<PlanarMesh, &'static s
     })
 }
 
+/// Builds two offset rails from a path. The returned paths retain matching point indices,
+/// which lets sweep and domain tools reuse the same corner joins.
+pub fn build_double_line_paths(
+    path: &PolylinePath,
+    line_size: f64,
+    center_offset: f64,
+) -> Result<(Vec<Vec3>, Vec<Vec3>), &'static str> {
+    build_double_line_paths_in_plane(path, line_size, center_offset, Vec3::Y)
+}
+
+/// Builds two offset rails using `preferred_normal` for straight paths whose plane cannot be
+/// inferred from their points alone.
+pub fn build_double_line_paths_in_plane(
+    path: &PolylinePath,
+    line_size: f64,
+    center_offset: f64,
+    preferred_normal: Vec3,
+) -> Result<(Vec<Vec3>, Vec<Vec3>), &'static str> {
+    if !line_size.is_finite() || line_size <= 0.0 {
+        return Err("Double-line size must be finite and positive.");
+    }
+    if !center_offset.is_finite() {
+        return Err("Double-line offset must be finite.");
+    }
+    let points = sanitized_path_points(path)?;
+    if points.len() < 2 {
+        return Err("Double line needs at least two distinct points.");
+    }
+    if path.closed && points.len() < 3 {
+        return Err("A closed double line needs at least three distinct points.");
+    }
+    let plane_normal = path_plane_normal(&points, preferred_normal);
+    let left_offset = center_offset - line_size * 0.5;
+    let right_offset = center_offset + line_size * 0.5;
+    Ok((
+        offset_polyline(&points, left_offset, plane_normal, path.closed),
+        offset_polyline(&points, right_offset, plane_normal, path.closed),
+    ))
+}
+
+/// Creates the boundary segments and triangulated strip between two offset path rails.
+pub fn build_double_line_mesh(
+    path: &PolylinePath,
+    line_size: f64,
+    center_offset: f64,
+) -> Result<PlanarMesh, &'static str> {
+    build_double_line_mesh_in_plane(path, line_size, center_offset, Vec3::Y)
+}
+
+/// Creates the double-line ribbon using the active construction plane for straight paths.
+pub fn build_double_line_mesh_in_plane(
+    path: &PolylinePath,
+    line_size: f64,
+    center_offset: f64,
+    preferred_normal: Vec3,
+) -> Result<PlanarMesh, &'static str> {
+    let (left, right) =
+        build_double_line_paths_in_plane(path, line_size, center_offset, preferred_normal)?;
+    let count = left.len();
+    let mut vertices = left;
+    vertices.extend(right);
+    let mut segments = Vec::new();
+    let mut triangles = Vec::new();
+    let step_count = if path.closed { count } else { count - 1 };
+    for index in 0..step_count {
+        let next = (index + 1) % count;
+        segments.push([index, next]);
+        segments.push([count + index, count + next]);
+        triangles.push([index, next, count + next]);
+        triangles.push([index, count + next, count + index]);
+    }
+    if !path.closed {
+        segments.push([count - 1, count * 2 - 1]);
+        segments.push([count, 0]);
+    }
+    Ok(PlanarMesh {
+        vertices,
+        segments,
+        triangles,
+    })
+}
+
+fn sanitized_path_points(path: &PolylinePath) -> Result<Vec<Vec3>, &'static str> {
+    if path.points.iter().any(|point| !point.is_finite()) {
+        return Err("Polyline points must be finite.");
+    }
+    let mut points = Vec::with_capacity(path.points.len());
+    for point in &path.points {
+        if points
+            .last()
+            .is_none_or(|previous: &Vec3| previous.distance(*point) > PATH_EPSILON)
+        {
+            points.push(*point);
+        }
+    }
+    if path.closed
+        && points.len() > 1
+        && points[0].distance(*points.last().unwrap()) <= PATH_EPSILON
+    {
+        points.pop();
+    }
+    Ok(points)
+}
+
+fn path_plane_normal(points: &[Vec3], preferred_normal: Vec3) -> Vec3 {
+    if points.len() >= 3 {
+        let origin = points[0];
+        for index in 1..points.len() - 1 {
+            if let Some(normal) = (points[index] - origin)
+                .cross(points[index + 1] - origin)
+                .try_normalized(PATH_EPSILON)
+            {
+                return normal;
+            }
+        }
+    }
+    let direction = points[1] - points[0];
+    if let Some(normal) = preferred_normal.try_normalized(PATH_EPSILON)
+        && direction
+            .try_normalized(PATH_EPSILON)
+            .is_some_and(|direction| direction.dot(normal).abs() < 0.95)
+    {
+        return normal;
+    }
+    if direction.y.abs() > direction.length() * 0.95 {
+        Vec3::X
+    } else {
+        Vec3::Y
+    }
+}
+
+fn offset_polyline(points: &[Vec3], offset: f64, plane_normal: Vec3, closed: bool) -> Vec<Vec3> {
+    let mut result = Vec::with_capacity(points.len());
+    let count = points.len();
+    for index in 0..count {
+        let current = points[index];
+        let previous = if index > 0 {
+            Some(points[index - 1])
+        } else if closed {
+            Some(points[count - 1])
+        } else {
+            None
+        };
+        let next = if index + 1 < count {
+            Some(points[index + 1])
+        } else if closed {
+            Some(points[0])
+        } else {
+            None
+        };
+        let perpendicular = |start: Vec3, end: Vec3| {
+            (end - start)
+                .try_normalized(PATH_EPSILON)
+                .and_then(|direction| direction.cross(plane_normal).try_normalized(PATH_EPSILON))
+        };
+        let previous_perpendicular = previous.and_then(|point| perpendicular(point, current));
+        let next_perpendicular = next.and_then(|point| perpendicular(current, point));
+        let miter = previous_perpendicular
+            .zip(next_perpendicular)
+            .and_then(|(previous, next)| {
+                let miter = (previous + next).try_normalized(PATH_EPSILON)?;
+                let denominator = miter.dot(previous);
+                if denominator.abs() <= 0.01 {
+                    return None;
+                }
+                let scale = offset / denominator;
+                let miter_limit = offset.abs() * 10.0 + 1.0;
+                (scale.abs() <= miter_limit).then_some(miter * scale)
+            });
+        let fallback = previous_perpendicular.or(next_perpendicular);
+        let offset_vector = miter.or_else(|| fallback.map(|direction| direction * offset));
+        result.push(current + offset_vector.unwrap_or(Vec3::ZERO));
+    }
+    result
+}
+
 fn straight_fallback(start: Vec3, end: Vec3) -> Vec<Vec3> {
     if start.distance(end) <= PATH_EPSILON {
         vec![start]
@@ -397,7 +556,8 @@ fn arc_samples(
 mod tests {
     use super::{
         PolylinePath, PolylinePickEffect, PolylineSegmentMode, PolylineToolState, arc_from_center,
-        arc_through, build_polyline_mesh,
+        arc_through, build_double_line_mesh, build_double_line_mesh_in_plane,
+        build_double_line_paths, build_double_line_paths_in_plane, build_polyline_mesh,
     };
     use crate::geometry::Vec3;
 
@@ -506,5 +666,92 @@ mod tests {
             })
             .sum::<f64>();
         assert!((5.0 - area).abs() < 1.0e-8);
+    }
+
+    #[test]
+    fn open_double_line_is_a_closed_ribbon_with_expected_width_and_offset() {
+        let path = PolylinePath {
+            points: vec![Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0)],
+            closed: false,
+        };
+        let (left, right) = build_double_line_paths(&path, 1.0, 0.0).unwrap();
+        assert_eq!(2, left.len());
+        assert_eq!(2, right.len());
+        for index in 0..2 {
+            assert!((left[index].z.abs() - 0.5).abs() < 1.0e-9);
+            assert!((right[index].z.abs() - 0.5).abs() < 1.0e-9);
+            assert!((left[index].z + right[index].z).abs() < 1.0e-9);
+        }
+        let mesh = build_double_line_mesh(&path, 1.0, 0.0).unwrap();
+        assert_eq!(4, mesh.segments.len());
+        assert_eq!(2, mesh.triangles.len());
+        let [a, b, c] = mesh.triangles[0].map(|index| mesh.vertices[index]);
+        assert!(((b - a).cross(c - a).length() * 0.5 - 1.0).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn double_line_miters_stay_finite_and_closed_paths_keep_two_boundary_loops() {
+        let open_corner = PolylinePath {
+            points: vec![
+                Vec3::ZERO,
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(2.001, 0.0, 2.0),
+            ],
+            closed: false,
+        };
+        let open_mesh = build_double_line_mesh(&open_corner, 1.0, 0.25).unwrap();
+        assert!(open_mesh.vertices.iter().all(|point| point.is_finite()));
+        assert_eq!(6, open_mesh.segments.len());
+        assert_eq!(4, open_mesh.triangles.len());
+
+        let closed = PolylinePath {
+            points: vec![
+                Vec3::ZERO,
+                Vec3::new(4.0, 0.0, 0.0),
+                Vec3::new(4.0, 0.0, 3.0),
+                Vec3::new(0.0, 0.0, 3.0),
+            ],
+            closed: true,
+        };
+        let closed_mesh = build_double_line_mesh(&closed, 0.5, 0.0).unwrap();
+        assert_eq!(8, closed_mesh.segments.len());
+        assert_eq!(8, closed_mesh.triangles.len());
+        assert!(closed_mesh.vertices.iter().all(|point| point.is_finite()));
+        assert!(
+            !closed_mesh
+                .segments
+                .iter()
+                .any(|[a, b]| { (*a < 4 && *b >= 4) || (*b < 4 && *a >= 4) })
+        );
+    }
+
+    #[test]
+    fn double_line_rejects_invalid_width_offsets_and_degenerate_closed_paths() {
+        let open = PolylinePath {
+            points: vec![Vec3::ZERO, Vec3::X],
+            closed: false,
+        };
+        assert!(build_double_line_mesh(&open, 0.0, 0.0).is_err());
+        assert!(build_double_line_mesh(&open, 1.0, f64::NAN).is_err());
+        let closed = PolylinePath {
+            points: vec![Vec3::ZERO, Vec3::X],
+            closed: true,
+        };
+        assert!(build_double_line_mesh(&closed, 1.0, 0.0).is_err());
+    }
+
+    #[test]
+    fn straight_double_line_uses_the_active_construction_plane_normal() {
+        let path = PolylinePath {
+            points: vec![Vec3::ZERO, Vec3::Z * 2.0],
+            closed: false,
+        };
+        let (left, right) = build_double_line_paths_in_plane(&path, 1.0, 0.0, Vec3::X).unwrap();
+        assert!(left.iter().all(|point| point.x.abs() < 1.0e-9));
+        assert!(right.iter().all(|point| point.x.abs() < 1.0e-9));
+        assert!((left[0].y.abs() - 0.5).abs() < 1.0e-9);
+        assert!((right[0].y.abs() - 0.5).abs() < 1.0e-9);
+        let mesh = build_double_line_mesh_in_plane(&path, 1.0, 0.0, Vec3::X).unwrap();
+        assert!(mesh.vertices.iter().all(|point| point.x.abs() < 1.0e-9));
     }
 }

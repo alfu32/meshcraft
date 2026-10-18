@@ -3746,6 +3746,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn shadow_map_caster_darkens_a_receiving_entity_face() {
+        let caster = WorldTriangle {
+            points: [
+                Vec3::new(-1.0, 4.0, -1.0),
+                Vec3::new(1.0, 4.0, -1.0),
+                Vec3::new(0.0, 4.0, 1.0),
+            ],
+        };
+        let light = shadow_light_direction();
+        let caster_center = Vec3::new(0.0, 4.0, -1.0 / 3.0);
+        let receiver_center = caster_center - light * (3.0 / light.y);
+        let receiver = WorldTriangle {
+            points: [
+                receiver_center + Vec3::new(-0.5, 0.0, -0.5),
+                receiver_center + Vec3::new(0.5, 0.0, -0.5),
+                receiver_center + Vec3::new(0.0, 0.0, 0.5),
+            ],
+        };
+        let map = ShadowMap::build(&[caster, receiver]).expect("scene creates a depth map");
+
+        assert!(map.shadow_coverage(receiver_center, Vec3::Y) > 0.0);
+    }
+
     fn run_viewport_frame(
         viewport: &mut Viewport,
         context: &egui::Context,
