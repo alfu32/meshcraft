@@ -2,8 +2,9 @@ use crate::assets::{self, IconRegion};
 use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::{
-    CommandCapability, CommandDescriptor, CommandKind, CommandPayload, CommandPresentation,
-    CommandRegistry, CommandResult, CommandState, CommandStateQuery,
+    CommandCapability, CommandCompletion, CommandDescriptor, CommandDispatch, CommandKind,
+    CommandParameter, CommandPayload, CommandPresentation, CommandRegistry, CommandResult,
+    CommandState, CommandStateQuery, CommandValueType,
 };
 use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
@@ -695,6 +696,7 @@ fn register_shell_command(
     )
     .expect("built-in command metadata is valid");
     descriptor.state_query = action_state_query(action);
+    descriptor.parameters = command_parameters(id);
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
@@ -725,6 +727,28 @@ fn register_shell_command(
     registry
         .register(descriptor, action)
         .expect("built-in command ids are unique");
+}
+
+fn command_parameters(id: &str) -> Vec<CommandParameter> {
+    let parameters: &[(&str, CommandValueType)] = match id {
+        "geometry.add_cuboid" => &[
+            ("dimensions", CommandValueType::Array),
+            ("origin", CommandValueType::Array),
+        ],
+        "object.array_selection" => &[
+            ("count", CommandValueType::Integer),
+            ("spacing", CommandValueType::Number),
+        ],
+        _ => &[],
+    };
+    parameters
+        .iter()
+        .map(|(name, value_type)| CommandParameter {
+            name: (*name).to_owned(),
+            value_type: *value_type,
+            required: false,
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -793,6 +817,13 @@ pub struct MeshcraftApp {
 }
 
 impl MeshcraftApp {
+    pub fn command_catalog() -> Vec<CommandDescriptor> {
+        shell_commands()
+            .entries()
+            .map(|command| command.descriptor.clone())
+            .collect()
+    }
+
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         Self::from_document(
             creation_context,
@@ -1149,25 +1180,31 @@ impl MeshcraftApp {
                 .is_some()
     }
 
-    fn run_command(&mut self, id: &str) {
-        let state = self.command_state(id);
-        let outcome = shell_commands().dispatch(
-            id,
-            &CommandPayload::default(),
-            &state,
-            |action, _payload| self.execute_command(*action),
-        );
-        if !outcome.accepted {
-            self.status = outcome
-                .result
-                .diagnostics
-                .first()
-                .cloned()
-                .unwrap_or_else(|| format!("Command `{id}` was rejected."));
+    pub fn dispatch_command(&mut self, id: &str, payload: &CommandPayload) -> CommandDispatch {
+        let state = self.query_command_state(id);
+        let before_revision = self.document.revision();
+        let outcome = shell_commands().dispatch(id, payload, &state, |action, payload| {
+            let mut result = self.execute_command(*action, payload);
+            if result.document_revision.is_none() && before_revision != self.document.revision() {
+                result.document_revision = Some(self.document.revision());
+            }
+            result
+        });
+        if !outcome.accepted || outcome.result.completion == CommandCompletion::Failed {
+            if let Some(message) = outcome.result.diagnostics.first() {
+                self.status = message.clone();
+            } else if !outcome.accepted {
+                self.status = format!("Command `{id}` was rejected.");
+            }
         }
+        outcome
     }
 
-    fn execute_command(&mut self, action: ShellAction) -> CommandResult {
+    fn run_command(&mut self, id: &str) {
+        self.dispatch_command(id, &CommandPayload::default());
+    }
+
+    fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
             ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
                 self.active_tool = tool.to_owned();
@@ -1190,25 +1227,55 @@ impl MeshcraftApp {
                 };
             }
             ShellAction::AddCuboid => {
+                let dimensions = match payload_vec3(payload, "dimensions", Vec3::new(2.0, 2.0, 2.0))
+                {
+                    Ok(value) => value,
+                    Err(error) => return CommandResult::failed(error),
+                };
+                let origin = match payload_vec3(payload, "origin", Vec3::new(-1.0, 0.0, -1.0)) {
+                    Ok(value) => value,
+                    Err(error) => return CommandResult::failed(error),
+                };
                 match self.commit_document_edit("Add cuboid", |document| {
                     document
-                        .add_cuboid(
-                            "cuboid",
-                            Vec3::new(2.0, 2.0, 2.0),
-                            Vec3::new(-1.0, 0.0, -1.0),
-                        )
+                        .add_cuboid("cuboid", dimensions, origin)
                         .ok_or_else(|| "could not create a cuboid".to_owned())
                 }) {
                     Ok(occurrence) => {
-                        self.set_selection([occurrence]);
-                        self.status = "Created a 2 × 2 × 2 cuboid.".to_owned();
+                        self.set_selection([occurrence.clone()]);
+                        self.status = format!(
+                            "Created a {:.2} × {:.2} × {:.2} cuboid.",
+                            dimensions.x, dimensions.y, dimensions.z
+                        );
+                        return command_result_with_occurrences(
+                            CommandResult::completed(),
+                            std::slice::from_ref(&occurrence),
+                        );
                     }
-                    Err(error) => self.status = error,
+                    Err(error) => return CommandResult::failed(error),
                 }
             }
-            ShellAction::CopySelection => self.copy_selection(),
-            ShellAction::CreateObject => self.create_object_from_selection(),
-            ShellAction::ArraySelection => self.array_selection(),
+            ShellAction::CopySelection => return self.copy_selection(),
+            ShellAction::CreateObject => return self.create_object_from_selection(),
+            ShellAction::ArraySelection => {
+                let count = match payload.values.get("count") {
+                    Some(value) => {
+                        match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
+                            Some(value) if value > 0 => value,
+                            _ => return CommandResult::failed("count must be a positive integer"),
+                        }
+                    }
+                    None => self.array_count,
+                };
+                let spacing = match payload.values.get("spacing") {
+                    Some(value) => match value.as_f64() {
+                        Some(value) if value.is_finite() => value,
+                        _ => return CommandResult::failed("spacing must be a finite number"),
+                    },
+                    None => self.array_spacing,
+                };
+                return self.array_selection(count, spacing);
+            }
             ShellAction::Undo => self.undo_document(),
             ShellAction::Redo => self.redo_document(),
             ShellAction::NewDocument => {
@@ -1225,7 +1292,7 @@ impl MeshcraftApp {
                         self.rectangle_first = None;
                         self.status = "New empty document.".to_owned();
                     }
-                    Err(error) => self.status = error,
+                    Err(error) => return CommandResult::failed(error),
                 }
             }
             ShellAction::SetProfile(profile) => {
@@ -1279,7 +1346,7 @@ impl MeshcraftApp {
         self.status = "Opened the requested inspector panel.".to_owned();
     }
 
-    fn command_state(&self, id: &str) -> CommandState {
+    pub fn query_command_state(&self, id: &str) -> CommandState {
         let Some(command) = shell_commands().get(id) else {
             return CommandState::disabled(format!("unknown command `{id}`"));
         };
@@ -1339,20 +1406,17 @@ impl MeshcraftApp {
         }
     }
 
-    fn copy_selection(&mut self) {
+    fn copy_selection(&mut self) -> CommandResult {
         let selection = self.selected_occurrences();
         if selection.len() != 1 || selection[0].path.len() != 1 {
-            self.status = "Copy requires one selected root object.".to_owned();
-            return;
+            return CommandResult::failed("Copy requires one selected root object.");
         }
         let source = selection[0].clone();
         let Some(resolved) = self.document.resolve_occurrence(&source) else {
-            self.status = "The selected object no longer exists.".to_owned();
-            return;
+            return CommandResult::failed("The selected object no longer exists.");
         };
         let Some(geometry) = self.document.effective_geometry(&source) else {
-            self.status = "The selected object has no resolved geometry.".to_owned();
-            return;
+            return CommandResult::failed("The selected object has no resolved geometry.");
         };
         let span_x = geometry
             .vertices
@@ -1368,15 +1432,19 @@ impl MeshcraftApp {
                 .ok_or_else(|| "Copy could not create a root object instance.".to_owned())
         }) {
             Ok(copy) => {
-                self.set_selection([copy]);
+                self.set_selection([copy.clone()]);
                 self.status =
                     "Copied the selected object; the copy shares its definition.".to_owned();
+                command_result_with_occurrences(
+                    CommandResult::completed(),
+                    std::slice::from_ref(&copy),
+                )
             }
-            Err(error) => self.status = error,
+            Err(error) => CommandResult::failed(error),
         }
     }
 
-    fn create_object_from_selection(&mut self) {
+    fn create_object_from_selection(&mut self) -> CommandResult {
         let selection = self.selected_occurrences();
         match self.commit_document_edit("Create object", |document| {
             document
@@ -1386,32 +1454,34 @@ impl MeshcraftApp {
                 })
         }) {
             Ok(object) => {
-                self.set_selection([object]);
+                self.set_selection([object.clone()]);
                 self.status = "Created an object definition from the selected geometry.".to_owned();
+                command_result_with_occurrences(
+                    CommandResult::completed(),
+                    std::slice::from_ref(&object),
+                )
             }
-            Err(error) => self.status = error,
+            Err(error) => CommandResult::failed(error),
         }
     }
 
-    fn array_selection(&mut self) {
+    fn array_selection(&mut self, count: usize, spacing: f64) -> CommandResult {
         let selection = self.selected_occurrences();
         if selection.len() != 1 || selection[0].path.len() != 1 {
-            self.status = "Array requires one selected root object.".to_owned();
-            return;
+            return CommandResult::failed("Array requires one selected root object.");
         }
         let source = selection[0].clone();
-        let count = self.array_count;
-        let spacing = self.array_spacing;
         match self.commit_document_edit("Array object", |document| {
             document
                 .array_root_occurrence(&source, count, Vec3::new(spacing, 0.0, 0.0))
                 .ok_or_else(|| "Array could not create the requested object instances.".to_owned())
         }) {
             Ok(copies) => {
-                self.set_selection(copies);
-                self.status = format!("Created {} array copies.", self.array_count);
+                self.set_selection(copies.clone());
+                self.status = format!("Created {} array copies.", count);
+                command_result_with_occurrences(CommandResult::completed(), &copies)
             }
-            Err(error) => self.status = error,
+            Err(error) => CommandResult::failed(error),
         }
     }
 
@@ -1678,7 +1748,7 @@ impl MeshcraftApp {
             .into_iter();
         let command_states = commands
             .iter()
-            .map(|command| self.command_state(command.descriptor.id.as_str()))
+            .map(|command| self.query_command_state(command.descriptor.id.as_str()))
             .collect::<Vec<_>>();
         let available_count = command_states.iter().filter(|state| state.enabled).count();
         let mut selected_command = None;
@@ -1754,7 +1824,7 @@ impl MeshcraftApp {
             return;
         };
         let label = command.descriptor.label.clone();
-        let state = self.command_state(id);
+        let state = self.query_command_state(id);
         let response = ui.add_enabled(
             state.enabled,
             egui::Button::new(label).selected(state.checked.unwrap_or(false)),
@@ -1774,7 +1844,7 @@ impl MeshcraftApp {
             return;
         };
         let label = command.descriptor.label.clone();
-        let state = self.command_state(id);
+        let state = self.query_command_state(id);
         let mut checked = state.checked.unwrap_or(false);
         if ui.checkbox(&mut checked, label).changed() {
             self.run_command(id);
@@ -1916,7 +1986,7 @@ impl MeshcraftApp {
             for command in shell_commands().entries().filter(|command| {
                 command.descriptor.presentation.toolbar_group.as_deref() == Some("Modeling")
             }) {
-                let state = self.command_state(command.descriptor.id.as_str());
+                let state = self.query_command_state(command.descriptor.id.as_str());
                 let response =
                     ui.add_enabled(state.enabled, egui::Button::new(&command.descriptor.label));
                 if !state.enabled {
@@ -2486,6 +2556,36 @@ fn command_matches(command: &CommandDescriptor, raw_query: &str) -> bool {
     })
 }
 
+fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<Vec3, String> {
+    let Some(value) = payload.values.get(name) else {
+        return Ok(default);
+    };
+    let Some(values) = value.as_array() else {
+        return Err(format!("`{name}` must be an array of three numbers"));
+    };
+    if values.len() != 3 {
+        return Err(format!("`{name}` must contain exactly three numbers"));
+    }
+    let mut coordinates = [0.0; 3];
+    for (index, value) in values.iter().enumerate() {
+        let Some(number) = value.as_f64().filter(|number| number.is_finite()) else {
+            return Err(format!("`{name}` must contain finite numbers"));
+        };
+        coordinates[index] = number;
+    }
+    Ok(Vec3::new(coordinates[0], coordinates[1], coordinates[2]))
+}
+
+fn command_result_with_occurrences(
+    mut result: CommandResult,
+    occurrences: &[OccurrenceRef],
+) -> CommandResult {
+    if let Ok(value) = serde_json::to_value(occurrences) {
+        result.outputs.insert("occurrences".to_owned(), value);
+    }
+    result
+}
+
 #[cfg(test)]
 fn registry_has_unique_ids() -> bool {
     let mut ids = BTreeSet::new();
@@ -2507,8 +2607,8 @@ impl eframe::App for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshcraftApp, Preferences, SelectionSession, TransactionHistory, command_matches,
-        registry_has_unique_ids, shell_commands, tool_command_id,
+        CommandPayload, MeshcraftApp, Preferences, SelectionSession, TransactionHistory,
+        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -2714,8 +2814,8 @@ mod tests {
     fn command_state_blocks_wrong_context_and_tool_activation_has_no_document_edit() {
         let mut app = test_app();
         let initial_revision = app.document.revision();
-        assert!(!app.command_state("edit.undo").enabled);
-        assert!(!app.command_state("edit.copy_selection").enabled);
+        assert!(!app.query_command_state("edit.undo").enabled);
+        assert!(!app.query_command_state("edit.copy_selection").enabled);
 
         app.run_command("edit.undo");
         assert!(app.status.contains("no earlier document state"));
@@ -2730,6 +2830,112 @@ mod tests {
             meshcraft_core::commands::CommandKind::ToolActivation,
             shell_commands().get("tool.cuboid").unwrap().descriptor.kind
         );
+    }
+
+    #[test]
+    fn structured_dispatch_uses_the_palette_registry_and_typed_cuboid_parameters() {
+        let catalog = MeshcraftApp::command_catalog();
+        let add_cuboid = catalog
+            .iter()
+            .find(|command| command.id.as_str() == "geometry.add_cuboid")
+            .unwrap();
+        assert_eq!(1, add_cuboid.schema_version);
+        assert_eq!(2, add_cuboid.parameters.len());
+
+        let mut menu_path = test_app();
+        menu_path.run_command("geometry.add_cuboid");
+
+        let mut structured_path = test_app();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("dimensions".to_owned(), json!([2.0, 2.0, 2.0]));
+        payload
+            .values
+            .insert("origin".to_owned(), json!([-1.0, 0.0, -1.0]));
+        let result = structured_path.dispatch_command("geometry.add_cuboid", &payload);
+
+        assert!(result.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Completed,
+            result.result.completion
+        );
+        assert_eq!(
+            Some(structured_path.document.revision()),
+            result.result.document_revision
+        );
+        assert_eq!(
+            1,
+            result.result.outputs["occurrences"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(menu_path.document, structured_path.document);
+        assert_eq!(1, structured_path.history.entries().len());
+    }
+
+    #[test]
+    fn structured_dispatch_rejects_invalid_geometry_values_without_publishing() {
+        let mut app = test_app();
+        let before = app.document.clone();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("dimensions".to_owned(), json!([1.0, 2.0]));
+
+        let result = app.dispatch_command("geometry.add_cuboid", &payload);
+
+        assert!(result.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            result.result.completion
+        );
+        assert_eq!(before, app.document);
+        assert!(app.status.contains("exactly three numbers"));
+        assert!(app.history.entries().is_empty());
+    }
+
+    #[test]
+    fn structured_array_dispatch_uses_the_supplied_count_and_spacing() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let mut payload = CommandPayload::default();
+        payload.values.insert("count".to_owned(), json!(2));
+        payload.values.insert("spacing".to_owned(), json!(4.0));
+
+        let result = app.dispatch_command("object.array_selection", &payload);
+
+        assert!(result.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Completed,
+            result.result.completion
+        );
+        assert_eq!(
+            Some(app.document.revision()),
+            result.result.document_revision
+        );
+        assert_eq!(
+            2,
+            result.result.outputs["occurrences"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        let copies = app.selected_occurrences();
+        assert_eq!(2, copies.len());
+        let x_positions = copies
+            .iter()
+            .map(|copy| {
+                app.document
+                    .resolve_occurrence(copy)
+                    .unwrap()
+                    .world_transform
+                    .translation
+                    .x
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(vec![3.0, 7.0], x_positions);
     }
 
     #[test]
@@ -2765,9 +2971,9 @@ mod tests {
     fn deferred_commands_are_discoverable_but_report_their_unsupported_state() {
         let mut app = test_app();
         assert!(shell_commands().get("view.plugin_manager").is_some());
-        assert!(!app.command_state("view.plugin_manager").enabled);
+        assert!(!app.query_command_state("view.plugin_manager").enabled);
         assert!(
-            app.command_state("view.plugin_manager")
+            app.query_command_state("view.plugin_manager")
                 .disabled_reason
                 .is_some_and(|reason| reason.contains("not implemented"))
         );
