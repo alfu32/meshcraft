@@ -2022,6 +2022,81 @@ mod tests {
     }
 
     #[test]
+    fn viewport_pointer_mapping_uses_logical_points_at_multiple_dpi_scales() {
+        let document = meshcraft_core::document::Document::new();
+        let physical_window = Vec2::new(1920.0, 1080.0);
+        let panel_offset = Vec2::new(84.0, 32.0);
+        let right_panel_width = 360.0;
+
+        for pixels_per_point in [1.0, 1.5, 2.0] {
+            let logical_window = physical_window / pixels_per_point;
+            let viewport_size = Vec2::new(
+                logical_window.x - panel_offset.x - right_panel_width,
+                logical_window.y - panel_offset.y,
+            );
+            let target_local = viewport_size * Vec2::new(0.63, 0.42);
+            let pointer_in_points = panel_offset + target_local;
+            let pointer_in_pixels = pointer_in_points * pixels_per_point;
+            let pointer_from_backend = pointer_in_pixels / pixels_per_point;
+            let context = egui::Context::default();
+            let mut raw_input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, logical_window)),
+                events: vec![Event::PointerMoved(Pos2::new(
+                    pointer_from_backend.x,
+                    pointer_from_backend.y,
+                ))],
+                ..Default::default()
+            };
+            raw_input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .expect("root viewport exists")
+                .native_pixels_per_point = Some(pixels_per_point);
+
+            let mut viewport = Viewport::default();
+            let mut mapped = None;
+            let mut output = context.run_ui(raw_input, |ui| {
+                ui.add_space(panel_offset.y);
+                ui.horizontal(|ui| {
+                    ui.add_space(panel_offset.x);
+                    mapped = Some(viewport.show(
+                        ui,
+                        &super::ViewportScene {
+                            size: viewport_size,
+                            document: &document,
+                            selection: &[],
+                            active_tool: "Select",
+                            preview: None,
+                            grid: super::GridStyle {
+                                visible: false,
+                                spacing: 1.0,
+                                extent: 20,
+                                normal_width: 1.0,
+                                thick_width: 3.0,
+                            },
+                        },
+                    ));
+                });
+            });
+            output.textures_delta.clear();
+
+            let mapped = mapped.expect("viewport rendered during DPI test frame");
+            assert_eq!(pixels_per_point, context.pixels_per_point());
+            assert_eq!(panel_offset, mapped.rect.min.to_vec2());
+            assert_eq!(viewport_size, mapped.rect.size());
+            assert_eq!(Some(target_local), mapped.pointer_local);
+
+            let world = Vec3::new(3.25, 0.0, -7.5);
+            let screen = viewport.world_to_screen(mapped.rect, world);
+            let recovered = viewport.screen_to_ground(mapped.rect, screen).unwrap();
+            assert!(
+                recovered.distance(world) < 1.0e-5,
+                "scale={pixels_per_point}"
+            );
+        }
+    }
+
+    #[test]
     fn perspective_projection_scales_with_camera_depth() {
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0));
         let viewport = Viewport::default();
