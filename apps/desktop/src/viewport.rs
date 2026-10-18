@@ -22,6 +22,76 @@ pub enum ToolPreview {
     GroundRectangle { first: Vec3, opposite: Vec3 },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OrthoView {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    Front,
+    Back,
+}
+
+impl OrthoView {
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "top" => Some(Self::Top),
+            "bottom" => Some(Self::Bottom),
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "front" => Some(Self::Front),
+            "back" => Some(Self::Back),
+            _ => None,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Front => "front",
+            Self::Back => "back",
+        }
+    }
+
+    fn screen_axes(self) -> (Vec3, Vec3, Vec3) {
+        match self {
+            Self::Top => (
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ),
+            Self::Bottom => (
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, -1.0, 0.0),
+            ),
+            Self::Left => (
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(-1.0, 0.0, 0.0),
+            ),
+            Self::Right => (
+                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+            ),
+            Self::Front => (
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            ),
+            Self::Back => (
+                Vec3::new(-1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ViewportInput {
     pub rect: Rect,
@@ -52,6 +122,7 @@ pub struct Viewport {
     pan: Vec2,
     yaw: f64,
     elevation: f64,
+    orthographic: Option<OrthoView>,
     camera_drag: Option<egui::PointerButton>,
     frame_pending: bool,
     derived: DerivedIndexCache,
@@ -64,6 +135,7 @@ impl Default for Viewport {
             pan: Vec2::ZERO,
             yaw: 0.0,
             elevation: DEFAULT_ELEVATION,
+            orthographic: None,
             camera_drag: None,
             frame_pending: false,
             derived: DerivedIndexCache::default(),
@@ -157,7 +229,19 @@ impl Viewport {
         }
     }
 
-    pub fn screen_to_ground(&self, rect: Rect, position: Pos2) -> Vec3 {
+    pub fn screen_to_ground(&self, rect: Rect, position: Pos2) -> Option<Vec3> {
+        if let Some(view) = self.orthographic {
+            if !matches!(view, OrthoView::Top | OrthoView::Bottom) {
+                return None;
+            }
+            let (right, up, _) = view.screen_axes();
+            let screen = Vec2::new(
+                (position.x - rect.center().x - self.pan.x) / self.zoom,
+                -(position.y - rect.center().y - self.pan.y) / self.zoom,
+            );
+            let world = right * f64::from(screen.x) + up * f64::from(screen.y);
+            return Some(Vec3::new(world.x, 0.0, world.z));
+        }
         let screen_x = f64::from((position.x - rect.center().x - self.pan.x) / self.zoom);
         let screen_y = f64::from((position.y - rect.center().y - self.pan.y) / self.zoom);
         let rotated_x_minus_z = screen_x / ISO_X;
@@ -166,11 +250,11 @@ impl Viewport {
         let rotated_z = (rotated_x_plus_z - rotated_x_minus_z) * 0.5;
         let cosine = self.yaw.cos();
         let sine = self.yaw.sin();
-        Vec3::new(
+        Some(Vec3::new(
             cosine * rotated_x - sine * rotated_z,
             0.0,
             sine * rotated_x + cosine * rotated_z,
-        )
+        ))
     }
 
     pub fn request_frame(&mut self) {
@@ -182,8 +266,19 @@ impl Viewport {
         self.pan = Vec2::ZERO;
         self.yaw = 0.0;
         self.elevation = DEFAULT_ELEVATION;
+        self.orthographic = None;
         self.camera_drag = None;
         self.frame_pending = false;
+    }
+
+    pub fn set_orthographic_view(&mut self, view: OrthoView) {
+        self.orthographic = Some(view);
+        self.camera_drag = None;
+        self.frame_pending = true;
+    }
+
+    pub fn orthographic_view(&self) -> Option<OrthoView> {
+        self.orthographic
     }
 
     fn orbit_by(&mut self, delta: Vec2) {
@@ -199,6 +294,12 @@ impl Viewport {
         delta: Vec2,
         orbit_tool_active: bool,
     ) {
+        if self.orthographic.is_some() {
+            if button == egui::PointerButton::Secondary || button == egui::PointerButton::Middle {
+                self.pan += delta;
+            }
+            return;
+        }
         if button == egui::PointerButton::Middle
             || (button == egui::PointerButton::Secondary && shift_held)
         {
@@ -211,7 +312,15 @@ impl Viewport {
     }
 
     fn zoom_at(&mut self, rect: Rect, position: Pos2, scroll: f32) {
-        let ground_anchor = self.screen_to_ground(rect, position);
+        if self.orthographic.is_some() {
+            let anchor = (position - rect.center() - self.pan) / self.zoom;
+            self.zoom = (self.zoom * (scroll * 0.001).exp()).clamp(5.0, 160.0);
+            self.pan = position - rect.center() - anchor * self.zoom;
+            return;
+        }
+        let Some(ground_anchor) = self.screen_to_ground(rect, position) else {
+            return;
+        };
         self.zoom = (self.zoom * (scroll * 0.001).exp()).clamp(5.0, 160.0);
         self.pan = position - rect.center() - self.projected_offset(ground_anchor) * self.zoom;
     }
@@ -257,6 +366,10 @@ impl Viewport {
     }
 
     fn projected_position(&self, point: Vec3) -> (f64, f64) {
+        if let Some(view) = self.orthographic {
+            let (right, up, _) = view.screen_axes();
+            return (right.dot(point), -up.dot(point));
+        }
         let cosine = self.yaw.cos();
         let sine = self.yaw.sin();
         let rotated_x = cosine * point.x + sine * point.z;
@@ -273,6 +386,9 @@ impl Viewport {
     }
 
     fn camera_direction(&self) -> Vec3 {
+        if let Some(view) = self.orthographic {
+            return view.screen_axes().2;
+        }
         let horizontal = self.elevation.cos() * ISO_X;
         Vec3::new(
             (self.yaw.cos() - self.yaw.sin()) * horizontal,
@@ -290,9 +406,19 @@ impl Viewport {
         rect: Rect,
         base_center: Vec3,
         position: Pos2,
-    ) -> f64 {
+    ) -> Option<f64> {
         let base_screen = self.world_to_screen(rect, base_center);
-        f64::from((base_screen.y - position.y) / self.zoom) / self.elevation.cos()
+        if self.orthographic.is_some() {
+            let vertical =
+                self.world_to_screen(rect, base_center + Vec3::new(0.0, 1.0, 0.0)) - base_screen;
+            let length_squared = vertical.length_sq();
+            if length_squared <= f32::EPSILON {
+                return None;
+            }
+            let delta = position - base_screen;
+            return Some(f64::from(delta.dot(vertical) / length_squared));
+        }
+        Some(f64::from((base_screen.y - position.y) / self.zoom) / self.elevation.cos())
     }
 
     pub fn pick(
@@ -650,7 +776,9 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_ELEVATION, MAX_ELEVATION, MIN_ELEVATION, Viewport, point_in_triangle};
+    use super::{
+        DEFAULT_ELEVATION, MAX_ELEVATION, MIN_ELEVATION, OrthoView, Viewport, point_in_triangle,
+    };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
 
@@ -708,7 +836,91 @@ mod tests {
         assert_eq!(Vec2::ZERO, viewport.pan);
         assert_eq!(0.0, viewport.yaw);
         assert_eq!(DEFAULT_ELEVATION, viewport.elevation);
+        assert_eq!(None, viewport.orthographic_view());
         assert!(!viewport.frame_pending);
+    }
+
+    #[test]
+    fn all_orthographic_views_project_their_screen_axes_without_depth_scaling() {
+        let rect = Rect::from_min_size(Pos2::new(60.0, 30.0), Vec2::new(1000.0, 700.0));
+        let views = [
+            (
+                OrthoView::Top,
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ),
+            (
+                OrthoView::Bottom,
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, -1.0, 0.0),
+            ),
+            (
+                OrthoView::Left,
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(-1.0, 0.0, 0.0),
+            ),
+            (
+                OrthoView::Right,
+                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+            ),
+            (
+                OrthoView::Front,
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            ),
+            (
+                OrthoView::Back,
+                Vec3::new(-1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, -1.0),
+            ),
+        ];
+
+        for (view, right, up, depth) in views {
+            let mut viewport = Viewport::default();
+            viewport.set_orthographic_view(view);
+            let origin = Vec3::new(2.0, -3.0, 5.0);
+            let screen_origin = viewport.world_to_screen(rect, origin);
+            let screen_right = viewport.world_to_screen(rect, origin + right);
+            let screen_up = viewport.world_to_screen(rect, origin + up);
+            let screen_depth = viewport.world_to_screen(rect, origin + depth * 100.0);
+            assert!((screen_right.x - screen_origin.x - viewport.zoom).abs() < 1.0e-4);
+            assert!((screen_right.y - screen_origin.y).abs() < 1.0e-4);
+            assert!((screen_up.x - screen_origin.x).abs() < 1.0e-4);
+            assert!((screen_up.y - screen_origin.y + viewport.zoom).abs() < 1.0e-4);
+            assert!(screen_depth.distance(screen_origin) < 1.0e-4);
+            assert_eq!(view, viewport.orthographic_view().unwrap());
+        }
+    }
+
+    #[test]
+    fn only_top_and_bottom_orthographic_views_intersect_the_ground_for_drawing() {
+        let rect = Rect::from_min_size(Pos2::new(60.0, 30.0), Vec2::new(1000.0, 700.0));
+        for view in [OrthoView::Top, OrthoView::Bottom] {
+            let mut viewport = Viewport::default();
+            viewport.set_orthographic_view(view);
+            viewport.pan = Vec2::new(13.0, -21.0);
+            let ground = Vec3::new(-7.25, 0.0, 11.5);
+            let projected = viewport.world_to_screen(rect, ground);
+            let recovered = viewport.screen_to_ground(rect, projected).unwrap();
+            assert!(recovered.distance(ground) < 1.0e-5);
+        }
+        for view in [
+            OrthoView::Left,
+            OrthoView::Right,
+            OrthoView::Front,
+            OrthoView::Back,
+        ] {
+            let mut viewport = Viewport::default();
+            viewport.set_orthographic_view(view);
+            assert!(viewport.screen_to_ground(rect, rect.center()).is_none());
+        }
     }
 
     #[test]
@@ -815,7 +1027,7 @@ mod tests {
                 viewport.elevation = elevation;
                 let ground = Vec3::new(-7.25, 0.0, 11.5);
                 let projected = viewport.world_to_screen(rect, ground);
-                let recovered = viewport.screen_to_ground(rect, projected);
+                let recovered = viewport.screen_to_ground(rect, projected).unwrap();
                 assert!(recovered.distance(ground) < 1.0e-5);
             }
         }
@@ -830,7 +1042,7 @@ mod tests {
             elevation: 0.9,
             ..Viewport::default()
         };
-        let ground_anchor = viewport.screen_to_ground(rect, pointer);
+        let ground_anchor = viewport.screen_to_ground(rect, pointer).unwrap();
 
         viewport.zoom_at(rect, pointer, 450.0);
 
@@ -838,6 +1050,7 @@ mod tests {
         assert!(
             viewport
                 .screen_to_ground(rect, pointer)
+                .unwrap()
                 .distance(ground_anchor)
                 < 1.0e-5
         );
@@ -854,7 +1067,39 @@ mod tests {
         let height = 3.25;
         let screen = viewport.world_to_screen(rect, base + Vec3::new(0.0, height, 0.0));
 
-        assert!((viewport.height_from_screen_position(rect, base, screen) - height).abs() < 1.0e-6);
+        assert!(
+            (viewport
+                .height_from_screen_position(rect, base, screen)
+                .unwrap()
+                - height)
+                .abs()
+                < 1.0e-6
+        );
+    }
+
+    #[test]
+    fn orthographic_height_input_uses_a_visible_vertical_axis_only() {
+        let rect = Rect::from_min_size(Pos2::new(100.0, 80.0), Vec2::new(900.0, 600.0));
+        let base = Vec3::new(2.0, 0.0, -4.0);
+        let mut front = Viewport::default();
+        front.set_orthographic_view(OrthoView::Front);
+        let height = 3.25;
+        let screen = front.world_to_screen(rect, base + Vec3::new(0.0, height, 0.0));
+        assert!(
+            (front
+                .height_from_screen_position(rect, base, screen)
+                .unwrap()
+                - height)
+                .abs()
+                < 1.0e-6
+        );
+
+        let mut top = Viewport::default();
+        top.set_orthographic_view(OrthoView::Top);
+        assert!(
+            top.height_from_screen_position(rect, base, rect.center())
+                .is_none()
+        );
     }
 
     #[test]
@@ -885,5 +1130,23 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn orthographic_picker_selects_geometry_at_constant_screen_scale() {
+        let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Front);
+        viewport.pan = Vec2::ZERO;
+        let mut document = meshcraft_core::document::Document::new();
+        let line = document
+            .add_line_segment(
+                "front-line",
+                Vec3::new(-2.0, 1.0, 4.0),
+                Vec3::new(2.0, 1.0, 4.0),
+            )
+            .unwrap();
+        let midpoint = viewport.world_to_screen(rect, Vec3::new(0.0, 1.0, 4.0));
+        assert_eq!(viewport.pick(rect, &document, midpoint), Some(line));
     }
 }

@@ -1,5 +1,5 @@
 use crate::assets::{self, IconRegion};
-use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
+use crate::viewport::{CuboidPreview, GridStyle, OrthoView, ToolPreview, Viewport, ViewportScene};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 #[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::commands::HostEffect;
@@ -337,6 +337,7 @@ enum ShellAction {
     SaveProject,
     SaveProjectAs,
     SetProfile(UiProfile),
+    SetOrthographicView(OrthoView),
     FrameDocument,
     ResetCamera,
     TogglePanelSection(&'static str),
@@ -741,6 +742,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             let action = match *id {
                 "edit.group" => ShellAction::CreateObject,
                 "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
+                "view.camera.orthographic" => ShellAction::SetOrthographicView(OrthoView::Top),
                 _ => ShellAction::Unsupported,
             };
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
@@ -763,7 +765,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "View",
                 &keywords,
                 Some("view"),
-                ShellAction::Unsupported,
+                ShellAction::SetOrthographicView(
+                    OrthoView::from_id(view_id).expect("registered orthographic view is valid"),
+                ),
             );
         }
         for (toolbar_id, label) in LEGACY_TOOLBARS {
@@ -807,6 +811,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::SaveProjectAs
         | ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::SetProfile(_)
+        | ShellAction::SetOrthographicView(_)
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
@@ -873,6 +878,7 @@ fn register_shell_command(
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
         | ShellAction::SetProfile(_)
+        | ShellAction::SetOrthographicView(_)
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
@@ -2040,6 +2046,10 @@ impl MeshcraftApp {
                 self.preferences.profile = profile;
                 self.status = format!("{} workspace profile selected.", profile.label());
             }
+            ShellAction::SetOrthographicView(view) => {
+                self.viewport.set_orthographic_view(view);
+                self.status = format!("{} orthographic view selected.", view.id());
+            }
             ShellAction::FrameDocument => {
                 self.viewport.request_frame();
                 self.status = "Framed the document in the viewport.".to_owned();
@@ -2200,6 +2210,12 @@ impl MeshcraftApp {
                 "{} is not implemented in this build",
                 command.descriptor.label
             ));
+        }
+        if let Some(view) = id.strip_prefix("view.ortho.").and_then(OrthoView::from_id) {
+            return CommandState {
+                checked: Some(self.viewport.orthographic_view() == Some(view)),
+                ..CommandState::default()
+            };
         }
         if id == "file.open" {
             #[cfg(target_arch = "wasm32")]
@@ -2394,7 +2410,11 @@ impl MeshcraftApp {
 
     fn handle_viewport_click(&mut self, rect: egui::Rect, position: egui::Pos2) {
         if self.active_tool == "Line" {
-            let point = self.viewport.screen_to_ground(rect, position);
+            let Some(point) = self.viewport.screen_to_ground(rect, position) else {
+                self.status =
+                    "Line construction needs the isometric or top/bottom view.".to_owned();
+                return;
+            };
             if let Some(start) = self.line_first {
                 match self.commit_document_edit("Create line", |document| {
                     document
@@ -2418,7 +2438,12 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Rectangle" {
-            let point = self.viewport.screen_to_ground(rect, position);
+            let Some(point) = self.viewport.screen_to_ground(rect, position) else {
+                self.status =
+                    "Ground rectangle construction needs the isometric or top/bottom view."
+                        .to_owned();
+                return;
+            };
             if let Some(first) = self.rectangle_first {
                 match self.commit_document_edit("Create rectangle", |document| {
                     document
@@ -2445,7 +2470,11 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Cuboid" {
-            let ground = self.viewport.screen_to_ground(rect, position);
+            let Some(ground) = self.viewport.screen_to_ground(rect, position) else {
+                self.status =
+                    "Cuboid construction needs the isometric or top/bottom view.".to_owned();
+                return;
+            };
             if self.cuboid_first.is_none() {
                 self.cuboid_first = Some(ground);
                 self.status = "Cuboid: choose the opposite corner of its base.".to_owned();
@@ -2471,9 +2500,13 @@ impl MeshcraftApp {
                 0.0,
                 (first.z + opposite.z) * 0.5,
             );
-            let height = self
+            let Some(height) = self
                 .viewport
-                .height_from_screen_position(rect, center, position);
+                .height_from_screen_position(rect, center, position)
+            else {
+                self.status = "Cuboid height cannot be set from this orthographic view.".to_owned();
+                return;
+            };
             if height < 0.05 {
                 self.status = "Cuboid height must be at least 0.05 units.".to_owned();
                 return;
@@ -2531,7 +2564,7 @@ impl MeshcraftApp {
                 );
                 let height = self
                     .viewport
-                    .height_from_screen_position(rect, center, position)
+                    .height_from_screen_position(rect, center, position)?
                     .max(0.05);
                 Some(ToolPreview::Cuboid(CuboidPreview {
                     origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
@@ -2546,14 +2579,14 @@ impl MeshcraftApp {
                 let start = self.line_first?;
                 Some(ToolPreview::Line {
                     start,
-                    end: self.viewport.screen_to_ground(rect, position),
+                    end: self.viewport.screen_to_ground(rect, position)?,
                 })
             }
             "Rectangle" => {
                 let first = self.rectangle_first?;
                 Some(ToolPreview::GroundRectangle {
                     first,
-                    opposite: self.viewport.screen_to_ground(rect, position),
+                    opposite: self.viewport.screen_to_ground(rect, position)?,
                 })
             }
             _ => None,
@@ -3725,7 +3758,7 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, MeshcraftApp, Preferences, SelectionSession, TransactionHistory,
+        CommandPayload, MeshcraftApp, OrthoView, Preferences, SelectionSession, TransactionHistory,
         command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use base64::Engine as _;
@@ -4050,6 +4083,26 @@ mod tests {
                 .descriptor
                 .kind
         );
+
+        for (id, view) in [
+            ("view.ortho.top", OrthoView::Top),
+            ("view.ortho.bottom", OrthoView::Bottom),
+            ("view.ortho.left", OrthoView::Left),
+            ("view.ortho.right", OrthoView::Right),
+            ("view.ortho.front", OrthoView::Front),
+            ("view.ortho.back", OrthoView::Back),
+        ] {
+            assert!(app.query_command_state(id).enabled);
+            app.run_command(id);
+            assert_eq!(Some(view), app.viewport.orthographic_view());
+            assert_eq!(Some(true), app.query_command_state(id).checked);
+            assert_eq!(initial_revision, app.document.revision());
+        }
+
+        app.run_command("view.camera.reset");
+        assert_eq!(None, app.viewport.orthographic_view());
+        app.run_command("view.camera.orthographic");
+        assert_eq!(Some(OrthoView::Top), app.viewport.orthographic_view());
     }
 
     #[test]
