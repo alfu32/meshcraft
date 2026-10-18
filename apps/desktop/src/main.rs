@@ -1,6 +1,7 @@
 use eframe::egui;
-use meshcraft_core::{document::Document, legacy::import_current_json};
+use meshcraft_core::document::Document;
 use meshcraft_desktop::MeshcraftApp;
+use meshcraft_io::project::read_project;
 use std::{env, fs, path::PathBuf};
 
 fn main() -> eframe::Result {
@@ -42,10 +43,11 @@ fn load_startup_document() -> Result<Option<(Document, String)>, String> {
     } else {
         PathBuf::from(first)
     };
-    let source = fs::read_to_string(&path)
-        .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
-    let document = import_current_json(&source)
+    let source =
+        fs::read(&path).map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+    let imported = read_project(&source)
         .map_err(|error| format!("Could not import {}: {error}", path.display()))?;
+    let document = imported.document;
     let occurrences = document
         .occurrence_refs()
         .map_err(|error| format!("Could not count imported document occurrences: {error}"))?;
@@ -59,11 +61,20 @@ fn load_startup_document() -> Result<Option<(Document, String)>, String> {
         .iter()
         .filter(|item| item.path.len() == top_level_depth)
         .count();
+    let history_status = imported
+        .history
+        .as_ref()
+        .map_or_else(String::new, |history| {
+            format!(
+                " · {} legacy history entries retained",
+                history.entries.len()
+            )
+        });
     Ok(Some((
         document,
         format!(
-            "Opened {} · {top_level_count} top-level objects imported read-only.",
-            path.display()
+            "Opened {} · {top_level_count} top-level objects imported read-only{history_status}.",
+            path.display(),
         ),
     )))
 }

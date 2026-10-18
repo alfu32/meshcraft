@@ -6,6 +6,7 @@
 use crate::document::{
     ChildLayoutId, Definition, DefinitionId, Document, InstanceEdits, OccurrenceRef,
 };
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -439,6 +440,7 @@ pub struct OpaqueLegacyUndoEntry {
     pub label: Option<String>,
     pub timestamp_millis: i64,
     pub diagnostic: Option<String>,
+    pub extensions: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -447,6 +449,7 @@ pub struct OpaqueLegacyHistory {
     /// Kept exactly as read; `-1` means no active entry in the legacy manager.
     pub index: i32,
     pub entries: Vec<OpaqueLegacyUndoEntry>,
+    pub extensions: BTreeMap<String, Value>,
 }
 
 pub trait LegacyHistoryDecoder {
@@ -454,6 +457,25 @@ pub trait LegacyHistoryDecoder {
 }
 
 impl OpaqueLegacyHistory {
+    /// Resolves the legacy manager's active position after it filters empty encoded entries.
+    /// The stored `index` and all original entries remain untouched for lossless re-export.
+    pub fn active_entry_index(&self) -> Option<usize> {
+        let nonempty = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| !entry.data.trim().is_empty())
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if nonempty.is_empty() {
+            return None;
+        }
+        let active = usize::try_from(self.index)
+            .unwrap_or_default()
+            .min(nonempty.len() - 1);
+        nonempty.get(active).copied()
+    }
+
     /// Lazily decodes one entry. The opaque string is retained unchanged on success and failure.
     /// A bad entry returns a diagnostic and never mutates a live document.
     pub fn decode_entry(
@@ -628,6 +650,7 @@ mod tests {
     use crate::document::{Document, ModelSettings};
     use crate::geometry::Vec3;
     use std::cell::Cell;
+    use std::collections::BTreeMap;
 
     struct FakeClock(Cell<u64>);
 
@@ -867,7 +890,9 @@ mod tests {
                 label: Some("Auto".to_owned()),
                 timestamp_millis: 123,
                 diagnostic: None,
+                extensions: BTreeMap::new(),
             }],
+            extensions: BTreeMap::new(),
         };
         assert!(legacy.decode_entry(0, &BadDecoder).is_err());
         assert_eq!(original, legacy.entries[0].data);
@@ -876,6 +901,7 @@ mod tests {
             legacy.entries[0].diagnostic.as_deref()
         );
         assert_eq!(0, legacy.index);
+        assert_eq!(Some(0), legacy.active_entry_index());
         assert_eq!(20, legacy.max_entries);
     }
 

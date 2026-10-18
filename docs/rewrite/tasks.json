@@ -295,7 +295,7 @@
         "Empty/sparse axes are handled according to the documented validation/new-document policy; bad loads leave the live document intact."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]

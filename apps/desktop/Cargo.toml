@@ -16,6 +16,7 @@ path = "src/main.rs"
 eframe.workspace = true
 image.workspace = true
 meshcraft-core = { path = "../../crates/meshcraft-core" }
+meshcraft-io = { path = "../../crates/meshcraft-io" }
 serde.workspace = true
 
 [dev-dependencies]
