@@ -1,8 +1,8 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
-    SelectionGesture, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview, Viewport,
-    ViewportClick, ViewportScene, WalkthroughTuning,
+    SelectionGesture, SnapKind, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview,
+    Viewport, ViewportClick, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -12,8 +12,9 @@ use meshcraft_core::commands::{
     CommandState, CommandStateQuery, CommandValueType,
 };
 use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8};
-use meshcraft_core::geometry::Vec3;
+use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
 use meshcraft_core::operations::drawing::{self, LineOwner};
+use meshcraft_core::operations::objects as modeling_objects;
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
@@ -22,6 +23,7 @@ use meshcraft_core::selection::{
 use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
+    object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
 };
@@ -296,6 +298,8 @@ const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
             "edit.copy_selection",
             "edit.delete_selection",
             "object.create_from_selection",
+            "object.explode_selection",
+            "object.place_selected_definition",
             "object.array_selection",
         ],
     ),
@@ -581,6 +585,10 @@ enum ShellAction {
     SnapshotDocument,
     SetSelection,
     CreateObject,
+    ExplodeSelection,
+    BeginObjectPlacement,
+    ToggleObjectPlaceGlue,
+    DeleteUnusedDefinition,
     ArraySelection,
     UpdateModelSettings,
     UpdateUiPreferences,
@@ -790,6 +798,38 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "repeat copies distribute",
                 None,
                 ShellAction::ArraySelection,
+            ),
+            (
+                "object.explode_selection",
+                "Objects> Explode Selection",
+                "Objects",
+                "explode ungroup materialize mesh",
+                Some("group"),
+                ShellAction::ExplodeSelection,
+            ),
+            (
+                "object.place_selected_definition",
+                "Objects> Place Selected Definition",
+                "Objects",
+                "place insert instance object prototype",
+                Some("object_place"),
+                ShellAction::BeginObjectPlacement,
+            ),
+            (
+                "object.toggle_place_glue",
+                "Objects> Toggle Glue to Surface",
+                "Objects",
+                "object place align surface normal glue",
+                None,
+                ShellAction::ToggleObjectPlaceGlue,
+            ),
+            (
+                "object.delete_unused_definition",
+                "Objects> Delete Unused Definition",
+                "Objects",
+                "prototype remove purge definition id",
+                None,
+                ShellAction::DeleteUnusedDefinition,
             ),
             (
                 "file.new",
@@ -1224,6 +1264,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "stretch_scale" => ShellAction::SelectToolAlias("Stretch Scale"),
                 "rotate_stretch" => ShellAction::SelectToolAlias("Rotate Stretch"),
                 "paint" => ShellAction::SelectToolAlias("Paint"),
+                "object_place" => ShellAction::BeginObjectPlacement,
                 _ => ShellAction::Unsupported,
             };
             register_shell_command(
@@ -1239,6 +1280,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         for (id, name, category, keywords, icon) in LEGACY_COMMANDS {
             let action = match *id {
                 "edit.group" => ShellAction::CreateObject,
+                "edit.ungroup" => ShellAction::ExplodeSelection,
                 "edit.reset_scene_for_capture" => ShellAction::ResetSceneForCapture,
                 "view.axis_guide" => ShellAction::PlaceGuide(ConstructionGuideKind::Axis),
                 "view.grid_guide" => ShellAction::PlaceGuide(ConstructionGuideKind::Grid),
@@ -1303,6 +1345,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
         | ShellAction::CycleTool(_)
+        | ShellAction::BeginObjectPlacement
         | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::AddCuboid
@@ -1311,6 +1354,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
+        | ShellAction::ExplodeSelection
+        | ShellAction::DeleteUnusedDefinition
         | ShellAction::ArraySelection
         | ShellAction::UpdateModelSettings
         | ShellAction::Undo
@@ -1338,6 +1383,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::FocusToolDistance
         | ShellAction::ToggleTransformCopyMode
+        | ShellAction::ToggleObjectPlaceGlue
         | ShellAction::SetPaintColor
         | ShellAction::UndoToolPoint
         | ShellAction::CancelActiveTool
@@ -1359,10 +1405,15 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
     match action {
         ShellAction::Undo => CommandStateQuery::UndoAvailable,
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
-        ShellAction::CopySelection => CommandStateQuery::SingleRootSelection,
+        ShellAction::CopySelection => CommandStateQuery::SelectionAvailable,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
-        ShellAction::CreateObject => CommandStateQuery::RootSelectionAvailable,
+        ShellAction::CreateObject
+        | ShellAction::ExplodeSelection
+        | ShellAction::BeginObjectPlacement => CommandStateQuery::SelectionAvailable,
+        ShellAction::ToggleObjectPlaceGlue => {
+            CommandStateQuery::ActiveTool("Object Place".to_owned())
+        }
         ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
             CommandStateQuery::ActiveTool(tool.to_owned())
@@ -1441,6 +1492,8 @@ fn register_shell_command(
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
         | ShellAction::CycleTool(_)
+        | ShellAction::BeginObjectPlacement
+        | ShellAction::ToggleObjectPlaceGlue
         | ShellAction::BeginHotspotPlacement
         | ShellAction::CancelHotspotPlacement
         | ShellAction::PlaceGuide(_)
@@ -1485,6 +1538,8 @@ fn register_shell_command(
             ShellAction::AddCuboid
             | ShellAction::CopySelection
             | ShellAction::CreateObject
+            | ShellAction::ExplodeSelection
+            | ShellAction::BeginObjectPlacement
             | ShellAction::ArraySelection => Some("Modeling".to_owned()),
             _ => None,
         },
@@ -1513,6 +1568,8 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
+        "object.create_from_selection" => &[("name", CommandValueType::String)],
+        "object.delete_unused_definition" => &[("definition_id", CommandValueType::Integer)],
         "model.update_settings" => &[
             ("unit_name", CommandValueType::String),
             ("unit_size", CommandValueType::Number),
@@ -1554,6 +1611,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             name: (*name).to_owned(),
             value_type: *value_type,
             required: (id == "selection.set" && *name == "paths")
+                || (id == "object.delete_unused_definition" && *name == "definition_id")
                 || (id == "paint.set_color" && matches!(*name, "red" | "green" | "blue" | "alpha"))
                 || (id == "view.camera.set_pose" && matches!(*name, "position" | "target")),
         })
@@ -1710,6 +1768,7 @@ pub struct MeshcraftApp {
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
+    object_place_tool_state: ObjectPlaceToolState,
     current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
@@ -1847,6 +1906,7 @@ impl MeshcraftApp {
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
+            object_place_tool_state: ObjectPlaceToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -2936,6 +2996,7 @@ impl MeshcraftApp {
 
     fn activate_tool(&mut self, tool: &str) {
         self.tool_cycle_state.cancel_hotspot_placement();
+        self.object_place_tool_state.cancel();
         self.active_tool = tool.to_owned();
         if tool == "Orbit" {
             self.viewport.set_perspective_view();
@@ -3348,7 +3409,55 @@ impl MeshcraftApp {
                     .insert("selection".to_owned(), selection_value);
                 return result;
             }
-            ShellAction::CreateObject => return self.create_object_from_selection(),
+            ShellAction::CreateObject => {
+                let name = match payload.values.get("name") {
+                    Some(value) => match value.as_str() {
+                        Some(name) => name,
+                        None => return CommandResult::failed("name must be a string"),
+                    },
+                    None => "Object",
+                };
+                return self.create_object_from_selection(name);
+            }
+            ShellAction::ExplodeSelection => return self.explode_selection(),
+            ShellAction::BeginObjectPlacement => return self.begin_object_placement(),
+            ShellAction::ToggleObjectPlaceGlue => {
+                let enabled = !self.object_place_tool_state.glue_to_surface();
+                if !self.object_place_tool_state.set_glue_to_surface(enabled) {
+                    return CommandResult::failed("Object Place is not active");
+                }
+                self.status = if enabled {
+                    "Object Place will align to picked surface normals.".to_owned()
+                } else {
+                    "Object Place will keep the definition orientation.".to_owned()
+                };
+                let mut result = CommandResult::completed();
+                result.outputs.insert("enabled".to_owned(), enabled.into());
+                return result;
+            }
+            ShellAction::DeleteUnusedDefinition => {
+                let Some(definition_id) = payload
+                    .values
+                    .get("definition_id")
+                    .and_then(serde_json::Value::as_u64)
+                else {
+                    return CommandResult::failed("definition_id must be an unsigned integer");
+                };
+                let definition_id = DefinitionId(definition_id);
+                match self.commit_document_edit("Delete unused object definition", |document| {
+                    modeling_objects::delete_unused_definition(document, definition_id)
+                }) {
+                    Ok(()) => {
+                        self.status = "Deleted the unused object definition.".to_owned();
+                        let mut result = CommandResult::completed();
+                        result
+                            .outputs
+                            .insert("definition_id".to_owned(), definition_id.0.into());
+                        return result;
+                    }
+                    Err(error) => return CommandResult::failed(error),
+                }
+            }
             ShellAction::ArraySelection => {
                 let count = match payload.values.get("count") {
                     Some(value) => {
@@ -3796,6 +3905,29 @@ impl MeshcraftApp {
                 ..CommandState::default()
             };
         }
+        if id == "object.toggle_place_glue" {
+            return if self.object_place_tool_state.active_definition().is_some() {
+                CommandState {
+                    checked: Some(self.object_place_tool_state.glue_to_surface()),
+                    ..CommandState::default()
+                }
+            } else {
+                CommandState::disabled("start Object Place before changing glue behavior")
+            };
+        }
+        if id == "edit.copy_selection" {
+            return if self.selection.selected().len() == 1
+                && self
+                    .selection
+                    .selected()
+                    .iter()
+                    .all(|target| target.entity == SelectedEntity::Occurrence)
+            {
+                CommandState::default()
+            } else {
+                CommandState::disabled("select one object instance to copy")
+            };
+        }
         if id == "tool.cancel"
             && self.active_tool == "Select"
             && !self.tool_cycle_state.hotspot_placement_active()
@@ -3889,8 +4021,8 @@ impl MeshcraftApp {
             CommandStateQuery::RedoAvailable if !self.can_redo_document() => {
                 CommandState::disabled("there is no later document state")
             }
-            CommandStateQuery::SelectionAvailable if self.selected_occurrences().is_empty() => {
-                CommandState::disabled("select an object first")
+            CommandStateQuery::SelectionAvailable if self.selection.selected().is_empty() => {
+                CommandState::disabled("select objects or mesh entities first")
             }
             CommandStateQuery::DeleteSelectionAvailable => {
                 let selection = self.selected_occurrences();
@@ -3974,34 +4106,54 @@ impl MeshcraftApp {
     }
 
     fn copy_selection(&mut self) -> CommandResult {
-        let selection = self.selected_occurrences();
-        if selection.len() != 1 || selection[0].path.len() != 1 {
-            return CommandResult::failed("Copy requires one selected root object.");
+        let Some(target) = self.selection.selected().iter().next() else {
+            return CommandResult::failed("select one object instance to copy");
+        };
+        if self.selection.selected().len() != 1 || target.entity != SelectedEntity::Occurrence {
+            return CommandResult::failed("copy currently requires one selected object instance");
         }
-        let source = selection[0].clone();
+        let source = target.occurrence.clone();
+        if source.path.is_empty() {
+            return CommandResult::failed("the scene root cannot be copied as an object instance");
+        }
         let Some(resolved) = self.document.resolve_occurrence(&source) else {
-            return CommandResult::failed("The selected object no longer exists.");
+            return CommandResult::failed("the selected object no longer exists");
         };
         let Some(geometry) = self.document.effective_geometry(&source) else {
-            return CommandResult::failed("The selected object has no resolved geometry.");
+            return CommandResult::failed("the selected object has no resolved geometry");
         };
+        let parent = OccurrenceRef {
+            path: source.path[..source.path.len() - 1].to_vec(),
+        };
+        let parent_world = if parent.path.is_empty() {
+            Affine3::IDENTITY
+        } else if let Some(parent) = self.document.resolve_occurrence(&parent) {
+            parent.world_transform
+        } else {
+            return CommandResult::failed("the selected object's parent no longer exists");
+        };
+        let Some(parent_inverse) = parent_world.inverse(GeometryTolerance::default()) else {
+            return CommandResult::failed("the selected object's parent transform is singular");
+        };
+        let local_to_parent = parent_inverse.compose(resolved.world_transform);
         let span_x = geometry
             .vertices
             .values()
-            .map(|vertex| resolved.world_transform.transform_point(vertex.position).x)
+            .map(|vertex| local_to_parent.transform_point(vertex.position).x)
             .fold(None, |span: Option<(f64, f64)>, x| {
                 Some(span.map_or((x, x), |(min, max)| (min.min(x), max.max(x))))
             })
             .map_or(1.0, |(min, max)| max - min);
         match self.commit_document_edit("Copy object", |document| {
-            document
-                .copy_root_occurrence(&source, Vec3::new(span_x + 0.5, 0.0, 0.0))
-                .ok_or_else(|| "Copy could not create a root object instance.".to_owned())
+            modeling_objects::duplicate_occurrence(
+                document,
+                &source,
+                Vec3::new(span_x + 0.5, 0.0, 0.0),
+            )
         }) {
             Ok(copy) => {
                 self.set_selection([copy.clone()]);
-                self.status =
-                    "Copied the selected object; the copy shares its definition.".to_owned();
+                self.status = "Copied the selected object instance.".to_owned();
                 command_result_with_occurrences(
                     CommandResult::completed(),
                     std::slice::from_ref(&copy),
@@ -4011,24 +4163,125 @@ impl MeshcraftApp {
         }
     }
 
-    fn create_object_from_selection(&mut self) -> CommandResult {
-        let selection = self.selected_occurrences();
+    fn create_object_from_selection(&mut self, name: &str) -> CommandResult {
+        let selection = self.selection.clone();
         match self.commit_document_edit("Create object", |document| {
-            document
-                .create_object_from_root_occurrences(&selection, "Object")
-                .ok_or_else(|| {
-                    "Create Object requires one or more selected root objects.".to_owned()
-                })
+            modeling_objects::group_selection(document, &selection, name)
         }) {
             Ok(object) => {
                 self.set_selection([object.clone()]);
-                self.status = "Created an object definition from the selected geometry.".to_owned();
+                self.status = "Created an object definition from the selection.".to_owned();
                 command_result_with_occurrences(
                     CommandResult::completed(),
                     std::slice::from_ref(&object),
                 )
             }
             Err(error) => CommandResult::failed(error),
+        }
+    }
+
+    fn explode_selection(&mut self) -> CommandResult {
+        let selection = self.selection.clone();
+        let report = match self.commit_document_edit("Explode selection", |document| {
+            modeling_objects::explode_selection(
+                document,
+                &selection,
+                &modeling_objects::MeshOnlyExplodeAdapter,
+            )
+        }) {
+            Ok(report) => report,
+            Err(error) => return CommandResult::failed(error),
+        };
+        self.selection
+            .apply(report.selected_results.clone(), SelectionMode::Replace);
+        self.status = format!(
+            "Exploded {} object(s) into {} edge(s) and {} face(s).",
+            report.exploded_occurrences, report.segments, report.triangles
+        );
+        let mut result = CommandResult::completed();
+        result.outputs.insert(
+            "exploded_count".to_owned(),
+            report.exploded_occurrences.into(),
+        );
+        result
+            .outputs
+            .insert("edge_count".to_owned(), report.segments.into());
+        result
+            .outputs
+            .insert("face_count".to_owned(), report.triangles.into());
+        let result_occurrences = report
+            .selected_results
+            .iter()
+            .map(|target| target.occurrence.clone())
+            .collect::<BTreeSet<_>>();
+        result.outputs.insert(
+            "selection".to_owned(),
+            serde_json::to_value(result_occurrences).unwrap_or_default(),
+        );
+        result
+    }
+
+    fn begin_object_placement(&mut self) -> CommandResult {
+        let selected = self
+            .selection
+            .selected()
+            .iter()
+            .filter(|target| target.entity == SelectedEntity::Occurrence)
+            .collect::<Vec<_>>();
+        if self.selection.selected().len() != 1 || selected.len() != 1 {
+            return CommandResult::failed("select one object instance whose definition to place");
+        }
+        let Some(resolved) = self.document.resolve_occurrence(&selected[0].occurrence) else {
+            return CommandResult::failed("the selected object instance no longer exists");
+        };
+        let definition = resolved.definition.id;
+        let name = resolved.definition.name.clone();
+        self.object_place_tool_state.activate(definition, false);
+        self.active_tool = "Object Place".to_owned();
+        self.cuboid_first = None;
+        self.cuboid_base = None;
+        self.drawing_tool
+            .handle(ToolEvent::Activate(DrawingTool::Select));
+        self.shape_tool_state.activate(None);
+        self.transform_tool_state.activate(None);
+        self.status = format!("Place {name}: click a point; Escape cancels.");
+        CommandResult::completed()
+    }
+
+    fn place_object_at_hit(&mut self, hit: PlacementHit) -> CommandResult {
+        let context = self.selection.context.clone();
+        let mut next_tool = self.object_place_tool_state.clone();
+        let mut placed = None;
+        let result = self.commit_document_edit("Place object instance", |document| match next_tool
+            .pick(document, &context, hit)
+        {
+            ObjectPlaceEffect::Placed(occurrence) => {
+                placed = Some(occurrence);
+                Ok(())
+            }
+            ObjectPlaceEffect::Invalid(error) => Err(error),
+            ObjectPlaceEffect::Inactive => Err("Object Place is not active".to_owned()),
+            ObjectPlaceEffect::NeedHit | ObjectPlaceEffect::Preview(_) => {
+                Err("pick a valid object placement point".to_owned())
+            }
+            ObjectPlaceEffect::Canceled => Err("object placement was canceled".to_owned()),
+        });
+        match result {
+            Ok(()) => {
+                self.object_place_tool_state = next_tool;
+                let occurrence = placed.expect("a successful placement returns an occurrence");
+                self.set_selection([occurrence.clone()]);
+                self.active_tool = "Select".to_owned();
+                self.status = "Object placed; the new instance is selected.".to_owned();
+                command_result_with_occurrences(
+                    CommandResult::completed(),
+                    std::slice::from_ref(&occurrence),
+                )
+            }
+            Err(error) => {
+                self.status = error.clone();
+                CommandResult::failed(error)
+            }
         }
     }
 
@@ -4054,6 +4307,7 @@ impl MeshcraftApp {
 
     fn cancel_active_tool(&mut self) {
         self.tool_cycle_state.cancel_hotspot_placement();
+        self.object_place_tool_state.cancel();
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
         self.cuboid_base = None;
@@ -4061,6 +4315,21 @@ impl MeshcraftApp {
         self.shape_tool_state.activate(None);
         self.transform_tool_state.cancel();
         self.status = "Current tool operation canceled.".to_owned();
+    }
+
+    fn handle_escape(&mut self) {
+        let cleared_selection = !self.selection.selected().is_empty();
+        if cleared_selection {
+            self.selection.clear();
+        } else {
+            self.guides.clear();
+        }
+        self.cancel_active_tool();
+        self.status = if cleared_selection {
+            "Selection cleared; current tool canceled.".to_owned()
+        } else {
+            "Construction guides cleared; current tool canceled.".to_owned()
+        };
     }
 
     fn commit_transform(
@@ -4319,6 +4588,22 @@ impl MeshcraftApp {
             return;
         }
 
+        if self.object_place_tool_state.active_definition().is_some() {
+            let Some(point) = construction_point else {
+                self.status =
+                    "Object Place needs a point in the active construction view.".to_owned();
+                return;
+            };
+            let hit = PlacementHit {
+                position: point,
+                surface_normal: snap
+                    .filter(|result| result.kind == SnapKind::Face)
+                    .map(|result| result.normal),
+            };
+            self.place_object_at_hit(hit);
+            return;
+        }
+
         if matches!(self.active_tool.as_str(), "Line" | "Construction Line") {
             self.sync_drawing_tool_state();
             let point = construction_point;
@@ -4437,7 +4722,10 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Cuboid" {
-            let Some(ground) = self.viewport.screen_to_ground(rect, position) else {
+            let ground = snap
+                .map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
+                .or_else(|| self.viewport.screen_to_ground(rect, position));
+            let Some(ground) = ground else {
                 self.status =
                     "Cuboid construction needs the perspective or top/bottom view.".to_owned();
                 return;
@@ -4467,10 +4755,14 @@ impl MeshcraftApp {
                 0.0,
                 (first.z + opposite.z) * 0.5,
             );
-            let Some(height) = self
-                .viewport
-                .height_from_screen_position(rect, center, position)
-            else {
+            let snapped_height = snap
+                .filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
+                .map(|snap| snap.point.y);
+            let height = snapped_height.or_else(|| {
+                self.viewport
+                    .height_from_screen_position(rect, center, position)
+            });
+            let Some(height) = height else {
                 self.status = "Cuboid height cannot be set from this orthographic view.".to_owned();
                 return;
             };
@@ -4803,6 +5095,32 @@ impl MeshcraftApp {
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
         let position = pointer?;
+        if self.object_place_tool_state.active_definition().is_some() {
+            let preview = self
+                .object_place_tool_state
+                .preview(&self.document, &self.selection.context)
+                .ok()??;
+            let source = self
+                .selection
+                .selected()
+                .iter()
+                .find(|target| target.entity == SelectedEntity::Occurrence)?;
+            let source_world = self
+                .document
+                .resolve_occurrence(&source.occurrence)?
+                .world_transform;
+            let inverse = source_world.inverse(GeometryTolerance::default())?;
+            let placement_delta = preview.world_transform.compose(inverse);
+            let edges = modeling_transforms::preview_selection_transform(
+                &self.document,
+                &self.selection,
+                placement_delta,
+            )
+            .ok()?;
+            if !edges.is_empty() {
+                return Some(ToolPreview::Transform { edges });
+            }
+        }
         if self.transform_tool_state.active().is_some() {
             let point = snap
                 .map(|result| result.point)
@@ -5306,6 +5624,22 @@ impl MeshcraftApp {
             });
             self.transform_tool_state.set_pointer(point);
         }
+        if self.object_place_tool_state.active_definition().is_some() {
+            let hit = pointer
+                .and_then(|position| {
+                    snap.map(|snap| snap.point).or_else(|| {
+                        self.viewport
+                            .screen_to_construction_plane(predicted_rect, position)
+                    })
+                })
+                .map(|position| PlacementHit {
+                    position,
+                    surface_normal: snap
+                        .filter(|result| result.kind == SnapKind::Face)
+                        .map(|result| result.normal),
+                });
+            self.object_place_tool_state.update_pointer(hit);
+        }
         if matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && let Some(point) = pointer.and_then(|position| {
                 snap.map(|snap| snap.point).or_else(|| {
@@ -5458,12 +5792,12 @@ impl MeshcraftApp {
         position: egui::Pos2,
         pixels_per_point: f32,
     ) -> Option<SnapResult> {
-        if !matches!(
-            self.active_tool.as_str(),
-            "Line" | "Construction Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
-        ) || !pixels_per_point.is_finite()
-            || pixels_per_point <= 0.0
-        {
+        let point_input_active = self.tool_cycle_state.hotspot_placement_active()
+            || !matches!(
+                self.active_tool.as_str(),
+                "Select" | "Paint" | "Orbit" | "Pan" | "Zoom" | "Remove Guide"
+            );
+        if !point_input_active || !pixels_per_point.is_finite() || pixels_per_point <= 0.0 {
             return None;
         }
         let scope = match &self.selection.context {
@@ -6260,16 +6594,8 @@ impl MeshcraftApp {
             })
         {
             self.run_command("view.axis_guide");
-        } else if shortcuts_allowed
-            && ui.input(|input| input.key_pressed(egui::Key::Escape))
-            && (self.active_tool != "Select" || self.tool_cycle_state.hotspot_placement_active())
-        {
-            self.cancel_active_tool();
-        } else if shortcuts_allowed
-            && ui.input(|input| input.key_pressed(egui::Key::Escape))
-            && self.selection.context != EditContext::Document
-        {
-            self.run_command("selection.exit_context");
+        } else if shortcuts_allowed && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.handle_escape();
         }
 
         let menus_visible = self.preferences.profile != UiProfile::Buttons;
@@ -6803,6 +7129,7 @@ mod tests {
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
+            object_place_tool_state: super::ObjectPlaceToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -6989,6 +7316,49 @@ mod tests {
         assert_eq!(revision, app.document.revision());
     }
 
+    #[test]
+    fn escape_clears_selection_or_guides_and_always_returns_to_select() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("escape selection", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        app.set_selection([occurrence]);
+        app.guides.push(
+            ConstructionGuide::at_point(ConstructionGuideKind::Grid, Vec3::ZERO, Vec3::Y).unwrap(),
+        );
+        app.run_command("tool.line");
+        app.handle_viewport_click_at_point(
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0)),
+            Pos2::ZERO,
+            None,
+            Some(Vec3::ZERO),
+        );
+        let context = egui::Context::default();
+        let escape = || Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+
+        run_workspace_frame(&mut app, &context, vec![escape()]);
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.selection.selected().is_empty());
+        assert_eq!(1, app.guides.len());
+        assert_eq!(None, app.drawing_tool.anchor());
+
+        app.run_command("tool.line");
+        run_workspace_frame(&mut app, &context, vec![escape()]);
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.selection.selected().is_empty());
+        assert!(app.guides.is_empty());
+        assert_eq!(None, app.drawing_tool.anchor());
+    }
+
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {
         fn collect(
             shape: &egui::epaint::Shape,
@@ -7086,7 +7456,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(212, entries.len());
+        assert_eq!(216, entries.len());
         assert_eq!(
             74,
             entries
@@ -8456,6 +8826,70 @@ mod tests {
     }
 
     #[test]
+    fn transform_point_input_uses_the_shared_geometry_snap_result() {
+        let mut app = test_app();
+        app.document
+            .add_line_segment(
+                "snap target",
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(4.0, 0.0, 0.0),
+            )
+            .unwrap();
+        app.active_tool = "Move".to_owned();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let pointer = app.viewport.world_to_screen(rect, Vec3::new(2.0, 0.0, 0.0));
+
+        let snap = app
+            .snap_at_viewport_position(rect, pointer, 1.0)
+            .expect("point-input tools should receive the shared snap result");
+
+        assert_eq!(SnapKind::Endpoint, snap.kind);
+        assert!(snap.point.distance(Vec3::new(2.0, 0.0, 0.0)) < 1.0e-9);
+    }
+
+    #[test]
+    fn cuboid_base_and_height_picks_use_snapped_coordinates() {
+        let mut app = test_app();
+        app.active_tool = "Cuboid".to_owned();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let snap_at = |point| SnapResult {
+            point,
+            normal: Vec3::Y,
+            kind: SnapKind::Endpoint,
+            screen_distance: 0.0,
+        };
+        let first = Vec3::new(0.25, 0.0, 0.5);
+        let opposite = Vec3::new(2.0, 0.0, 3.0);
+        for point in [first, opposite] {
+            let snap = snap_at(point);
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(snap.point));
+        }
+        assert_eq!(Some((first, opposite)), app.cuboid_base);
+
+        let height_point = Vec3::new(2.0, 4.5, 3.0);
+        let snap = snap_at(height_point);
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(snap.point));
+
+        let occurrence = app.selected_occurrences().remove(0);
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        let bounds = geometry.vertices.values().fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(min, max), vertex| {
+                let y = app
+                    .document
+                    .resolve_occurrence(&occurrence)
+                    .unwrap()
+                    .world_transform
+                    .transform_point(vertex.position)
+                    .y;
+                (min.min(y), max.max(y))
+            },
+        );
+        assert!((bounds.0 - 0.0).abs() < 1.0e-9);
+        assert!((bounds.1 - 4.5).abs() < 1.0e-9);
+    }
+
+    #[test]
     fn undo_removes_chained_line_segments_one_commit_at_a_time() {
         let mut app = test_app();
         app.run_command("tool.line");
@@ -9044,6 +9478,283 @@ mod tests {
     }
 
     #[test]
+    fn create_object_groups_selected_face_on_only_the_selected_instance() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let first = app.selected_occurrences()[0].clone();
+        let definition = app
+            .document
+            .resolve_occurrence(&first)
+            .unwrap()
+            .definition
+            .id;
+        let root_layout = app.document.root_layout();
+        let second_entry = app
+            .document
+            .add_layout_entry(
+                root_layout,
+                definition,
+                Affine3::from_translation(Vec3::X * 10.0),
+            )
+            .unwrap();
+        let second = OccurrenceRef::root(second_entry);
+        let face = *app
+            .document
+            .effective_geometry(&first)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.apply(
+            [SelectionTarget {
+                occurrence: first.clone(),
+                entity: SelectedEntity::Triangle(face),
+            }],
+            meshcraft_core::selection::SelectionMode::Replace,
+        );
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("name".to_owned(), json!("Selected facade"));
+
+        let result = app.dispatch_command("object.create_from_selection", &payload);
+
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!(
+            11,
+            app.document
+                .effective_geometry(&first)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        assert_eq!(
+            12,
+            app.document
+                .effective_geometry(&second)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        assert_eq!(
+            12,
+            app.document
+                .definition(definition)
+                .unwrap()
+                .geometry
+                .triangles
+                .len()
+        );
+        let object = app.selected_occurrences()[0].clone();
+        assert_eq!(
+            "Selected facade",
+            app.document
+                .resolve_occurrence(&object)
+                .unwrap()
+                .definition
+                .name
+        );
+        assert_eq!(
+            1,
+            app.document
+                .effective_geometry(&object)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        assert!(app.can_undo_document());
+    }
+
+    #[test]
+    fn explode_selection_replaces_an_instance_with_selected_mesh_entities() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let original = app.selected_occurrences()[0].clone();
+
+        let result = app.dispatch_command("object.explode_selection", &CommandPayload::default());
+
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert!(app.document.resolve_occurrence(&original).is_none());
+        assert_eq!(24, app.selection.selected().len());
+        let result_occurrence = app
+            .selection
+            .selected()
+            .iter()
+            .next()
+            .unwrap()
+            .occurrence
+            .clone();
+        let geometry = app.document.effective_geometry(&result_occurrence).unwrap();
+        assert_eq!(12, geometry.segments.len());
+        assert_eq!(12, geometry.triangles.len());
+        assert_eq!(json!(1), result.result.outputs["exploded_count"]);
+    }
+
+    #[test]
+    fn object_place_has_live_preview_and_palette_control_for_surface_glue() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let source = app.selected_occurrences()[0].clone();
+        let definition = app
+            .document
+            .resolve_occurrence(&source)
+            .unwrap()
+            .definition
+            .id;
+        assert!(!app.query_command_state("object.toggle_place_glue").enabled);
+
+        let begin = app.dispatch_command(
+            "object.place_selected_definition",
+            &CommandPayload::default(),
+        );
+        assert_eq!(CommandCompletion::Completed, begin.result.completion);
+        let glue = app.dispatch_command("object.toggle_place_glue", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, glue.result.completion);
+        assert_eq!(json!(true), glue.result.outputs["enabled"]);
+        assert_eq!(
+            Some(true),
+            app.query_command_state("object.toggle_place_glue").checked
+        );
+
+        let hit = super::PlacementHit {
+            position: Vec3::new(4.0, 3.0, -2.0),
+            surface_normal: Some(Vec3::X),
+        };
+        app.object_place_tool_state.update_pointer(Some(hit));
+        assert!(
+            app.tool_preview(
+                Rect::from_min_size(Pos2::ZERO, Vec2::splat(100.0)),
+                Some(Pos2::new(40.0, 40.0)),
+                None,
+            )
+            .is_some()
+        );
+
+        app.handle_viewport_click_at_point(
+            Rect::NOTHING,
+            Pos2::ZERO,
+            Some(SnapResult {
+                point: hit.position,
+                normal: Vec3::X,
+                kind: SnapKind::Face,
+                screen_distance: 0.0,
+            }),
+            Some(hit.position),
+        );
+
+        let placed = app.selected_occurrences()[0].clone();
+        let resolved = app.document.resolve_occurrence(&placed).unwrap();
+        assert_eq!(definition, resolved.definition.id);
+        assert!(
+            resolved
+                .world_transform
+                .transform_point(Vec3::ZERO)
+                .distance(hit.position)
+                < 1e-10
+        );
+        let aligned_up = resolved
+            .world_transform
+            .transform_normal(
+                Vec3::Y,
+                meshcraft_core::geometry::GeometryTolerance::default(),
+            )
+            .unwrap();
+        assert!(aligned_up.distance(Vec3::X) < 1e-10);
+    }
+
+    #[test]
+    fn copy_selection_duplicates_a_nested_object_only_in_its_parent_instance() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        app.run_command("object.create_from_selection");
+        let parent = app.selected_occurrences()[0].clone();
+        let definition = app
+            .document
+            .resolve_occurrence(&parent)
+            .unwrap()
+            .definition
+            .id;
+        let shared_layout = app
+            .document
+            .definition(definition)
+            .unwrap()
+            .default_child_layout
+            .unwrap();
+        let child_entry = app.document.child_layout(shared_layout).unwrap().entries[0].id;
+        let child = parent.child(child_entry);
+        app.selection
+            .set_context(EditContext::Occurrence(parent.clone()));
+        app.selection.select(SelectionTarget {
+            occurrence: child.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        assert!(app.query_command_state("edit.copy_selection").enabled);
+
+        let result = app.dispatch_command("edit.copy_selection", &CommandPayload::default());
+
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        let copy = app.selected_occurrences()[0].clone();
+        assert_eq!(2, copy.path.len());
+        assert_eq!(parent.path[0], copy.path[0]);
+        assert_ne!(child.path[1], copy.path[1]);
+        assert!(app.document.resolve_occurrence(&copy).is_some());
+        let private_layout = app
+            .document
+            .occurrence_edits(&parent)
+            .unwrap()
+            .child_layout
+            .unwrap();
+        let private_entries = &app.document.child_layout(private_layout).unwrap().entries;
+        assert_eq!(2, private_entries.len());
+        let original_entry = private_entries
+            .iter()
+            .find(|entry| entry.transform.translation == Vec3::ZERO)
+            .unwrap();
+        assert!(
+            app.document
+                .resolve_occurrence(&parent.child(original_entry.id))
+                .is_some()
+        );
+        assert_eq!(
+            1,
+            app.document
+                .child_layout(shared_layout)
+                .unwrap()
+                .entries
+                .len()
+        );
+    }
+
+    #[test]
+    fn prototype_delete_command_refuses_in_use_definitions_and_deletes_orphans() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let instance = app.selected_occurrences()[0].clone();
+        let definition = app
+            .document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("definition_id".to_owned(), json!(definition.0));
+        let before = app.document.clone();
+
+        let refused = app.dispatch_command("object.delete_unused_definition", &payload);
+
+        assert_eq!(CommandCompletion::Failed, refused.result.completion);
+        assert!(refused.result.diagnostics[0].contains("still use it"));
+        assert_eq!(before, app.document);
+        app.run_command("edit.delete_selection");
+        let deleted = app.dispatch_command("object.delete_unused_definition", &payload);
+        assert_eq!(CommandCompletion::Completed, deleted.result.completion);
+        assert!(app.document.definition(definition).is_none());
+    }
+
+    #[test]
     fn model_settings_inspector_and_structured_command_share_transaction_validation() {
         let mut app = test_app();
         let mut payload = CommandPayload::default();
@@ -9254,6 +9965,10 @@ mod tests {
             ("geometry.add_cuboid", "cuboid"),
             ("edit.copy_selection", "duplicate"),
             ("object.create_from_selection", "prototype"),
+            ("object.explode_selection", "explode"),
+            ("object.place_selected_definition", "place object"),
+            ("object.toggle_place_glue", "glue surface"),
+            ("object.delete_unused_definition", "delete unused"),
             ("object.array_selection", "array"),
         ] {
             let command = shell_commands()

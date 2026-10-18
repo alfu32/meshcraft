@@ -813,7 +813,7 @@
       "tool_ids": [
         "OBJECT_PLACE"
       ],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]
