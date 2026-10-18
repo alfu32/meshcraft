@@ -1380,6 +1380,10 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 }
                 "rotational_array" => ShellAction::SelectToolAlias("Rotational Array"),
                 "helical_array" => ShellAction::SelectToolAlias("Helical Array"),
+                "rotational_array_equalized" => {
+                    ShellAction::SelectToolAlias("Rotational Array Even")
+                }
+                "helical_array_equalized" => ShellAction::SelectToolAlias("Helical Array Even"),
                 "planar_translate_multiple" => {
                     ShellAction::SelectToolAlias("Planar Translate Multiple")
                 }
@@ -4566,10 +4570,44 @@ impl MeshcraftApp {
             "Helicoidal Rotate Multiple" => "Helicoidal Rotate Multiple: pick center (C), reference (U), angular increment (V), then sweep/lift end (W). Copies follow the fixed rotation step and share the measured axial lift.".to_owned(),
             "Rotational Array" => "Rotational Array: pick center (C), first reference (A), increment (B), then sweep end (D). Copies rotate the current selection by each fixed signed increment.".to_owned(),
             "Helical Array" => "Helical Array: pick center (C), first reference (A), helical unit (B), then sweep/height end (D). Copies use a fixed Y-axis angle and lift step.".to_owned(),
+            "Rotational Array Even" => "Rotational Array Even: pick center (C), reference (A), angular hint (B), then a full or partial sweep end (D). Full circles use selection span to equalize angular spacing.".to_owned(),
+            "Helical Array Even" => "Helical Array Even: pick center (C), reference (A), helical unit (B), then sweep/height end (D). Full turns use selection span to equalize angular spacing.".to_owned(),
             "Planar Translate Multiple" => "Planar Translate Multiple: pick origin (O), planar XZ step (A), then extent (B). Copies fill the measured XZ grid; the source cell is omitted.".to_owned(),
             "Volumetric Translate Multiple" => "Volumetric Translate Multiple: pick origin (O), XYZ step (A), then extent (B). Copies fill the measured volume; the source cell is omitted.".to_owned(),
             _ => format!("{tool} tool selected."),
         };
+    }
+
+    fn rotational_array_selection_span(&self) -> f64 {
+        let Some(kind) = self.rotational_array_tool_state.kind() else {
+            return 0.0;
+        };
+        if !matches!(
+            kind,
+            RotationalArrayKind::RotationalArrayEven | RotationalArrayKind::HelicalArrayEven
+        ) {
+            return 0.0;
+        }
+        let points = self.rotational_array_tool_state.points();
+        if points.len() != 3 {
+            return 0.0;
+        }
+        let center = points[0];
+        let reference = points[1] - center;
+        let increment = points[2] - center;
+        let axis = if kind == RotationalArrayKind::HelicalArrayEven {
+            Vec3::Y
+        } else {
+            let Some(axis) = reference.cross(increment).try_normalized(1.0e-5) else {
+                return 0.0;
+            };
+            axis
+        };
+        let Some(tangent) = axis.cross(reference).try_normalized(1.0e-5) else {
+            return 0.0;
+        };
+        modeling_copy::projected_selection_span(&self.document, &self.selection, tangent)
+            .unwrap_or(0.0)
     }
 
     fn advance_tool_cycle(&mut self, cycle: ToolCycle) {
@@ -5732,6 +5770,8 @@ impl MeshcraftApp {
                 | "tool.builtin.helicoidal_rotate_multiple"
                 | "tool.builtin.rotational_array"
                 | "tool.builtin.helical_array"
+                | "tool.builtin.rotational_array_equalized"
+                | "tool.builtin.helical_array_equalized"
         ) && !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
         {
             return CommandState::disabled(
@@ -6375,7 +6415,11 @@ impl MeshcraftApp {
                     "Rotational array needs a point in the active construction view.".to_owned();
                 return;
             };
-            match self.rotational_array_tool_state.pick(point) {
+            let selection_span = self.rotational_array_selection_span();
+            match self
+                .rotational_array_tool_state
+                .pick_with_projected_span(point, selection_span)
+            {
                 Ok(RotationalArrayPick::NeedReference) => {
                     self.status = match self.rotational_array_tool_state.kind() {
                         Some(RotationalArrayKind::RotationalArray) => {
@@ -6383,6 +6427,12 @@ impl MeshcraftApp {
                         }
                         Some(RotationalArrayKind::HelicalArray) => {
                             "Helical Array: pick the first reference point (A).".to_owned()
+                        }
+                        Some(RotationalArrayKind::RotationalArrayEven) => {
+                            "Rotational Array Even: pick the first reference point (A).".to_owned()
+                        }
+                        Some(RotationalArrayKind::HelicalArrayEven) => {
+                            "Helical Array Even: pick the first reference point (A).".to_owned()
                         }
                         _ => "Rotational array: pick the reference point (U).".to_owned(),
                     };
@@ -6395,6 +6445,12 @@ impl MeshcraftApp {
                         Some(RotationalArrayKind::HelicalArray) => {
                             "Helical Array: pick the helical unit point (B).".to_owned()
                         }
+                        Some(RotationalArrayKind::RotationalArrayEven) => {
+                            "Rotational Array Even: pick the angular hint point (B).".to_owned()
+                        }
+                        Some(RotationalArrayKind::HelicalArrayEven) => {
+                            "Helical Array Even: pick the helical unit point (B).".to_owned()
+                        }
                         _ => "Rotational array: pick the angular increment point (V).".to_owned(),
                     };
                 }
@@ -6405,6 +6461,13 @@ impl MeshcraftApp {
                         }
                         Some(RotationalArrayKind::HelicalArray) => {
                             "Helical Array: pick the sweep/height end point (D).".to_owned()
+                        }
+                        Some(RotationalArrayKind::RotationalArrayEven) => {
+                            "Rotational Array Even: pick the full or partial sweep end point (D)."
+                                .to_owned()
+                        }
+                        Some(RotationalArrayKind::HelicalArrayEven) => {
+                            "Helical Array Even: pick the sweep/height end point (D).".to_owned()
                         }
                         Some(RotationalArrayKind::Helicoidal) => {
                             "Helicoidal Rotate Multiple: pick the sweep/lift end point (W)."
@@ -7236,9 +7299,10 @@ impl MeshcraftApp {
                 pointer
                     .and_then(|position| self.viewport.screen_to_construction_plane(rect, position))
             });
+            let selection_span = self.rotational_array_selection_span();
             let (transforms, capped) = self
                 .rotational_array_tool_state
-                .preview_transforms(point?)?;
+                .preview_transforms_with_projected_span(point?, selection_span)?;
             if transforms.is_empty()
                 || !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
             {
@@ -15095,6 +15159,131 @@ mod tests {
                     .y
             })
             .collect::<Vec<_>>();
+        assert_eq!(vec![2.0, 4.0], y_positions);
+        assert_eq!(3, app.top_level_occurrences().len());
+    }
+
+    #[test]
+    fn rotational_array_even_previews_and_commits_span_equalized_positions() {
+        let mut app = test_app();
+        let origin = Vec3::X * 2.0;
+        let occurrence = app
+            .document
+            .add_cuboid("wide source", Vec3::new(1.0, 2.0, 1.0), origin)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        assert!(
+            app.query_command_state("tool.builtin.rotational_array_equalized")
+                .enabled
+        );
+
+        app.run_command("tool.builtin.rotational_array_equalized");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        assert!(app.status.contains("reference point (A)"));
+        pick_array_tool_point(&mut app, Vec3::X);
+        assert!(app.status.contains("angular hint point (B)"));
+        pick_array_tool_point(&mut app, Vec3::Y);
+        assert!(app.status.contains("sweep end point (D)"));
+        let extent = Vec3::X;
+        let preview = app
+            .tool_preview(
+                Rect::NOTHING,
+                None,
+                Some(SnapResult {
+                    point: extent,
+                    normal: Vec3::Y,
+                    kind: SnapKind::Grid,
+                    screen_distance: 0.0,
+                }),
+            )
+            .expect("Rotational Array Even uses selected geometry span in its preview");
+        let ToolPreview::ArrayTransforms { transforms, .. } = preview else {
+            panic!("Rotational Array Even previews each affine transform")
+        };
+        assert_eq!(1, transforms.len());
+        assert!(transforms[0].transform_point(origin).distance(-origin) < 1.0e-9);
+
+        pick_array_tool_point(&mut app, extent);
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.status.contains("1 rotational array copies"));
+        assert_eq!(1, app.selection.selected().len());
+        let result = app.selection.selected().iter().next().unwrap();
+        assert_ne!(occurrence, result.occurrence);
+        assert!(
+            app.document
+                .resolve_occurrence(&result.occurrence)
+                .unwrap()
+                .world_transform
+                .translation
+                .distance(-origin)
+                < 1.0e-9
+        );
+        assert_eq!(2, app.top_level_occurrences().len());
+    }
+
+    #[test]
+    fn helical_array_even_equalizes_full_turns_and_retains_axial_lift() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("helical source", Vec3::new(1.0, 1.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        assert!(
+            app.query_command_state("tool.builtin.helical_array_equalized")
+                .enabled
+        );
+
+        app.run_command("tool.builtin.helical_array_equalized");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::X);
+        pick_array_tool_point(&mut app, Vec3::new(0.0, 2.0, -1.0));
+        assert!(app.status.contains("sweep/height end point (D)"));
+        let extent = Vec3::new(1.0, 4.0, 0.0);
+        let preview = app
+            .tool_preview(
+                Rect::NOTHING,
+                None,
+                Some(SnapResult {
+                    point: extent,
+                    normal: Vec3::Y,
+                    kind: SnapKind::Grid,
+                    screen_distance: 0.0,
+                }),
+            )
+            .expect("Helical Array Even previews equalized turns and pitch");
+        let ToolPreview::ArrayTransforms { transforms, .. } = preview else {
+            panic!("Helical Array Even preview carries affine transforms")
+        };
+        assert_eq!(2, transforms.len());
+        assert_eq!(2.0, transforms[0].transform_point(Vec3::ZERO).y);
+        assert_eq!(4.0, transforms[1].transform_point(Vec3::ZERO).y);
+
+        pick_array_tool_point(&mut app, extent);
+
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(2, app.selection.selected().len());
+        let mut y_positions = app
+            .selection
+            .selected()
+            .iter()
+            .map(|target| {
+                app.document
+                    .resolve_occurrence(&target.occurrence)
+                    .unwrap()
+                    .world_transform
+                    .translation
+                    .y
+            })
+            .collect::<Vec<_>>();
+        y_positions.sort_by(f64::total_cmp);
         assert_eq!(vec![2.0, 4.0], y_positions);
         assert_eq!(3, app.top_level_occurrences().len());
     }

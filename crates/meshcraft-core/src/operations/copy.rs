@@ -50,6 +50,133 @@ pub fn can_linear_array_selection(document: &Document, selection: &SelectionSess
         })
 }
 
+/// Measures the selected payload's projected world-space span along a direction.
+/// Root occurrences include realized descendant geometry; mesh selections include only their
+/// referenced vertices. Returns `None` for unsupported or invalid selections.
+pub fn projected_selection_span(
+    document: &Document,
+    selection: &SelectionSession,
+    direction: Vec3,
+) -> Option<f64> {
+    if !can_linear_array_selection(document, selection) {
+        return None;
+    }
+    let direction = direction.try_normalized(GeometryTolerance::default().absolute)?;
+    let occurrences = selection
+        .selected()
+        .iter()
+        .any(|target| target.entity == SelectedEntity::Occurrence)
+        .then(|| document.occurrence_refs().ok())
+        .flatten();
+    let mut minimum = f64::INFINITY;
+    let mut maximum = f64::NEG_INFINITY;
+
+    for target in selection.selected() {
+        if target.entity == SelectedEntity::Occurrence {
+            for occurrence in occurrences
+                .as_ref()?
+                .iter()
+                .filter(|occurrence| occurrence.path.starts_with(&target.occurrence.path))
+            {
+                let resolved = document.resolve_occurrence(occurrence)?;
+                let geometry = document.effective_geometry(occurrence)?;
+                include_geometry_points(
+                    geometry,
+                    resolved.world_transform,
+                    direction,
+                    &mut minimum,
+                    &mut maximum,
+                );
+            }
+        } else {
+            let resolved = document.resolve_occurrence(&target.occurrence)?;
+            let geometry = document.effective_geometry(&target.occurrence)?;
+            let points = selected_local_points(geometry, &target.entity)?;
+            for point in points {
+                include_projected_point(
+                    resolved.world_transform.transform_point(point),
+                    direction,
+                    &mut minimum,
+                    &mut maximum,
+                );
+            }
+        }
+    }
+
+    (minimum.is_finite() && maximum.is_finite()).then_some(maximum - minimum)
+}
+
+fn include_geometry_points(
+    geometry: &crate::document::GeometryBundle,
+    transform: Affine3,
+    direction: Vec3,
+    minimum: &mut f64,
+    maximum: &mut f64,
+) {
+    for vertex in geometry.vertices.values() {
+        include_projected_point(
+            transform.transform_point(vertex.position),
+            direction,
+            minimum,
+            maximum,
+        );
+    }
+    for segment in geometry.segments.values() {
+        for endpoint in segment.endpoints {
+            if let Some(point) = geometry.vertex_position(endpoint) {
+                include_projected_point(
+                    transform.transform_point(point),
+                    direction,
+                    minimum,
+                    maximum,
+                );
+            }
+        }
+    }
+    for triangle in geometry.triangles.values() {
+        for vertex in triangle.vertices {
+            if let Some(point) = geometry.vertex_position(vertex) {
+                include_projected_point(
+                    transform.transform_point(point),
+                    direction,
+                    minimum,
+                    maximum,
+                );
+            }
+        }
+    }
+}
+
+fn selected_local_points(
+    geometry: &crate::document::GeometryBundle,
+    entity: &SelectedEntity,
+) -> Option<Vec<Vec3>> {
+    match entity {
+        SelectedEntity::Vertex(id) => Some(vec![geometry.vertices.get(id)?.position]),
+        SelectedEntity::Segment(id) => geometry
+            .segments
+            .get(id)?
+            .endpoints
+            .iter()
+            .map(|endpoint| geometry.vertex_position(*endpoint))
+            .collect(),
+        SelectedEntity::Triangle(id) => geometry
+            .triangles
+            .get(id)?
+            .vertices
+            .iter()
+            .map(|vertex| geometry.vertex_position(*vertex))
+            .collect(),
+        SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => None,
+    }
+}
+
+fn include_projected_point(point: Vec3, direction: Vec3, minimum: &mut f64, maximum: &mut f64) {
+    let projection = point.dot(direction);
+    *minimum = minimum.min(projection);
+    *maximum = maximum.max(projection);
+}
+
 /// Copies the selected objects and mesh entities at each positive multiple of `step`.
 /// Every copy is derived from the original selection, so the operation never accumulates offsets.
 /// The source remains unchanged and all generated entities become the resulting selection.
@@ -278,7 +405,8 @@ fn axis_copy_count(step: f64, span: f64, limit: usize) -> usize {
 mod tests {
     use super::{
         can_linear_array_selection, copy_multiple_offsets, linear_array,
-        planar_translation_offsets, translated_array, volumetric_translation_offsets,
+        planar_translation_offsets, projected_selection_span, translated_array,
+        volumetric_translation_offsets,
     };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec3};
@@ -341,6 +469,49 @@ mod tests {
         assert!(centers.iter().any(|center| center.x > 1.9));
         assert!(centers.iter().any(|center| center.x > 3.9));
         assert!(centers.iter().any(|center| center.x > 5.9));
+    }
+
+    #[test]
+    fn projected_selection_span_measures_world_geometry_for_objects_and_faces() {
+        let mut document = Document::new();
+        let source = cube(&mut document, "source", Vec3::new(10.0, 0.0, 0.0));
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: source.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        assert_eq!(
+            Some(1.0),
+            projected_selection_span(&document, &selection, Vec3::X)
+        );
+
+        let geometry = document.effective_geometry(&source).unwrap();
+        let face = geometry
+            .triangles
+            .values()
+            .find(|triangle| {
+                let x = triangle
+                    .vertices
+                    .iter()
+                    .filter_map(|vertex| geometry.vertex_position(*vertex))
+                    .map(|point| point.x)
+                    .collect::<Vec<_>>();
+                x.iter()
+                    .fold(f64::NEG_INFINITY, |max, value| max.max(*value))
+                    - x.iter().fold(f64::INFINITY, |min, value| min.min(*value))
+                    > 0.5
+            })
+            .unwrap()
+            .id;
+        selection.clear();
+        selection.select(SelectionTarget {
+            occurrence: source,
+            entity: SelectedEntity::Triangle(face),
+        });
+        assert_eq!(
+            Some(1.0),
+            projected_selection_span(&document, &selection, Vec3::X)
+        );
     }
 
     #[test]

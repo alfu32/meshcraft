@@ -61,6 +61,8 @@ pub enum RotationalArrayKind {
     Helicoidal,
     RotationalArray,
     HelicalArray,
+    RotationalArrayEven,
+    HelicalArrayEven,
 }
 
 impl RotationalArrayKind {
@@ -70,6 +72,8 @@ impl RotationalArrayKind {
             "Helicoidal Rotate Multiple" => Some(Self::Helicoidal),
             "Rotational Array" => Some(Self::RotationalArray),
             "Helical Array" => Some(Self::HelicalArray),
+            "Rotational Array Even" => Some(Self::RotationalArrayEven),
+            "Helical Array Even" => Some(Self::HelicalArrayEven),
             _ => None,
         }
     }
@@ -80,6 +84,8 @@ impl RotationalArrayKind {
             Self::Helicoidal => "Helicoidal Rotate Multiple",
             Self::RotationalArray => "Rotational Array",
             Self::HelicalArray => "Helical Array",
+            Self::RotationalArrayEven => "Rotational Array Even",
+            Self::HelicalArrayEven => "Helical Array Even",
         }
     }
 
@@ -93,19 +99,39 @@ impl RotationalArrayKind {
         reference: Vec3,
         increment: Vec3,
         extent: Vec3,
+        selection_span: f64,
         limit: usize,
     ) -> (Vec<Affine3>, bool) {
-        if self == Self::HelicalArray {
-            helical_array_transforms(center, reference, increment, extent, limit)
-        } else {
-            rotational_array_transforms(
+        match self {
+            Self::HelicalArray => {
+                helical_array_transforms(center, reference, increment, extent, limit)
+            }
+            Self::RotationalArrayEven => equalized_rotational_array_transforms(
+                center,
+                reference,
+                increment,
+                extent,
+                selection_span,
+                false,
+                limit,
+            ),
+            Self::HelicalArrayEven => equalized_rotational_array_transforms(
+                center,
+                reference,
+                increment,
+                extent,
+                selection_span,
+                true,
+                limit,
+            ),
+            _ => rotational_array_transforms(
                 center,
                 reference,
                 increment,
                 extent,
                 self.helicoidal(),
                 limit,
-            )
+            ),
         }
     }
 }
@@ -154,8 +180,19 @@ impl RotationalArrayToolState {
     }
 
     pub fn pick(&mut self, point: Vec3) -> Result<RotationalArrayPick, &'static str> {
+        self.pick_with_projected_span(point, 0.0)
+    }
+
+    pub fn pick_with_projected_span(
+        &mut self,
+        point: Vec3,
+        selection_span: f64,
+    ) -> Result<RotationalArrayPick, &'static str> {
         if !point.is_finite() {
             return Err("array points must be finite");
+        }
+        if !selection_span.is_finite() || selection_span < 0.0 {
+            return Err("array selection span must be finite and nonnegative");
         }
         let Some(kind) = self.kind else {
             return Err("no rotational array tool is active");
@@ -179,6 +216,7 @@ impl RotationalArrayToolState {
                     self.points[1],
                     self.points[2],
                     point,
+                    selection_span,
                     crate::operations::copy::MAX_MULTIPLE_ARRAY_COPIES,
                 );
                 self.points.clear();
@@ -188,8 +226,20 @@ impl RotationalArrayToolState {
     }
 
     pub fn preview_transforms(&self, point: Vec3) -> Option<(Vec<Affine3>, bool)> {
+        self.preview_transforms_with_projected_span(point, 0.0)
+    }
+
+    pub fn preview_transforms_with_projected_span(
+        &self,
+        point: Vec3,
+        selection_span: f64,
+    ) -> Option<(Vec<Affine3>, bool)> {
         let kind = self.kind?;
-        if self.points.len() != 3 || !point.is_finite() {
+        if self.points.len() != 3
+            || !point.is_finite()
+            || !selection_span.is_finite()
+            || selection_span < 0.0
+        {
             return None;
         }
         Some(kind.transforms(
@@ -197,6 +247,7 @@ impl RotationalArrayToolState {
             self.points[1],
             self.points[2],
             point,
+            selection_span,
             MAX_MULTIPLE_ARRAY_PREVIEW_COPIES,
         ))
     }
@@ -370,6 +421,107 @@ pub fn helical_array_transforms(
     if copies == 0 {
         return (Vec::new(), capped);
     }
+    let transforms = (1..=copies)
+        .map(|index| {
+            rotation_about_axis(
+                center,
+                axis,
+                step_angle * index as f64,
+                step_lift * index as f64,
+            )
+        })
+        .collect();
+    (transforms, capped)
+}
+
+/// Resolves the legacy full-circle equalized array, retaining fixed-step behavior for partial sweeps.
+pub fn equalized_rotational_array_transforms(
+    center: Vec3,
+    reference: Vec3,
+    increment: Vec3,
+    extent: Vec3,
+    selection_span: f64,
+    helicoidal: bool,
+    limit: usize,
+) -> (Vec<Affine3>, bool) {
+    if !center.is_finite()
+        || !reference.is_finite()
+        || !increment.is_finite()
+        || !extent.is_finite()
+        || !selection_span.is_finite()
+        || selection_span < 0.0
+    {
+        return (Vec::new(), false);
+    }
+    let reference_vector = reference - center;
+    let increment_vector = increment - center;
+    let extent_vector = extent - center;
+    let axis = if helicoidal {
+        Vec3::Y
+    } else {
+        let Some(axis) = reference_vector
+            .cross(increment_vector)
+            .try_normalized(ARRAY_ROTATION_EPSILON)
+        else {
+            return (Vec::new(), false);
+        };
+        axis
+    };
+    let reference_projected = project_to_rotation_plane(reference_vector, axis);
+    let increment_projected = project_to_rotation_plane(increment_vector, axis);
+    let extent_projected = project_to_rotation_plane(extent_vector, axis);
+    if reference_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+        || increment_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+        || extent_projected.length_squared() <= ARRAY_ROTATION_EPSILON
+    {
+        return (Vec::new(), false);
+    }
+    let raw_step = signed_angle(reference_projected, increment_projected, axis);
+    if raw_step.abs() <= 1.0e-4 {
+        return (Vec::new(), false);
+    }
+    let raw_sweep = signed_angle(reference_projected, extent_projected, axis);
+    if raw_sweep.abs() > 1.0_f64.to_radians() {
+        return if helicoidal {
+            helical_array_transforms(center, reference, increment, extent, limit)
+        } else {
+            rotational_array_transforms(center, reference, increment, extent, false, limit)
+        };
+    }
+
+    let reference_radius = reference_projected.length();
+    let fallback_positions = (std::f64::consts::TAU / raw_step.abs()).round().max(2.0);
+    let ratio = (selection_span / (2.0 * reference_radius)).clamp(0.0, 1.0);
+    let raw_positions = if ratio <= ARRAY_ROTATION_EPSILON {
+        fallback_positions
+    } else {
+        (std::f64::consts::PI / ratio.asin()).round().max(2.0)
+    };
+    let mut capped = raw_positions > limit as f64;
+    let positions = raw_positions.min(limit as f64) as usize;
+    if positions < 2 {
+        return (Vec::new(), capped);
+    }
+    let direction = raw_step.signum();
+    let step_angle = std::f64::consts::TAU * direction / positions as f64;
+    let step_lift = if helicoidal {
+        increment.y - reference.y
+    } else {
+        0.0
+    };
+    let raw_copies = if helicoidal && step_lift.abs() > 1.0e-4 {
+        let height_estimate = (extent.y - reference.y) / step_lift;
+        if !height_estimate.is_finite() || height_estimate <= 0.0 {
+            return (Vec::new(), capped);
+        }
+        (height_estimate / positions as f64).round().max(1.0) * positions as f64
+    } else {
+        (positions - 1) as f64
+    };
+    if raw_copies > limit as f64 {
+        capped = true;
+    }
+    let copies = raw_copies.min(limit as f64) as usize;
     let transforms = (1..=copies)
         .map(|index| {
             rotation_about_axis(
@@ -657,6 +809,68 @@ mod tests {
             transforms[1]
                 .transform_point(Vec3::X)
                 .distance(Vec3::new(-1.0, 4.0, 0.0))
+                < 1.0e-9
+        );
+    }
+
+    #[test]
+    fn equalized_rotational_array_uses_selection_span_for_full_circle_spacing() {
+        let (transforms, capped) = super::equalized_rotational_array_transforms(
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::Y,
+            Vec3::X,
+            2.0,
+            false,
+            2_048,
+        );
+
+        assert!(!capped);
+        assert_eq!(1, transforms.len());
+        assert!(transforms[0].transform_point(Vec3::X).distance(-Vec3::X) < 1.0e-9);
+    }
+
+    #[test]
+    fn equalized_rotational_partial_sweep_keeps_the_picked_angle_hint() {
+        let (transforms, capped) = super::equalized_rotational_array_transforms(
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Y,
+            2.0,
+            false,
+            2_048,
+        );
+
+        assert!(!capped);
+        assert_eq!(1, transforms.len());
+        assert!(transforms[0].transform_point(Vec3::X).distance(Vec3::Y) < 1.0e-9);
+    }
+
+    #[test]
+    fn equalized_helical_full_circle_retains_a_lifted_turn() {
+        let (transforms, capped) = super::equalized_rotational_array_transforms(
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::new(0.0, 2.0, -1.0),
+            Vec3::new(1.0, 4.0, 0.0),
+            2.0,
+            true,
+            2_048,
+        );
+
+        assert!(!capped);
+        assert_eq!(2, transforms.len());
+        assert!(
+            transforms[0]
+                .transform_point(Vec3::ZERO)
+                .distance(Vec3::new(0.0, 2.0, 0.0))
+                < 1.0e-9
+        );
+        assert!(
+            transforms[1]
+                .transform_point(Vec3::X)
+                .distance(Vec3::new(1.0, 4.0, 0.0))
                 < 1.0e-9
         );
     }
