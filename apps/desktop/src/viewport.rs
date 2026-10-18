@@ -207,6 +207,60 @@ struct SnapCandidate {
     depth: f64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AdaptiveGridCloud {
+    center: Vec3,
+    normal: Vec3,
+    axis_u: Vec3,
+    axis_v: Vec3,
+    spacing: f64,
+    half_extent: f64,
+}
+
+const ADAPTIVE_GRID_RADIUS_UNITS: i32 = 7;
+
+impl AdaptiveGridCloud {
+    fn at_point(point: Vec3, normal: Vec3, spacing: f64) -> Option<Self> {
+        let normal = normal.try_normalized(1.0e-12)?;
+        let reference = if normal.y.abs() < 0.95 {
+            Vec3::Y
+        } else {
+            Vec3::X
+        };
+        let axis_u = (reference.cross(normal))
+            .try_normalized(1.0e-12)
+            .or_else(|| Vec3::Z.cross(normal).try_normalized(1.0e-12))?;
+        let axis_v = normal.cross(axis_u).try_normalized(1.0e-12)?;
+        let plane_origin = normal * point.dot(normal);
+        let local = point - plane_origin;
+        let snapped_u = (local.dot(axis_u) / spacing).round() * spacing;
+        let snapped_v = (local.dot(axis_v) / spacing).round() * spacing;
+        Some(Self {
+            center: plane_origin + axis_u * snapped_u + axis_v * snapped_v,
+            normal,
+            axis_u,
+            axis_v,
+            spacing,
+            half_extent: f64::from(ADAPTIVE_GRID_RADIUS_UNITS) * spacing,
+        })
+    }
+
+    fn should_reanchor(self, point: Vec3, normal: Vec3, spacing: f64) -> bool {
+        if (self.spacing - spacing).abs() > f64::EPSILON {
+            return true;
+        }
+        if self.normal.dot(normal) < 0.98 {
+            return true;
+        }
+        let local = point - self.center;
+        if local.dot(self.normal).abs() > spacing * 0.35 {
+            return true;
+        }
+        local.dot(self.axis_u).abs() > self.half_extent
+            || local.dot(self.axis_v).abs() > self.half_extent
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConstructionGuideKind {
     Grid,
@@ -323,6 +377,7 @@ pub struct Viewport {
     walkthrough_tuning: WalkthroughTuning,
     camera_drag: Option<egui::PointerButton>,
     frame_pending: bool,
+    adaptive_grid_cloud: Option<AdaptiveGridCloud>,
     derived: DerivedIndexCache,
 }
 
@@ -344,6 +399,7 @@ impl Default for Viewport {
             walkthrough_tuning: WalkthroughTuning::default(),
             camera_drag: None,
             frame_pending: false,
+            adaptive_grid_cloud: None,
             derived: DerivedIndexCache::default(),
         }
     }
@@ -467,9 +523,13 @@ impl Viewport {
             }
         }
 
+        self.update_adaptive_grid(scene.snap, scene.grid, scene.guides);
         self.draw_grid(&painter, rect, scene.grid);
         self.draw_document(&painter, rect, scene.document, scene.selection);
         self.draw_guides(&painter, rect, scene.guides, scene.grid, false);
+        if let Some(cloud) = self.adaptive_grid_cloud {
+            self.draw_adaptive_grid_cloud(&painter, rect, cloud, scene.grid.spacing);
+        }
         if let Some(guide) = scene.guide_preview {
             self.draw_guides(
                 &painter,
@@ -1781,6 +1841,91 @@ impl Viewport {
         }
     }
 
+    fn update_adaptive_grid(
+        &mut self,
+        snap: Option<SnapResult>,
+        style: GridStyle,
+        guides: &[ConstructionGuide],
+    ) {
+        let Some(snap) = snap else {
+            self.adaptive_grid_cloud = None;
+            return;
+        };
+        let spacing = style.spacing;
+        let Some(normal) = snap.normal.try_normalized(1.0e-12) else {
+            self.adaptive_grid_cloud = None;
+            return;
+        };
+        if !spacing.is_finite() || spacing <= 0.0 {
+            self.adaptive_grid_cloud = None;
+            return;
+        }
+
+        let (base_u, base_v) = match style.normal_axis {
+            GridNormalAxis::X => (Vec3::new(0.0, 0.0, -1.0), Vec3::Y),
+            GridNormalAxis::Y => (Vec3::new(-1.0, 0.0, 0.0), Vec3::Z),
+            GridNormalAxis::Z => (Vec3::X, Vec3::Y),
+        };
+        let base_extent = f64::from(style.extent.min(1000)) * spacing;
+        let on_base_plane = normal.dot(style.normal_axis.vector()).abs() >= 0.98
+            && snap.point.dot(style.normal_axis.vector()).abs() <= spacing * 0.2;
+        let base_coordinate_u = snap.point.dot(base_u);
+        let base_coordinate_v = snap.point.dot(base_v);
+        let near_base_edge = on_base_plane
+            && (base_coordinate_u.abs() >= base_extent * 0.75
+                || base_coordinate_v.abs() >= base_extent * 0.75);
+        let outside_base = !on_base_plane
+            || base_coordinate_u.abs() > base_extent
+            || base_coordinate_v.abs() > base_extent;
+        let should_activate = near_base_edge
+            || outside_base
+            || guides
+                .iter()
+                .any(|guide| guide.kind == ConstructionGuideKind::Grid);
+
+        if self.adaptive_grid_cloud.is_none() && !should_activate {
+            return;
+        }
+        if self
+            .adaptive_grid_cloud
+            .is_none_or(|cloud| cloud.should_reanchor(snap.point, normal, spacing))
+        {
+            self.adaptive_grid_cloud = AdaptiveGridCloud::at_point(snap.point, normal, spacing);
+        }
+    }
+
+    fn draw_adaptive_grid_cloud(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        cloud: AdaptiveGridCloud,
+        spacing: f64,
+    ) {
+        if !spacing.is_finite() || spacing <= 0.0 {
+            return;
+        }
+        let cross_half = (spacing * 0.08).clamp(0.05, 0.18);
+        let color = Color32::from_rgba_unmultiplied(20, 41, 82, 185);
+        let stroke = Stroke::new(1.0, color);
+        for i in -ADAPTIVE_GRID_RADIUS_UNITS..=ADAPTIVE_GRID_RADIUS_UNITS {
+            for j in -ADAPTIVE_GRID_RADIUS_UNITS..=ADAPTIVE_GRID_RADIUS_UNITS {
+                let point = cloud.center
+                    + cloud.axis_u * (f64::from(i) * spacing)
+                    + cloud.axis_v * (f64::from(j) * spacing);
+                for axis in [cloud.axis_u, cloud.axis_v] {
+                    let start = point - axis * cross_half;
+                    let end = point + axis * cross_half;
+                    if let (Some(start), Some(end)) = (
+                        self.project_if_visible(rect, start),
+                        self.project_if_visible(rect, end),
+                    ) {
+                        painter.line_segment([start, end], stroke);
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_guides(
         &self,
         painter: &egui::Painter,
@@ -2201,7 +2346,7 @@ fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec
 mod tests {
     use super::{
         ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
-        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, Viewport,
+        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, SnapResult, Viewport,
         WalkthroughCamera, WalkthroughTuning, cuboid_corners, height_in_triangle_xz,
         point_in_triangle,
     };
@@ -2247,6 +2392,84 @@ mod tests {
         );
         output.textures_delta.clear();
         viewport_input.expect("viewport rendered during test frame")
+    }
+
+    #[test]
+    fn adaptive_grid_appears_near_the_permanent_grid_edge_and_reanchors_at_its_boundary() {
+        let mut viewport = Viewport::default();
+        let style = super::GridStyle {
+            visible: false,
+            spacing: 1.0,
+            extent: 20,
+            normal_axis: GridNormalAxis::Y,
+            normal_width: 1.0,
+            thick_width: 3.0,
+        };
+        let snap_at_center = SnapResult {
+            point: Vec3::ZERO,
+            normal: Vec3::Y,
+            kind: SnapKind::Grid,
+            screen_distance: 0.0,
+        };
+        viewport.update_adaptive_grid(Some(snap_at_center), style, &[]);
+        assert_eq!(viewport.adaptive_grid_cloud, None);
+
+        let near_edge = SnapResult {
+            point: Vec3::new(16.0, 0.0, 0.0),
+            ..snap_at_center
+        };
+        viewport.update_adaptive_grid(Some(near_edge), style, &[]);
+        let cloud = viewport.adaptive_grid_cloud.expect("near-edge grid cloud");
+        assert_eq!(cloud.center, Vec3::new(16.0, 0.0, 0.0));
+
+        let within_cloud = SnapResult {
+            point: Vec3::new(20.0, 0.0, 0.0),
+            ..near_edge
+        };
+        viewport.update_adaptive_grid(Some(within_cloud), style, &[]);
+        assert_eq!(viewport.adaptive_grid_cloud, Some(cloud));
+
+        let beyond_cloud = SnapResult {
+            point: Vec3::new(24.0, 0.0, 0.0),
+            ..near_edge
+        };
+        viewport.update_adaptive_grid(Some(beyond_cloud), style, &[]);
+        assert_eq!(
+            viewport.adaptive_grid_cloud.map(|cloud| cloud.center),
+            Some(Vec3::new(24.0, 0.0, 0.0))
+        );
+        viewport.update_adaptive_grid(None, style, &[]);
+        assert_eq!(viewport.adaptive_grid_cloud, None);
+    }
+
+    #[test]
+    fn adaptive_grid_activates_for_grid_guides_and_follows_the_snapped_surface_plane() {
+        let mut viewport = Viewport::default();
+        let style = super::GridStyle {
+            visible: false,
+            spacing: 1.0,
+            extent: 20,
+            normal_axis: GridNormalAxis::Y,
+            normal_width: 1.0,
+            thick_width: 3.0,
+        };
+        let grid_guide =
+            ConstructionGuide::at_point(ConstructionGuideKind::Grid, Vec3::ZERO, Vec3::Z)
+                .expect("grid guide basis");
+        let snap = SnapResult {
+            point: Vec3::new(2.4, 3.2, 0.0),
+            normal: Vec3::Z,
+            kind: SnapKind::Face,
+            screen_distance: 0.0,
+        };
+        viewport.update_adaptive_grid(Some(snap), style, &[grid_guide]);
+        let cloud = viewport
+            .adaptive_grid_cloud
+            .expect("guide activates grid cloud");
+        assert_eq!(cloud.normal, Vec3::Z);
+        assert_eq!(cloud.center, Vec3::new(2.0, 3.0, 0.0));
+        assert_eq!(cloud.normal.dot(cloud.axis_u), 0.0);
+        assert_eq!(cloud.normal.dot(cloud.axis_v), 0.0);
     }
 
     #[test]
