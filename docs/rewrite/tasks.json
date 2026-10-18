@@ -1884,6 +1884,7 @@
       "done": [
         "C24 covers lights/shadows/alpha/overlays and menu-dependent viewport offsets.",
         "Front/back face colors preserve the darker, slightly bluer back-face appearance, and shadow maps cast entity shadows onto ground and other entities.",
+        "Coplanar triangles retain one rendered orientation across shared edges, including edges whose endpoints have coincident positions but distinct vertex IDs.",
         "Capture dispatch success is distinct from a completed fresh output file."
       ],
       "tool_ids": [],

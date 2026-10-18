@@ -4132,20 +4132,56 @@ fn coplanar_triangle_winding_flips(
                 .try_normalized(1.0e-12)
         })
         .collect::<Vec<_>>();
+    let mut points = triangles.iter().flat_map(|(_, _, points)| points).copied();
+    let Some(first_point) = points.next() else {
+        return BTreeSet::new();
+    };
+    let (minimum, maximum) =
+        points.fold((first_point, first_point), |(minimum, maximum), point| {
+            (
+                Vec3::new(
+                    minimum.x.min(point.x),
+                    minimum.y.min(point.y),
+                    minimum.z.min(point.z),
+                ),
+                Vec3::new(
+                    maximum.x.max(point.x),
+                    maximum.y.max(point.y),
+                    maximum.z.max(point.z),
+                ),
+            )
+        });
+    let coordinate_scale = (maximum - minimum).length().max(1.0);
+    let position_tolerance = coordinate_scale * 1.0e-8;
+    let position_key = |point: Vec3| {
+        (
+            ((point.x - minimum.x) / position_tolerance).round() as i64,
+            ((point.y - minimum.y) / position_tolerance).round() as i64,
+            ((point.z - minimum.z) / position_tolerance).round() as i64,
+        )
+    };
+    let position_edge_key = |first: Vec3, second: Vec3| {
+        let (first, second) = (position_key(first), position_key(second));
+        if first <= second {
+            (first, second)
+        } else {
+            (second, first)
+        }
+    };
     let mut edge_users = BTreeMap::<(VertexId, VertexId), Vec<usize>>::new();
-    for (index, (_, vertices, _)) in triangles.iter().enumerate() {
+    let mut position_edge_users = BTreeMap::<((i64, i64, i64), (i64, i64, i64)), Vec<usize>>::new();
+    for (index, (_, vertices, points)) in triangles.iter().enumerate() {
         for [first, second] in [[0, 1], [1, 2], [2, 0]] {
             edge_users
                 .entry(edge_key(vertices[first], vertices[second]))
                 .or_default()
                 .push(index);
+            position_edge_users
+                .entry(position_edge_key(points[first], points[second]))
+                .or_default()
+                .push(index);
         }
     }
-    let coordinate_scale = triangles
-        .iter()
-        .flat_map(|(_, _, points)| points)
-        .map(|point| point.length())
-        .fold(1.0_f64, f64::max);
     let plane_tolerance = coordinate_scale * 1.0e-8;
     let mut signs = vec![None::<i8>; triangles.len()];
     let mut flipped = BTreeSet::new();
@@ -4164,11 +4200,16 @@ fn coplanar_triangle_winding_flips(
                 flipped.insert(triangle_id);
             }
             for [first, second] in [[0, 1], [1, 2], [2, 0]] {
-                let Some(neighbors) = edge_users.get(&edge_key(vertices[first], vertices[second]))
-                else {
-                    continue;
-                };
-                for &neighbor in neighbors {
+                let mut neighbors = BTreeSet::new();
+                if let Some(users) = edge_users.get(&edge_key(vertices[first], vertices[second])) {
+                    neighbors.extend(users.iter().copied());
+                }
+                if let Some(users) =
+                    position_edge_users.get(&position_edge_key(points[first], points[second]))
+                {
+                    neighbors.extend(users.iter().copied());
+                }
+                for neighbor in neighbors {
                     if neighbor == current {
                         continue;
                     }
@@ -4680,6 +4721,28 @@ mod tests {
             (
                 TriangleId(2),
                 [VertexId(1), VertexId(4), VertexId(3)],
+                [Vec3::ZERO, Vec3::Y, Vec3::X + Vec3::Y],
+            ),
+        ];
+
+        let flips = coplanar_triangle_winding_flips(&triangles);
+        assert!(!flips.contains(&TriangleId(1)));
+        assert!(flips.contains(&TriangleId(2)));
+    }
+
+    #[test]
+    fn coplanar_triangles_with_coincident_vertices_share_one_render_orientation() {
+        use meshcraft_core::document::{TriangleId, VertexId};
+
+        let triangles = [
+            (
+                TriangleId(1),
+                [VertexId(1), VertexId(2), VertexId(3)],
+                [Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Y],
+            ),
+            (
+                TriangleId(2),
+                [VertexId(4), VertexId(5), VertexId(6)],
                 [Vec3::ZERO, Vec3::Y, Vec3::X + Vec3::Y],
             ),
         ];

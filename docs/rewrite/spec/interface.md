@@ -59,7 +59,7 @@ Acceptance: C34.
 
 ### R01 Interactive viewport
 
-**Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
+**Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Coplanar triangles on one surface must share a rendered orientation even when adjacent triangles use distinct vertex IDs at coincident positions. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
 
 Use incremental revisioned geometry buffers and per-instance transforms; avoid full-document snapshots and mesh rebuilds every frame. Keep display/picking/selection policies consistent and define transparent sorting/two-sided behavior using source scenarios. Basic flat/shaded rendering ships with the first viewport; later lighting/shadow work completes fidelity. Device loss/resize must not corrupt documents.
 

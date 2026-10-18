@@ -98,7 +98,7 @@ Every shipping action has a primary menu path. Test F10/Alt or platform equivale
 
 ## C24 — Interactive renderer/capture
 
-Fixed-camera reference scenes: front/back face color and winding, RGBA/transparent overlap, selected/hover/guide overlays, transformed instances, ground/grid, and shadow-map casters on the ground and other entities. Cover shadow acne/bias/PCF/dither toggles and varying scale. Use deterministic model-only GPU readback with documented tolerance; inspect readability separately. SVG projected geometry and PNG dimensions/capture completion must match declared inclusion rules.
+Fixed-camera reference scenes: front/back face color and winding, including equal orientation/color across coplanar triangles joined by shared vertex IDs or coincident positions; RGBA/transparent overlap, selected/hover/guide overlays, transformed instances, ground/grid, and shadow-map casters on the ground and other entities. Cover shadow acne/bias/PCF/dither toggles and varying scale. Use deterministic model-only GPU readback with documented tolerance; inspect readability separately. SVG projected geometry and PNG dimensions/capture completion must match declared inclusion rules.
 
 ## C25 — Offline renderer
 
