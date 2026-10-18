@@ -6,5 +6,5 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-i_overlay = "=9.1.0"
-i_triangle = "=0.50.1"
+i_overlay.workspace = true
+i_triangle.workspace = true

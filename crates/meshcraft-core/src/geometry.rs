@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
+pub mod polygon;
+
 /// `DraftLineStore.epsilon`; do not reuse as a face or screen-space tolerance.
 pub const LEGACY_LINE_STORE_EPSILON: f64 = 1.0e-3;
 /// `DraftFaceStore.epsilon`, distinct from its projected cut tolerance.

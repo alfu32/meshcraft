@@ -1661,6 +1661,8 @@ dependencies = [
 name = "meshcraft-core"
 version = "0.1.0"
 dependencies = [
+ "i_overlay",
+ "i_triangle",
  "serde",
  "serde_json",
 ]
