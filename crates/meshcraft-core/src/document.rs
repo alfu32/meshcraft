@@ -1,4 +1,4 @@
-use crate::geometry::{Affine3, Vec3};
+use crate::geometry::{Affine3, ModelUnitScale, Vec3};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -373,6 +373,10 @@ impl Default for ModelSettings {
 }
 
 impl ModelSettings {
+    pub fn unit_scale(&self) -> Option<ModelUnitScale> {
+        ModelUnitScale::new(self.unit_size)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.unit_name.trim().is_empty() {
             return Err("unit name cannot be empty".to_owned());
@@ -1712,6 +1716,36 @@ mod tests {
         settings.grid_size = 0.0;
         assert!(document.update_model_settings(settings).is_err());
         assert_eq!("meter", document.model_settings.unit_name);
+    }
+
+    #[test]
+    fn changing_display_units_does_not_rescale_authored_geometry() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("unit probe", Vec3::new(2.0, 3.0, 4.0), Vec3::ZERO)
+            .unwrap();
+        let original = document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .vertices
+            .clone();
+
+        let mut settings = document.model_settings.clone();
+        settings.unit_name = "mm".to_owned();
+        settings.unit_size = 0.001;
+        document.update_model_settings(settings).unwrap();
+
+        assert_eq!(
+            original,
+            document.effective_geometry(&occurrence).unwrap().vertices
+        );
+        assert_eq!(
+            Some(0.002),
+            document
+                .model_settings
+                .unit_scale()
+                .and_then(|scale| scale.displayed_length(2.0))
+        );
     }
 
     #[test]

@@ -155,7 +155,7 @@
         "Kernel choice and tolerance policy have one owner and no feature-local epsilon replacement."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]
