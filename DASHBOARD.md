@@ -6,8 +6,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 | Status | Tasks |
 | --- | ---: |
-| Todo | 37 |
-| In progress | 4 |
+| Todo | 36 |
+| In progress | 5 |
 | Done | 10 |
 | **Total** | **51** |
 
@@ -16,11 +16,12 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T05 — Implement sparse legacy DTO reading and model/history containers**
 - **T07 — Build desktop window and basic viewport**
 - **T09 — Implement desktop document service and safe storage**
+- **T13 — Implement tool protocol and line editing**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
 
 ## Current Activity
 
-T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. Workspace checks pass: 84 core, 105 desktop library, 14 IO and 5 CLI tests, plus Clippy with warnings denied. The 199-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. The user-confirmed selection-first operator rule remains a requirement for T15 and later modeling tasks; planar-first construction, nested object definitions, attached hotspots, arrays and staged point-picking are recorded for those tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 37 Todo, 4 In Progress, 10 Done.
+T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. T13 is now active for the shared tool protocol and Line/Construction Line editing, including typed input, chain lifecycle, and same-context topology. Workspace checks at the T12 checkpoint pass: 84 core, 105 desktop library, 14 IO and 5 CLI tests, plus Clippy with warnings denied. The 199-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. The user-confirmed selection-first operator rule remains a requirement for T15 and later modeling tasks; planar-first construction, nested object definitions, attached hotspots, arrays and staged point-picking are recorded for those tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 36 Todo, 5 In Progress, 10 Done.
 
 ## Task Statuses
 
@@ -39,7 +40,7 @@ T12 is complete: mixed typed selection supports replace/add/remove, injected 350
 | T10 | Port orbit, orthographic and walkthrough cameras | Done |
 | T11 | Implement snapping, permanent grid and guides | Done |
 | T12 | Port mixed selection and semantic picking framework | Done |
-| T13 | Implement tool protocol and line editing | Todo |
+| T13 | Implement tool protocol and line editing | In progress |
 | T14 | Implement basic planar shape tools | Todo |
 | T15 | Port transforms, stretch variants and painting | Todo |
 | T16 | Implement reusable objects, placement and explode | Todo |
