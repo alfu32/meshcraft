@@ -12,6 +12,16 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 const LEGACY_VERTEX_KEY_EPSILON: f64 = 1.0e-3;
 const MAX_INSTANCE_COUNT: usize = 100_000;
 const MAX_INSTANCE_DEPTH: usize = 256;
+const SCHEMA17_DOMAIN_ARRAY_FIELDS: &[&str] = &[
+    "voxels",
+    "architectureWalls",
+    "architectureSlabs",
+    "architectureStairs",
+    "architectureFrames",
+    "hvacPlumbingRuns",
+    "hvacVentilationDucts",
+    "hotspots",
+];
 
 type ImportResult<T> = Result<T, String>;
 type ParsedOverrideSegment = (Vec3, Vec3, Vec<LegacyAlias>, BTreeMap<String, Value>);
@@ -576,12 +586,6 @@ fn export_definition(
     definition: &crate::document::Definition,
     prototype_ids: &BTreeMap<DefinitionId, String>,
 ) -> ImportResult<Value> {
-    if !definition.domain_data.is_empty() {
-        return Err(format!(
-            "prototype {} has typed domain data without a schema-17 export adapter",
-            definition.id.0
-        ));
-    }
     let mut object = Map::new();
     let prototype_id = prototype_ids
         .get(&definition.id)
@@ -606,6 +610,7 @@ fn export_definition(
         "definitionOrigin",
         ["definitionAxisU", "definitionAxisV", "definitionAxisW"],
     );
+    export_domain_data(definition, &mut object)?;
     let mut used_vertices = BTreeSet::new();
     let mut used_segments = BTreeSet::new();
     let mut used_faces = BTreeSet::new();
@@ -678,6 +683,32 @@ fn export_definition(
         &["__raw_kind", "__raw_prototype_vertices"],
     )?;
     Ok(Value::Object(object))
+}
+
+fn export_domain_data(
+    definition: &crate::document::Definition,
+    object: &mut Map<String, Value>,
+) -> ImportResult<()> {
+    for (field, value) in &definition.domain_data {
+        let valid_shape = if *field == "voxelColor" {
+            value.is_object() || value.is_null()
+        } else if SCHEMA17_DOMAIN_ARRAY_FIELDS.contains(&field.as_str()) {
+            value.is_array()
+        } else {
+            return Err(format!(
+                "prototype {} domain field {field:?} has no schema-17 export adapter",
+                definition.id.0
+            ));
+        };
+        if !valid_shape {
+            return Err(format!(
+                "prototype {} domain field {field:?} has an invalid schema-17 JSON shape",
+                definition.id.0
+            ));
+        }
+        object.insert(field.clone(), value.clone());
+    }
+    Ok(())
 }
 
 fn export_prototype_vertices(
@@ -1735,7 +1766,7 @@ mod tests {
         GeometryDraft, QuantizedVertex, export_current_value, import_current_json,
         import_current_value, legacy_camera_state, snapshot_with_legacy_camera_state,
     };
-    use crate::document::{DefinitionKind, LegacyAlias, OccurrenceRef};
+    use crate::document::{DefinitionKind, Document, LegacyAlias, OccurrenceRef};
     use crate::geometry::Vec3;
     use serde_json::Value;
     use std::collections::{BTreeSet, HashMap};
@@ -1856,6 +1887,102 @@ mod tests {
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    #[test]
+    fn exports_typed_domain_components_through_schema17_fields() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("domain", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let definition_id = document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let expected = serde_json::json!({
+            "voxelColor": {"r": 0.2, "g": 0.4, "b": 0.6, "a": 1.0},
+            "voxels": [{"position": {"x": 1, "y": 2, "z": 3}, "futureVoxel": true}],
+            "architectureWalls": [{"id": "wall-1", "thickness": 0.2, "futureWall": "stone"}],
+            "architectureSlabs": [{"id": "slab-1", "thickness": 0.3}],
+            "architectureStairs": [{"id": "stair-1", "steps": 14}],
+            "architectureFrames": [{"id": "frame-1", "glazingEnabled": false}],
+            "hvacPlumbingRuns": [{"id": "pipe-1", "diameter": 0.2}],
+            "hvacVentilationDucts": [{"id": "duct-1", "width": 0.5}],
+            "hotspots": [{"id": "hotspot-1", "futureHotspot": {"mode": "switch"}}]
+        });
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        for (field, value) in expected.as_object().unwrap() {
+            definition.domain_data.insert(field.clone(), value.clone());
+        }
+        definition.extensions.insert(
+            "k3d.architectureWalls".to_owned(),
+            serde_json::json!([{"id": "stale-imported-wall"}]),
+        );
+
+        let exported = export_current_value(&document).unwrap();
+        let prototype = exported["prototypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|prototype| prototype["name"] == "domain")
+            .unwrap();
+        for (field, value) in expected.as_object().unwrap() {
+            assert_eq!(value, &prototype[field], "{field}");
+        }
+
+        let reopened = import_current_value(&exported).unwrap();
+        let reexported = export_current_value(&reopened).unwrap();
+        let reopened_prototype = reexported["prototypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|prototype| prototype["name"] == "domain")
+            .unwrap();
+        for (field, value) in expected.as_object().unwrap() {
+            assert_eq!(value, &reopened_prototype[field], "{field}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_or_malformed_typed_domain_fields() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("domain", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let definition_id = document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        document
+            .definitions
+            .get_mut(&definition_id)
+            .unwrap()
+            .domain_data
+            .insert(
+                "future_component".to_owned(),
+                serde_json::json!({"value": 1}),
+            );
+
+        assert!(
+            export_current_value(&document)
+                .unwrap_err()
+                .contains("no schema-17 export adapter")
+        );
+
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.domain_data.clear();
+        definition.domain_data.insert(
+            "architectureWalls".to_owned(),
+            serde_json::json!({"id": "wall-1"}),
+        );
+
+        assert!(
+            export_current_value(&document)
+                .unwrap_err()
+                .contains("invalid schema-17 JSON shape")
+        );
     }
 
     #[test]
