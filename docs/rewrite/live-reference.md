@@ -4,13 +4,16 @@ These captures document a running desktop build inspected on 2026-10-18. Its MCP
 
 The supplied screenshots show thirteen labeled toolbar groups at the left: Point Construction, Actions, Modification, Entity Construction, Rendering, Architecture, Camera, Modification 2, Mech, Primitives, Voxel, In-tool Operators, and HVAC. The right side is a vertically scrolling accordion titled “Panels,” with a status strip along the bottom. `Ctrl+Shift+P` opens the command palette. The visible palette reports 138 commands; searching `Rectangle` shows `Tool> Rectangle` and `Tool> Surface Rect`. MCP `/scene/listCommands` also returned 138 entries: Tools 74, View 52, Edit 7, Export 4, Import 1. The MCP exposed six tools and five resources. Palette search and display were observed; command activation was not verified in this inspection.
 
-Visible UI/configuration values include:
+The following are values visible in the supplied captures; they are sample state, not assertions about factory defaults:
 
-- UI: 1× text, 32×32 toolbar icons, auto-collapse off, permanent grid on, Y-up, extent 20, normal/thick widths 1/3 px.
-- Model: unit size 1, grid size 1, 24 circle segments; walk speed 24, jump 16, gravity 48, height-adjust speed 8.
-- Polyline/vector text: arc length 0.5, double-line size/offset 1/0.5; text `TEXT`, size 1, tracking 0.1, line spacing 1.25, source `embedded:alphabet`.
-- Architecture/HVAC: wall thickness/height 0.2/2.7; pipe diameter/sides 0.2/16; duct size 0.5×0.25, hump half-span 0.625 and clearance 0.05.
-- Hotspot/random/lighting: the default hotspot operation is MOVE with CIRCLE shape; random array count 12, zero scale/rotation fuzz, normal alignment enabled, remesh subdivisions 12 and tolerance 0.05. Shader controls expose shadow, directional, ambient and specular value/alpha settings.
+- Selection/Object/Objects (image 1): 524 edges, 460 faces, 16 objects and one visible `cuboid | internal | 16` entry; no selected object is reported in the Object editor.
+- Model Settings (image 2): unit `unit`, unit size 1, grid size 1, 24 circle segments; snap radius is a slider. Walk speed is 24, jump velocity 16, gravity 48 and height-adjust speed 8. XRef is `-`.
+- UI Settings (image 3): text scale 1×, auto-collapse off, toolbar size 32×32, permanent grid on, Y-up, extent 20, normal/thick widths 1/3 px. Help / About identifies Octodraw on Desktop.
+- Polyline and Vector Text (image 4): arc max length 0.5, double-line size/offset 1/0.5; text `TEXT`, size 1, tracking 0.1, line spacing 1.25, glyph source `embedded:alphabet`.
+- Architecture (image 5): wall thickness/height/inclination 0.2/2.7/0; slab thickness 0.2; stair height 2.7, 14 steps, support thickness 0.2 and both rail grids enabled; visible frame depth/width 0.12/0.06 with glazing enabled.
+- HVAC and Hotspot Settings (image 6): pipe diameter/sides 0.2/16; duct width/height 0.5/0.25, hump half-span 0.625 and clearance 0.05. The visible hotspot template uses MOVE, CIRCLE and color `338cf2ff`.
+- Random Tools and Tutorials (image 7): fuzzy offset strength 1; random array count 12, scale/rotation fuzz 0 and surface-normal alignment on; remesh subdivisions 12 and tolerance 0.05. Tutorials show Idle, step 0/0 and playback controls.
+- Shader Settings (image 8): shadow value/alpha 0.59/0.50, directional 0.73/1.00, ambient 0.59/1.00, specular 0.20/0.95; shadow bias 2500, normal bias 5620, PCF 1×1, CSM on, dithering off.
 
 The user-confirmed modeling sequence is cuboid → copy → create an object from the copied selection → array that object. The current viewport shows the resulting regular cuboid array, the Objects panel lists 16 objects, and the Selection panel reports 16 objects, 460 faces and 524 edges. The Random Surface Array settings show a copy count of 12. These are live document values, not a fixture contract.
 
