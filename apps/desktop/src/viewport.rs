@@ -1,6 +1,8 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
-use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef, Rgba8, VertexId};
+use meshcraft_core::document::{
+    DefinitionId, Document, OccurrenceRef, Rgba8, TriangleId, VertexId,
+};
 use meshcraft_core::geometry::{Affine3, Vec3};
 use meshcraft_core::selection::{
     SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionTarget,
@@ -8,7 +10,7 @@ use meshcraft_core::selection::{
 use meshcraft_core::tools::shapes::ShapeMeasurement;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const ISO_X: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const DEFAULT_ELEVATION: f64 = 0.615_479_708_670_387_4;
@@ -34,6 +36,102 @@ fn shadow_light_direction() -> Vec3 {
 #[derive(Clone, Copy)]
 struct WorldTriangle {
     points: [Vec3; 3],
+}
+
+#[derive(Clone, Copy)]
+struct ProjectedOccluder {
+    points: [Pos2; 3],
+    depths: [f64; 3],
+}
+
+struct ProjectedDepthBuffer {
+    rect: Rect,
+    cell_size: f32,
+    columns: usize,
+    rows: usize,
+    depths: Vec<f64>,
+}
+
+impl ProjectedDepthBuffer {
+    fn from_occluders(rect: Rect, occluders: &[ProjectedOccluder], perspective: bool) -> Self {
+        let cell_size = (rect.width() / 2048.0).max(rect.height() / 2048.0).max(1.0);
+        let columns = (rect.width().max(1.0) / cell_size).ceil() as usize;
+        let rows = (rect.height().max(1.0) / cell_size).ceil() as usize;
+        let mut buffer = Self {
+            rect,
+            cell_size,
+            columns,
+            rows,
+            depths: vec![f64::INFINITY; columns.saturating_mul(rows)],
+        };
+        for occluder in occluders {
+            let minimum_x = occluder
+                .points
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::INFINITY, f32::min)
+                .max(rect.min.x);
+            let maximum_x = occluder
+                .points
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::NEG_INFINITY, f32::max)
+                .min(rect.max.x);
+            let minimum_y = occluder
+                .points
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::INFINITY, f32::min)
+                .max(rect.min.y);
+            let maximum_y = occluder
+                .points
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::NEG_INFINITY, f32::max)
+                .min(rect.max.y);
+            if minimum_x > maximum_x || minimum_y > maximum_y {
+                continue;
+            }
+            let first_column = (((minimum_x - rect.min.x) / cell_size).floor() as usize)
+                .min(columns.saturating_sub(1));
+            let last_column = (((maximum_x - rect.min.x) / cell_size).floor() as usize)
+                .min(columns.saturating_sub(1));
+            let first_row = (((minimum_y - rect.min.y) / cell_size).floor() as usize)
+                .min(rows.saturating_sub(1));
+            let last_row = (((maximum_y - rect.min.y) / cell_size).floor() as usize)
+                .min(rows.saturating_sub(1));
+            for row in first_row..=last_row {
+                for column in first_column..=last_column {
+                    let sample = Pos2::new(
+                        rect.min.x + (column as f32 + 0.5) * cell_size,
+                        rect.min.y + (row as f32 + 0.5) * cell_size,
+                    );
+                    let Some(weights) = screen_barycentric(sample, occluder.points) else {
+                        continue;
+                    };
+                    let depth = perspective_correct_depth(weights, occluder.depths, perspective);
+                    if depth.is_finite() && (!perspective || depth > 0.0) {
+                        let index = row * columns + column;
+                        buffer.depths[index] = buffer.depths[index].min(depth);
+                    }
+                }
+            }
+        }
+        buffer
+    }
+
+    fn depth_at(&self, point: Pos2) -> Option<f64> {
+        if !self.rect.contains(point) {
+            return None;
+        }
+        let column = (((point.x - self.rect.min.x) / self.cell_size).floor() as usize)
+            .min(self.columns.saturating_sub(1));
+        let row = (((point.y - self.rect.min.y) / self.cell_size).floor() as usize)
+            .min(self.rows.saturating_sub(1));
+        self.depths[row * self.columns + column]
+            .is_finite()
+            .then(|| self.depths[row * self.columns + column])
+    }
 }
 
 struct ShadowMap {
@@ -2253,11 +2351,104 @@ impl Viewport {
             .then(|| self.world_to_screen(rect, point))
     }
 
-    fn point_in_front_of_camera(&self, point: Vec3) -> bool {
-        self.orthographic.is_some() || {
-            let depth = (-self.camera_direction()).dot(point - self.camera_position());
-            depth >= self.near_plane && depth <= self.far_plane
+    fn camera_depth(&self, point: Vec3) -> f64 {
+        -(self.camera_direction()).dot(point - self.camera_position())
+    }
+
+    fn clip_segment_to_camera(&self, segment: [Vec3; 2]) -> Option<[Vec3; 2]> {
+        if self.orthographic.is_some() {
+            return Some(segment);
         }
+        let [start, end] = segment;
+        let start_depth = self.camera_depth(start);
+        let end_depth = self.camera_depth(end);
+        if !start_depth.is_finite() || !end_depth.is_finite() {
+            return None;
+        }
+        let mut start_t: f64 = 0.0;
+        let mut end_t: f64 = 1.0;
+        for (boundary, keep_greater) in [(self.near_plane, true), (self.far_plane, false)] {
+            let start_inside = if keep_greater {
+                start_depth >= boundary
+            } else {
+                start_depth <= boundary
+            };
+            let end_inside = if keep_greater {
+                end_depth >= boundary
+            } else {
+                end_depth <= boundary
+            };
+            if !start_inside && !end_inside {
+                return None;
+            }
+            if start_inside != end_inside {
+                let denominator = end_depth - start_depth;
+                if denominator.abs() <= f64::EPSILON {
+                    return None;
+                }
+                let crossing = ((boundary - start_depth) / denominator).clamp(0.0, 1.0);
+                if start_inside {
+                    end_t = end_t.min(crossing);
+                } else {
+                    start_t = start_t.max(crossing);
+                }
+            }
+        }
+        (start_t <= end_t).then(|| {
+            [
+                start + (end - start) * start_t,
+                start + (end - start) * end_t,
+            ]
+        })
+    }
+
+    fn clip_polygon_to_camera(&self, points: &[Vec3]) -> Vec<Vec3> {
+        if self.orthographic.is_some() {
+            return points.to_vec();
+        }
+        let mut polygon = points.to_vec();
+        for (boundary, keep_greater) in [(self.near_plane, true), (self.far_plane, false)] {
+            if polygon.is_empty() {
+                break;
+            }
+            let mut clipped = Vec::with_capacity(polygon.len() + 1);
+            let mut previous = *polygon.last().expect("nonempty polygon");
+            let mut previous_depth = self.camera_depth(previous);
+            let mut previous_inside = if keep_greater {
+                previous_depth >= boundary
+            } else {
+                previous_depth <= boundary
+            };
+            for current in polygon.iter().copied() {
+                let current_depth = self.camera_depth(current);
+                let current_inside = if keep_greater {
+                    current_depth >= boundary
+                } else {
+                    current_depth <= boundary
+                };
+                if previous_inside != current_inside {
+                    let denominator = current_depth - previous_depth;
+                    if denominator.abs() > f64::EPSILON {
+                        let fraction = ((boundary - previous_depth) / denominator).clamp(0.0, 1.0);
+                        clipped.push(previous + (current - previous) * fraction);
+                    }
+                }
+                if current_inside {
+                    clipped.push(current);
+                }
+                previous = current;
+                previous_depth = current_depth;
+                previous_inside = current_inside;
+            }
+            polygon = clipped;
+        }
+        polygon
+    }
+
+    fn point_in_front_of_camera(&self, point: Vec3) -> bool {
+        self.orthographic.is_some()
+            || (self.camera_depth(point) >= self.near_plane
+                && self.camera_depth(point) <= self.far_plane)
     }
 
     fn projected_position(&self, point: Vec3) -> (f64, f64) {
@@ -2964,20 +3155,29 @@ impl Viewport {
             let parallel_v_end = Vec3::ZERO + axis_u * coordinate + axis_v * world_extent;
             let parallel_u_start = Vec3::ZERO + axis_v * coordinate - axis_u * world_extent;
             let parallel_u_end = Vec3::ZERO + axis_v * coordinate + axis_u * world_extent;
-            if let (Some(a), Some(b)) = (
-                self.project_if_visible(rect, parallel_v_start),
-                self.project_if_visible(rect, parallel_v_end),
-            ) {
-                painter.line_segment([a, b], Stroke::new(width, color));
+            if let Some([start, end]) =
+                self.clip_segment_to_camera([parallel_v_start, parallel_v_end])
+            {
+                painter.line_segment(
+                    [
+                        self.world_to_screen(rect, start),
+                        self.world_to_screen(rect, end),
+                    ],
+                    Stroke::new(width, color),
+                );
             }
-            if let (Some(a), Some(b)) = (
-                self.project_if_visible(rect, parallel_u_start),
-                self.project_if_visible(rect, parallel_u_end),
-            ) {
-                painter.line_segment([a, b], Stroke::new(width, color));
+            if let Some([start, end]) =
+                self.clip_segment_to_camera([parallel_u_start, parallel_u_end])
+            {
+                painter.line_segment(
+                    [
+                        self.world_to_screen(rect, start),
+                        self.world_to_screen(rect, end),
+                    ],
+                    Stroke::new(width, color),
+                );
             }
         }
-        let origin = self.project_if_visible(rect, Vec3::ZERO);
         for (axis, color) in [
             (
                 Vec3::new(world_extent, 0.0, 0.0),
@@ -2992,8 +3192,19 @@ impl Viewport {
                 Color32::from_rgb(100, 130, 190),
             ),
         ] {
-            if let (Some(origin), Some(end)) = (origin, self.project_if_visible(rect, axis)) {
-                painter.line_segment([origin, end], Stroke::new(style.thick_width, color));
+            for (start, end, axis_color) in [
+                (-axis, Vec3::ZERO, lighter_axis_color(color)),
+                (Vec3::ZERO, axis, color),
+            ] {
+                if let Some([start, end]) = self.clip_segment_to_camera([start, end]) {
+                    painter.line_segment(
+                        [
+                            self.world_to_screen(rect, start),
+                            self.world_to_screen(rect, end),
+                        ],
+                        Stroke::new(style.thick_width, axis_color),
+                    );
+                }
             }
         }
     }
@@ -3072,11 +3283,14 @@ impl Viewport {
                 for axis in [cloud.axis_u, cloud.axis_v] {
                     let start = point - axis * cross_half;
                     let end = point + axis * cross_half;
-                    if let (Some(start), Some(end)) = (
-                        self.project_if_visible(rect, start),
-                        self.project_if_visible(rect, end),
-                    ) {
-                        painter.line_segment([start, end], stroke);
+                    if let Some([start, end]) = self.clip_segment_to_camera([start, end]) {
+                        painter.line_segment(
+                            [
+                                self.world_to_screen(rect, start),
+                                self.world_to_screen(rect, end),
+                            ],
+                            stroke,
+                        );
                     }
                 }
             }
@@ -3124,12 +3338,14 @@ impl Viewport {
                                     guide.origin + axis_v * offset + axis_u * extent,
                                 ),
                             ] {
-                                if let (Some(start), Some(end)) = (
-                                    self.project_if_visible(rect, start),
-                                    self.project_if_visible(rect, end),
-                                ) {
+                                if let Some([start, end]) =
+                                    self.clip_segment_to_camera([start, end])
+                                {
                                     painter.line_segment(
-                                        [start, end],
+                                        [
+                                            self.world_to_screen(rect, start),
+                                            self.world_to_screen(rect, end),
+                                        ],
                                         Stroke::new(
                                             if step == 0 { style.thick_width } else { 1.0 },
                                             line_color,
@@ -3151,30 +3367,36 @@ impl Viewport {
                     }
                 }
                 ConstructionGuideKind::Axis => {
-                    let color = if preview {
-                        Color32::from_rgb(120, 219, 255)
-                    } else {
-                        Color32::from_rgb(91, 177, 218)
-                    };
                     for (axis, axis_color) in [
-                        (guide.axis_u, color),
-                        (guide.axis_v, Color32::from_rgb(104, 218, 150)),
-                        (guide.axis_w, Color32::from_rgb(227, 126, 126)),
+                        (guide.axis_u, axis_guide_colors(preview)[0]),
+                        (guide.axis_v, axis_guide_colors(preview)[1]),
+                        (guide.axis_w, axis_guide_colors(preview)[2]),
                     ] {
-                        let start = guide.origin - axis * extent;
-                        let end = guide.origin + axis * extent;
-                        if let (Some(start), Some(end)) = (
-                            self.project_if_visible(rect, start),
-                            self.project_if_visible(rect, end),
-                        ) {
-                            painter.line_segment(
-                                [start, end],
-                                Stroke::new(style.thick_width.max(1.4), axis_color),
-                            );
+                        for (start, end, color) in [
+                            (
+                                guide.origin - axis * extent,
+                                guide.origin,
+                                lighter_axis_color(axis_color),
+                            ),
+                            (guide.origin, guide.origin + axis * extent, axis_color),
+                        ] {
+                            if let Some([start, end]) = self.clip_segment_to_camera([start, end]) {
+                                painter.line_segment(
+                                    [
+                                        self.world_to_screen(rect, start),
+                                        self.world_to_screen(rect, end),
+                                    ],
+                                    Stroke::new(style.thick_width.max(1.4), color),
+                                );
+                            }
                         }
                     }
                     if let Some(origin) = self.project_if_visible(rect, guide.origin) {
-                        painter.circle_stroke(origin, 5.0, Stroke::new(1.5, color));
+                        painter.circle_stroke(
+                            origin,
+                            5.0,
+                            Stroke::new(1.5, axis_guide_colors(preview)[2]),
+                        );
                     }
                 }
             }
@@ -3273,6 +3495,7 @@ impl Viewport {
         };
         let mut faces = Vec::new();
         let mut segments = Vec::new();
+        let mut occluders = Vec::new();
         let view_direction = self.camera_direction();
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
@@ -3289,6 +3512,26 @@ impl Viewport {
             let selected = selection.iter().any(|target| {
                 target.occurrence == occurrence && target.entity == SelectedEntity::Occurrence
             });
+            let winding_flips = geometry
+                .triangles
+                .values()
+                .filter_map(|triangle| {
+                    let points = triangle.vertices.map(|reference| {
+                        geometry
+                            .vertex_position(reference)
+                            .map(|point| resolved.world_transform.transform_point(point))
+                    });
+                    let [Some(a), Some(b), Some(c)] = points else {
+                        return None;
+                    };
+                    Some((
+                        triangle.id,
+                        triangle.vertices.map(|reference| reference.id),
+                        [a, b, c],
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let winding_flips = coplanar_triangle_winding_flips(&winding_flips);
             let mut surface_edges = BTreeSet::new();
             let mut visible_surface_edges = BTreeSet::new();
             for triangle in geometry.triangles.values() {
@@ -3300,21 +3543,12 @@ impl Viewport {
                 };
                 let world_points =
                     [a, b, c].map(|point| resolved.world_transform.transform_point(point));
-                if world_points
-                    .iter()
-                    .any(|point| !self.point_in_front_of_camera(*point))
-                {
-                    continue;
-                }
-                let points = world_points.map(|point| self.world_to_screen(rect, point));
-                let facing = (world_points[1] - world_points[0])
+                let mut facing = (world_points[1] - world_points[0])
                     .cross(world_points[2] - world_points[0])
                     .dot(view_direction);
-                let depth = world_points
-                    .iter()
-                    .map(|point| self.view_depth(*point))
-                    .sum::<f64>()
-                    / 3.0;
+                if winding_flips.contains(&triangle.id) {
+                    facing = -facing;
+                }
                 for [a, b] in [[0, 1], [1, 2], [2, 0]] {
                     let edge = edge_key(triangle.vertices[a].id, triangle.vertices[b].id);
                     surface_edges.insert(edge);
@@ -3322,9 +3556,22 @@ impl Viewport {
                         visible_surface_edges.insert(edge);
                     }
                 }
+                let clipped_world = self.clip_polygon_to_camera(&world_points);
+                if clipped_world.len() < 3 {
+                    continue;
+                }
                 if policy.can_draw(SelectionKind::Face)
                     && !policy.state(SelectionKind::Face).wireframe
                 {
+                    let points = clipped_world
+                        .iter()
+                        .map(|point| self.world_to_screen(rect, *point))
+                        .collect::<Vec<_>>();
+                    let depth = clipped_world
+                        .iter()
+                        .map(|point| self.view_depth(*point))
+                        .sum::<f64>()
+                        / clipped_world.len() as f64;
                     let selected_face = selection.iter().any(|target| {
                         target.occurrence == occurrence
                             && target.entity == SelectedEntity::Triangle(triangle.id)
@@ -3342,6 +3589,18 @@ impl Viewport {
                             .map_or(0.0, |shadow_map| shadow_map.shadow_coverage(center, normal));
                         shade_face_for_shadow(color, shadow)
                     };
+                    for index in 1..clipped_world.len() - 1 {
+                        let world_triangle = [
+                            clipped_world[0],
+                            clipped_world[index],
+                            clipped_world[index + 1],
+                        ];
+                        let screen_triangle = [points[0], points[index], points[index + 1]];
+                        occluders.push(ProjectedOccluder {
+                            points: screen_triangle,
+                            depths: world_triangle.map(|point| self.camera_depth(point)),
+                        });
+                    }
                     faces.push((depth, points, color));
                 }
             }
@@ -3364,9 +3623,9 @@ impl Viewport {
                 };
                 let start = resolved.world_transform.transform_point(start_local);
                 let end = resolved.world_transform.transform_point(end_local);
-                if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
+                let Some([start, end]) = self.clip_segment_to_camera([start, end]) else {
                     continue;
-                }
+                };
                 let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
                 let selected_edge = selection.iter().any(|target| {
                     target.occurrence == occurrence
@@ -3379,14 +3638,7 @@ impl Viewport {
                 } else {
                     color32(segment.color)
                 };
-                segments.push((
-                    depth,
-                    [
-                        self.world_to_screen(rect, start),
-                        self.world_to_screen(rect, end),
-                    ],
-                    edge_color,
-                ));
+                segments.push((depth, [start, end], edge_color));
             }
             for target in selection.iter().filter(|target| {
                 target.occurrence == occurrence
@@ -3407,11 +3659,31 @@ impl Viewport {
         }
         faces.sort_by(|left, right| left.0.total_cmp(&right.0));
         for (_, points, color) in faces {
-            painter.add(Shape::convex_polygon(points.to_vec(), color, Stroke::NONE));
+            painter.add(Shape::convex_polygon(points, color, Stroke::NONE));
         }
+        let depth_buffer = (!segments.is_empty() && !occluders.is_empty()).then(|| {
+            ProjectedDepthBuffer::from_occluders(rect, &occluders, self.orthographic.is_none())
+        });
         segments.sort_by(|left, right| left.0.total_cmp(&right.0));
-        for (_, points, color) in segments {
-            painter.line_segment(points, Stroke::new(1.4, color));
+        for (_, [start, end], color) in segments {
+            let screen_start = self.world_to_screen(rect, start);
+            let screen_end = self.world_to_screen(rect, end);
+            let fragments = depth_buffer.as_ref().map_or_else(
+                || vec![[screen_start, screen_end]],
+                |depth_buffer| {
+                    visible_line_fragments(
+                        screen_start,
+                        screen_end,
+                        self.camera_depth(start),
+                        self.camera_depth(end),
+                        depth_buffer,
+                        self.orthographic.is_none(),
+                    )
+                },
+            );
+            for fragment in fragments {
+                painter.line_segment(fragment, Stroke::new(1.4, color));
+            }
         }
     }
 
@@ -3691,6 +3963,32 @@ fn color32(color: Rgba8) -> Color32 {
     Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, color.alpha)
 }
 
+fn axis_guide_colors(preview: bool) -> [Color32; 3] {
+    if preview {
+        [
+            Color32::from_rgb(227, 126, 126),
+            Color32::from_rgb(104, 218, 150),
+            Color32::from_rgb(120, 219, 255),
+        ]
+    } else {
+        [
+            Color32::from_rgb(202, 105, 105),
+            Color32::from_rgb(100, 160, 115),
+            Color32::from_rgb(100, 130, 190),
+        ]
+    }
+}
+
+fn lighter_axis_color(color: Color32) -> Color32 {
+    let lighten = |channel: u8| channel + ((u16::from(255 - channel) * 40) / 100) as u8;
+    Color32::from_rgba_unmultiplied(
+        lighten(color.r()),
+        lighten(color.g()),
+        lighten(color.b()),
+        color.a(),
+    )
+}
+
 fn orient_face_color(color: Color32, front_facing: bool) -> Color32 {
     if front_facing {
         return color;
@@ -3752,6 +4050,163 @@ fn edge_key(first: VertexId, second: VertexId) -> (VertexId, VertexId) {
     } else {
         (second, first)
     }
+}
+
+fn coplanar_triangle_winding_flips(
+    triangles: &[(TriangleId, [VertexId; 3], [Vec3; 3])],
+) -> BTreeSet<TriangleId> {
+    let normals = triangles
+        .iter()
+        .map(|(_, _, points)| {
+            (points[1] - points[0])
+                .cross(points[2] - points[0])
+                .try_normalized(1.0e-12)
+        })
+        .collect::<Vec<_>>();
+    let mut edge_users = BTreeMap::<(VertexId, VertexId), Vec<usize>>::new();
+    for (index, (_, vertices, _)) in triangles.iter().enumerate() {
+        for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+            edge_users
+                .entry(edge_key(vertices[first], vertices[second]))
+                .or_default()
+                .push(index);
+        }
+    }
+    let coordinate_scale = triangles
+        .iter()
+        .flat_map(|(_, _, points)| points)
+        .map(|point| point.length())
+        .fold(1.0_f64, f64::max);
+    let plane_tolerance = coordinate_scale * 1.0e-8;
+    let mut signs = vec![None::<i8>; triangles.len()];
+    let mut flipped = BTreeSet::new();
+    for seed in 0..triangles.len() {
+        if signs[seed].is_some() || normals[seed].is_none() {
+            continue;
+        }
+        signs[seed] = Some(1);
+        let mut pending = vec![seed];
+        while let Some(current) = pending.pop() {
+            let Some(current_normal) = normals[current] else {
+                continue;
+            };
+            let (triangle_id, vertices, points) = triangles[current];
+            if signs[current] == Some(-1) {
+                flipped.insert(triangle_id);
+            }
+            for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+                let Some(neighbors) = edge_users.get(&edge_key(vertices[first], vertices[second]))
+                else {
+                    continue;
+                };
+                for &neighbor in neighbors {
+                    if neighbor == current {
+                        continue;
+                    }
+                    let Some(neighbor_normal) = normals[neighbor] else {
+                        continue;
+                    };
+                    let alignment = current_normal.dot(neighbor_normal);
+                    if alignment.abs() < 1.0 - 1.0e-8
+                        || triangles[neighbor].2.iter().any(|point| {
+                            current_normal.dot(*point - points[0]).abs() > plane_tolerance
+                        })
+                    {
+                        continue;
+                    }
+                    let relation = if alignment < 0.0 { -1 } else { 1 };
+                    let candidate = signs[current].unwrap_or(1) * relation;
+                    if signs[neighbor].is_none() {
+                        signs[neighbor] = Some(candidate);
+                        pending.push(neighbor);
+                    }
+                }
+            }
+        }
+    }
+    flipped
+}
+
+fn screen_barycentric(point: Pos2, triangle: [Pos2; 3]) -> Option<[f64; 3]> {
+    let [a, b, c] = triangle;
+    let ab = b - a;
+    let ac = c - a;
+    let ap = point - a;
+    let denominator = f64::from(ab.x) * f64::from(ac.y) - f64::from(ab.y) * f64::from(ac.x);
+    if !denominator.is_finite() || denominator.abs() <= 1.0e-12 {
+        return None;
+    }
+    let second =
+        (f64::from(ap.x) * f64::from(ac.y) - f64::from(ap.y) * f64::from(ac.x)) / denominator;
+    let third =
+        (f64::from(ab.x) * f64::from(ap.y) - f64::from(ab.y) * f64::from(ap.x)) / denominator;
+    let first = 1.0 - second - third;
+    (first >= -1.0e-7 && second >= -1.0e-7 && third >= -1.0e-7).then_some([first, second, third])
+}
+
+fn perspective_correct_depth(weights: [f64; 3], depths: [f64; 3], perspective: bool) -> f64 {
+    if perspective {
+        let reciprocal = weights[0] / depths[0] + weights[1] / depths[1] + weights[2] / depths[2];
+        1.0 / reciprocal
+    } else {
+        weights[0] * depths[0] + weights[1] * depths[1] + weights[2] * depths[2]
+    }
+}
+
+fn visible_line_fragments(
+    start: Pos2,
+    end: Pos2,
+    start_depth: f64,
+    end_depth: f64,
+    depth_buffer: &ProjectedDepthBuffer,
+    perspective: bool,
+) -> Vec<[Pos2; 2]> {
+    if !start_depth.is_finite()
+        || !end_depth.is_finite()
+        || (perspective && (start_depth <= 0.0 || end_depth <= 0.0))
+    {
+        return Vec::new();
+    }
+    let screen_delta = end - start;
+    let steps = (screen_delta.length() / depth_buffer.cell_size)
+        .ceil()
+        .clamp(1.0, 8192.0) as usize;
+    let screen_at = |step: usize| start + screen_delta * (step as f32 / steps as f32);
+    let line_depth_at = |fraction: f64| {
+        if perspective {
+            1.0 / ((1.0 - fraction) / start_depth + fraction / end_depth)
+        } else {
+            start_depth + (end_depth - start_depth) * fraction
+        }
+    };
+    let is_visible = |step: usize| {
+        let fraction = step as f64 / steps as f64;
+        let point = screen_at(step);
+        let line_depth = line_depth_at(fraction);
+        let nearest_surface = depth_buffer.depth_at(point);
+        nearest_surface.is_none_or(|surface_depth| {
+            line_depth <= surface_depth + surface_depth.abs().max(1.0) * 1.0e-6
+        })
+    };
+
+    let mut visible = Vec::new();
+    let mut run_start = None;
+    for step in 0..=steps {
+        if is_visible(step) {
+            run_start.get_or_insert(step);
+        } else if let Some(first) = run_start.take() {
+            let last = step.saturating_sub(1);
+            if first < last {
+                visible.push([screen_at(first), screen_at(last)]);
+            }
+        }
+    }
+    if let Some(first) = run_start
+        && first < steps
+    {
+        visible.push([screen_at(first), screen_at(steps)]);
+    }
+    visible
 }
 
 fn cuboid_corners(origin: Vec3, dimensions: Vec3) -> [Vec3; 8] {
@@ -4010,8 +4465,9 @@ mod tests {
         GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SelectedEntity,
         SelectionDisplayPolicy, SelectionKind, ShadowMap, SnapKind, SnapOptions, SnapResult,
         SnapScope, SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, WorldTriangle,
-        cuboid_corners, height_in_triangle_xz, orient_face_color, point_in_triangle,
-        shade_face_for_shadow, shadow_light_direction,
+        axis_guide_colors, coplanar_triangle_winding_flips, cuboid_corners, height_in_triangle_xz,
+        lighter_axis_color, orient_face_color, point_in_triangle, shade_face_for_shadow,
+        shadow_light_direction, visible_line_fragments,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -4030,6 +4486,157 @@ mod tests {
         let translucent = egui::Color32::from_rgba_unmultiplied(220, 180, 140, 96);
         assert_eq!(translucent.a(), orient_face_color(translucent, false).a());
         assert_eq!(translucent.a(), shade_face_for_shadow(translucent, 1.0).a());
+    }
+
+    #[test]
+    fn perspective_primitives_clip_to_near_and_far_camera_planes() {
+        let viewport = Viewport {
+            distance: 10.0,
+            ..Viewport::default()
+        };
+        let camera = viewport.camera_position();
+        let forward = -viewport.camera_direction();
+        let point_at_depth = |depth| camera + forward * depth;
+
+        let clipped = viewport
+            .clip_segment_to_camera([point_at_depth(1.0), point_at_depth(900.0)])
+            .expect("segment crosses the visible depth range");
+        assert!((viewport.camera_depth(clipped[0]) - 1.0).abs() < 1.0e-9);
+        assert!((viewport.camera_depth(clipped[1]) - viewport.far_plane).abs() < 1.0e-9);
+        assert!(
+            viewport
+                .clip_segment_to_camera([point_at_depth(600.0), point_at_depth(900.0)])
+                .is_none()
+        );
+
+        let clipped_triangle = viewport.clip_polygon_to_camera(&[
+            point_at_depth(0.01),
+            point_at_depth(2.0) + Vec3::X,
+            point_at_depth(2.0) - Vec3::X,
+        ]);
+        assert_eq!(4, clipped_triangle.len());
+        assert!(clipped_triangle.iter().all(|point| {
+            let depth = viewport.camera_depth(*point);
+            depth >= viewport.near_plane - 1.0e-9 && depth <= viewport.far_plane + 1.0e-9
+        }));
+    }
+
+    #[test]
+    fn lines_hidden_behind_faces_are_split_at_the_occlusion_boundary() {
+        let occluder = super::ProjectedOccluder {
+            points: [
+                Pos2::new(0.0, 0.0),
+                Pos2::new(10.0, 0.0),
+                Pos2::new(0.0, 10.0),
+            ],
+            depths: [10.0; 3],
+        };
+        let depth_buffer = super::ProjectedDepthBuffer::from_occluders(
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(10.0, 10.0)),
+            &[occluder],
+            false,
+        );
+        assert!(
+            visible_line_fragments(
+                Pos2::new(1.0, 2.0),
+                Pos2::new(5.0, 2.0),
+                20.0,
+                20.0,
+                &depth_buffer,
+                false,
+            )
+            .is_empty()
+        );
+        let fragments = visible_line_fragments(
+            Pos2::new(1.0, 2.0),
+            Pos2::new(5.0, 2.0),
+            5.0,
+            20.0,
+            &depth_buffer,
+            false,
+        );
+        assert_eq!(1, fragments.len());
+        assert!(fragments[0][0].x < fragments[0][1].x);
+        assert!(fragments[0][1].x < 4.0);
+    }
+
+    #[test]
+    fn cuboid_face_triangles_receive_consistent_shadowing() {
+        let corners = cuboid_corners(Vec3::ZERO, Vec3::new(4.0, 4.0, 4.0));
+        let indices = [
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+            [0, 3, 2],
+            [0, 2, 1],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        let triangles = indices.map(|[a, b, c]| WorldTriangle {
+            points: [corners[a], corners[b], corners[c]],
+        });
+        let shadow_map = ShadowMap::build(&triangles).expect("cuboid builds a shadow map");
+        for pair in triangles.as_chunks::<2>().0 {
+            let normal = (pair[0].points[1] - pair[0].points[0])
+                .cross(pair[0].points[2] - pair[0].points[0])
+                .try_normalized(1.0e-12)
+                .expect("face triangle has a normal");
+            let coverage = [pair[0], pair[1]].map(|triangle| {
+                let [a, b, c] = triangle.points;
+                let center = (a + b + c) / 3.0;
+                shadow_map.shadow_coverage(center, normal)
+            });
+            assert!(
+                (coverage[0] - coverage[1]).abs() <= 0.15,
+                "coplanar triangles received different shadow coverage: {coverage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn coplanar_triangles_with_reversed_winding_share_one_render_orientation() {
+        use meshcraft_core::document::{TriangleId, VertexId};
+
+        let triangles = [
+            (
+                TriangleId(1),
+                [VertexId(1), VertexId(2), VertexId(3)],
+                [Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Y],
+            ),
+            (
+                TriangleId(2),
+                [VertexId(1), VertexId(4), VertexId(3)],
+                [Vec3::ZERO, Vec3::Y, Vec3::X + Vec3::Y],
+            ),
+        ];
+
+        let flips = coplanar_triangle_winding_flips(&triangles);
+        assert!(!flips.contains(&TriangleId(1)));
+        assert!(flips.contains(&TriangleId(2)));
+    }
+
+    #[test]
+    fn axis_guides_use_red_green_blue_for_tangent_tangent_and_normal_axes() {
+        let guide = ConstructionGuide::at_point(ConstructionGuideKind::Axis, Vec3::ZERO, Vec3::Y)
+            .expect("horizontal face has an axis guide");
+        assert_eq!(Vec3::Y, guide.axis_w);
+        assert!(guide.axis_u.x.abs() > 0.999);
+        assert!(guide.axis_v.z.abs() > 0.999);
+
+        let colors = axis_guide_colors(false);
+        assert!(colors[0].r() > colors[0].g() && colors[0].r() > colors[0].b());
+        assert!(colors[1].g() > colors[1].r() && colors[1].g() > colors[1].b());
+        assert!(colors[2].b() > colors[2].r() && colors[2].b() > colors[2].g());
+        let negative = lighter_axis_color(colors[0]);
+        assert!(negative.r() > colors[0].r());
+        assert!(negative.g() > colors[0].g());
+        assert!(negative.b() > colors[0].b());
+        assert_eq!(colors[0].a(), negative.a());
     }
 
     #[test]
