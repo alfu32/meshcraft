@@ -279,6 +279,7 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
     ),
 ];
 const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
+    ("in_tool_operators", &["tool.select", "tool.distance"]),
     (
         "actions",
         &[
@@ -553,6 +554,9 @@ enum ShellAction {
     SelectTool(&'static str),
     SelectToolAlias(&'static str),
     FocusToolDistance,
+    FinishToolInput,
+    UndoToolPoint,
+    CancelActiveTool,
     PlaceGuide(ConstructionGuideKind),
     RemoveGuide,
     AddCuboid,
@@ -838,6 +842,30 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "line construction line numeric length distance operator",
                 Some("distance"),
                 ShellAction::FocusToolDistance,
+            ),
+            (
+                "tool.finish",
+                "Tool> Finish Current Input",
+                "Tools",
+                "line construction line finish enter commit chain",
+                Some("select"),
+                ShellAction::FinishToolInput,
+            ),
+            (
+                "tool.undo_point",
+                "Tool> Undo Last Point or Input",
+                "Tools",
+                "line construction line backspace undo point numeric input",
+                Some("undo"),
+                ShellAction::UndoToolPoint,
+            ),
+            (
+                "tool.cancel",
+                "Tool> Cancel Current Tool",
+                "Tools",
+                "cancel escape current drawing operation",
+                Some("select"),
+                ShellAction::CancelActiveTool,
             ),
             (
                 "tool.rectangle",
@@ -1191,7 +1219,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::UpdateModelSettings
         | ShellAction::Undo
         | ShellAction::Redo
-        | ShellAction::NewDocument => CommandKind::DocumentMutation,
+        | ShellAction::NewDocument
+        | ShellAction::FinishToolInput => CommandKind::DocumentMutation,
         ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
@@ -1212,6 +1241,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleToolbars
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::FocusToolDistance
+        | ShellAction::UndoToolPoint
+        | ShellAction::CancelActiveTool
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
         | ShellAction::ToggleGuides
@@ -1313,6 +1344,9 @@ fn register_shell_command(
         | ShellAction::ResetCamera
         | ShellAction::SetCameraPose
         | ShellAction::FocusToolDistance
+        | ShellAction::FinishToolInput
+        | ShellAction::UndoToolPoint
+        | ShellAction::CancelActiveTool
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
@@ -2826,6 +2860,20 @@ impl MeshcraftApp {
                     self.status = "Distance input: type a value, move the pointer for direction, then press Enter.".to_owned();
                 }
             }
+            ShellAction::FinishToolInput => {
+                self.sync_drawing_tool_state();
+                let effect = self.drawing_tool.handle(ToolEvent::Enter);
+                self.handle_drawing_tool_effect(effect, None);
+                if effect == ToolEffect::InvalidInput {
+                    return CommandResult::failed(self.status.clone());
+                }
+            }
+            ShellAction::UndoToolPoint => {
+                self.sync_drawing_tool_state();
+                self.drawing_tool.handle(ToolEvent::Backspace);
+                self.status = "Removed the last typed character or pending point.".to_owned();
+            }
+            ShellAction::CancelActiveTool => self.cancel_active_tool(),
             ShellAction::PlaceGuide(kind) => {
                 self.active_tool = match kind {
                     ConstructionGuideKind::Axis => "Axis Guide",
@@ -3464,6 +3512,23 @@ impl MeshcraftApp {
         if id == "app.quit" {
             #[cfg(target_arch = "wasm32")]
             return CommandState::disabled("The browser tab cannot be closed by the app");
+        }
+        if id == "tool.distance"
+            && (!matches!(self.active_tool.as_str(), "Line" | "Construction Line")
+                || self.drawing_tool.anchor().is_none())
+        {
+            return CommandState::disabled(
+                "start a Line or Construction Line before entering a distance",
+            );
+        }
+        if matches!(id, "tool.finish" | "tool.undo_point")
+            && (!matches!(self.active_tool.as_str(), "Line" | "Construction Line")
+                || self.drawing_tool.anchor().is_none())
+        {
+            return CommandState::disabled("start a Line or Construction Line first");
+        }
+        if id == "tool.cancel" && self.active_tool == "Select" {
+            return CommandState::disabled("there is no active tool to cancel");
         }
         if let Some(view) = id.strip_prefix("view.ortho.").and_then(OrthoView::from_id) {
             return CommandState {
@@ -5975,8 +6040,8 @@ mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
         ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionSession, TransactionHistory, UiProfile, command_matches, registry_has_unique_ids,
-        shell_commands, tool_command_id,
+        SelectionSession, ToolEvent, TransactionHistory, UiProfile, command_matches,
+        registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -6436,7 +6501,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(200, entries.len());
+        assert_eq!(203, entries.len());
         assert_eq!(
             74,
             entries
@@ -6604,6 +6669,10 @@ mod tests {
                 );
             }
         }
+        assert_eq!(
+            ["tool.select", "tool.distance"],
+            super::legacy_toolbar_command_ids("in_tool_operators").as_slice()
+        );
     }
 
     #[test]
@@ -6632,6 +6701,23 @@ mod tests {
             command.descriptor.presentation.menu_path.len() == 1
                 && !command.descriptor.presentation.palette_path.is_empty()
         }));
+    }
+
+    #[test]
+    fn distance_operator_requires_a_line_anchor_and_does_not_edit_the_document() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+        assert!(!app.query_command_state("tool.distance").enabled);
+
+        app.run_command("tool.line");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        assert!(app.query_command_state("tool.distance").enabled);
+        app.run_command("tool.distance");
+
+        assert!(app.drawing_tool.distance_focused());
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(0, app.history.entries().len());
     }
 
     #[test]
@@ -7143,6 +7229,58 @@ mod tests {
         assert!(endpoints.iter().any(|point| point.distance(start) < 1.0e-6));
         assert!((endpoints[0].distance(endpoints[1]) - 2.5).abs() < 1.0e-6);
         assert_eq!("Line", app.active_tool);
+    }
+
+    #[test]
+    fn command_palette_finish_commits_the_same_numeric_line_input() {
+        let mut app = test_app();
+        app.run_command("tool.line");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let start = Vec3::new(2.0, 0.0, 0.0);
+        let pointer = Vec3::new(2.0, 0.0, 6.0);
+        let start_screen = app.viewport.world_to_screen(rect, start);
+        app.handle_viewport_click_at_point(rect, start_screen, None, Some(start));
+        app.drawing_tool.handle(ToolEvent::PointerMoved(pointer));
+        app.drawing_tool.handle(ToolEvent::Text("2.5"));
+
+        assert!(app.query_command_state("tool.finish").enabled);
+        let result = app.dispatch_command("tool.finish", &CommandPayload::default());
+
+        assert!(result.accepted);
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!(1, app.history.entries().len());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        let segment = geometry.segments.values().next().unwrap();
+        let endpoints = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference).unwrap());
+        assert!((endpoints[0].distance(endpoints[1]) - 2.5).abs() < 1.0e-6);
+        assert!(app.drawing_tool.numeric_input().is_empty());
+    }
+
+    #[test]
+    fn palette_undo_point_and_cancel_share_line_keyboard_state() {
+        let mut app = test_app();
+        assert!(!app.query_command_state("tool.cancel").enabled);
+        app.run_command("tool.line");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        app.drawing_tool.handle(ToolEvent::Text("12"));
+        assert!(app.query_command_state("tool.undo_point").enabled);
+        app.run_command("tool.undo_point");
+        assert_eq!("1", app.drawing_tool.numeric_input());
+        app.run_command("tool.undo_point");
+        assert_eq!("", app.drawing_tool.numeric_input());
+        assert_eq!(Some(Vec3::ZERO), app.drawing_tool.anchor());
+
+        assert!(app.query_command_state("tool.cancel").enabled);
+        app.run_command("tool.cancel");
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(None, app.drawing_tool.anchor());
+        assert_eq!(0, app.history.entries().len());
     }
 
     #[test]
