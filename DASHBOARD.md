@@ -6,8 +6,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 | Status      |  Tasks |
 |-------------|-------:|
-| Todo        |     29 |
-| In progress |      6 |
+| Todo        |     28 |
+| In progress |      7 |
 | Done        |     18 |
 | **Total**   | **53** |
 
@@ -18,11 +18,12 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T09 — Implement desktop document service and safe storage**
 - **T16 — Implement reusable objects, placement and explode**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
+- **T22 — Port hole/cutout algorithms and robust replacement**
 - **T39 — Complete real-time lighting, shadows and view capture**
 
 ## Current Activity
 
-T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage. T20 is complete: selected faces extrude with signed snapped-point or numeric input, colored geometry preview, unit-aware distance/ΔX/ΔY/ΔZ feedback, correctly wound manifold output, active-definition insertion, selected generated results, cancellation and undo. C13/C19 coverage verifies multi-face color retention, holes, both extrusion signs, zero/invalid-input atomicity, manifold edge incidence and prism volume. The general feedback rule from [issue #1](https://github.com/alfu32/meshcraft/issues/1) is now in U05/C34. T51 is complete for [bug #2](https://github.com/alfu32/meshcraft/issues/2): every enabled geometry tool now has stage feedback and preview/commit coverage; Paint and parameterized Array previews are included, with selection the sole exception.
+T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage. T22 is now in progress: characterize CUT_HOLES, CUT_HOLES_2 and CUT_OUT_3, then implement atomic selected-geometry replacement. T20 is complete: selected faces extrude with signed snapped-point or numeric input, colored geometry preview, unit-aware distance/ΔX/ΔY/ΔZ feedback, correctly wound manifold output, active-definition insertion, selected generated results, cancellation and undo. C13/C19 coverage verifies multi-face color retention, holes, both extrusion signs, zero/invalid-input atomicity, manifold edge incidence and prism volume. The general feedback rule from [issue #1](https://github.com/alfu32/meshcraft/issues/1) is now in U05/C34. T51 is complete for [bug #2](https://github.com/alfu32/meshcraft/issues/2): every enabled geometry tool now has stage feedback and preview/commit coverage; Paint and parameterized Array previews are included, with selection the sole exception.
 
 T39 is in progress: the viewport distinguishes darker, slightly bluer back faces and uses a bounded CPU directional depth map for shadows on the ground and other entity faces, including transformed instances. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. T25 is complete: Sphere, Cylinder, Cone and Pill now have staged point picking, oriented closed mesh generation, shared previews, active-definition commits, selected results, undo and Escape cancellation. The legacy tools expose no separate numeric-entry stage; radius, height and orientation come from snapped picks, with `circle_segments` clamped to 3–256. T52 is complete for [bug #3](https://github.com/alfu32/meshcraft/issues/3): built-in tools now live under their source-backed toolbar groups, with common tools and Copy Selection directly available at the Tools menu root. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
 
@@ -54,7 +55,7 @@ Validation: `cargo test --workspace --quiet` passes (151 core, 167 desktop, 14 I
 | T19 | Implement paths, offsets, outlines and mesh creation                     | Done        |
 | T20 | Implement region push/pull                                               | Done        |
 | T21 | Port every copy and array state machine                                  | Todo        |
-| T22 | Port hole/cutout algorithms and robust replacement                       | Todo        |
+| T22 | Port hole/cutout algorithms and robust replacement                       | In progress |
 | T23 | Port planar/spatial sweeps, ribbon and revolve                           | Todo        |
 | T24 | Port plane section, plane cuts and mesh intersection                     | Todo        |
 | T25 | Implement primitive mesh generators                                      | Done        |
