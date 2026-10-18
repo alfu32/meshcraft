@@ -9,6 +9,7 @@ use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule as KernelOverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
 use i_triangle::float::triangulatable::Triangulatable;
+use std::collections::HashMap;
 
 const MAX_KERNEL_COORDINATE: f64 = f64::from_bits(0x5f30_0000_0000_0000); // 2^500
 
@@ -68,6 +69,8 @@ pub fn order_closed_loops(
     }
 
     let mut scale: f64 = 0.0;
+    let mut min = Vec2::new(f64::INFINITY, f64::INFINITY);
+    let mut max = Vec2::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
     let mut endpoints = Vec::with_capacity(segments.len() * 2);
     for (index, segment) in segments.iter().enumerate() {
         if !segment.start.is_finite() || !segment.end.is_finite() {
@@ -80,11 +83,22 @@ pub fn order_closed_loops(
                 )],
             };
         }
-        scale = scale
-            .max(segment.start.x.abs())
-            .max(segment.start.y.abs())
-            .max(segment.end.x.abs())
-            .max(segment.end.y.abs());
+        let length = segment.length();
+        if !length.is_finite() {
+            return LoopOrderResult {
+                loops: Vec::new(),
+                diagnostics: vec![diagnostic(
+                    GeometryDiagnosticKind::CoordinateOutOfRange,
+                    vec![index],
+                    "Segment length exceeds the supported finite f64 range.",
+                )],
+            };
+        }
+        scale = scale.max(length);
+        min.x = min.x.min(segment.start.x).min(segment.end.x);
+        min.y = min.y.min(segment.start.y).min(segment.end.y);
+        max.x = max.x.max(segment.start.x).max(segment.end.x);
+        max.y = max.y.max(segment.start.y).max(segment.end.y);
         endpoints.push(Endpoint {
             point: segment.start,
             segment: index,
@@ -117,38 +131,91 @@ pub fn order_closed_loops(
             .then_with(|| a.side.cmp(&b.side))
     });
 
+    let span = (max.x - min.x).max(max.y - min.y);
+    if !span.is_finite() {
+        return LoopOrderResult {
+            loops: Vec::new(),
+            diagnostics: vec![diagnostic(
+                GeometryDiagnosticKind::CoordinateOutOfRange,
+                Vec::new(),
+                "Endpoint coordinate span exceeds the supported finite f64 range.",
+            )],
+        };
+    }
+    // Rebase spatial bins to the bounds and cap their count so large translated
+    // models do not overflow integer cell coordinates. The exact distance test
+    // still applies the requested tolerance inside each neighboring cell.
+    let cell_size = epsilon.max(span / ((1_u64 << 50) as f64));
     let mut vertices: Vec<Vec2> = Vec::new();
     let mut endpoint_vertex = vec![usize::MAX; segments.len() * 2];
+    let mut bins = HashMap::<(i64, i64), Vec<usize>>::new();
+    let mut exact = HashMap::<(u64, u64), usize>::new();
     for endpoint in endpoints {
-        let mut match_vertex = None;
-        let mut ambiguous = false;
-        for (vertex_id, vertex) in vertices.iter().enumerate().rev() {
-            if endpoint.point.x - vertex.x > epsilon {
-                break;
-            }
-            if endpoint.point.distance(*vertex) <= epsilon {
-                if match_vertex.is_some() {
-                    ambiguous = true;
-                    break;
-                }
-                match_vertex = Some(vertex_id);
-            }
-        }
-        if ambiguous {
-            return LoopOrderResult {
-                loops: Vec::new(),
-                diagnostics: vec![diagnostic(
-                    GeometryDiagnosticKind::AmbiguousVertex,
-                    vec![endpoint.segment],
-                    "Endpoint falls within tolerance of multiple distinct vertices.",
-                )],
-            };
-        }
-        let vertex_id = match match_vertex {
-            Some(vertex_id) => vertex_id,
-            None => {
+        let vertex_id = if epsilon == 0.0 {
+            let key = (
+                if endpoint.point.x == 0.0 {
+                    0.0_f64.to_bits()
+                } else {
+                    endpoint.point.x.to_bits()
+                },
+                if endpoint.point.y == 0.0 {
+                    0.0_f64.to_bits()
+                } else {
+                    endpoint.point.y.to_bits()
+                },
+            );
+            *exact.entry(key).or_insert_with(|| {
                 vertices.push(endpoint.point);
                 vertices.len() - 1
+            })
+        } else {
+            let cell = (
+                ((endpoint.point.x - min.x) / cell_size).floor() as i64,
+                ((endpoint.point.y - min.y) / cell_size).floor() as i64,
+            );
+            let mut match_vertex = None;
+            let mut ambiguous = false;
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    let Some(neighbor) = cell.0.checked_add(x).zip(cell.1.checked_add(y)) else {
+                        continue;
+                    };
+                    if let Some(candidates) = bins.get(&neighbor) {
+                        for candidate in candidates {
+                            if endpoint.point.distance(vertices[*candidate]) <= epsilon {
+                                if match_vertex.is_some() {
+                                    ambiguous = true;
+                                    break;
+                                }
+                                match_vertex = Some(*candidate);
+                            }
+                        }
+                    }
+                    if ambiguous {
+                        break;
+                    }
+                }
+                if ambiguous {
+                    break;
+                }
+            }
+            if ambiguous {
+                return LoopOrderResult {
+                    loops: Vec::new(),
+                    diagnostics: vec![diagnostic(
+                        GeometryDiagnosticKind::AmbiguousVertex,
+                        vec![endpoint.segment],
+                        "Endpoint falls within tolerance of multiple distinct vertices.",
+                    )],
+                };
+            }
+            if let Some(vertex_id) = match_vertex {
+                vertex_id
+            } else {
+                vertices.push(endpoint.point);
+                let vertex_id = vertices.len() - 1;
+                bins.entry(cell).or_default().push(vertex_id);
+                vertex_id
             }
         };
         endpoint_vertex[2 * endpoint.segment + endpoint.side] = vertex_id;
@@ -538,6 +605,24 @@ mod tests {
 
         let open = order_closed_loops(&segments[..3], GeometryTolerance::default());
         assert_eq!(open.diagnostics[0].kind, GeometryDiagnosticKind::OpenLoop);
+
+        let origin = 1.0e9;
+        let side = 0.0005;
+        let offset_loop = [
+            Segment2::new(point(origin, origin), point(origin + side, origin)),
+            Segment2::new(
+                point(origin + side, origin),
+                point(origin + side, origin + side),
+            ),
+            Segment2::new(
+                point(origin + side, origin + side),
+                point(origin, origin + side),
+            ),
+            Segment2::new(point(origin, origin + side), point(origin, origin)),
+        ];
+        let ordered = order_closed_loops(&offset_loop, GeometryTolerance::default());
+        assert!(ordered.is_valid());
+        assert_eq!(ordered.loops[0].len(), 4);
     }
 
     #[test]

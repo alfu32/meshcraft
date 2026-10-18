@@ -978,6 +978,34 @@ mod tests {
     }
 
     #[test]
+    fn nested_nonuniform_frames_round_trip_at_large_world_offsets() {
+        let tolerance = GeometryTolerance::default();
+        let parent = Affine3::from_linear_translation(
+            [[0.0, -2.0, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 1.5]],
+            Vec3::new(1.0e9, -2.0e9, 3.0e9),
+        );
+        let child = Affine3::from_linear_translation(
+            [[1.25, 0.0, 0.0], [0.0, 0.0, -0.5], [0.0, 0.75, 0.0]],
+            Vec3::new(0.003, -0.002, 0.004),
+        );
+        let grandchild = Affine3::from_linear_translation(
+            [[0.0, 0.0, 0.4], [0.0, 0.75, 0.0], [-1.5, 0.0, 0.0]],
+            Vec3::new(-0.001, 0.002, 0.003),
+        );
+        let world = parent.compose(child).compose(grandchild);
+        let local = Vec3::new(0.001, -0.002, 0.003);
+        let world_point = world.transform_point(local);
+        let round_trip = world
+            .inverse(tolerance)
+            .unwrap()
+            .transform_point(world_point);
+
+        assert_vec_near(round_trip, local, 2.0e-6);
+        assert!(world_point.x > 1.0e8 && world_point.y < -1.0e8);
+        assert!(world_point.z > 1.0e8);
+    }
+
+    #[test]
     fn affine_inverse_rejects_singular_matrices() {
         let singular = Affine3::from_linear_translation(
             [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
