@@ -20,6 +20,9 @@ meshcraft-io = { path = "../../crates/meshcraft-io" }
 serde.workspace = true
 serde_json.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+
 [dev-dependencies]
 base64.workspace = true
 flate2.workspace = true

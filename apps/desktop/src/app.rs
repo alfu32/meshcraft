@@ -1,6 +1,8 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
+#[cfg(not(target_arch = "wasm32"))]
+use meshcraft_core::commands::HostEffect;
 use meshcraft_core::commands::{
     CommandCapability, CommandCompletion, CommandDescriptor, CommandDispatch, CommandKind,
     CommandParameter, CommandPayload, CommandPresentation, CommandRegistry, CommandResult,
@@ -12,14 +14,34 @@ use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarge
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use meshcraft_io::project::{DecodeProgress, read_project_with};
 use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
 use std::collections::BTreeSet;
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Read;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 const ARCHITECTURE_PANEL_IDS: &[&str] = &[
     "architecture_walls",
     "architecture_slabs",
@@ -310,6 +332,8 @@ enum ShellAction {
     Undo,
     Redo,
     NewDocument,
+    OpenProject,
+    CancelProjectLoad,
     SetProfile(UiProfile),
     FrameDocument,
     ResetCamera,
@@ -321,6 +345,22 @@ enum ShellAction {
     OpenPanelGroup(&'static [&'static str]),
     Unsupported,
     About,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+enum ProjectLoadEvent {
+    ReadProgress { read_bytes: usize, total_bytes: u64 },
+    Progress(DecodeProgress),
+    Finished(Box<Result<ImportedProject, String>>),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct PendingProjectLoad {
+    job_id: String,
+    path: PathBuf,
+    input_revision: u64,
+    cancellation: Arc<AtomicBool>,
+    receiver: Receiver<ProjectLoadEvent>,
 }
 
 fn shell_commands() -> &'static CommandRegistry<ShellAction> {
@@ -415,6 +455,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "clear reset",
                 None,
                 ShellAction::NewDocument,
+            ),
+            (
+                "file.open",
+                "File> Open Project…",
+                "File",
+                "load project octd legacy file",
+                None,
+                ShellAction::OpenProject,
+            ),
+            (
+                "file.cancel_open",
+                "File> Cancel Open",
+                "File",
+                "cancel stop loading project",
+                None,
+                ShellAction::CancelProjectLoad,
             ),
             (
                 "tool.line",
@@ -718,6 +774,9 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Undo
         | ShellAction::Redo
         | ShellAction::NewDocument => CommandKind::DocumentMutation,
+        ShellAction::OpenProject | ShellAction::CancelProjectLoad | ShellAction::Unsupported => {
+            CommandKind::HostRequest
+        }
         ShellAction::SetProfile(_)
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
@@ -728,7 +787,6 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
-        ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::About => CommandKind::ReadOnly,
     }
 }
@@ -776,6 +834,9 @@ fn register_shell_command(
     .expect("built-in command metadata is valid");
     descriptor.state_query = action_state_query(action);
     descriptor.parameters = command_parameters(id);
+    if id == "file.open" {
+        descriptor.shortcut = Some("Ctrl+O".to_owned());
+    }
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
@@ -789,6 +850,8 @@ fn register_shell_command(
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
         | ShellAction::TogglePanelSection(_)
+        | ShellAction::OpenProject
+        | ShellAction::CancelProjectLoad
         | ShellAction::About => CommandCapability::Desktop,
         ShellAction::Unsupported => CommandCapability::Deferred,
         _ => CommandCapability::Core,
@@ -840,6 +903,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("toolbar_flow_top_down", CommandValueType::Boolean),
             ("toolbars_visible", CommandValueType::Boolean),
         ],
+        "file.open" => &[("path", CommandValueType::String)],
         _ => &[],
     };
     parameters
@@ -906,6 +970,13 @@ pub struct MeshcraftApp {
     history: TransactionHistory<SystemHistoryClock>,
     legacy_history: Option<OpaqueLegacyHistory>,
     legacy_active_index: Option<usize>,
+    #[cfg(not(target_arch = "wasm32"))]
+    current_project_path: Option<PathBuf>,
+    #[cfg(not(target_arch = "wasm32"))]
+    next_job_id: u64,
+    job_results: BTreeMap<String, CommandResult>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_project_load: Option<PendingProjectLoad>,
     selection: SelectionSession,
     object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
@@ -923,6 +994,23 @@ impl MeshcraftApp {
             .entries()
             .map(|command| command.descriptor.clone())
             .collect()
+    }
+
+    pub fn command_job_result(&self, job_id: &str) -> Option<&CommandResult> {
+        self.job_results.get(job_id)
+    }
+
+    pub fn current_project_path(&self) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.current_project_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            None
+        }
     }
 
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
@@ -995,6 +1083,13 @@ impl MeshcraftApp {
             history: TransactionHistory::default(),
             legacy_history,
             legacy_active_index,
+            #[cfg(not(target_arch = "wasm32"))]
+            current_project_path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            next_job_id: 1,
+            job_results: BTreeMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_project_load: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: {
@@ -1301,6 +1396,309 @@ impl MeshcraftApp {
         outcome
     }
 
+    fn open_project(&mut self, payload: &CommandPayload) -> CommandResult {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = payload;
+            CommandResult::failed("Opening project files is available in the desktop app.")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.open_project_native(payload)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_project_native(&mut self, payload: &CommandPayload) -> CommandResult {
+        if self.pending_project_load.is_some() {
+            return CommandResult::failed("A project is already being opened.");
+        }
+        if self.history.cursor() > 0 {
+            return CommandResult::failed(
+                "Save support is not available yet; the edited document was kept open.",
+            );
+        }
+
+        let path = match payload.values.get("path") {
+            Some(value) => {
+                let Some(path) = value.as_str().filter(|path| !path.trim().is_empty()) else {
+                    return CommandResult::failed("path must be a non-empty string");
+                };
+                PathBuf::from(path)
+            }
+            None => {
+                let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Octodraw projects", &["octd", "k3d"])
+                    .pick_file()
+                else {
+                    self.status = "Open cancelled.".to_owned();
+                    let mut result = CommandResult::completed();
+                    result.outputs.insert("cancelled".to_owned(), true.into());
+                    return result;
+                };
+                path
+            }
+        };
+
+        let metadata = match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => return CommandResult::failed("the selected path is not a file"),
+            Err(error) => {
+                return CommandResult::failed(format!(
+                    "could not inspect {}: {error}",
+                    path.display()
+                ));
+            }
+        };
+        if metadata.len() > MAX_PROJECT_BYTES {
+            return CommandResult::failed(format!(
+                "project file exceeds the {} MiB limit",
+                MAX_PROJECT_BYTES / (1024 * 1024)
+            ));
+        }
+
+        let job_id = format!("document-load-{}", self.next_job_id);
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        let input_revision = self.document.revision();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let worker_cancellation = Arc::clone(&cancellation);
+        let worker_path = path.clone();
+        let (sender, receiver) = mpsc::channel();
+        let worker_sender = sender;
+        let total_bytes = metadata.len();
+        let spawn_result = thread::Builder::new().name(job_id.clone()).spawn(move || {
+            let loaded = (|| {
+                if worker_cancellation.load(Ordering::Acquire) {
+                    return Err("project opening was cancelled".to_owned());
+                }
+                let mut file = fs::File::open(&worker_path).map_err(|error| {
+                    format!("could not read {}: {error}", worker_path.display())
+                })?;
+                let mut bytes = Vec::with_capacity(total_bytes.min(16 * 1024 * 1024) as usize);
+                let mut buffer = [0; 64 * 1024];
+                loop {
+                    if worker_cancellation.load(Ordering::Acquire) {
+                        return Err("project opening was cancelled".to_owned());
+                    }
+                    let read = file.read(&mut buffer).map_err(|error| {
+                        format!("could not read {}: {error}", worker_path.display())
+                    })?;
+                    if read == 0 {
+                        break;
+                    }
+                    if bytes.len().saturating_add(read) > MAX_PROJECT_BYTES as usize {
+                        return Err(format!(
+                            "project file exceeds the {} MiB limit",
+                            MAX_PROJECT_BYTES / (1024 * 1024)
+                        ));
+                    }
+                    bytes.extend_from_slice(&buffer[..read]);
+                    let _ = worker_sender.send(ProjectLoadEvent::ReadProgress {
+                        read_bytes: bytes.len(),
+                        total_bytes,
+                    });
+                }
+                let project = read_project_with(
+                    &bytes,
+                    MAX_PROJECT_BYTES as usize,
+                    |progress| {
+                        let _ = worker_sender.send(ProjectLoadEvent::Progress(progress));
+                    },
+                    || worker_cancellation.load(Ordering::Acquire),
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(project)
+            })();
+            let _ = worker_sender.send(ProjectLoadEvent::Finished(Box::new(loaded)));
+        });
+        if let Err(error) = spawn_result {
+            return CommandResult::failed(format!("could not start project loader: {error}"));
+        }
+
+        let path_label = path.display().to_string();
+        self.status = format!("Opening {path_label}…");
+        self.pending_project_load = Some(PendingProjectLoad {
+            job_id: job_id.clone(),
+            path,
+            input_revision,
+            cancellation,
+            receiver,
+        });
+        let result = CommandResult::pending(
+            job_id.clone(),
+            HostEffect::StartJob {
+                job_id: job_id.clone(),
+                kind: "document.load".to_owned(),
+                input_revision: Some(input_revision),
+            },
+        );
+        self.job_results.insert(job_id, result.clone());
+        result
+    }
+
+    fn cancel_project_load(&mut self) -> CommandResult {
+        #[cfg(target_arch = "wasm32")]
+        {
+            CommandResult::failed("Project loading is available in the desktop app.")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.cancel_project_load_native()
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn cancel_project_load_native(&mut self) -> CommandResult {
+        let Some(pending) = &self.pending_project_load else {
+            return CommandResult::failed("no project is currently being opened");
+        };
+        pending.cancellation.store(true, Ordering::Release);
+        self.status = format!("Cancelling {}…", pending.path.display());
+        let mut result = CommandResult::completed();
+        result.host_effects.push(HostEffect::CancelJob {
+            job_id: pending.job_id.clone(),
+        });
+        result
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_project_load(&mut self) {
+        let Some(pending) = self.pending_project_load.take() else {
+            return;
+        };
+        let mut latest_progress = None;
+        let mut finished = None;
+        let mut disconnected = false;
+        loop {
+            match pending.receiver.try_recv() {
+                Ok(ProjectLoadEvent::ReadProgress {
+                    read_bytes,
+                    total_bytes,
+                }) => {
+                    self.status = format!(
+                        "Reading {} · {read_bytes} of {total_bytes} bytes",
+                        pending.path.display()
+                    );
+                }
+                Ok(ProjectLoadEvent::Progress(progress)) => latest_progress = Some(progress),
+                Ok(ProjectLoadEvent::Finished(result)) => {
+                    finished = Some(result);
+                    break;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+
+        if let Some(result) = finished {
+            let final_result = if pending.cancellation.load(Ordering::Acquire) {
+                self.status =
+                    "Project opening cancelled; the current document was kept.".to_owned();
+                CommandResult::failed("project opening was cancelled")
+            } else if self.document.revision() != pending.input_revision {
+                self.status =
+                    "Project was not opened because the document changed while it loaded."
+                        .to_owned();
+                CommandResult::failed(
+                    "document revision changed during load; the candidate was not installed",
+                )
+            } else {
+                match *result {
+                    Ok(project) => self.install_loaded_project(&pending.path, project),
+                    Err(error) => {
+                        self.status = format!("Could not open {}: {error}", pending.path.display());
+                        CommandResult::failed(error)
+                    }
+                }
+            };
+            self.job_results.insert(pending.job_id, final_result);
+            return;
+        }
+
+        if disconnected {
+            self.status = format!(
+                "Project loader stopped while opening {}.",
+                pending.path.display()
+            );
+            self.job_results.insert(
+                pending.job_id,
+                CommandResult::failed("project loader stopped before returning a result"),
+            );
+            return;
+        }
+
+        if let Some(progress) = latest_progress {
+            let compression = if progress.compressed { " (gzip)" } else { "" };
+            self.status = format!(
+                "Opening {} · decoded {} of {} bytes{compression}",
+                pending.path.display(),
+                progress.decoded_bytes,
+                progress.encoded_bytes,
+            );
+        }
+        self.pending_project_load = Some(pending);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn install_loaded_project(
+        &mut self,
+        path: &std::path::Path,
+        project: ImportedProject,
+    ) -> CommandResult {
+        self.document = project.document;
+        self.history.clear();
+        self.legacy_active_index = project
+            .history
+            .as_ref()
+            .and_then(OpaqueLegacyHistory::active_entry_index);
+        let history_entries = project
+            .history
+            .as_ref()
+            .map_or(0, |history| history.entries.len());
+        self.legacy_history = project.history;
+        self.current_project_path = Some(path.to_path_buf());
+        self.selection.clear();
+        self.object_name_edit = None;
+        self.active_tool = "Select".to_owned();
+        self.cuboid_first = None;
+        self.cuboid_base = None;
+        self.line_first = None;
+        self.rectangle_first = None;
+        self.viewport.reset_camera();
+        self.viewport.request_frame();
+
+        self.status = format!("Opened {}.", path.display());
+        if history_entries > 0 {
+            self.status.push_str(&format!(
+                " {history_entries} legacy history entries retained."
+            ));
+        }
+        if !project.warnings.is_empty() {
+            self.status.push_str(&format!(
+                " Import repairs: {}.",
+                project.warnings.join("; ")
+            ));
+        }
+
+        let mut result = CommandResult::completed();
+        result.document_revision = Some(self.document.revision());
+        result
+            .outputs
+            .insert("path".to_owned(), path.display().to_string().into());
+        result.outputs.insert(
+            "source_schema_version".to_owned(),
+            project.source_schema_version.into(),
+        );
+        result.outputs.insert(
+            "warnings".to_owned(),
+            serde_json::to_value(&project.warnings).unwrap_or_default(),
+        );
+        result
+    }
+
     fn run_command(&mut self, id: &str) {
         self.dispatch_command(id, &CommandPayload::default());
     }
@@ -1443,6 +1841,8 @@ impl MeshcraftApp {
                     Err(error) => return CommandResult::failed(error),
                 }
             }
+            ShellAction::OpenProject => return self.open_project(payload),
+            ShellAction::CancelProjectLoad => return self.cancel_project_load(),
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
                 self.status = format!("{} workspace profile selected.", profile.label());
@@ -1607,6 +2007,29 @@ impl MeshcraftApp {
                 "{} is not implemented in this build",
                 command.descriptor.label
             ));
+        }
+        if id == "file.open" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Open Project is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if self.pending_project_load.is_some() {
+                    return CommandState::disabled("another project is still loading");
+                }
+                if self.history.cursor() > 0 {
+                    return CommandState::disabled(
+                        "save support is not available for edited documents yet",
+                    );
+                }
+            }
+        }
+        if id == "file.cancel_open" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Project loading is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_project_load.is_none() {
+                return CommandState::disabled("no project is currently being opened");
+            }
         }
         match &command.descriptor.state_query {
             CommandStateQuery::Always => CommandState::default(),
@@ -2116,7 +2539,8 @@ impl MeshcraftApp {
             let file_menu = ui.menu_button("File", |ui| {
                 self.show_command_menu_item(ui, "file.new");
                 ui.separator();
-                ui.add_enabled(false, egui::Button::new("Open…"));
+                self.show_command_menu_item(ui, "file.open");
+                self.show_command_menu_item(ui, "file.cancel_open");
                 ui.add_enabled(false, egui::Button::new("Save"));
                 ui.add_enabled(false, egui::Button::new("Save As…"));
                 ui.separator();
@@ -2735,8 +3159,21 @@ impl MeshcraftApp {
     }
 
     fn show_workspace(&mut self, ui: &mut egui::Ui) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.poll_project_load();
+            if self.pending_project_load.is_some() {
+                ui.ctx().request_repaint_after(Duration::from_millis(100));
+            }
+        }
         ui.ctx()
             .set_zoom_factor(self.preferences.ui_text_scale.clamp(0.5, 2.0));
+        let open_project_shortcut = !self.command_palette_open
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
+        if open_project_shortcut {
+            self.run_command("file.open");
+        }
         let toggle_command_palette = ui.input(|input| {
             input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
         });
@@ -2963,6 +3400,15 @@ impl eframe::App for MeshcraftApp {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for MeshcraftApp {
+    fn drop(&mut self) {
+        if let Some(pending) = &self.pending_project_load {
+            pending.cancellation.store(true, Ordering::Release);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2974,12 +3420,21 @@ mod tests {
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use meshcraft_core::commands::{
+        CommandCapability, CommandCompletion, CommandKind, CommandValueType,
+    };
     use meshcraft_core::document::Document;
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
     use serde_json::{Value, json};
     use std::collections::BTreeMap;
     use std::io::Write;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::path::{Path, PathBuf};
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::thread;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::Duration;
 
     const LEGACY_MODEL: &str =
         include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
@@ -2990,6 +3445,44 @@ mod tests {
             value["rootInstance"]["children"] = json!([]);
         }
         value.to_string()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn project_fixture_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/legacy/samples/examples/arch_frame.octd")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_project_load(app: &mut MeshcraftApp, path: &Path) -> String {
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("path".to_owned(), path.display().to_string().into());
+        let dispatch = app.dispatch_command("file.open", &payload);
+        assert!(dispatch.accepted);
+        let CommandCompletion::Pending { job_id } = dispatch.result.completion else {
+            panic!(
+                "Open Project did not start a load job: {:?}",
+                dispatch.result
+            );
+        };
+        job_id
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_for_project_load(app: &mut MeshcraftApp, job_id: &str) {
+        for _ in 0..2500 {
+            app.poll_project_load();
+            let finished = app.command_job_result(job_id).is_some_and(|result| {
+                !matches!(result.completion, CommandCompletion::Pending { .. })
+            });
+            if finished {
+                return;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        panic!("project loading did not finish");
     }
 
     fn encode_history_snapshot(root_only: bool) -> String {
@@ -3056,6 +3549,12 @@ mod tests {
             history: TransactionHistory::default(),
             legacy_history: None,
             legacy_active_index: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            current_project_path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            next_job_id: 1,
+            job_results: BTreeMap::new(),
+            pending_project_load: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: Default::default(),
@@ -3116,7 +3615,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(177, entries.len());
+        assert_eq!(179, entries.len());
         assert_eq!(
             74,
             entries
@@ -3713,5 +4212,131 @@ mod tests {
             vec![Event::Ime(ImeEvent::Commit("かな".to_owned()))],
         );
         assert_eq!(app.command_search, "かな");
+    }
+
+    #[test]
+    fn open_project_is_a_desktop_host_command_with_an_optional_path() {
+        let command = MeshcraftApp::command_catalog()
+            .into_iter()
+            .find(|command| command.id.as_str() == "file.open")
+            .unwrap();
+
+        assert_eq!(CommandKind::HostRequest, command.kind);
+        assert_eq!(CommandCapability::Desktop, command.capability);
+        assert_eq!(Some("Ctrl+O"), command.shortcut.as_deref());
+        assert_eq!(1, command.parameters.len());
+        assert_eq!("path", command.parameters[0].name);
+        assert_eq!(CommandValueType::String, command.parameters[0].value_type);
+        assert!(!command.parameters[0].required);
+        assert!(command_matches(&command, "open project"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn open_project_is_disabled_when_changes_cannot_be_saved_yet() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let before = app.document.clone();
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "path".to_owned(),
+            project_fixture_path().display().to_string().into(),
+        );
+
+        assert!(!app.query_command_state("file.open").enabled);
+        let result = app.dispatch_command("file.open", &payload);
+
+        assert!(!result.accepted);
+        assert_eq!(before, app.document);
+        assert!(result.result.diagnostics[0].contains("save support"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn open_project_loads_a_valid_legacy_candidate() {
+        let mut app = test_app();
+        let job_id = start_project_load(&mut app, &project_fixture_path());
+        assert!(matches!(
+            app.command_job_result(&job_id).unwrap().completion,
+            CommandCompletion::Pending { .. }
+        ));
+
+        wait_for_project_load(&mut app, &job_id);
+
+        let result = app.command_job_result(&job_id).unwrap();
+        assert_eq!(CommandCompletion::Completed, result.completion);
+        assert_eq!(Some(app.document.revision()), result.document_revision);
+        assert!(result.outputs["source_schema_version"].is_number());
+        assert_eq!(
+            Some(project_fixture_path().display().to_string()),
+            app.current_project_path()
+        );
+        assert!(!app.document.occurrence_refs().unwrap().is_empty());
+        assert_eq!("Select", app.active_tool);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn failed_project_decode_keeps_the_active_document_unchanged() {
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-invalid-project-{}.octd",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"{").unwrap();
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        app.history.clear();
+        let before = app.document.clone();
+
+        let job_id = start_project_load(&mut app, &path);
+        wait_for_project_load(&mut app, &job_id);
+
+        let result = app.command_job_result(&job_id).unwrap();
+        assert_eq!(CommandCompletion::Failed, result.completion);
+        assert_eq!(before, app.document);
+        assert_eq!(None, app.current_project_path());
+        assert!(app.status.contains("Could not open"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn load_candidate_is_not_published_after_a_newer_document_edit() {
+        let mut app = test_app();
+        let job_id = start_project_load(&mut app, &project_fixture_path());
+        app.run_command("geometry.add_cuboid");
+        let edited_document = app.document.clone();
+
+        wait_for_project_load(&mut app, &job_id);
+
+        let result = app.command_job_result(&job_id).unwrap();
+        assert_eq!(CommandCompletion::Failed, result.completion);
+        assert!(result.diagnostics[0].contains("revision changed"));
+        assert_eq!(edited_document, app.document);
+        assert_eq!(None, app.current_project_path());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn cancelling_project_load_keeps_the_active_document_unchanged() {
+        let mut app = test_app();
+        let job_id = start_project_load(&mut app, &project_fixture_path());
+        let cancellation = app.dispatch_command("file.cancel_open", &CommandPayload::default());
+        assert!(cancellation.accepted);
+        assert!(matches!(
+            cancellation.result.host_effects.as_slice(),
+            [meshcraft_core::commands::HostEffect::CancelJob { job_id: cancelled }]
+                if cancelled == &job_id
+        ));
+
+        wait_for_project_load(&mut app, &job_id);
+
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+        assert_eq!(None, app.current_project_path());
+        assert!(app.status.contains("cancelled"));
     }
 }
