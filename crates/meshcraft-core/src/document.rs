@@ -2883,11 +2883,22 @@ mod tests {
         let instance = document
             .add_cuboid("editable", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
             .unwrap();
+        let unrelated = document
+            .add_cuboid(
+                "unrelated",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
         let definition = document
             .resolve_occurrence(&instance)
             .unwrap()
             .definition
             .id;
+        let unrelated_counts = {
+            let geometry = document.effective_geometry(&unrelated).unwrap();
+            (geometry.segments.len(), geometry.triangles.len())
+        };
         let root_count = document.occurrence_refs().unwrap().len();
         let initial_revision = document.revision();
 
@@ -2920,6 +2931,9 @@ mod tests {
         );
         assert_eq!(17, geometry.segments.len());
         assert_eq!(14, geometry.triangles.len());
+        let unrelated_geometry = document.effective_geometry(&unrelated).unwrap();
+        assert_eq!(unrelated_counts.0, unrelated_geometry.segments.len());
+        assert_eq!(unrelated_counts.1, unrelated_geometry.triangles.len());
         assert_eq!(root_count, document.occurrence_refs().unwrap().len());
         assert_eq!(initial_revision + 2, document.revision());
         assert!(document.validate().is_ok());
@@ -2996,6 +3010,24 @@ mod tests {
         );
         assert_eq!(1, tee.affected_segments.len());
         assert!(document.validate().is_ok());
+
+        let mut touching = Document::new();
+        touching
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X)
+            .unwrap();
+        touching
+            .append_line_segment_to_scene_root(Vec3::X, Vec3::X * 2.0)
+            .unwrap();
+        let geometry = touching
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(1, geometry.segments.len());
+        let segment = geometry.segments.values().next().unwrap();
+        let points = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference).unwrap());
+        assert!(points.contains(&Vec3::ZERO));
+        assert!(points.contains(&(Vec3::X * 2.0)));
     }
 
     #[test]

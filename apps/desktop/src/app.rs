@@ -7141,6 +7141,53 @@ mod tests {
     }
 
     #[test]
+    fn undo_removes_chained_line_segments_one_commit_at_a_time() {
+        let mut app = test_app();
+        app.run_command("tool.line");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let pick = |app: &mut MeshcraftApp, point: Vec3| {
+            let position = app.viewport.world_to_screen(rect, point);
+            app.handle_viewport_click_at_point(rect, position, None, Some(point));
+        };
+
+        pick(&mut app, Vec3::ZERO);
+        pick(&mut app, Vec3::X * 2.0);
+        pick(&mut app, Vec3::new(2.0, 0.0, 2.0));
+
+        assert_eq!(2, app.history.entries().len());
+        assert_eq!(
+            2,
+            app.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .segments
+                .len()
+        );
+
+        app.run_command("edit.undo");
+        assert_eq!(1, app.history.cursor());
+        assert_eq!(
+            1,
+            app.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .segments
+                .len()
+        );
+
+        app.run_command("edit.undo");
+        assert_eq!(0, app.history.cursor());
+        assert!(
+            app.document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap()
+                .segments
+                .is_empty()
+        );
+        assert_eq!("Line", app.active_tool);
+    }
+
+    #[test]
     fn construction_line_commits_discrete_pairs_to_scene_root() {
         let mut app = test_app();
         app.run_command("tool.builtin.construction_line");
