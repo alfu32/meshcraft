@@ -2,9 +2,14 @@
 
 use serde_json::{Map, Value, json};
 
+pub(crate) struct NormalizedScene {
+    pub snapshot: Value,
+    pub warnings: Vec<String>,
+}
+
 /// Converts the supported schema-17 scene shapes into the current prototype/instance envelope.
 /// Unknown root and definition fields are left in the JSON tree for the core importer to retain.
-pub(crate) fn normalize_scene_shape(snapshot: &Value) -> Result<Value, String> {
+pub(crate) fn normalize_scene_shape(snapshot: &Value) -> Result<NormalizedScene, String> {
     let root = snapshot
         .as_object()
         .ok_or_else(|| "Octodraw snapshot root must be a JSON object".to_owned())?;
@@ -17,18 +22,202 @@ pub(crate) fn normalize_scene_shape(snapshot: &Value) -> Result<Value, String> {
         .get("rootInstance")
         .is_some_and(|value| !value.is_null());
 
-    if has_instances && prototypes.is_some_and(|items| !items.is_empty()) {
+    let mut normalized = if has_instances && prototypes.is_some_and(|items| !items.is_empty()) {
         let mut current = root.clone();
         current.remove("rootGroup");
-        return Ok(Value::Object(current));
+        Value::Object(current)
+    } else if let Some(prototypes) = prototypes.filter(|items| !items.is_empty()) {
+        normalize_prototype_only(root, prototypes)?
+    } else if let Some(root_group) = root.get("rootGroup").filter(|value| !value.is_null()) {
+        normalize_root_group(root, root_group)?
+    } else {
+        normalize_flat_geometry(root)?
+    };
+
+    let mut warnings = Vec::new();
+    if repair_empty_root_basis(&mut normalized) {
+        warnings.push(
+            "The empty root instance had a zero basis; it was repaired to identity. Original axes were retained in project metadata.".to_owned(),
+        );
     }
-    if let Some(prototypes) = prototypes.filter(|items| !items.is_empty()) {
-        return normalize_prototype_only(root, prototypes);
+    Ok(NormalizedScene {
+        snapshot: normalized,
+        warnings,
+    })
+}
+
+fn repair_empty_root_basis(snapshot: &mut Value) -> bool {
+    let Some(root) = snapshot.as_object_mut() else {
+        return false;
+    };
+    if root.contains_key("__meshcraft_migration_repair")
+        || !empty_collections(root, &["segments", "faces"])
+    {
+        return false;
     }
-    if let Some(root_group) = root.get("rootGroup").filter(|value| !value.is_null()) {
-        return normalize_root_group(root, root_group);
+    let Some(instance_value) = root.get("rootInstance") else {
+        return false;
+    };
+    let Some(instance) = instance_value.as_object() else {
+        return false;
+    };
+    let Some(prototype_id) = instance.get("prototypeId").and_then(Value::as_str) else {
+        return false;
+    };
+    if !known_fields_only(
+        instance,
+        &[
+            "id",
+            "prototypeId",
+            "instanceOrigin",
+            "instanceAxisU",
+            "instanceAxisV",
+            "instanceAxisW",
+            "children",
+            "hotspotPositions",
+            "hotspotSegmentAttachments",
+            "hotspotTriangleAttachments",
+            "overrideSegments",
+            "overrideFaces",
+            "overrideDimensions",
+            "overrideTexts",
+        ],
+    ) || !empty_collections(
+        instance,
+        &[
+            "children",
+            "hotspotPositions",
+            "hotspotSegmentAttachments",
+            "hotspotTriangleAttachments",
+            "overrideSegments",
+            "overrideFaces",
+            "overrideDimensions",
+            "overrideTexts",
+        ],
+    ) || !["instanceAxisU", "instanceAxisV", "instanceAxisW"]
+        .iter()
+        .all(|key| zero_vector(instance.get(*key)))
+    {
+        return false;
     }
-    normalize_flat_geometry(root)
+    let Some(prototype) = root
+        .get("prototypes")
+        .and_then(Value::as_array)
+        .and_then(|prototypes| {
+            prototypes.iter().find(|prototype| {
+                prototype
+                    .as_object()
+                    .and_then(|object| object.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(prototype_id)
+            })
+        })
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    if !known_fields_only(
+        prototype,
+        &[
+            "id",
+            "name",
+            "definitionOrigin",
+            "definitionAxisU",
+            "definitionAxisV",
+            "definitionAxisW",
+            "gluedToSurface",
+            "kind",
+            "externalReferenceEnabled",
+            "externalReferencePath",
+            "voxelColor",
+            "voxels",
+            "architectureWalls",
+            "architectureSlabs",
+            "architectureStairs",
+            "architectureFrames",
+            "hvacPlumbingRuns",
+            "hvacVentilationDucts",
+            "hotspots",
+            "prototypeVertices",
+            "segments",
+            "faces",
+            "dimensions",
+            "texts",
+        ],
+    ) || !empty_collections(
+        prototype,
+        &[
+            "segments",
+            "faces",
+            "voxels",
+            "architectureWalls",
+            "architectureSlabs",
+            "architectureStairs",
+            "architectureFrames",
+            "hvacPlumbingRuns",
+            "hvacVentilationDucts",
+            "hotspots",
+            "prototypeVertices",
+            "dimensions",
+            "texts",
+        ],
+    ) || !is_disabled(prototype.get("externalReferenceEnabled"))
+    {
+        return false;
+    }
+
+    let instance = root
+        .get_mut("rootInstance")
+        .and_then(Value::as_object_mut)
+        .expect("root instance was checked above");
+    let original_axes = ["instanceAxisU", "instanceAxisV", "instanceAxisW"]
+        .into_iter()
+        .map(|key| {
+            (
+                key.to_owned(),
+                instance.get(key).cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect::<Map<_, _>>();
+    instance.insert("instanceAxisU".to_owned(), identity_u());
+    instance.insert("instanceAxisV".to_owned(), identity_v());
+    instance.insert("instanceAxisW".to_owned(), identity_w());
+    root.insert(
+        "__meshcraft_migration_repair".to_owned(),
+        json!({
+            "kind": "empty-root-zero-basis-to-identity",
+            "originalInstanceAxes": original_axes
+        }),
+    );
+    true
+}
+
+fn empty_collections(object: &Map<String, Value>, keys: &[&str]) -> bool {
+    keys.iter().all(|key| match object.get(*key) {
+        None => true,
+        Some(Value::Array(values)) => values.is_empty(),
+        _ => false,
+    })
+}
+
+fn known_fields_only(object: &Map<String, Value>, keys: &[&str]) -> bool {
+    object.keys().all(|key| keys.contains(&key.as_str()))
+}
+
+fn zero_vector(value: Option<&Value>) -> bool {
+    match value {
+        None => true,
+        Some(Value::Object(vector)) => ["x", "y", "z"].iter().all(|axis| match vector.get(*axis) {
+            None => true,
+            Some(Value::Number(number)) => number.as_f64() == Some(0.0),
+            _ => false,
+        }),
+        _ => false,
+    }
+}
+
+fn is_disabled(value: Option<&Value>) -> bool {
+    matches!(value, None | Some(Value::Bool(false)))
 }
 
 fn normalize_prototype_only(

@@ -24,7 +24,7 @@ Examples of necessary interpretations:
 | missing `circleSegments` | Loader supplies 24 |
 | omitted `modelUnit.size` / `name` | 1 / `unit` |
 
-Missing basis axes at a DTO level can mean zero vectors, not identity. Current web docs warn that version-only seeds can create a singular root. For new empty documents Rust constructs a valid identity basis. For imported malformed files it diagnoses and offers a defined repair/default policy; it must not silently reinterpret a nonempty invalid transform as a different valid model.
+Missing basis axes at a DTO level can mean zero vectors, not identity. Current web docs warn that version-only seeds can create a singular root. For new empty documents Rust constructs a valid identity basis. For imports, only an effective empty root (no root geometry/domain data, child placements, instance overrides or enabled external reference) with all-zero instance axes may be repaired to identity. Report that repair and retain the original axes in migration metadata. Any nonempty or otherwise singular transform remains an error; do not silently reinterpret it.
 
 Maintain separate types for raw decoded DTO, validated canonical document, runtime cache and selection/session state. Retain unknown keys at their owning DTO object path so future/deferred content can round-trip. Do not drop nested unknown keys when a recognized field is edited. Warnings identify lost/unsupported behavior, not just whether JSON parsed.
 

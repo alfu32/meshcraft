@@ -69,10 +69,15 @@ fn load_startup_document() -> Result<Option<(ImportedProject, String)>, String> 
                 history.entries.len()
             )
         });
+    let repair_status = if imported.warnings.is_empty() {
+        String::new()
+    } else {
+        format!(" · Import repair: {}", imported.warnings.join("; "))
+    };
     Ok(Some((
         imported,
         format!(
-            "Opened {} · {top_level_count} top-level objects imported read-only{history_status}.",
+            "Opened {} · {top_level_count} top-level objects imported read-only{history_status}{repair_status}.",
             path.display(),
         ),
     )))

@@ -76,11 +76,12 @@ impl std::error::Error for ProjectError {}
 pub struct ImportedProject {
     pub document: Document,
     pub history: Option<OpaqueLegacyHistory>,
+    pub warnings: Vec<String>,
     pub source_schema_version: u32,
     pub source_schema_version_present: bool,
 }
 
-/// Decodes JSON or gzip by magic bytes, then validates a current prototype/instance model.
+/// Decodes JSON or gzip by magic bytes, normalizes supported legacy shapes, then validates the model.
 pub fn read_project(bytes: &[u8]) -> Result<ImportedProject, ProjectError> {
     read_project_with(bytes, DEFAULT_MAX_DECODED_BYTES, |_| {}, || false)
 }
@@ -124,11 +125,13 @@ pub fn read_project_with(
     };
     let normalized =
         crate::legacy::normalize_scene_shape(&root).map_err(ProjectError::InvalidModel)?;
-    let document = import_current_value(&normalized).map_err(ProjectError::InvalidModel)?;
+    let document =
+        import_current_value(&normalized.snapshot).map_err(ProjectError::InvalidModel)?;
     document.validate().map_err(ProjectError::InvalidModel)?;
     Ok(ImportedProject {
         document,
         history,
+        warnings: normalized.warnings,
         source_schema_version,
         source_schema_version_present,
     })
@@ -502,6 +505,57 @@ mod tests {
         assert!(
             matches!(error, ProjectError::InvalidModel(message) if message.contains("/prototypes must be an array"))
         );
+    }
+
+    #[test]
+    fn repairs_only_an_empty_zero_basis_root_and_reports_the_original_axes() {
+        let empty = json!({
+            "prototypes": [{
+                "id": "root", "name": "Root",
+                "definitionAxisU": {"x": 1},
+                "definitionAxisV": {"y": 1},
+                "definitionAxisW": {"z": 1}
+            }],
+            "rootInstance": {
+                "id": "root", "prototypeId": "root",
+                "instanceOrigin": {},
+                "instanceAxisU": {}, "instanceAxisV": {}, "instanceAxisW": {}
+            }
+        });
+        let repaired = read_project(empty.to_string().as_bytes()).unwrap();
+        assert_eq!(1, repaired.warnings.len());
+        let occurrence = repaired.document.occurrence_refs().unwrap().remove(0);
+        let resolved = repaired.document.resolve_occurrence(&occurrence).unwrap();
+        assert_eq!(Vec3::X, resolved.world_transform.transform_point(Vec3::X));
+        let serialized = serde_json::to_value(&repaired.document).unwrap();
+        assert_eq!(
+            json!({
+                "kind": "empty-root-zero-basis-to-identity",
+                "originalInstanceAxes": {
+                    "instanceAxisU": {}, "instanceAxisV": {}, "instanceAxisW": {}
+                }
+            }),
+            serialized["extensions"]["k3d.__meshcraft_migration_repair"]
+        );
+
+        let nonempty = json!({
+            "prototypes": [{
+                "id": "root", "name": "Root",
+                "definitionAxisU": {"x": 1},
+                "definitionAxisV": {"y": 1},
+                "definitionAxisW": {"z": 1},
+                "segments": [{"start": {}, "end": {"x": 1}}]
+            }],
+            "rootInstance": {
+                "id": "root", "prototypeId": "root",
+                "instanceOrigin": {},
+                "instanceAxisU": {}, "instanceAxisV": {}, "instanceAxisW": {}
+            }
+        });
+        assert!(matches!(
+            read_project(nonempty.to_string().as_bytes()),
+            Err(ProjectError::InvalidModel(message)) if message.contains("singular")
+        ));
     }
 
     #[test]
