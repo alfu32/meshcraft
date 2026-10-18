@@ -6,7 +6,7 @@ use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use meshcraft_core::document::Document;
-use meshcraft_core::legacy::import_current_value;
+use meshcraft_core::legacy::{export_current_value, import_current_value};
 use meshcraft_core::transactions::{
     LegacyHistoryDecoder, OpaqueLegacyHistory, OpaqueLegacyUndoEntry,
 };
@@ -102,6 +102,7 @@ pub fn read_project_with(
         .map_err(|error| ProjectError::InvalidUtf8(error.to_string()))?;
     let root: Value =
         serde_json::from_str(text).map_err(|error| ProjectError::InvalidJson(error.to_string()))?;
+    drop(payload);
     let root_object = root
         .as_object()
         .ok_or_else(|| ProjectError::InvalidJson("snapshot root must be an object".to_owned()))?;
@@ -123,15 +124,20 @@ pub fn read_project_with(
             ));
         }
     };
-    let normalized =
-        crate::legacy::normalize_scene_shape(&root).map_err(ProjectError::InvalidModel)?;
+    let mut normalized =
+        crate::legacy::normalize_scene_shape(root).map_err(ProjectError::InvalidModel)?;
+    if let Some(root) = normalized.snapshot.as_object_mut() {
+        root.remove("undoHistory");
+    }
     let document =
         import_current_value(&normalized.snapshot).map_err(ProjectError::InvalidModel)?;
+    let warnings = normalized.warnings;
+    drop(normalized.snapshot);
     document.validate().map_err(ProjectError::InvalidModel)?;
     Ok(ImportedProject {
         document,
         history,
-        warnings: normalized.warnings,
+        warnings,
         source_schema_version,
         source_schema_version_present,
     })
@@ -203,6 +209,10 @@ fn decode_payload_with(
 pub fn encode_project_json(json: &str) -> Result<Vec<u8>, ProjectError> {
     serde_json::from_str::<Value>(json)
         .map_err(|error| ProjectError::InvalidJson(error.to_string()))?;
+    encode_valid_project_json(json)
+}
+
+fn encode_valid_project_json(json: &str) -> Result<Vec<u8>, ProjectError> {
     let bytes = json.as_bytes();
     if bytes.len() <= COMPRESS_THRESHOLD_BYTES {
         return Ok(bytes.to_vec());
@@ -214,6 +224,69 @@ pub fn encode_project_json(json: &str) -> Result<Vec<u8>, ProjectError> {
     encoder
         .finish()
         .map_err(|error| ProjectError::InvalidCompression(error.to_string()))
+}
+
+/// Serializes a normalized document as schema-17 JSON and applies the legacy project container
+/// compression threshold. Legacy history is stored separately from the normalized document and is
+/// included only when a live opaque history value is supplied.
+pub fn write_project(
+    document: &Document,
+    history: Option<&OpaqueLegacyHistory>,
+) -> Result<Vec<u8>, ProjectError> {
+    let mut snapshot = export_current_value(document).map_err(ProjectError::InvalidModel)?;
+    let root = snapshot.as_object_mut().ok_or_else(|| {
+        ProjectError::InvalidModel("exported snapshot root is not an object".to_owned())
+    })?;
+    match history {
+        Some(history) => {
+            root.insert("undoHistory".to_owned(), legacy_history_value(history));
+        }
+        None => {
+            // Without a live history object, an imported raw payload could point to stale states.
+            root.remove("undoHistory");
+        }
+    }
+    let json = serde_json::to_string(&snapshot)
+        .map_err(|error| ProjectError::InvalidJson(error.to_string()))?;
+    if json.len() > DEFAULT_MAX_DECODED_BYTES {
+        return Err(ProjectError::PayloadTooLarge {
+            limit_bytes: DEFAULT_MAX_DECODED_BYTES,
+        });
+    }
+    encode_valid_project_json(&json)
+}
+
+fn legacy_history_value(history: &OpaqueLegacyHistory) -> Value {
+    let mut root = history
+        .extensions
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Map<_, _>>();
+    root.insert("maxEntries".to_owned(), Value::from(history.max_entries));
+    root.insert("index".to_owned(), Value::from(history.index));
+    root.insert(
+        "entries".to_owned(),
+        Value::Array(
+            history
+                .entries
+                .iter()
+                .map(|entry| {
+                    let mut object = entry
+                        .extensions
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect::<Map<_, _>>();
+                    object.insert("data".to_owned(), Value::String(entry.data.clone()));
+                    if let Some(label) = &entry.label {
+                        object.insert("label".to_owned(), Value::String(label.clone()));
+                    }
+                    object.insert("timestamp".to_owned(), Value::from(entry.timestamp_millis));
+                    Value::Object(object)
+                })
+                .collect(),
+        ),
+    );
+    Value::Object(root)
 }
 
 /// Lazily adapts a T04 history entry to the current-format document importer.
@@ -369,15 +442,17 @@ fn unknown_fields(object: &Map<String, Value>, known: &[&str]) -> BTreeMap<Strin
 mod tests {
     use super::{
         LegacySnapshotAdapter, ProjectError, decode_project_payload, encode_project_json,
-        read_project, read_project_with,
+        read_project, read_project_with, write_project,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use meshcraft_core::document::Document;
     use meshcraft_core::geometry::Vec3;
-    use meshcraft_core::transactions::OpaqueLegacyHistory;
+    use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use serde_json::{Value, json};
+    use std::collections::BTreeMap;
     use std::io::Write;
 
     const CURRENT_MODEL: &str =
@@ -406,6 +481,69 @@ mod tests {
             read_project(malformed.to_string().as_bytes()),
             Err(ProjectError::InvalidModel(_))
         ));
+    }
+
+    #[test]
+    fn writes_schema17_projects_and_retains_opaque_legacy_history() {
+        let imported = read_project(CURRENT_MODEL.as_bytes()).unwrap();
+        let history = OpaqueLegacyHistory {
+            max_entries: 7,
+            index: 1,
+            entries: vec![
+                OpaqueLegacyUndoEntry {
+                    data: "opaque-invalid-entry".to_owned(),
+                    label: Some("Before edit".to_owned()),
+                    timestamp_millis: 1234,
+                    diagnostic: Some("must not be discarded".to_owned()),
+                    extensions: BTreeMap::from([("futureEntry".to_owned(), json!(true))]),
+                },
+                OpaqueLegacyUndoEntry {
+                    data: "encoded-current-snapshot".to_owned(),
+                    label: None,
+                    timestamp_millis: 2345,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+            ],
+            extensions: BTreeMap::from([("futureHistory".to_owned(), json!([1, 2, 3]))]),
+        };
+
+        let encoded = write_project(&imported.document, Some(&history)).unwrap();
+        let reopened = read_project(&encoded).unwrap();
+        let reopened_history = reopened.history.unwrap();
+        assert_eq!(history.max_entries, reopened_history.max_entries);
+        assert_eq!(history.index, reopened_history.index);
+        assert_eq!(history.entries.len(), reopened_history.entries.len());
+        assert_eq!(history.entries[0].data, reopened_history.entries[0].data);
+        assert_eq!(history.entries[0].label, reopened_history.entries[0].label);
+        assert_eq!(
+            history.entries[0].timestamp_millis,
+            reopened_history.entries[0].timestamp_millis
+        );
+        assert_eq!(
+            history.entries[0].extensions,
+            reopened_history.entries[0].extensions
+        );
+        assert_eq!(history.extensions, reopened_history.extensions);
+        assert_eq!(17, reopened.source_schema_version);
+        assert!(reopened.source_schema_version_present);
+        assert_eq!(
+            imported.document.occurrence_refs().unwrap().len(),
+            reopened.document.occurrence_refs().unwrap().len()
+        );
+    }
+
+    #[test]
+    fn writes_a_reopenable_empty_document() {
+        let encoded = write_project(&Document::new(), None).unwrap();
+        let reopened = read_project(&encoded).unwrap();
+        assert_eq!(1, reopened.document.definitions().count());
+        assert_eq!(1, reopened.document.occurrence_refs().unwrap().len());
+        let root = reopened
+            .document
+            .resolve_occurrence(&reopened.document.occurrence_refs().unwrap()[0])
+            .unwrap();
+        assert!(root.definition.geometry.is_empty());
     }
 
     #[test]

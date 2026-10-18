@@ -1,4 +1,4 @@
-//! Read-only adapters from the current Octodraw prototype/instance JSON format.
+//! Import and export adapters for Octodraw's schema-17 prototype/instance JSON format.
 
 use crate::document::{
     ChildLayoutId, DefinitionId, DefinitionKind, Document, InstanceEdits, LayoutEntryId,
@@ -15,7 +15,13 @@ const MAX_INSTANCE_DEPTH: usize = 256;
 
 type ImportResult<T> = Result<T, String>;
 type ParsedOverrideSegment = (Vec3, Vec3, Vec<LegacyAlias>, BTreeMap<String, Value>);
-type ParsedOverrideFace = ([Vec3; 3], Rgba8, Vec<LegacyAlias>, BTreeMap<String, Value>);
+type ParsedOverrideFace = (
+    [Vec3; 3],
+    Rgba8,
+    Vec<LegacyAlias>,
+    BTreeMap<String, Value>,
+    Option<Value>,
+);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct QuantizedVertex(i64, i64, i64);
@@ -197,17 +203,29 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
-        if let Some(Value::Array(vertices)) = object.get("prototypeVertices") {
-            for (vertex_index, vertex) in vertices.iter().enumerate() {
-                if let Some(vertex) = vertex.as_object() {
-                    preserve_unknown_fields(
-                        vertex,
-                        &["id", "x", "y", "z"],
-                        &mut definition.extensions,
-                        &format!("k3d.prototypeVertices.{vertex_index}."),
-                    );
+        if let Some(vertices) = object.get("prototypeVertices") {
+            definition
+                .extensions
+                .insert("k3d.__raw_prototype_vertices".to_owned(), vertices.clone());
+            if let Some(vertices) = vertices.as_array() {
+                for (vertex_index, vertex) in vertices.iter().enumerate() {
+                    if let Some(vertex) = vertex.as_object() {
+                        preserve_unknown_fields(
+                            vertex,
+                            &["id", "x", "y", "z"],
+                            &mut definition.extensions,
+                            &format!("k3d.prototypeVertices.{vertex_index}."),
+                        );
+                    }
                 }
             }
+        }
+        if let Some(kind) = object.get("kind")
+            && parse_definition_kind(object, &path)? == DefinitionKind::Other
+        {
+            definition
+                .extensions
+                .insert("k3d.__raw_kind".to_owned(), kind.clone());
         }
 
         let geometry = parse_prototype_geometry(object, &path)?;
@@ -372,6 +390,7 @@ fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
             "gridSpacing",
             "circleSegments",
             "snapEpsilon",
+            "undoHistory",
         ],
         &mut document.extensions,
         "k3d.",
@@ -383,6 +402,592 @@ fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
             &mut document.extensions,
             "k3d.modelUnit.",
         );
+    }
+}
+
+/// Expands the normalized document into a schema-17 Octodraw prototype/instance snapshot.
+///
+/// The writer deliberately errors when a typed value has no legacy mapping. Opaque values read
+/// from legacy JSON remain under their `k3d.*` extension keys and are restored verbatim.
+pub fn export_current_value(document: &Document) -> ImportResult<Value> {
+    document.validate()?;
+    let mut prototype_ids = BTreeMap::new();
+    let mut used_prototype_ids = BTreeSet::new();
+    for definition in document.definitions.values() {
+        let candidate = first_alias(&definition.legacy_aliases, "k3d.prototype");
+        let fallback = format!("meshcraft-prototype-{}", definition.id.0);
+        prototype_ids.insert(
+            definition.id,
+            unique_legacy_id(candidate, &fallback, &mut used_prototype_ids),
+        );
+    }
+
+    let mut prototypes = document
+        .definitions
+        .values()
+        .map(|definition| export_definition(definition, &prototype_ids))
+        .collect::<ImportResult<Vec<_>>>()?;
+    let root_layout = document
+        .child_layouts
+        .get(&document.root_layout)
+        .ok_or_else(|| "document root layout is missing".to_owned())?;
+    let mut used_instance_ids = BTreeSet::new();
+    let root_instance = match root_layout.entries.as_slice() {
+        [entry] => export_occurrence(
+            document,
+            &OccurrenceRef::root(entry.id),
+            &prototype_ids,
+            &mut used_instance_ids,
+        )?,
+        entries => {
+            let wrapper_id =
+                unique_legacy_id(None, "meshcraft-scene-root", &mut used_prototype_ids);
+            prototypes.push(export_empty_definition(&wrapper_id, "Root"));
+            let mut children = Vec::with_capacity(entries.len());
+            for entry in entries {
+                children.push(export_occurrence(
+                    document,
+                    &OccurrenceRef::root(entry.id),
+                    &prototype_ids,
+                    &mut used_instance_ids,
+                )?);
+            }
+            let root_instance_id =
+                unique_legacy_id(None, "meshcraft-scene-instance", &mut used_instance_ids);
+            let mut root = Map::new();
+            root.insert("id".to_owned(), Value::String(root_instance_id));
+            root.insert("prototypeId".to_owned(), Value::String(wrapper_id));
+            write_transform(
+                &mut root,
+                Affine3::IDENTITY,
+                "instanceOrigin",
+                ["instanceAxisU", "instanceAxisV", "instanceAxisW"],
+            );
+            root.insert("children".to_owned(), Value::Array(children));
+            Value::Object(root)
+        }
+    };
+
+    export_root(document, prototypes, root_instance)
+}
+
+fn export_root(
+    document: &Document,
+    prototypes: Vec<Value>,
+    root_instance: Value,
+) -> ImportResult<Value> {
+    let settings = &document.model_settings;
+    let mut root = Map::new();
+    root.insert("version".to_owned(), Value::from(17));
+    root.insert("prototypes".to_owned(), Value::Array(prototypes));
+    root.insert("rootInstance".to_owned(), root_instance);
+    root.insert(
+        "modelUnit".to_owned(),
+        serde_json::json!({ "name": settings.unit_name, "size": settings.unit_size }),
+    );
+    root.insert("gridSpacing".to_owned(), Value::from(settings.grid_size));
+    root.insert(
+        "circleSegments".to_owned(),
+        Value::from(settings.circle_segments),
+    );
+    root.insert("snapEpsilon".to_owned(), Value::from(settings.snap_radius));
+
+    let mut model_unit = Map::new();
+    for (key, value) in &document.extensions {
+        if let Some(field) = key.strip_prefix("k3d.modelUnit.") {
+            model_unit.entry(field.to_owned()).or_insert(value.clone());
+        } else if let Some(field) = key.strip_prefix("k3d.")
+            && !matches!(
+                field,
+                "source_schema_version"
+                    | "source_schema_version_present"
+                    | "root_instance_id"
+                    | "modelUnit"
+            )
+        {
+            root.entry(field.to_owned()).or_insert(value.clone());
+        } else if !key.starts_with("k3d.") {
+            return Err(format!(
+                "document extension {key:?} has no schema-17 field mapping"
+            ));
+        }
+    }
+    let mut model_unit_value = serde_json::json!({
+        "name": settings.unit_name,
+        "size": settings.unit_size,
+    });
+    if let Some(object) = model_unit_value.as_object_mut() {
+        for (field, value) in model_unit {
+            object.entry(field).or_insert(value);
+        }
+    }
+    root.insert("modelUnit".to_owned(), model_unit_value);
+    Ok(Value::Object(root))
+}
+
+fn export_empty_definition(id: &str, name: &str) -> Value {
+    let mut object = Map::new();
+    object.insert("id".to_owned(), Value::String(id.to_owned()));
+    object.insert("name".to_owned(), Value::String(name.to_owned()));
+    object.insert("kind".to_owned(), Value::String("MESH".to_owned()));
+    write_transform(
+        &mut object,
+        Affine3::IDENTITY,
+        "definitionOrigin",
+        ["definitionAxisU", "definitionAxisV", "definitionAxisW"],
+    );
+    object.insert("prototypeVertices".to_owned(), Value::Array(Vec::new()));
+    object.insert("segments".to_owned(), Value::Array(Vec::new()));
+    object.insert("faces".to_owned(), Value::Array(Vec::new()));
+    Value::Object(object)
+}
+
+fn export_definition(
+    definition: &crate::document::Definition,
+    prototype_ids: &BTreeMap<DefinitionId, String>,
+) -> ImportResult<Value> {
+    if !definition.domain_data.is_empty() {
+        return Err(format!(
+            "prototype {} has typed domain data without a schema-17 export adapter",
+            definition.id.0
+        ));
+    }
+    let mut object = Map::new();
+    let prototype_id = prototype_ids
+        .get(&definition.id)
+        .ok_or_else(|| format!("prototype {} has no legacy ID", definition.id.0))?;
+    object.insert("id".to_owned(), Value::String(prototype_id.clone()));
+    object.insert("name".to_owned(), Value::String(definition.name.clone()));
+    let kind = match definition.kind {
+        DefinitionKind::Mesh => "MESH",
+        DefinitionKind::Voxel => "VOXEL",
+        DefinitionKind::Architecture => "ARCHITECTURE",
+        DefinitionKind::Hybrid => "HYBRID",
+        DefinitionKind::Other => definition
+            .extensions
+            .get("k3d.__raw_kind")
+            .and_then(Value::as_str)
+            .unwrap_or("OTHER"),
+    };
+    object.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    write_transform(
+        &mut object,
+        definition.frame,
+        "definitionOrigin",
+        ["definitionAxisU", "definitionAxisV", "definitionAxisW"],
+    );
+    let mut used_vertices = BTreeSet::new();
+    let mut used_segments = BTreeSet::new();
+    let mut used_faces = BTreeSet::new();
+    let mut segments = Vec::with_capacity(definition.geometry.segments.len());
+    for segment in definition.geometry.segments.values() {
+        let start = definition
+            .geometry
+            .vertex_position(segment.endpoints[0])
+            .ok_or_else(|| format!("segment {} has an unresolved start vertex", segment.id.0))?;
+        let end = definition
+            .geometry
+            .vertex_position(segment.endpoints[1])
+            .ok_or_else(|| format!("segment {} has an unresolved end vertex", segment.id.0))?;
+        let mut item = Map::new();
+        let candidate = first_alias(&segment.legacy_aliases, "k3d.segment");
+        item.insert(
+            "id".to_owned(),
+            Value::String(unique_legacy_id(
+                candidate,
+                &format!("meshcraft-segment-{}", segment.id.0),
+                &mut used_segments,
+            )),
+        );
+        item.insert("start".to_owned(), vec3_value(start));
+        item.insert("end".to_owned(), vec3_value(end));
+        merge_entity_extensions(&mut item, &segment.extensions)?;
+        segments.push(Value::Object(item));
+    }
+    let mut faces = Vec::with_capacity(definition.geometry.triangles.len());
+    for face in definition.geometry.triangles.values() {
+        let points = face
+            .vertices
+            .map(|vertex| definition.geometry.vertex_position(vertex))
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| format!("face {} has an unresolved vertex", face.id.0))?;
+        let mut item = Map::new();
+        let candidate = first_alias(&face.legacy_aliases, "k3d.face");
+        item.insert(
+            "id".to_owned(),
+            Value::String(unique_legacy_id(
+                candidate,
+                &format!("meshcraft-face-{}", face.id.0),
+                &mut used_faces,
+            )),
+        );
+        item.insert("a".to_owned(), vec3_value(points[0]));
+        item.insert("b".to_owned(), vec3_value(points[1]));
+        item.insert("c".to_owned(), vec3_value(points[2]));
+        item.insert(
+            "color".to_owned(),
+            legacy_color(face.color, &face.extensions),
+        );
+        merge_entity_extensions(&mut item, &face.extensions)?;
+        faces.push(Value::Object(item));
+    }
+    object.insert("segments".to_owned(), Value::Array(segments));
+    object.insert("faces".to_owned(), Value::Array(faces));
+    let prototype_vertices = export_prototype_vertices(definition, &mut used_vertices)?;
+    if !prototype_vertices.as_array().is_some_and(Vec::is_empty)
+        || definition
+            .extensions
+            .contains_key("k3d.__raw_prototype_vertices")
+    {
+        object.insert("prototypeVertices".to_owned(), prototype_vertices);
+    }
+    merge_prefixed_fields(
+        &mut object,
+        &definition.extensions,
+        &["__raw_kind", "__raw_prototype_vertices"],
+    )?;
+    Ok(Value::Object(object))
+}
+
+fn export_prototype_vertices(
+    definition: &crate::document::Definition,
+    used: &mut BTreeSet<String>,
+) -> ImportResult<Value> {
+    let raw = definition
+        .extensions
+        .get("k3d.__raw_prototype_vertices")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut objects = Vec::new();
+    let mut existing = BTreeMap::<String, usize>::new();
+    for item in raw {
+        if let Some(id) = item
+            .as_object()
+            .and_then(|object| object.get("id"))
+            .and_then(Value::as_str)
+        {
+            existing.insert(id.to_owned(), objects.len());
+        }
+        objects.push(item);
+    }
+    for vertex in definition.geometry.vertices.values() {
+        let Some(candidate) = first_alias(&vertex.legacy_aliases, "k3d.vertex") else {
+            continue;
+        };
+        let id = unique_legacy_id(
+            Some(candidate),
+            &format!("meshcraft-vertex-{}", vertex.id.0),
+            used,
+        );
+        let QuantizedVertex(x, y, z) = quantize_vertex(vertex.position)?;
+        let item = if let Some(index) = existing.get(&id).copied() {
+            objects[index].as_object_mut().cloned().unwrap_or_default()
+        } else {
+            Map::new()
+        };
+        let mut item = item;
+        item.insert("id".to_owned(), Value::String(id.clone()));
+        item.insert("x".to_owned(), Value::from(x));
+        item.insert("y".to_owned(), Value::from(y));
+        item.insert("z".to_owned(), Value::from(z));
+        if let Some(index) = existing.get(&id).copied() {
+            objects[index] = Value::Object(item);
+        } else {
+            existing.insert(id, objects.len());
+            objects.push(Value::Object(item));
+        }
+    }
+    Ok(Value::Array(objects))
+}
+
+fn export_occurrence(
+    document: &Document,
+    occurrence: &OccurrenceRef,
+    prototype_ids: &BTreeMap<DefinitionId, String>,
+    used_instance_ids: &mut BTreeSet<String>,
+) -> ImportResult<Value> {
+    let resolved = document
+        .resolve_occurrence(occurrence)
+        .ok_or_else(|| format!("cannot export unresolved occurrence {:?}", occurrence.path))?;
+    let edits = resolved.edits;
+    let candidate = edits
+        .and_then(|edits| edits.legacy_instance_id.as_deref())
+        .or_else(|| first_alias(&resolved.entry.legacy_aliases, "k3d.instance"));
+    let fallback = format!("meshcraft-instance-{}", resolved.entry.id.0);
+    let id = unique_legacy_id(candidate, &fallback, used_instance_ids);
+    let prototype_id = prototype_ids.get(&resolved.definition.id).ok_or_else(|| {
+        format!(
+            "definition {} has no exported prototype",
+            resolved.definition.id.0
+        )
+    })?;
+    let transform = edits
+        .and_then(|edits| edits.transform)
+        .unwrap_or(resolved.entry.transform);
+    let mut object = Map::new();
+    object.insert("id".to_owned(), Value::String(id));
+    object.insert(
+        "prototypeId".to_owned(),
+        Value::String(prototype_id.clone()),
+    );
+    write_transform(
+        &mut object,
+        transform,
+        "instanceOrigin",
+        ["instanceAxisU", "instanceAxisV", "instanceAxisW"],
+    );
+
+    let layout_id = edits
+        .and_then(|edits| edits.child_layout)
+        .or(resolved.definition.default_child_layout);
+    let mut children = Vec::new();
+    if let Some(layout_id) = layout_id {
+        let layout = document
+            .child_layouts
+            .get(&layout_id)
+            .ok_or_else(|| format!("occurrence references missing layout {}", layout_id.0))?;
+        if !layout.extensions.is_empty() {
+            return Err(format!(
+                "child layout {} has unmapped legacy extensions",
+                layout_id.0
+            ));
+        }
+        for entry in &layout.entries {
+            children.push(export_occurrence(
+                document,
+                &occurrence.child(entry.id),
+                prototype_ids,
+                used_instance_ids,
+            )?);
+        }
+    }
+    object.insert("children".to_owned(), Value::Array(children));
+    if let Some(edits) = edits {
+        if !edits.hotspot_positions.is_empty()
+            || edits.values.contains_key("k3d.__raw_hotspot_positions")
+        {
+            object.insert(
+                "hotspotPositions".to_owned(),
+                export_hotspot_positions(edits)?,
+            );
+        }
+        if let Some(replacement) = &edits.geometry_replacement {
+            let (segments, faces) = export_override_geometry(replacement)?;
+            object.insert("overrideSegments".to_owned(), Value::Array(segments));
+            object.insert("overrideFaces".to_owned(), Value::Array(faces));
+        }
+        merge_prefixed_fields(&mut object, &edits.values, &["__raw_hotspot_positions"])?;
+        merge_prefixed_fields(&mut object, &edits.extensions, &[])?;
+    }
+    Ok(Value::Object(object))
+}
+
+fn export_hotspot_positions(edits: &InstanceEdits) -> ImportResult<Value> {
+    let raw = edits
+        .values
+        .get("k3d.__raw_hotspot_positions")
+        .and_then(Value::as_array);
+    let mut output = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Some(raw) = raw {
+        for item in raw {
+            let Some(object) = item.as_object() else {
+                return Err("preserved hotspot position is not an object".to_owned());
+            };
+            let Some(id) = object.get("id").and_then(Value::as_str) else {
+                output.push(item.clone());
+                continue;
+            };
+            let Some(position) = edits.hotspot_positions.get(id) else {
+                continue;
+            };
+            let mut item = object.clone();
+            item.insert("position".to_owned(), vec3_value(*position));
+            output.push(Value::Object(item));
+            seen.insert(id.to_owned());
+        }
+    }
+    for (id, position) in &edits.hotspot_positions {
+        if seen.insert(id.clone()) {
+            output.push(serde_json::json!({"id": id, "position": vec3_value(*position)}));
+        }
+    }
+    Ok(Value::Array(output))
+}
+
+fn export_override_geometry(
+    geometry: &crate::document::GeometryBundle,
+) -> ImportResult<(Vec<Value>, Vec<Value>)> {
+    let mut used_segments = BTreeSet::new();
+    let mut used_faces = BTreeSet::new();
+    let mut segments = Vec::with_capacity(geometry.segments.len());
+    for segment in geometry.segments.values() {
+        let start = geometry
+            .vertex_position(segment.endpoints[0])
+            .ok_or_else(|| "override segment has an unresolved start vertex".to_owned())?;
+        let end = geometry
+            .vertex_position(segment.endpoints[1])
+            .ok_or_else(|| "override segment has an unresolved end vertex".to_owned())?;
+        let mut item = Map::new();
+        let candidate = first_alias(&segment.legacy_aliases, "k3d.segment");
+        item.insert(
+            "id".to_owned(),
+            Value::String(unique_legacy_id(
+                candidate,
+                &format!("meshcraft-override-segment-{}", segment.id.0),
+                &mut used_segments,
+            )),
+        );
+        item.insert("start".to_owned(), vec3_value(start));
+        item.insert("end".to_owned(), vec3_value(end));
+        merge_entity_extensions(&mut item, &segment.extensions)?;
+        segments.push(Value::Object(item));
+    }
+    let mut faces = Vec::with_capacity(geometry.triangles.len());
+    for face in geometry.triangles.values() {
+        let points = face
+            .vertices
+            .map(|vertex| geometry.vertex_position(vertex))
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| "override face has an unresolved vertex".to_owned())?;
+        let mut item = Map::new();
+        let candidate = first_alias(&face.legacy_aliases, "k3d.face");
+        item.insert(
+            "id".to_owned(),
+            Value::String(unique_legacy_id(
+                candidate,
+                &format!("meshcraft-override-face-{}", face.id.0),
+                &mut used_faces,
+            )),
+        );
+        item.insert("a".to_owned(), vec3_value(points[0]));
+        item.insert("b".to_owned(), vec3_value(points[1]));
+        item.insert("c".to_owned(), vec3_value(points[2]));
+        item.insert(
+            "color".to_owned(),
+            legacy_color(face.color, &face.extensions),
+        );
+        merge_entity_extensions(&mut item, &face.extensions)?;
+        faces.push(Value::Object(item));
+    }
+    Ok((segments, faces))
+}
+
+fn first_alias<'a>(aliases: &'a [LegacyAlias], source: &str) -> Option<&'a str> {
+    aliases
+        .iter()
+        .find(|alias| alias.source == source && !alias.id.is_empty())
+        .map(|alias| alias.id.as_str())
+}
+
+fn unique_legacy_id(
+    candidate: Option<&str>,
+    fallback: &str,
+    used: &mut BTreeSet<String>,
+) -> String {
+    if let Some(candidate) = candidate
+        && !candidate.is_empty()
+        && used.insert(candidate.to_owned())
+    {
+        return candidate.to_owned();
+    }
+    if used.insert(fallback.to_owned()) {
+        return fallback.to_owned();
+    }
+    let mut suffix = 2_u64;
+    loop {
+        let candidate = format!("{fallback}-{suffix}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+        suffix = suffix.saturating_add(1);
+    }
+}
+
+fn vec3_value(value: Vec3) -> Value {
+    serde_json::json!({ "x": value.x, "y": value.y, "z": value.z })
+}
+
+fn write_transform(
+    object: &mut Map<String, Value>,
+    transform: Affine3,
+    origin_field: &str,
+    axes_fields: [&str; 3],
+) {
+    object.insert(origin_field.to_owned(), vec3_value(transform.translation));
+    let axes = [
+        Vec3::new(
+            transform.linear[0][0],
+            transform.linear[1][0],
+            transform.linear[2][0],
+        ),
+        Vec3::new(
+            transform.linear[0][1],
+            transform.linear[1][1],
+            transform.linear[2][1],
+        ),
+        Vec3::new(
+            transform.linear[0][2],
+            transform.linear[1][2],
+            transform.linear[2][2],
+        ),
+    ];
+    for (field, axis) in axes_fields.into_iter().zip(axes) {
+        object.insert(field.to_owned(), vec3_value(axis));
+    }
+}
+
+fn merge_prefixed_fields(
+    object: &mut Map<String, Value>,
+    extensions: &BTreeMap<String, Value>,
+    internal_suffixes: &[&str],
+) -> ImportResult<()> {
+    for (key, value) in extensions {
+        let Some(field) = key.strip_prefix("k3d.") else {
+            return Err(format!("extension {key:?} has no schema-17 field mapping"));
+        };
+        if internal_suffixes.contains(&field)
+            || field.starts_with("prototypeVertices.")
+            || field.starts_with("hotspotPositions/")
+        {
+            continue;
+        }
+        object.entry(field.to_owned()).or_insert(value.clone());
+    }
+    Ok(())
+}
+
+fn merge_entity_extensions(
+    object: &mut Map<String, Value>,
+    extensions: &BTreeMap<String, Value>,
+) -> ImportResult<()> {
+    merge_prefixed_fields(object, extensions, &["__raw_color"])
+}
+
+fn legacy_color(color: Rgba8, extensions: &BTreeMap<String, Value>) -> Value {
+    if let Some(raw) = extensions.get("k3d.__raw_color")
+        && parse_color(Some(raw), "color").ok() == Some(color)
+    {
+        return raw.clone();
+    }
+    serde_json::json!({
+        "r": f64::from(color.red) / 255.0,
+        "g": f64::from(color.green) / 255.0,
+        "b": f64::from(color.blue) / 255.0,
+        "a": f64::from(color.alpha) / 255.0,
+    })
+}
+
+fn preserve_raw_color(
+    raw: Option<&Value>,
+    _parsed: Rgba8,
+    extensions: &mut BTreeMap<String, Value>,
+) {
+    if let Some(raw) = raw {
+        extensions.insert("k3d.__raw_color".to_owned(), raw.clone());
     }
 }
 
@@ -520,11 +1125,14 @@ fn parse_prototype_geometry(
                 quantized_alias_key(point, &aliases)?,
             );
         }
+        let color = parse_color(face.get("color"), &format!("{face_path}/color"))?;
+        let mut extensions = entity_extensions(face, &["id", "a", "b", "c", "color"]);
+        preserve_raw_color(face.get("color"), color, &mut extensions);
         geometry.triangles.push(RawGeometryTriangle {
             vertices: indices,
-            color: parse_color(face.get("color"), &format!("{face_path}/color"))?,
+            color,
             legacy_aliases: entity_alias(face, "k3d.face")?,
-            extensions: entity_extensions(face, &["id", "a", "b", "c", "color"]),
+            extensions,
         });
     }
     Ok(geometry)
@@ -607,6 +1215,12 @@ fn parse_instance(
             );
         }
     }
+    if let Some(raw_positions) = object.get("hotspotPositions") {
+        preserved_fields.insert(
+            "k3d.__raw_hotspot_positions".to_owned(),
+            raw_positions.clone(),
+        );
+    }
 
     let override_segments = parse_override_segments(object, path)?;
     let override_triangles = parse_override_faces(object, path)?;
@@ -635,11 +1249,13 @@ fn parse_instance(
             let points = triangle.0;
             let indices =
                 points.map(|point| geometry.add_vertex(point, Vec::new(), &mut reusable, None));
+            let mut extensions = triangle.3;
+            preserve_raw_color(triangle.4.as_ref(), triangle.1, &mut extensions);
             geometry.triangles.push(RawGeometryTriangle {
                 vertices: indices,
                 color: triangle.1,
                 legacy_aliases: triangle.2,
-                extensions: triangle.3,
+                extensions,
             });
         }
         geometry
@@ -721,15 +1337,17 @@ fn parse_override_faces(
         let face = value
             .as_object()
             .ok_or_else(|| format!("{face_path}: face must be an object"))?;
+        let color = parse_color(face.get("color"), &format!("{face_path}/color"))?;
         output.push((
             [
                 read_vec3(face.get("a"), &format!("{face_path}/a"))?,
                 read_vec3(face.get("b"), &format!("{face_path}/b"))?,
                 read_vec3(face.get("c"), &format!("{face_path}/c"))?,
             ],
-            parse_color(face.get("color"), &format!("{face_path}/color"))?,
+            color,
             entity_alias(face, "k3d.face")?,
             entity_extensions(face, &["id", "a", "b", "c", "color"]),
+            face.get("color").cloned(),
         ));
     }
     Ok(output)
@@ -824,6 +1442,9 @@ fn apply_instance_edits(
             )
         })?;
     let mut edits = InstanceEdits::default();
+    if !instance.id.is_empty() {
+        edits.legacy_instance_id = Some(instance.id.clone());
+    }
     if variant.id != default_layout {
         edits.child_layout = Some(variant.id);
     }
@@ -1080,11 +1701,14 @@ fn read_string(object: &Map<String, Value>, key: &str, path: &str) -> ImportResu
 
 #[cfg(test)]
 mod tests {
-    use super::{GeometryDraft, QuantizedVertex, import_current_json, import_current_value};
+    use super::{
+        GeometryDraft, QuantizedVertex, export_current_value, import_current_json,
+        import_current_value,
+    };
     use crate::document::{DefinitionKind, LegacyAlias, OccurrenceRef};
     use crate::geometry::Vec3;
     use serde_json::Value;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
 
     const ARCH_FRAME: &str =
         include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
@@ -1097,6 +1721,188 @@ mod tests {
     const DIFFERING_INSTANCE_OVERRIDE: &str = include_str!(
         "../../../fixtures/scenarios/object-model/differing-instance-override-input.octd"
     );
+
+    #[test]
+    fn exports_schema17_snapshot_and_round_trips_frames_geometry_and_instance_ids() {
+        let original = import_current_json(ARCH_FRAME).unwrap();
+        let exported = export_current_value(&original).unwrap();
+        assert_eq!(17, exported["version"]);
+        assert_eq!(
+            original.extensions["k3d.root_instance_id"],
+            exported["rootInstance"]["id"]
+        );
+        let reopened = import_current_value(&exported).unwrap();
+        let original_occurrences = original.occurrence_refs().unwrap();
+        let reopened_occurrences = reopened.occurrence_refs().unwrap();
+        assert_eq!(original_occurrences.len(), reopened_occurrences.len());
+        assert_eq!(original.definitions.len(), reopened.definitions.len());
+        for (before, after) in original_occurrences.iter().zip(&reopened_occurrences) {
+            let before_resolved = original.resolve_occurrence(before).unwrap();
+            let after_resolved = reopened.resolve_occurrence(after).unwrap();
+            assert_eq!(
+                before_resolved.definition.name,
+                after_resolved.definition.name
+            );
+            assert_eq!(
+                before_resolved.definition.kind,
+                after_resolved.definition.kind
+            );
+            assert_eq!(
+                before_resolved.definition.frame,
+                after_resolved.definition.frame
+            );
+            assert_eq!(
+                before_resolved.world_transform,
+                after_resolved.world_transform
+            );
+            assert_eq!(
+                before_resolved
+                    .edits
+                    .and_then(|edits| edits.legacy_instance_id.as_deref()),
+                after_resolved
+                    .edits
+                    .and_then(|edits| edits.legacy_instance_id.as_deref())
+            );
+            let before_geometry = original.effective_geometry(before).unwrap();
+            let after_geometry = reopened.effective_geometry(after).unwrap();
+            assert_eq!(
+                before_geometry.segments.len(),
+                after_geometry.segments.len()
+            );
+            assert_eq!(
+                before_geometry.triangles.len(),
+                after_geometry.triangles.len()
+            );
+            assert_eq!(
+                before_geometry
+                    .segments
+                    .values()
+                    .map(|segment| {
+                        segment
+                            .endpoints
+                            .map(|endpoint| before_geometry.vertex_position(endpoint).unwrap())
+                    })
+                    .collect::<Vec<_>>(),
+                after_geometry
+                    .segments
+                    .values()
+                    .map(|segment| {
+                        segment
+                            .endpoints
+                            .map(|endpoint| after_geometry.vertex_position(endpoint).unwrap())
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn exports_multiple_roots_with_a_wrapper_and_remaps_copied_instance_ids() {
+        let mut document = import_current_json(ARCH_FRAME).unwrap();
+        let root = document.occurrence_refs().unwrap().remove(0);
+        assert!(
+            document
+                .copy_root_occurrence(&root, Vec3::new(5.0, 0.0, 0.0))
+                .is_some()
+        );
+        let exported = export_current_value(&document).unwrap();
+        let children = exported["rootInstance"]["children"].as_array().unwrap();
+        assert_eq!(2, children.len());
+        assert_eq!(
+            document.extensions["k3d.root_instance_id"],
+            children[0]["id"]
+        );
+
+        let mut ids = BTreeSet::new();
+        let mut pending = vec![&exported["rootInstance"]];
+        while let Some(instance) = pending.pop() {
+            let id = instance["id"].as_str().unwrap();
+            assert!(
+                ids.insert(id.to_owned()),
+                "duplicate exported instance ID {id}"
+            );
+            pending.extend(instance["children"].as_array().unwrap());
+        }
+        let reopened = import_current_value(&exported).unwrap();
+        assert_eq!(5, reopened.occurrence_refs().unwrap().len());
+    }
+
+    #[test]
+    fn exports_hotspot_overrides_unknown_payloads_and_differing_geometry_overrides() {
+        let mut source: Value = serde_json::from_str(HOTSPOT_SCENE).unwrap();
+        source["futureRootPayload"] = serde_json::json!({"enabled": true, "revision": 3});
+        source["prototypes"][0]["prototypeVertices"] = serde_json::json!([
+            {"id":"retained-vertex", "x":0, "y":0, "z":0, "futureVertex":"kept"}
+        ]);
+        let original = import_current_value(&source).unwrap();
+        let exported = export_current_value(&original).unwrap();
+        assert_eq!(source["futureRootPayload"], exported["futureRootPayload"]);
+        assert_eq!(
+            source["prototypes"][0]["prototypeVertices"][0]["futureVertex"],
+            exported["prototypes"][0]["prototypeVertices"][0]["futureVertex"]
+        );
+        let reopened = import_current_value(&exported).unwrap();
+        let original_occurrences = original.occurrence_refs().unwrap();
+        let reopened_occurrences = reopened.occurrence_refs().unwrap();
+        assert_eq!(original_occurrences.len(), reopened_occurrences.len());
+        for (before, after) in original_occurrences.iter().zip(&reopened_occurrences) {
+            assert_eq!(
+                original
+                    .occurrence_edits(before)
+                    .and_then(|edits| edits.legacy_instance_id.as_deref()),
+                reopened
+                    .occurrence_edits(after)
+                    .and_then(|edits| edits.legacy_instance_id.as_deref())
+            );
+            assert_eq!(
+                original
+                    .occurrence_edits(before)
+                    .map(|edits| &edits.hotspot_positions),
+                reopened
+                    .occurrence_edits(after)
+                    .map(|edits| &edits.hotspot_positions)
+            );
+        }
+
+        let source_with_override: Value =
+            serde_json::from_str(DIFFERING_INSTANCE_OVERRIDE).unwrap();
+        let overridden = import_current_value(&source_with_override).unwrap();
+        let roundtrip = export_current_value(&overridden).unwrap();
+        let reopened_override = import_current_value(&roundtrip).unwrap();
+        let override_occurrence = overridden
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|occurrence| {
+                overridden
+                    .occurrence_edits(occurrence)
+                    .is_some_and(|edits| edits.geometry_replacement.is_some())
+            })
+            .unwrap();
+        let reopened_occurrence = reopened_override
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|occurrence| {
+                reopened_override
+                    .occurrence_edits(occurrence)
+                    .is_some_and(|edits| edits.geometry_replacement.is_some())
+            })
+            .unwrap();
+        assert_eq!(
+            overridden
+                .effective_geometry(&override_occurrence)
+                .unwrap()
+                .segments
+                .len(),
+            reopened_override
+                .effective_geometry(&reopened_occurrence)
+                .unwrap()
+                .segments
+                .len()
+        );
+        assert_eq!(17, roundtrip["version"]);
+    }
 
     #[test]
     fn imports_prototype_geometry_and_child_instances_without_welding_unaliased_points() {
@@ -1158,7 +1964,7 @@ mod tests {
             ],
             hotspot_positions.as_slice()
         );
-        assert!(document.extensions.contains_key("k3d.undoHistory"));
+        assert!(!document.extensions.contains_key("k3d.undoHistory"));
     }
 
     #[test]

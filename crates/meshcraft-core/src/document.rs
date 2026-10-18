@@ -337,6 +337,9 @@ pub struct LayoutEntry {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct InstanceEdits {
+    /// Original legacy placement identity, when the occurrence came from an imported project.
+    #[serde(default)]
+    pub legacy_instance_id: Option<String>,
     /// `None` inherits the layout transform; geometry replacement may be explicitly empty.
     pub transform: Option<Affine3>,
     pub geometry_replacement: Option<GeometryBundle>,
@@ -348,7 +351,8 @@ pub struct InstanceEdits {
 
 impl InstanceEdits {
     fn is_empty(&self) -> bool {
-        self.transform.is_none()
+        self.legacy_instance_id.is_none()
+            && self.transform.is_none()
             && self.geometry_replacement.is_none()
             && self.child_layout.is_none()
             && self.hotspot_positions.is_empty()

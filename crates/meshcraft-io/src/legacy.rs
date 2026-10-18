@@ -9,28 +9,50 @@ pub(crate) struct NormalizedScene {
 
 /// Converts the supported schema-17 scene shapes into the current prototype/instance envelope.
 /// Unknown root and definition fields are left in the JSON tree for the core importer to retain.
-pub(crate) fn normalize_scene_shape(snapshot: &Value) -> Result<NormalizedScene, String> {
-    let root = snapshot
-        .as_object()
-        .ok_or_else(|| "Octodraw snapshot root must be a JSON object".to_owned())?;
-    let prototypes = match root.get("prototypes") {
-        None | Some(Value::Null) => None,
-        Some(Value::Array(prototypes)) => Some(prototypes.as_slice()),
-        Some(_) => return Err("Octodraw snapshot /prototypes must be an array".to_owned()),
+pub(crate) fn normalize_scene_shape(mut snapshot: Value) -> Result<NormalizedScene, String> {
+    let (prototype_count, has_instances) = {
+        let root = snapshot
+            .as_object()
+            .ok_or_else(|| "Octodraw snapshot root must be a JSON object".to_owned())?;
+        let prototype_count = match root.get("prototypes") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(prototypes)) => Some(prototypes.len()),
+            Some(_) => return Err("Octodraw snapshot /prototypes must be an array".to_owned()),
+        };
+        let has_instances = root
+            .get("rootInstance")
+            .is_some_and(|value| !value.is_null());
+        (prototype_count, has_instances)
     };
-    let has_instances = root
-        .get("rootInstance")
-        .is_some_and(|value| !value.is_null());
 
-    let mut normalized = if has_instances && prototypes.is_some_and(|items| !items.is_empty()) {
-        let mut current = root.clone();
-        current.remove("rootGroup");
-        Value::Object(current)
-    } else if let Some(prototypes) = prototypes.filter(|items| !items.is_empty()) {
+    let mut normalized = if has_instances && prototype_count.is_some_and(|count| count > 0) {
+        snapshot
+            .as_object_mut()
+            .expect("snapshot root was validated above")
+            .remove("rootGroup");
+        snapshot
+    } else if prototype_count.is_some_and(|count| count > 0) {
+        let root = snapshot
+            .as_object()
+            .expect("snapshot root was validated above");
+        let prototypes = root
+            .get("prototypes")
+            .and_then(Value::as_array)
+            .expect("prototype array was validated above");
         normalize_prototype_only(root, prototypes)?
-    } else if let Some(root_group) = root.get("rootGroup").filter(|value| !value.is_null()) {
+    } else if let Some(root_group) = snapshot
+        .as_object()
+        .and_then(|root| root.get("rootGroup"))
+        .filter(|value| !value.is_null())
+    {
+        let root = snapshot
+            .as_object()
+            .expect("snapshot root was validated above");
         normalize_root_group(root, root_group)?
     } else {
+        let root = snapshot
+            .as_object()
+            .expect("snapshot root was validated above");
         normalize_flat_geometry(root)?
     };
 
