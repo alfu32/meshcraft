@@ -1,7 +1,8 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
-    SnapResult, ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
+    SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview, Viewport, ViewportScene,
+    WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -12,7 +13,7 @@ use meshcraft_core::commands::{
 };
 use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
-use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
+use meshcraft_core::selection::{EditContext, SelectedEntity, SelectionSession, SelectionTarget};
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
@@ -4136,6 +4137,11 @@ impl MeshcraftApp {
             .filter(|position| predicted_rect.contains(*position));
         let snap_radius_points = (self.document.model_settings().snap_radius
             / f64::from(ui.ctx().pixels_per_point())) as f32;
+        let snap_scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
         let snap = if matches!(
             self.active_tool.as_str(),
             "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
@@ -4146,13 +4152,17 @@ impl MeshcraftApp {
                 &[]
             };
             pointer.and_then(|position| {
-                self.viewport.snap_point_with_guides(
+                self.viewport.snap_point_with_options(
                     predicted_rect,
                     &self.document,
                     position,
-                    snap_radius_points,
-                    self.document.model_settings().grid_size,
-                    visible_guides,
+                    SnapOptions {
+                        snap_radius: snap_radius_points,
+                        grid_spacing: self.document.model_settings().grid_size,
+                        guides: visible_guides,
+                        scope: snap_scope,
+                        visibility: SnapVisibility::default(),
+                    },
                 )
             })
         } else {

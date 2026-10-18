@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
-use meshcraft_core::document::{Document, OccurrenceRef, Rgba8, VertexId};
+use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -196,6 +196,56 @@ pub struct SnapResult {
     pub normal: Vec3,
     pub kind: SnapKind,
     pub screen_distance: f32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapVisibility {
+    pub edges_visible: bool,
+    pub faces_visible: bool,
+    pub faces_wireframe: bool,
+}
+
+impl Default for SnapVisibility {
+    fn default() -> Self {
+        Self {
+            edges_visible: true,
+            faces_visible: true,
+            faces_wireframe: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SnapScope<'a> {
+    Document,
+    Occurrence(&'a OccurrenceRef),
+    Definition(DefinitionId),
+}
+
+impl SnapScope<'_> {
+    fn contains(self, document: &Document, occurrence: &OccurrenceRef) -> bool {
+        match self {
+            Self::Document => true,
+            Self::Occurrence(scope) => occurrence.path.starts_with(&scope.path),
+            Self::Definition(definition_id) => (1..=occurrence.path.len()).any(|length| {
+                let prefix = OccurrenceRef {
+                    path: occurrence.path[..length].to_vec(),
+                };
+                document
+                    .resolve_occurrence(&prefix)
+                    .is_some_and(|resolved| resolved.definition.id == definition_id)
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SnapOptions<'a> {
+    pub snap_radius: f32,
+    pub grid_spacing: f64,
+    pub guides: &'a [ConstructionGuide],
+    pub scope: SnapScope<'a>,
+    pub visibility: SnapVisibility,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -425,7 +475,7 @@ impl Viewport {
         });
         if pointer_over_viewport {
             let scroll = ui.input(|input| input.smooth_scroll_delta.y);
-            if scroll.abs() > f32::EPSILON {
+            if scroll.abs() > f32::EPSILON && !ui.ctx().egui_wants_keyboard_input() {
                 if let Some(walkthrough) = &mut self.walkthrough {
                     let scroll_steps = f64::from(scroll) / 40.0;
                     walkthrough.position += walkthrough.forward()
@@ -692,9 +742,21 @@ impl Viewport {
         snap_radius: f32,
         grid_spacing: f64,
     ) -> Option<SnapResult> {
-        self.snap_point_with_guides(rect, document, position, snap_radius, grid_spacing, &[])
+        self.snap_point_with_options(
+            rect,
+            document,
+            position,
+            SnapOptions {
+                snap_radius,
+                grid_spacing,
+                guides: &[],
+                scope: SnapScope::Document,
+                visibility: SnapVisibility::default(),
+            },
+        )
     }
 
+    #[cfg(test)]
     pub fn snap_point_with_guides(
         &mut self,
         rect: Rect,
@@ -704,6 +766,34 @@ impl Viewport {
         grid_spacing: f64,
         guides: &[ConstructionGuide],
     ) -> Option<SnapResult> {
+        self.snap_point_with_options(
+            rect,
+            document,
+            position,
+            SnapOptions {
+                snap_radius,
+                grid_spacing,
+                guides,
+                scope: SnapScope::Document,
+                visibility: SnapVisibility::default(),
+            },
+        )
+    }
+
+    pub fn snap_point_with_options(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+        options: SnapOptions<'_>,
+    ) -> Option<SnapResult> {
+        let SnapOptions {
+            snap_radius,
+            grid_spacing,
+            guides,
+            scope,
+            visibility,
+        } = options;
         let construction_point = self.screen_to_construction_plane(rect, position);
         let ray = self.ray_for_screen(rect, position);
         let mut best = None;
@@ -712,34 +802,67 @@ impl Viewport {
         let mut base_normal = self.construction_plane_normal();
         let mut base_depth = f64::INFINITY;
 
+        let nearest_surface_depth = if visibility.faces_visible && !visibility.faces_wireframe {
+            ray.and_then(|(ray_origin, ray_direction)| {
+                let mut nearest = None;
+                for occurrence in document.occurrence_refs().ok()? {
+                    if !scope.contains(document, &occurrence)
+                        || !self.occurrence_bounds_near_pointer(
+                            rect,
+                            document,
+                            &occurrence,
+                            position,
+                            radius,
+                        )
+                    {
+                        continue;
+                    }
+                    let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                        continue;
+                    };
+                    let Some(geometry) = document.effective_geometry(&occurrence) else {
+                        continue;
+                    };
+                    for triangle in geometry.triangles.values() {
+                        let [Some(a), Some(b), Some(c)] = triangle
+                            .vertices
+                            .map(|reference| geometry.vertex_position(reference))
+                        else {
+                            continue;
+                        };
+                        let Some(depth) = ray_triangle_distance(
+                            ray_origin,
+                            ray_direction,
+                            resolved.world_transform.transform_point(a),
+                            resolved.world_transform.transform_point(b),
+                            resolved.world_transform.transform_point(c),
+                        ) else {
+                            continue;
+                        };
+                        nearest = Some(nearest.map_or(depth, |current: f64| current.min(depth)));
+                    }
+                }
+                nearest
+            })
+        } else {
+            None
+        };
+
         if let (Some((ray_origin, _ray_direction)), Ok(occurrences)) =
             (ray, document.occurrence_refs())
         {
             for occurrence in occurrences {
-                if let Some(bounds) = self.derived.world_bounds(document, &occurrence) {
-                    let projected = bounds_corners(bounds)
-                        .into_iter()
-                        .filter_map(|corner| self.project_if_visible(rect, corner))
-                        .collect::<Vec<_>>();
-                    if !projected.is_empty() {
-                        let (min_x, max_x) = projected
-                            .iter()
-                            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
-                                (range.0.min(point.x), range.1.max(point.x))
-                            });
-                        let (min_y, max_y) = projected
-                            .iter()
-                            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
-                                (range.0.min(point.y), range.1.max(point.y))
-                            });
-                        if position.x < min_x - radius
-                            || position.x > max_x + radius
-                            || position.y < min_y - radius
-                            || position.y > max_y + radius
-                        {
-                            continue;
-                        }
-                    }
+                if !scope.contains(document, &occurrence) {
+                    continue;
+                }
+                if !self.occurrence_bounds_near_pointer(
+                    rect,
+                    document,
+                    &occurrence,
+                    position,
+                    radius,
+                ) {
+                    continue;
                 }
 
                 let Some(resolved) = document.resolve_occurrence(&occurrence) else {
@@ -749,7 +872,11 @@ impl Viewport {
                     continue;
                 };
 
-                for segment in geometry.segments.values() {
+                for segment in geometry
+                    .segments
+                    .values()
+                    .filter(|_| visibility.edges_visible)
+                {
                     let (Some(start_local), Some(end_local)) = (
                         geometry.vertex_position(segment.endpoints[0]),
                         geometry.vertex_position(segment.endpoints[1]),
@@ -764,7 +891,7 @@ impl Viewport {
                     for (point, screen) in [(start, start_screen), (end, end_screen)] {
                         if let Some(screen) = screen {
                             let distance = screen.distance(position);
-                            self.consider_snap(
+                            self.consider_visible_model_snap(
                                 &mut best,
                                 SnapCandidate {
                                     point,
@@ -775,6 +902,7 @@ impl Viewport {
                                 },
                                 radius,
                                 grid_spacing,
+                                nearest_surface_depth,
                             );
                         }
                     }
@@ -782,7 +910,7 @@ impl Viewport {
                     let midpoint = (start + end) * 0.5;
                     if let Some(screen) = self.project_if_visible(rect, midpoint) {
                         let distance = screen.distance(position);
-                        self.consider_snap(
+                        self.consider_visible_model_snap(
                             &mut best,
                             SnapCandidate {
                                 point: midpoint,
@@ -793,6 +921,7 @@ impl Viewport {
                             },
                             radius,
                             grid_spacing,
+                            nearest_surface_depth,
                         );
                     }
 
@@ -809,7 +938,7 @@ impl Viewport {
                         let world_fraction =
                             self.world_fraction_for_screen_fraction(start, end, fraction);
                         let line_point = start + (end - start) * world_fraction;
-                        self.consider_snap(
+                        self.consider_visible_model_snap(
                             &mut best,
                             SnapCandidate {
                                 point: line_point,
@@ -820,11 +949,15 @@ impl Viewport {
                             },
                             radius,
                             grid_spacing,
+                            nearest_surface_depth,
                         );
                     }
                 }
 
-                if let Some((ray_origin, ray_direction)) = ray {
+                if visibility.faces_visible
+                    && !visibility.faces_wireframe
+                    && let Some((ray_origin, ray_direction)) = ray
+                {
                     for triangle in geometry.triangles.values() {
                         let [Some(a), Some(b), Some(c)] = triangle
                             .vertices
@@ -857,7 +990,7 @@ impl Viewport {
                         let Some(screen) = self.project_if_visible(rect, point) else {
                             continue;
                         };
-                        self.consider_snap(
+                        self.consider_visible_model_snap(
                             &mut best,
                             SnapCandidate {
                                 point,
@@ -868,6 +1001,7 @@ impl Viewport {
                             },
                             radius,
                             grid_spacing,
+                            nearest_surface_depth,
                         );
                         self.consider_face_edge_snaps(
                             &mut best,
@@ -879,6 +1013,7 @@ impl Viewport {
                             [a, b, c],
                             radius,
                             grid_spacing,
+                            nearest_surface_depth,
                         );
                     }
                 }
@@ -1027,6 +1162,40 @@ impl Viewport {
         })
     }
 
+    fn occurrence_bounds_near_pointer(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        occurrence: &OccurrenceRef,
+        position: Pos2,
+        radius: f32,
+    ) -> bool {
+        let Some(bounds) = self.derived.world_bounds(document, occurrence) else {
+            return true;
+        };
+        let projected = bounds_corners(bounds)
+            .into_iter()
+            .filter_map(|corner| self.project_if_visible(rect, corner))
+            .collect::<Vec<_>>();
+        if projected.is_empty() {
+            return true;
+        }
+        let (min_x, max_x) = projected
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                (range.0.min(point.x), range.1.max(point.x))
+            });
+        let (min_y, max_y) = projected
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                (range.0.min(point.y), range.1.max(point.y))
+            });
+        position.x >= min_x - radius
+            && position.x <= max_x + radius
+            && position.y >= min_y - radius
+            && position.y <= max_y + radius
+    }
+
     fn consider_snap(
         &self,
         best: &mut Option<SnapCandidate>,
@@ -1064,6 +1233,22 @@ impl Viewport {
         }
     }
 
+    fn consider_visible_model_snap(
+        &self,
+        best: &mut Option<SnapCandidate>,
+        candidate: SnapCandidate,
+        radius: f32,
+        grid_spacing: f64,
+        nearest_surface_depth: Option<f64>,
+    ) {
+        if nearest_surface_depth.is_some_and(|surface_depth| {
+            candidate.depth > surface_depth + 1.0e-5 * surface_depth.abs().max(1.0)
+        }) {
+            return;
+        }
+        self.consider_snap(best, candidate, radius, grid_spacing);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn consider_face_edge_snaps(
         &self,
@@ -1076,6 +1261,7 @@ impl Viewport {
         vertices: [Vec3; 3],
         radius: f32,
         grid_spacing: f64,
+        nearest_surface_depth: Option<f64>,
     ) {
         for [start, end] in [
             [vertices[0], vertices[1]],
@@ -1084,7 +1270,7 @@ impl Viewport {
         ] {
             let midpoint = (start + end) * 0.5;
             if let Some(screen) = self.project_if_visible(rect, midpoint) {
-                self.consider_snap(
+                self.consider_visible_model_snap(
                     best,
                     SnapCandidate {
                         point: midpoint,
@@ -1095,12 +1281,13 @@ impl Viewport {
                     },
                     radius,
                     grid_spacing,
+                    nearest_surface_depth,
                 );
             }
 
             let closest = closest_point_on_segment(face_hit, start, end);
             if let Some(screen) = self.project_if_visible(rect, closest) {
-                self.consider_snap(
+                self.consider_visible_model_snap(
                     best,
                     SnapCandidate {
                         point: closest,
@@ -1111,6 +1298,7 @@ impl Viewport {
                     },
                     radius,
                     grid_spacing,
+                    nearest_surface_depth,
                 );
             }
         }
@@ -2481,9 +2669,9 @@ fn closest_point_on_segment(point: Vec3, start: Vec3, end: Vec3) -> Vec3 {
 mod tests {
     use super::{
         ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
-        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, SnapResult, Viewport,
-        WalkthroughCamera, WalkthroughTuning, cuboid_corners, height_in_triangle_xz,
-        point_in_triangle,
+        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, SnapOptions, SnapResult,
+        SnapScope, SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
+        height_in_triangle_xz, point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -2781,6 +2969,90 @@ mod tests {
         let after_releasing_pointer = viewport.walkthrough.unwrap().position;
         assert!((after_releasing_pointer.x - after_key_press.x).abs() < 1.0e-12);
         assert!((after_releasing_pointer.z - after_key_press.z).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn focused_text_field_keeps_wheel_input_from_zooming_the_viewport() {
+        let mut viewport = Viewport::default();
+        let document = meshcraft_core::document::Document::new();
+        let context = egui::Context::default();
+        let field_id = egui::Id::unique("wheel-focus-field");
+        let mut text = String::new();
+
+        let mut run_frame = |events: Vec<Event>| {
+            let mut viewport_input = None;
+            let mut field_rect = None;
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 700.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    field_rect = Some(
+                        ui.add(egui::TextEdit::singleline(&mut text).id(field_id))
+                            .rect,
+                    );
+                    viewport_input = Some(viewport.show(
+                        ui,
+                        &super::ViewportScene {
+                            size: Vec2::new(800.0, 600.0),
+                            document: &document,
+                            selection: &[],
+                            active_tool: "Select",
+                            preview: None,
+                            snap: None,
+                            guides: &[],
+                            guide_preview: None,
+                            grid: super::GridStyle {
+                                visible: false,
+                                spacing: 1.0,
+                                extent: 20,
+                                normal_axis: super::GridNormalAxis::Y,
+                                normal_width: 1.0,
+                                thick_width: 3.0,
+                            },
+                        },
+                    ));
+                },
+            );
+            output.textures_delta.clear();
+            (
+                viewport_input.expect("viewport rendered in test frame"),
+                field_rect.expect("text field rendered in test frame"),
+            )
+        };
+
+        let (initial_viewport, field_rect) = run_frame(Vec::new());
+        run_frame(vec![
+            Event::PointerMoved(field_rect.center()),
+            Event::PointerButton {
+                pos: field_rect.center(),
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            },
+            Event::PointerButton {
+                pos: field_rect.center(),
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::default(),
+            },
+        ]);
+        assert!(context.egui_wants_keyboard_input());
+
+        let (viewport_input, _) = run_frame(vec![
+            Event::PointerMoved(initial_viewport.rect.center()),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                modifiers: Modifiers::default(),
+            },
+        ]);
+        assert!(viewport_input.pointer_local.is_some());
+        assert_eq!(28.0, viewport.zoom);
     }
 
     #[test]
@@ -3284,6 +3556,180 @@ mod tests {
             .unwrap();
         assert_eq!(SnapKind::Line, nearest_edge.kind);
         assert!(nearest_edge.point.distance(Vec3::new(4.0, 0.0, 2.0)) < 1.0e-6);
+    }
+
+    #[test]
+    fn snapping_uses_grid_lines_and_prefers_endpoints_at_face_ties() {
+        let rect = Rect::from_min_size(Pos2::new(48.0, 28.0), Vec2::new(900.0, 640.0));
+        let empty = meshcraft_core::document::Document::new();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+        let between_grid_points = Vec3::new(2.25, 0.0, -3.5);
+        let grid_line_pointer = viewport.world_to_screen(rect, between_grid_points);
+        let grid_line = viewport
+            .snap_point(rect, &empty, grid_line_pointer, 8.0, 1.0)
+            .unwrap();
+        assert_eq!(SnapKind::GridLine, grid_line.kind);
+        assert!(grid_line.point.distance(Vec3::new(2.0, 0.0, -3.5)) < 1.0e-6);
+
+        let mut document = meshcraft_core::document::Document::new();
+        document
+            .add_ground_rectangle(
+                "tie-face",
+                Vec3::new(-5.0, 0.0, -5.0),
+                Vec3::new(5.0, 0.0, 5.0),
+            )
+            .unwrap();
+        let endpoint = Vec3::new(1.0, 0.0, 2.0);
+        document
+            .add_line_segment("tie-endpoint", endpoint, Vec3::new(3.0, 0.0, 2.0))
+            .unwrap();
+        let pointer = viewport.world_to_screen(rect, endpoint);
+        let tied = viewport
+            .snap_point(rect, &document, pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Endpoint, tied.kind);
+        assert_eq!(endpoint, tied.point);
+    }
+
+    #[test]
+    fn snapping_ignores_model_edges_occluded_by_a_visible_face() {
+        let rect = Rect::from_min_size(Pos2::new(48.0, 28.0), Vec2::new(900.0, 640.0));
+        let mut document = meshcraft_core::document::Document::new();
+        let endpoint = Vec3::new(1.0, 0.0, 2.0);
+        document
+            .add_line_segment("hidden-line", endpoint, Vec3::new(3.0, 0.0, 2.0))
+            .unwrap();
+        document
+            .add_cuboid(
+                "occluding-solid",
+                Vec3::new(10.0, 1.0, 10.0),
+                Vec3::new(-5.0, 0.5, -5.0),
+            )
+            .unwrap();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+        let pointer = viewport.world_to_screen(rect, endpoint);
+        let snapped = viewport
+            .snap_point(rect, &document, pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Face, snapped.kind);
+        assert!((snapped.point.y - 1.5).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn snapping_respects_hidden_geometry_and_active_occurrence_scope() {
+        let rect = Rect::from_min_size(Pos2::new(40.0, 28.0), Vec2::new(900.0, 640.0));
+        let mut document = meshcraft_core::document::Document::new();
+        document
+            .add_line_segment(
+                "active-context-line",
+                Vec3::new(2.25, 0.0, 2.25),
+                Vec3::new(4.25, 0.0, 2.25),
+            )
+            .unwrap();
+        document
+            .add_line_segment(
+                "other-context-line",
+                Vec3::new(12.25, 0.0, 2.25),
+                Vec3::new(14.25, 0.0, 2.25),
+            )
+            .unwrap();
+        let occurrences = document.occurrence_refs().unwrap();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+        let active_point = Vec3::new(2.25, 0.0, 2.25);
+        let active_pointer = viewport.world_to_screen(rect, active_point);
+        let active_snap = viewport
+            .snap_point_with_options(
+                rect,
+                &document,
+                active_pointer,
+                SnapOptions {
+                    snap_radius: 8.0,
+                    grid_spacing: 1_000.0,
+                    guides: &[],
+                    scope: SnapScope::Occurrence(&occurrences[0]),
+                    visibility: SnapVisibility::default(),
+                },
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Endpoint, active_snap.kind);
+        assert_eq!(active_point, active_snap.point);
+
+        let other_point = Vec3::new(12.25, 0.0, 2.25);
+        let other_pointer = viewport.world_to_screen(rect, other_point);
+        let outside_scope = viewport
+            .snap_point_with_options(
+                rect,
+                &document,
+                other_pointer,
+                SnapOptions {
+                    snap_radius: 8.0,
+                    grid_spacing: 1_000.0,
+                    guides: &[],
+                    scope: SnapScope::Occurrence(&occurrences[0]),
+                    visibility: SnapVisibility::default(),
+                },
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Free, outside_scope.kind);
+
+        let hidden_edges = viewport
+            .snap_point_with_options(
+                rect,
+                &document,
+                active_pointer,
+                SnapOptions {
+                    snap_radius: 8.0,
+                    grid_spacing: 1_000.0,
+                    guides: &[],
+                    scope: SnapScope::Document,
+                    visibility: SnapVisibility {
+                        edges_visible: false,
+                        ..SnapVisibility::default()
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Free, hidden_edges.kind);
+
+        let mut faces = meshcraft_core::document::Document::new();
+        faces
+            .add_ground_rectangle(
+                "hidden-face",
+                Vec3::new(-5.0, 0.0, -5.0),
+                Vec3::new(5.0, 0.0, 5.0),
+            )
+            .unwrap();
+        let face_point = Vec3::new(-2.0, 0.0, 1.0);
+        let face_pointer = viewport.world_to_screen(rect, face_point);
+        for visibility in [
+            SnapVisibility {
+                faces_visible: false,
+                ..SnapVisibility::default()
+            },
+            SnapVisibility {
+                faces_wireframe: true,
+                ..SnapVisibility::default()
+            },
+        ] {
+            let snap = viewport
+                .snap_point_with_options(
+                    rect,
+                    &faces,
+                    face_pointer,
+                    SnapOptions {
+                        snap_radius: 8.0,
+                        grid_spacing: 1_000.0,
+                        guides: &[],
+                        scope: SnapScope::Document,
+                        visibility,
+                    },
+                )
+                .unwrap();
+            assert_eq!(SnapKind::Free, snap.kind);
+        }
     }
 
     #[test]
