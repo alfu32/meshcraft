@@ -7,7 +7,16 @@ use crate::document::{
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use crate::selection::{EditContext, SelectedEntity, SelectionSession, SelectionTarget};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+
+fn groupable_domain_extension_key(kind: crate::selection::SelectionKind) -> Option<&'static str> {
+    match kind {
+        crate::selection::SelectionKind::Dimension => Some("k3d.dimensions"),
+        crate::selection::SelectionKind::Text => Some("k3d.texts"),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ExplodeReport {
@@ -378,15 +387,25 @@ pub fn group_selection(
             .collect::<Vec<_>>();
         return group_occurrences(document, &occurrences, name);
     }
-    if selection.selected().iter().all(|target| {
-        matches!(
-            target.entity,
-            SelectedEntity::Vertex(_) | SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
-        )
-    }) {
+    if selection
+        .selected()
+        .iter()
+        .all(|target| match &target.entity {
+            SelectedEntity::Vertex(_)
+            | SelectedEntity::Segment(_)
+            | SelectedEntity::Triangle(_) => true,
+            SelectedEntity::SemanticHandle { kind, .. } => {
+                groupable_domain_extension_key(*kind).is_some()
+            }
+            SelectedEntity::Occurrence => false,
+        })
+    {
         return group_mesh_selection(document, selection, name);
     }
-    Err("group object instances or mesh entities in separate operations".to_owned())
+    Err(
+        "group object instances or supported mesh, dimension and text selections separately"
+            .to_owned(),
+    )
 }
 
 /// Deletes an unused object definition. The root definition and definitions referenced by any
@@ -439,8 +458,9 @@ pub fn delete_unused_definition(
     Ok(())
 }
 
-/// Moves selected raw mesh entities into a new nested object. Unselected geometry remains in
-/// place; selecting geometry on an ordinary instance creates an occurrence-local mesh override.
+/// Moves selected mesh entities and supported annotations into a new nested object. Unselected
+/// content remains in place; mesh edits on an ordinary instance create an occurrence-local
+/// geometry override. Inherited annotations can only move while editing their definition.
 pub fn group_mesh_selection(
     document: &mut Document,
     selection: &SelectionSession,
@@ -472,33 +492,51 @@ pub fn group_mesh_selection(
         .effective_geometry(&occurrence)
         .cloned()
         .ok_or_else(|| "the selected geometry owner has no mesh".to_owned())?;
+    let prototype_edit = match &selection.context {
+        EditContext::Definition(active) => *active == definition_id,
+        EditContext::Occurrence(active) => active == &occurrence,
+        EditContext::Document => occurrence.is_scene_root(),
+    };
+    let mut selected_domain_ids = BTreeMap::<&'static str, BTreeSet<String>>::new();
     let mut selected_vertices = BTreeSet::new();
     let mut selected_segments = BTreeSet::new();
     let mut selected_triangles = BTreeSet::new();
     for target in targets {
-        match target.entity {
-            SelectedEntity::Vertex(id) if source.vertices.contains_key(&id) => {
-                selected_vertices.insert(id);
+        match &target.entity {
+            SelectedEntity::Vertex(id) if source.vertices.contains_key(id) => {
+                selected_vertices.insert(*id);
             }
             SelectedEntity::Segment(id) => {
                 let segment = source
                     .segments
-                    .get(&id)
+                    .get(id)
                     .ok_or_else(|| format!("selected segment {} no longer exists", id.0))?;
-                selected_segments.insert(id);
+                selected_segments.insert(*id);
                 selected_vertices.extend(segment.endpoints.map(|reference| reference.id));
             }
             SelectedEntity::Triangle(id) => {
                 let triangle = source
                     .triangles
-                    .get(&id)
+                    .get(id)
                     .ok_or_else(|| format!("selected face {} no longer exists", id.0))?;
-                selected_triangles.insert(id);
+                selected_triangles.insert(*id);
                 selected_vertices.extend(triangle.vertices.map(|reference| reference.id));
             }
-            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => {
+            SelectedEntity::SemanticHandle { kind, id } => {
+                let Some(field) = groupable_domain_extension_key(*kind) else {
+                    return Err(format!(
+                        "grouping {:?} selections requires a domain adapter",
+                        kind
+                    ));
+                };
+                selected_domain_ids
+                    .entry(field)
+                    .or_default()
+                    .insert(id.clone());
+            }
+            SelectedEntity::Occurrence => {
                 return Err(
-                    "group raw vertices, edges and faces separately from object instances"
+                    "group raw mesh and supported domain entities separately from object instances"
                         .to_owned(),
                 );
             }
@@ -506,6 +544,52 @@ pub fn group_mesh_selection(
                 return Err("a selected vertex no longer exists".to_owned());
             }
         }
+    }
+
+    if !selected_domain_ids.is_empty() && !prototype_edit {
+        return Err(
+            "group inherited dimensions or text while editing their object definition; occurrence overrides are not supported yet"
+                .to_owned(),
+        );
+    }
+
+    let mut moved_extensions = BTreeMap::new();
+    for (field, selected_ids) in &selected_domain_ids {
+        let values = candidate
+            .definitions
+            .get(&definition_id)
+            .and_then(|definition| definition.extensions.get(*field))
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("selected domain data {field:?} is not available"))?;
+        let mut moved = Vec::new();
+        let mut remaining = Vec::new();
+        let mut counts = BTreeMap::<&str, usize>::new();
+        for value in values {
+            let id = value
+                .as_object()
+                .and_then(|record| record.get("id"))
+                .and_then(Value::as_str);
+            if let Some(id) = id.filter(|id| selected_ids.contains(*id)) {
+                *counts.entry(id).or_default() += 1;
+                moved.push(value.clone());
+            } else {
+                remaining.push(value.clone());
+            }
+        }
+        for id in selected_ids {
+            match counts.get(id.as_str()).copied() {
+                Some(1) => {}
+                Some(_) => return Err(format!("selected {field} id {id:?} is ambiguous")),
+                None => return Err(format!("selected {field} id {id:?} no longer exists")),
+            }
+        }
+        moved_extensions.insert((*field).to_owned(), Value::Array(moved));
+        candidate
+            .definitions
+            .get_mut(&definition_id)
+            .expect("selected definition was resolved")
+            .extensions
+            .insert((*field).to_owned(), Value::Array(remaining));
     }
 
     let mut moved_geometry = GeometryBundle::default();
@@ -562,15 +646,13 @@ pub fn group_mesh_selection(
             },
         );
     }
-    if moved_geometry.is_empty() {
-        return Err("select at least one edge, face or vertex to create an object".to_owned());
+    if moved_geometry.is_empty() && moved_extensions.is_empty() {
+        return Err(
+            "select at least one edge, face, vertex, dimension or text to create an object"
+                .to_owned(),
+        );
     }
 
-    let prototype_edit = match &selection.context {
-        EditContext::Definition(active) => *active == definition_id,
-        EditContext::Occurrence(active) => active == &occurrence,
-        EditContext::Document => occurrence.is_scene_root(),
-    };
     let mut remaining = source.clone();
     for id in &selected_segments {
         remaining.segments.remove(id);
@@ -626,12 +708,16 @@ pub fn group_mesh_selection(
         Definition {
             id: object_definition,
             name: name.to_owned(),
-            kind: DefinitionKind::Mesh,
+            kind: if moved_extensions.is_empty() {
+                DefinitionKind::Mesh
+            } else {
+                DefinitionKind::Hybrid
+            },
             frame: Affine3::IDENTITY,
             geometry: moved_geometry,
             default_child_layout: None,
             domain_data: BTreeMap::new(),
-            extensions: BTreeMap::new(),
+            extensions: moved_extensions,
             legacy_aliases: Vec::new(),
         },
     );
@@ -1930,6 +2016,174 @@ mod tests {
         assert_eq!(expected, actual);
         assert!(grouped.path.starts_with(&first.path));
         document.validate().unwrap();
+    }
+
+    #[test]
+    fn grouping_selected_dimensions_and_text_moves_legacy_payload_with_mesh() {
+        let mut document = Document::new();
+        let instance = cube(&mut document, "annotated", Vec3::ZERO);
+        let definition_id = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let second_entry = document
+            .add_layout_entry(
+                document.root_layout(),
+                definition_id,
+                Affine3::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let second = OccurrenceRef::root(second_entry);
+        let face_id = *document
+            .effective_geometry(&instance)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.dimensions".to_owned(),
+            serde_json::json!([
+                {"id": "dimension-selected", "start": {"x": 1, "y": 2, "z": 3}},
+                {"id": "dimension-retained", "offset": 0.25}
+            ]),
+        );
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            serde_json::json!([
+                {"id": "text-selected", "text": "Door", "position": {"x": 4, "y": 5, "z": 6}}
+            ]),
+        );
+
+        let mut selection = SelectionSession::default();
+        selection.context = EditContext::Definition(definition_id);
+        selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: instance.clone(),
+                    entity: SelectedEntity::Triangle(face_id),
+                },
+                SelectionTarget {
+                    occurrence: instance.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Dimension,
+                        id: "dimension-selected".to_owned(),
+                    },
+                },
+                SelectionTarget {
+                    occurrence: instance.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Text,
+                        id: "text-selected".to_owned(),
+                    },
+                },
+            ],
+            SelectionMode::Replace,
+        );
+
+        let grouped = group_selection(&mut document, &selection, "Selected annotations").unwrap();
+
+        let source = document.definition(definition_id).unwrap();
+        assert_eq!(11, source.geometry.triangles.len());
+        assert_eq!(
+            serde_json::json!([{"id": "dimension-retained", "offset": 0.25}]),
+            source.extensions["k3d.dimensions"]
+        );
+        assert_eq!(serde_json::json!([]), source.extensions["k3d.texts"]);
+        let grouped_definition = document.resolve_occurrence(&grouped).unwrap().definition;
+        assert_eq!(
+            crate::document::DefinitionKind::Hybrid,
+            grouped_definition.kind
+        );
+        assert_eq!(1, grouped_definition.geometry.triangles.len());
+        assert_eq!(
+            serde_json::json!([{
+                "id": "dimension-selected",
+                "start": {"x": 1, "y": 2, "z": 3}
+            }]),
+            grouped_definition.extensions["k3d.dimensions"]
+        );
+        assert_eq!(
+            serde_json::json!([{
+                "id": "text-selected",
+                "text": "Door",
+                "position": {"x": 4, "y": 5, "z": 6}
+            }]),
+            grouped_definition.extensions["k3d.texts"]
+        );
+        let grouped_child_id = *grouped.path.last().unwrap();
+        assert!(
+            document
+                .resolve_occurrence(&second.child(grouped_child_id))
+                .is_some()
+        );
+        let exported = crate::legacy::export_current_value(&document).unwrap();
+        let prototypes = exported["prototypes"].as_array().unwrap();
+        let source_prototype = prototypes
+            .iter()
+            .find(|prototype| prototype["name"] == "annotated")
+            .unwrap();
+        let grouped_prototype = prototypes
+            .iter()
+            .find(|prototype| prototype["name"] == "Selected annotations")
+            .unwrap();
+        assert_eq!(
+            serde_json::json!([{"id": "dimension-retained", "offset": 0.25}]),
+            source_prototype["dimensions"]
+        );
+        assert_eq!(serde_json::json!([]), source_prototype["texts"]);
+        assert_eq!(
+            serde_json::json!([{
+                "id": "dimension-selected",
+                "start": {"x": 1, "y": 2, "z": 3}
+            }]),
+            grouped_prototype["dimensions"]
+        );
+        assert_eq!(
+            serde_json::json!([{
+                "id": "text-selected",
+                "text": "Door",
+                "position": {"x": 4, "y": 5, "z": 6}
+            }]),
+            grouped_prototype["texts"]
+        );
+        document.validate().unwrap();
+    }
+
+    #[test]
+    fn grouping_inherited_domain_data_from_one_instance_is_rejected_atomically() {
+        let mut document = Document::new();
+        let instance = cube(&mut document, "shared", Vec3::ZERO);
+        let definition_id = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        document
+            .definitions
+            .get_mut(&definition_id)
+            .unwrap()
+            .extensions
+            .insert(
+                "k3d.dimensions".to_owned(),
+                serde_json::json!([{"id": "dimension-1", "text": "length"}]),
+            );
+        let before = document.clone();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: instance,
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Dimension,
+                id: "dimension-1".to_owned(),
+            },
+        });
+
+        let error = group_selection(&mut document, &selection, "Moved annotation").unwrap_err();
+
+        assert!(error.contains("editing their object definition"));
+        assert_eq!(before, document);
     }
 
     #[test]
