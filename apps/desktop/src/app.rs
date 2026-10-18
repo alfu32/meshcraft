@@ -23,6 +23,7 @@ use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::operations::extrude::{ExtrudeSourceTriangle, extrude_region};
 use meshcraft_core::operations::objects as modeling_objects;
 use meshcraft_core::operations::primitives as modeling_primitives;
+use meshcraft_core::operations::revolve as modeling_revolve;
 use meshcraft_core::operations::sweep::{self as modeling_sweep, SweepMesh, SweepProfileSegment};
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
@@ -42,6 +43,7 @@ use meshcraft_core::tools::{
         build_polyline_mesh_from_segments,
     },
     primitives::{PrimitiveKind, PrimitivePick, PrimitiveToolState},
+    revolve::{RevolveInput, RevolvePick, RevolveToolState},
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
 };
@@ -1024,7 +1026,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.distance",
                 "Tool> Distance Input",
                 "Tools",
-                "line construction line numeric length distance operator",
+                "line construction line numeric length distance operator revolve angle",
                 Some("distance"),
                 ShellAction::FocusToolDistance,
             ),
@@ -1056,7 +1058,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.finish",
                 "Tool> Finish Current Input",
                 "Tools",
-                "line construction line polyline finish enter commit chain",
+                "line construction line polyline revolve sweep angle finish enter commit chain",
                 Some("select"),
                 ShellAction::FinishToolInput,
             ),
@@ -1064,7 +1066,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.undo_point",
                 "Tool> Undo Last Point or Input",
                 "Tools",
-                "line construction line polyline backspace undo point numeric input",
+                "line construction line polyline revolve axis angle backspace undo point numeric input",
                 Some("undo"),
                 ShellAction::UndoToolPoint,
             ),
@@ -1349,6 +1351,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "extrude_swipe" => ShellAction::SelectToolAlias("Extrude Swipe"),
                 "extrude_swipe_3d" => ShellAction::SelectToolAlias("Extrude Swipe 3D"),
                 "ribbon_3d" => ShellAction::SelectToolAlias("Ribbon 3D"),
+                "revolve" => ShellAction::SelectToolAlias("Revolve"),
                 "mesh" => ShellAction::SelectToolAlias("Mesh"),
                 "push_pull" => ShellAction::SelectToolAlias("Push/Pull"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
@@ -1978,6 +1981,7 @@ pub struct MeshcraftApp {
     push_pull_numeric_input: String,
     tool_cycle_state: ToolCycleState,
     primitive_tool_state: PrimitiveToolState,
+    revolve_tool_state: RevolveToolState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
     object_place_tool_state: ObjectPlaceToolState,
@@ -2128,6 +2132,7 @@ impl MeshcraftApp {
             push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
             primitive_tool_state: PrimitiveToolState::default(),
+            revolve_tool_state: RevolveToolState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: ObjectPlaceToolState::default(),
@@ -3214,6 +3219,87 @@ impl MeshcraftApp {
         }
         .map_err(str::to_owned)?;
         Ok((owner, occurrence, inverse, mesh))
+    }
+
+    fn build_revolve_mesh(
+        &self,
+        input: RevolveInput,
+    ) -> Result<(LineOwner, OccurrenceRef, Affine3, SweepMesh), String> {
+        let (owner, occurrence, inverse, profile) = self.selected_sweep_profile()?;
+        let axis_origin = inverse.transform_point(input.axis_origin);
+        let axis_end = inverse.transform_point(input.axis_origin + input.axis_direction);
+        let axis_direction = axis_end - axis_origin;
+        let scale = profile
+            .iter()
+            .flat_map(|segment| segment.endpoints)
+            .chain([axis_origin, axis_end])
+            .map(Vec3::length)
+            .fold(0.0, f64::max);
+        let tolerance = GeometryTolerance::default().linear_at(scale);
+        let mesh = modeling_revolve::revolve(
+            &profile,
+            axis_origin,
+            axis_direction,
+            input.angle_radians,
+            self.document
+                .model_settings()
+                .circle_segments
+                .clamp(3, 4096) as usize,
+            tolerance,
+        )
+        .map_err(str::to_owned)?;
+        Ok((owner, occurrence, inverse, mesh))
+    }
+
+    fn revolve_preview(&self) -> Option<ToolPreview> {
+        let input = self.revolve_tool_state.input().ok()?;
+        let (_, occurrence, inverse, mesh) = self.build_revolve_mesh(input).ok()?;
+        let world_transform = self
+            .document
+            .resolve_occurrence(&occurrence)
+            .map(|resolved| resolved.world_transform)
+            .or_else(|| inverse.inverse(GeometryTolerance::default()))?;
+        let edges = mesh
+            .segments
+            .iter()
+            .map(|[start, end]| {
+                [
+                    world_transform.transform_point(mesh.vertices[*start]),
+                    world_transform.transform_point(mesh.vertices[*end]),
+                ]
+            })
+            .collect();
+        let triangles = mesh
+            .triangles
+            .iter()
+            .map(|triangle| {
+                (
+                    triangle
+                        .vertices
+                        .map(|index| world_transform.transform_point(mesh.vertices[index])),
+                    self.current_paint_color,
+                )
+            })
+            .collect();
+        Some(ToolPreview::Primitive { edges, triangles })
+    }
+
+    fn finish_revolve(&mut self) -> CommandResult {
+        let input = match self.revolve_tool_state.input() {
+            Ok(input) => input,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let (owner, occurrence, _, mesh) = match self.build_revolve_mesh(input) {
+            Ok(result) => result,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let result = self.commit_sweep_mesh(owner, occurrence, mesh, "Revolve");
+        if result.completion == CommandCompletion::Completed {
+            let status = self.status.clone();
+            self.activate_tool("Select");
+            self.status = status;
+        }
+        result
     }
 
     fn spatial_sweep_preview(&self, path: Option<&PolylinePath>) -> Option<ToolPreview> {
@@ -4383,6 +4469,7 @@ impl MeshcraftApp {
             .activate(PlanarShapeTool::from_label(tool));
         self.primitive_tool_state
             .activate(PrimitiveKind::from_label(tool));
+        self.revolve_tool_state.activate(tool == "Revolve");
         self.transform_tool_state
             .activate(TransformTool::from_label(tool));
         self.status = match tool {
@@ -4404,6 +4491,9 @@ impl MeshcraftApp {
             }
             "Ribbon 3D" => {
                 "Ribbon 3D: pick spatial path points; width and offset use Polyline Settings. Enter finishes.".to_owned()
+            }
+            "Revolve" => {
+                "Revolve: select profile edges, pick axis origin and direction, then type an angle or press Enter for 360°. Resolution uses Circle Segments.".to_owned()
             }
             "Mesh" => "Mesh: pick points to add connecting edges and nearest-point triangles. Enter starts a new mesh chain; Escape exits.".to_owned(),
             "Line Offset" => "Line Offset: select edges, then pick a reference point and target point.".to_owned(),
@@ -4484,6 +4574,15 @@ impl MeshcraftApp {
                     }
                     return CommandResult::completed();
                 }
+                if self.revolve_tool_state.active()
+                    && self.revolve_tool_state.axis_points().len() == 2
+                {
+                    self.revolve_tool_state.clear_numeric_input();
+                    self.status =
+                        "Revolve input: type a signed angle from 0° to 360°, then press Enter."
+                            .to_owned();
+                    return CommandResult::completed();
+                }
                 if self.transform_tool_state.active().is_some() {
                     if self.transform_tool_state.points().is_empty() {
                         self.status = "Pick the transform reference point before entering a value."
@@ -4507,6 +4606,9 @@ impl MeshcraftApp {
                 }
                 if self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
                     return self.finish_push_pull_distance();
+                }
+                if self.revolve_tool_state.active() {
+                    return self.finish_revolve();
                 }
                 if self.mesh_tool_state.active() {
                     self.mesh_tool_state.finish_chain();
@@ -4532,6 +4634,16 @@ impl MeshcraftApp {
                         return CommandResult::failed("there is no transform input to undo");
                     }
                     self.status = "Removed the last transform input or point.".to_owned();
+                    return CommandResult::completed();
+                }
+                if self.revolve_tool_state.active() {
+                    if !self.revolve_tool_state.backspace() {
+                        return CommandResult::failed(
+                            "there is no Revolve input or axis point to undo",
+                        );
+                    }
+                    self.status =
+                        "Removed the last Revolve input character or axis point.".to_owned();
                     return CommandResult::completed();
                 }
                 if self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
@@ -5347,6 +5459,11 @@ impl MeshcraftApp {
                 "select profile edges in the active geometry graph first",
             );
         }
+        if id == "tool.builtin.revolve" && self.selected_sweep_profile().is_err() {
+            return CommandState::disabled(
+                "select profile edges in the active geometry graph first",
+            );
+        }
         if matches!(
             id,
             "tool.builtin.cut_holes" | "tool.builtin.cut_holes_2" | "tool.builtin.cut_out_3"
@@ -5391,6 +5508,11 @@ impl MeshcraftApp {
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
             && !self.transform_tool_state.points().is_empty();
+        let revolve_input_ready =
+            self.revolve_tool_state.active() && self.revolve_tool_state.axis_points().len() == 2;
+        let revolve_undo_ready = self.revolve_tool_state.active()
+            && (!self.revolve_tool_state.numeric_input().is_empty()
+                || !self.revolve_tool_state.axis_points().is_empty());
         let path_tool_active = matches!(
             self.active_tool.as_str(),
             "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
@@ -5405,6 +5527,7 @@ impl MeshcraftApp {
         if id == "tool.distance"
             && !line_distance_ready
             && !transform_input_ready
+            && !revolve_input_ready
             && !(self.active_tool == "Push/Pull" && self.push_pull_reference.is_some())
         {
             return CommandState::disabled(
@@ -5417,6 +5540,7 @@ impl MeshcraftApp {
             && !push_pull_input_ready
             && !polyline_finish_ready
             && !mesh_finish_ready
+            && !revolve_input_ready
         {
             return CommandState::disabled(
                 "start a Line, Construction Line, Polyline, Double Line, a sweep path, or a Mesh chain first",
@@ -5426,6 +5550,7 @@ impl MeshcraftApp {
             && !line_distance_ready
             && !transform_input_ready
             && !polyline_undo_ready
+            && !revolve_undo_ready
         {
             return CommandState::disabled("start a point-input tool before undoing a point");
         }
@@ -5865,6 +5990,7 @@ impl MeshcraftApp {
         self.drawing_tool.handle(ToolEvent::Escape);
         self.shape_tool_state.activate(None);
         self.primitive_tool_state.cancel();
+        self.revolve_tool_state.activate(false);
         self.transform_tool_state.cancel();
         self.polyline_tool_state.cancel();
         self.mesh_tool_state.cancel();
@@ -6250,6 +6376,30 @@ impl MeshcraftApp {
                 }
                 Ok(PolylinePickEffect::Closed) => {
                     self.finish_polyline(true);
+                }
+                Err(error) => self.status = error.to_owned(),
+            }
+            return;
+        }
+
+        if self.revolve_tool_state.active() {
+            if self.selected_sweep_profile().is_err() {
+                self.status =
+                    "Select one or more profile edges in the active geometry graph first."
+                        .to_owned();
+                return;
+            }
+            let Some(point) = construction_point else {
+                self.status = "Revolve needs points in the active construction view.".to_owned();
+                return;
+            };
+            match self.revolve_tool_state.pick(point) {
+                Ok(RevolvePick::AxisOrigin) => {
+                    self.status = "Revolve: pick a point on the axis direction.".to_owned();
+                }
+                Ok(RevolvePick::AxisDirection) => {
+                    self.status =
+                        "Revolve: type an angle in degrees, or press Enter for 360°.".to_owned();
                 }
                 Err(error) => self.status = error.to_owned(),
             }
@@ -6872,6 +7022,25 @@ impl MeshcraftApp {
         let point = snap
             .map(|result| result.point)
             .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+        if self.revolve_tool_state.active() {
+            let point_position = point?;
+            self.revolve_tool_state.set_pointer(Some(point_position));
+            match self.revolve_tool_state.axis_points() {
+                [] => return point.and_then(|position| self.feedback_preview(position)),
+                [origin] => {
+                    return Some(ToolPreview::Line {
+                        start: *origin,
+                        end: point_position,
+                    });
+                }
+                [_, _] => {
+                    return self
+                        .revolve_preview()
+                        .or_else(|| point.and_then(|position| self.feedback_preview(position)));
+                }
+                _ => unreachable!("Revolve only accepts two axis points"),
+            }
+        }
         let point_preview = || point.and_then(|position| self.feedback_preview(position));
         if self.object_place_tool_state.active_definition().is_some() {
             if let Ok(Some(preview)) = self
@@ -8029,6 +8198,25 @@ impl MeshcraftApp {
                     });
                 });
         }
+        if self.revolve_tool_state.active() && self.revolve_tool_state.axis_points().len() == 2 {
+            let position = input.rect.left_top() + egui::vec2(18.0, 54.0);
+            let text = if self.revolve_tool_state.numeric_input().is_empty() {
+                "Revolve angle: 360° (default); type a signed angle".to_owned()
+            } else {
+                format!(
+                    "Revolve angle: {}°",
+                    self.revolve_tool_state.numeric_input()
+                )
+            };
+            egui::Area::new(egui::Id::unique("revolve-angle-input"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(position)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(text);
+                    });
+                });
+        }
         if self.transform_tool_state.active().is_some()
             && !self.transform_tool_state.numeric_input().is_empty()
         {
@@ -8887,6 +9075,29 @@ impl MeshcraftApp {
                 }
             }
         }
+        if shortcuts_allowed && self.revolve_tool_state.active() {
+            let typed = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Text(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            });
+            self.revolve_tool_state.add_numeric_text(&typed);
+            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
+                self.status = if self.revolve_tool_state.backspace() {
+                    "Removed the last Revolve input character or axis point.".to_owned()
+                } else {
+                    "There is no Revolve input to undo.".to_owned()
+                };
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                self.run_command("tool.finish");
+            }
+        }
         if shortcuts_allowed
             && self.active_tool == "Mesh"
             && ui.input(|input| input.key_pressed(egui::Key::Enter))
@@ -9415,11 +9626,12 @@ mod tests {
     use super::{
         CommandPayload, CutTool, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
         MeshcraftApp, OrthoView, PolylineToolState, Preferences, PrimitiveToolState,
-        ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionMode, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
-        ToolEvent, TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
-        command_matches, point_feedback_text, push_pull_feedback_text, registry_has_unique_ids,
-        shell_commands, tool_command_id, vector_feedback_text,
+        ReplacementDecision, RevolveToolState, SelectedEntity, SelectionClickTracker,
+        SelectionDisplayPolicy, SelectionMode, SelectionSession, SelectionTarget, ShapeToolState,
+        ToolCycleState, ToolEvent, TransactionHistory, TransformPick, TransformTool,
+        TransformToolState, UiProfile, command_matches, point_feedback_text,
+        push_pull_feedback_text, registry_has_unique_ids, shell_commands, tool_command_id,
+        vector_feedback_text,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, SelectionGesture,
@@ -9608,6 +9820,7 @@ mod tests {
             push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
             primitive_tool_state: PrimitiveToolState::default(),
+            revolve_tool_state: RevolveToolState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: super::ObjectPlaceToolState::default(),
@@ -12518,6 +12731,123 @@ mod tests {
             .unwrap();
         assert!(geometry.segments.is_empty());
         assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn revolve_command_defaults_to_full_turn_and_commits_selected_closed_profile() {
+        fn snap(point: Vec3) -> SnapResult {
+            SnapResult {
+                point,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            }
+        }
+
+        let mut app = test_app();
+        assert!(!app.query_command_state("tool.builtin.revolve").enabled);
+        let mut profile = Vec::new();
+        for [start, end] in [
+            [Vec3::ZERO, Vec3::X],
+            [Vec3::X, Vec3::X + Vec3::Y],
+            [Vec3::X + Vec3::Y, Vec3::Y],
+            [Vec3::Y, Vec3::ZERO],
+        ] {
+            profile.extend(app.create_line_in_active_context(start, end).unwrap());
+        }
+        app.selection.apply(profile, SelectionMode::Replace);
+        assert!(app.query_command_state("tool.builtin.revolve").enabled);
+        let activation = app.dispatch_command("tool.builtin.revolve", &CommandPayload::default());
+        assert!(activation.accepted, "{}", app.status);
+        assert_eq!("Revolve", app.active_tool);
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for point in [Vec3::ZERO, Vec3::Y] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(point)), Some(point));
+        }
+        assert!(app.query_command_state("tool.finish").enabled);
+        let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap(Vec3::X * 2.0)));
+        assert!(matches!(preview, Some(ToolPreview::Primitive { .. })));
+        let result = app.dispatch_command("tool.finish", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!("Select", app.active_tool);
+
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(96, geometry.triangles.len());
+        assert_eq!(96, app.selection.summary().faces);
+        assert!(
+            geometry
+                .triangles
+                .values()
+                .all(|triangle| triangle.color == Rgba8::WHITE)
+        );
+        assert_eq!(5, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(4, geometry.segments.len());
+        assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn revolve_accepts_typed_signed_angle_through_the_workspace_input() {
+        fn snap(point: Vec3) -> SnapResult {
+            SnapResult {
+                point,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            }
+        }
+
+        let mut app = test_app();
+        let profile = app
+            .create_line_in_active_context(Vec3::X, Vec3::X + Vec3::Y)
+            .unwrap();
+        app.selection.apply(profile, SelectionMode::Replace);
+        app.run_command("tool.builtin.revolve");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for point in [Vec3::ZERO, Vec3::Y] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(point)), Some(point));
+        }
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+        app.run_command("tool.distance");
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::Text("-90".to_owned()),
+                Event::Key {
+                    key: Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+
+        assert_eq!("Select", app.active_tool);
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(48, geometry.triangles.len());
+        let swept_points = geometry
+            .triangles
+            .values()
+            .flat_map(|triangle| triangle.vertices)
+            .filter_map(|vertex| geometry.vertex_position(vertex))
+            .collect::<Vec<_>>();
+        assert!(swept_points.iter().any(|point| point.z > 0.99));
+        assert_eq!(2, app.history.entries().len());
     }
 
     #[test]
