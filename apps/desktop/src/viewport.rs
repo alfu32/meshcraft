@@ -807,6 +807,17 @@ impl Viewport {
                             radius,
                             grid_spacing,
                         );
+                        self.consider_face_edge_snaps(
+                            &mut best,
+                            rect,
+                            position,
+                            ray_origin,
+                            point,
+                            facing_normal,
+                            [a, b, c],
+                            radius,
+                            grid_spacing,
+                        );
                     }
                 }
             }
@@ -988,6 +999,58 @@ impl Viewport {
         let current_score = f64::from(current.screen_distance) + current.depth * 0.02;
         if candidate_score + 1.0e-4 < current_score {
             *best = Some(candidate);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn consider_face_edge_snaps(
+        &self,
+        best: &mut Option<SnapCandidate>,
+        rect: Rect,
+        pointer: Pos2,
+        ray_origin: Vec3,
+        face_hit: Vec3,
+        normal: Vec3,
+        vertices: [Vec3; 3],
+        radius: f32,
+        grid_spacing: f64,
+    ) {
+        for [start, end] in [
+            [vertices[0], vertices[1]],
+            [vertices[1], vertices[2]],
+            [vertices[2], vertices[0]],
+        ] {
+            let midpoint = (start + end) * 0.5;
+            if let Some(screen) = self.project_if_visible(rect, midpoint) {
+                self.consider_snap(
+                    best,
+                    SnapCandidate {
+                        point: midpoint,
+                        normal,
+                        kind: SnapKind::Midpoint,
+                        screen_distance: screen.distance(pointer),
+                        depth: midpoint.distance(ray_origin),
+                    },
+                    radius,
+                    grid_spacing,
+                );
+            }
+
+            let closest = closest_point_on_segment(face_hit, start, end);
+            if let Some(screen) = self.project_if_visible(rect, closest) {
+                self.consider_snap(
+                    best,
+                    SnapCandidate {
+                        point: closest,
+                        normal,
+                        kind: SnapKind::Line,
+                        screen_distance: screen.distance(pointer),
+                        depth: closest.distance(ray_origin),
+                    },
+                    radius,
+                    grid_spacing,
+                );
+            }
         }
     }
 
@@ -2342,6 +2405,16 @@ fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec
     (distance.is_finite() && distance >= 0.0).then_some(distance)
 }
 
+fn closest_point_on_segment(point: Vec3, start: Vec3, end: Vec3) -> Vec3 {
+    let direction = end - start;
+    let length_squared = direction.dot(direction);
+    if length_squared <= 1.0e-24 {
+        return start;
+    }
+    let fraction = ((point - start).dot(direction) / length_squared).clamp(0.0, 1.0);
+    start + direction * fraction
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -3121,6 +3194,37 @@ mod tests {
     }
 
     #[test]
+    fn snapping_finds_triangle_edge_midpoints_and_nearest_edge_points() {
+        let rect = Rect::from_min_size(Pos2::new(56.0, 30.0), Vec2::new(920.0, 680.0));
+        let mut document = meshcraft_core::document::Document::new();
+        document
+            .add_ground_rectangle(
+                "face-edge",
+                Vec3::new(-4.0, 0.0, -4.0),
+                Vec3::new(4.0, 0.0, 4.0),
+            )
+            .unwrap();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+
+        let edge_midpoint = Vec3::new(4.0, 0.0, 0.0);
+        let midpoint_pointer = viewport.world_to_screen(rect, edge_midpoint);
+        let midpoint = viewport
+            .snap_point(rect, &document, midpoint_pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Midpoint, midpoint.kind);
+        assert!(midpoint.point.distance(edge_midpoint) < 1.0e-6);
+
+        let pointer_world = Vec3::new(3.8, 0.0, 2.0);
+        let nearest_edge_pointer = viewport.world_to_screen(rect, pointer_world);
+        let nearest_edge = viewport
+            .snap_point(rect, &document, nearest_edge_pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Line, nearest_edge.kind);
+        assert!(nearest_edge.point.distance(Vec3::new(4.0, 0.0, 2.0)) < 1.0e-6);
+    }
+
+    #[test]
     fn snapping_uses_oriented_grid_and_axis_guides() {
         let rect = Rect::from_min_size(Pos2::new(60.0, 30.0), Vec2::new(900.0, 700.0));
         let document = meshcraft_core::document::Document::new();
@@ -3169,11 +3273,19 @@ mod tests {
             ..Viewport::default()
         };
         let face_pointer = viewport.world_to_screen(rect, face_center);
-        let face = viewport
+        let triangulation_midpoint = viewport
             .snap_point(rect, &document, face_pointer, 8.0, 1_000.0)
             .unwrap();
+        assert_eq!(SnapKind::Midpoint, triangulation_midpoint.kind);
+        assert!(triangulation_midpoint.point.distance(face_center) < 1.0e-6);
+
+        let face_interior = Vec3::new(min.x + 3.0, 0.0, min.z + 5.0);
+        let face_interior_pointer = viewport.world_to_screen(rect, face_interior);
+        let face = viewport
+            .snap_point(rect, &document, face_interior_pointer, 8.0, 1_000.0)
+            .unwrap();
         assert_eq!(SnapKind::Face, face.kind);
-        assert!(face.point.distance(face_center) < 1.0e-6);
+        assert!(face.point.distance(face_interior) < 1.0e-6);
 
         let mut side_document = meshcraft_core::document::Document::new();
         side_document
@@ -3193,12 +3305,12 @@ mod tests {
         let front_face = front
             .snap_point(rect, &side_document, front_pointer, 8.0, 1_000.0)
             .unwrap();
-        assert_eq!(SnapKind::Face, front_face.kind);
+        assert_eq!(SnapKind::Midpoint, front_face.kind);
         assert!((front_face.point.z - 7.0).abs() < 1.0e-6);
         let front_grid = front
             .snap_point(rect, &side_document, front_pointer, 8.0, 1.0)
             .unwrap();
-        assert_eq!(SnapKind::Grid, front_grid.kind);
+        assert_eq!(SnapKind::Midpoint, front_grid.kind);
         assert!(front_grid.point.distance(Vec3::new(3.0, 4.0, 7.0)) < 1.0e-6);
 
         let empty = meshcraft_core::document::Document::new();
