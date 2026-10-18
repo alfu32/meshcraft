@@ -1365,6 +1365,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "circle" => ShellAction::SelectToolAlias("Circle"),
                 "move" => ShellAction::SelectToolAlias("Move"),
                 "rotate" => ShellAction::SelectToolAlias("Rotate"),
+                "rotate_2" => ShellAction::SelectToolAlias("Rotate 2"),
                 "scale" => ShellAction::SelectToolAlias("Scale"),
                 "stretch" => ShellAction::SelectToolAlias("Stretch"),
                 "stretch_scale" => ShellAction::SelectToolAlias("Stretch Scale"),
@@ -4546,6 +4547,9 @@ impl MeshcraftApp {
             "Rotate" => {
                 "Rotate: pick center, axis point, reference point, then final point.".to_owned()
             }
+            "Rotate 2" => {
+                "Rotate 2: pick a center (C), first reference (A), then the end angle point (B). Toggle copy mode to preserve the source.".to_owned()
+            }
             "Scale" => "Scale: pick center, reference point, then final point.".to_owned(),
             "Stretch" => "Stretch: pick a reference point, then its destination.".to_owned(),
             "Stretch Scale" => {
@@ -4725,7 +4729,9 @@ impl MeshcraftApp {
             }
             ShellAction::ToggleTransformCopyMode => {
                 if !self.transform_tool_state.toggle_copy_mode() {
-                    return CommandResult::failed("copy mode is available for Move and Rotate");
+                    return CommandResult::failed(
+                        "copy mode is available for Move, Rotate, and Rotate 2",
+                    );
                 }
                 self.status = if self.transform_tool_state.copy_mode() {
                     "Transform copy mode enabled.".to_owned()
@@ -5624,7 +5630,7 @@ impl MeshcraftApp {
                 .active()
                 .is_some_and(TransformTool::supports_copy_mode)
         {
-            return CommandState::disabled("copy mode is available for Move and Rotate");
+            return CommandState::disabled("copy mode is available for Move, Rotate, and Rotate 2");
         }
         if id == "paint.apply_selection"
             && !self.selection.selected().iter().any(|target| {
@@ -7823,8 +7829,10 @@ impl MeshcraftApp {
             "Line" | "Construction Line" | "Rectangle" | "Surface Rect" | "Quad" | "Circle"
             | "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
             | "Line Offset" | "Push/Pull" | "Move" | "Rotate" | "Scale" | "Stretch"
-            | "Stretch Scale" | "Rotate Stretch" | "Cuboid" | "Object Place" | "Axis Guide"
-            | "Grid Guide" | "Sphere" | "Cylinder" | "Cone" | "Pill" => self.active_tool.as_str(),
+            | "Rotate 2" | "Stretch Scale" | "Rotate Stretch" | "Cuboid" | "Object Place"
+            | "Axis Guide" | "Grid Guide" | "Sphere" | "Cylinder" | "Cone" | "Pill" => {
+                self.active_tool.as_str()
+            }
             "Mesh" => "Mesh",
             _ => return None,
         };
@@ -7873,9 +7881,8 @@ impl MeshcraftApp {
             }
             "Line Offset" => self.line_offset_tool_state.reference(),
             "Push/Pull" => self.push_pull_reference,
-            "Move" | "Rotate" | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" => {
-                self.transform_tool_state.points().last().copied()
-            }
+            "Move" | "Rotate" | "Rotate 2" | "Scale" | "Stretch" | "Stretch Scale"
+            | "Rotate Stretch" => self.transform_tool_state.points().last().copied(),
             "Cuboid" => self
                 .cuboid_base
                 .map(|(first, opposite)| {
@@ -11503,6 +11510,49 @@ mod tests {
     }
 
     #[test]
+    fn rotate_2_copy_mode_rotates_the_selection_about_its_derived_axis() {
+        let mut app = test_app();
+        let source_origin = Vec3::X * 2.0;
+        let occurrence = app
+            .document
+            .add_cuboid("box", Vec3::new(1.0, 1.0, 1.0), source_origin)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+
+        app.run_command("tool.builtin.rotate_2");
+        assert!(app.status.contains("end angle point (B)"));
+        app.run_command("tool.copy_mode");
+        assert!(app.transform_tool_state.copy_mode());
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::X);
+        pick_array_tool_point(&mut app, Vec3::Y);
+
+        assert_eq!("Rotate 2", app.active_tool);
+        assert_eq!(1, app.selection.selected().len());
+        let copy = app.selection.selected().iter().next().unwrap();
+        assert_ne!(occurrence, copy.occurrence);
+        let copy_origin = app
+            .document
+            .resolve_occurrence(&copy.occurrence)
+            .unwrap()
+            .world_transform
+            .translation;
+        assert!(copy_origin.distance(Vec3::Y * 2.0) < 1.0e-9);
+        assert_eq!(
+            source_origin,
+            app.document
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .world_transform
+                .translation
+        );
+        assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
     fn transform_numeric_input_finishes_the_same_pointer_preview() {
         let mut app = test_app();
         let occurrence = app
@@ -12441,6 +12491,7 @@ mod tests {
                 vec![Vec3::ZERO, Vec3::Y, Vec3::X],
                 Vec3::Z,
             ),
+            (TransformTool::Rotate2, vec![Vec3::ZERO, Vec3::X], Vec3::Y),
             (
                 TransformTool::RotateStretch,
                 vec![Vec3::ZERO, Vec3::Y, Vec3::X],

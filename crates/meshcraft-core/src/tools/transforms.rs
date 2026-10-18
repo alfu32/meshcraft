@@ -6,6 +6,7 @@ use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 pub enum TransformTool {
     Move,
     Rotate,
+    Rotate2,
     Scale,
     Stretch,
     StretchScale,
@@ -17,6 +18,7 @@ impl TransformTool {
         match label {
             "Move" => Some(Self::Move),
             "Rotate" => Some(Self::Rotate),
+            "Rotate 2" => Some(Self::Rotate2),
             "Scale" => Some(Self::Scale),
             "Stretch" => Some(Self::Stretch),
             "Stretch Scale" => Some(Self::StretchScale),
@@ -29,6 +31,7 @@ impl TransformTool {
         match self {
             Self::Move => "Move",
             Self::Rotate => "Rotate",
+            Self::Rotate2 => "Rotate 2",
             Self::Scale => "Scale",
             Self::Stretch => "Stretch",
             Self::StretchScale => "Stretch Scale",
@@ -39,13 +42,14 @@ impl TransformTool {
     pub fn required_picks(self) -> usize {
         match self {
             Self::Move | Self::Stretch => 2,
+            Self::Rotate2 => 3,
             Self::Scale | Self::StretchScale => 3,
             Self::Rotate | Self::RotateStretch => 4,
         }
     }
 
     pub fn supports_copy_mode(self) -> bool {
-        matches!(self, Self::Move | Self::Rotate)
+        matches!(self, Self::Move | Self::Rotate | Self::Rotate2)
     }
 
     pub fn next_pick_prompt(self, placed: usize) -> &'static str {
@@ -56,6 +60,9 @@ impl TransformTool {
             (Self::Rotate | Self::RotateStretch, 1) => "Pick a point on the rotation axis.",
             (Self::Rotate | Self::RotateStretch, 2) => "Pick the reference point.",
             (Self::Rotate | Self::RotateStretch, _) => "Pick the final point.",
+            (Self::Rotate2, 0) => "Pick the rotation center (C).",
+            (Self::Rotate2, 1) => "Pick the first reference point (A).",
+            (Self::Rotate2, _) => "Pick the end angle point (B).",
             (Self::Scale | Self::StretchScale, 0) => "Pick the scale center.",
             (Self::Scale | Self::StretchScale, 1) => "Pick the reference point.",
             (Self::Scale | Self::StretchScale, _) => "Pick the final point.",
@@ -275,6 +282,34 @@ fn build_transform(
                 target = center + reference_vector * factor;
             }
             scale_from_points(center, reference, target)
+        }
+        TransformTool::Rotate2 => {
+            let center = picks[0];
+            let reference = picks[1] - center;
+            let target = picks[2] - center;
+            if reference.length() <= GeometryTolerance::default().absolute
+                || target.length() <= GeometryTolerance::default().absolute
+            {
+                return Err("Rotate 2 reference points must differ from the center".to_owned());
+            }
+            let axis = reference
+                .cross(target)
+                .try_normalized(GeometryTolerance::default().absolute)
+                .ok_or_else(|| {
+                    "Rotate 2 center and reference points must not be collinear".to_owned()
+                })?;
+            let reference_plane = reference - axis * reference.dot(axis);
+            let target_plane = target - axis * target.dot(axis);
+            let angle = if let Some(degrees) = numeric {
+                degrees.to_radians()
+            } else {
+                axis.dot(reference_plane.cross(target_plane))
+                    .atan2(reference_plane.dot(target_plane))
+            };
+            if !angle.is_finite() || angle.abs() <= 1.0e-12 {
+                return Err("Rotate 2 angle must be nonzero".to_owned());
+            }
+            rotation_about(center, axis, angle)
         }
         TransformTool::Rotate | TransformTool::RotateStretch => {
             let center = picks[0];
@@ -521,6 +556,28 @@ mod tests {
         let preview = state.preview(Some(Vec3::Z)).unwrap();
         let rotated = preview.transform_point(Vec3::X);
         assert!(rotated.distance(Vec3::Z) < 1.0e-9);
+    }
+
+    #[test]
+    fn rotate_2_uses_three_points_to_define_its_rotation_axis() {
+        let mut state = TransformToolState::default();
+        state.activate(Some(TransformTool::Rotate2));
+        assert!(state.toggle_copy_mode());
+        assert!(matches!(
+            state.pick(Vec3::ZERO),
+            TransformPick::NeedPoint { placed: 1, .. }
+        ));
+        assert!(matches!(
+            state.pick(Vec3::X),
+            TransformPick::NeedPoint { placed: 2, .. }
+        ));
+        let TransformPick::Commit(commit) = state.pick(Vec3::Y) else {
+            panic!("Rotate 2 commits on its third point")
+        };
+
+        assert!(commit.copy);
+        assert!(commit.transform.transform_point(Vec3::X).distance(Vec3::Y) < 1.0e-9);
+        assert!(state.points().is_empty());
     }
 
     #[test]
