@@ -1,6 +1,7 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
-    CuboidPreview, GridStyle, OrthoView, ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
+    CuboidPreview, GridStyle, OrthoView, SnapResult, ToolPreview, Viewport, ViewportScene,
+    WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -3330,9 +3331,17 @@ impl MeshcraftApp {
         self.status = "Current tool operation canceled.".to_owned();
     }
 
-    fn handle_viewport_click(&mut self, rect: egui::Rect, position: egui::Pos2) {
+    fn handle_viewport_click(
+        &mut self,
+        rect: egui::Rect,
+        position: egui::Pos2,
+        snap: Option<SnapResult>,
+    ) {
         if self.active_tool == "Line" {
-            let Some(point) = self.viewport.screen_to_construction_plane(rect, position) else {
+            let point = snap
+                .map(|snap| snap.point)
+                .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+            let Some(point) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
@@ -3346,8 +3355,14 @@ impl MeshcraftApp {
                         self.set_selection([occurrence]);
                         self.active_tool = "Select".to_owned();
                         self.line_first = None;
-                        self.status =
-                            format!("Created line {:.2} units long.", start.distance(point));
+                        self.status = format!(
+                            "Created line {:.2} units long{}.",
+                            start.distance(point),
+                            snap.map_or(String::new(), |snap| format!(
+                                " · {} snap",
+                                snap.kind.label()
+                            ))
+                        );
                     }
                     Err(error) => self.status = error,
                 }
@@ -3359,7 +3374,10 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Rectangle" {
-            let Some(point) = self.viewport.screen_to_construction_plane(rect, position) else {
+            let point = snap
+                .map(|snap| snap.point)
+                .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+            let Some(point) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
@@ -3472,7 +3490,12 @@ impl MeshcraftApp {
         }
     }
 
-    fn tool_preview(&self, rect: egui::Rect, pointer: Option<egui::Pos2>) -> Option<ToolPreview> {
+    fn tool_preview(
+        &self,
+        rect: egui::Rect,
+        pointer: Option<egui::Pos2>,
+        snap: Option<SnapResult>,
+    ) -> Option<ToolPreview> {
         let position = pointer?;
         match self.active_tool.as_str() {
             "Cuboid" => {
@@ -3499,12 +3522,16 @@ impl MeshcraftApp {
                 let start = self.line_first?;
                 Some(ToolPreview::Line {
                     start,
-                    end: self.viewport.screen_to_construction_plane(rect, position)?,
+                    end: snap
+                        .map(|snap| snap.point)
+                        .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?,
                 })
             }
             "Rectangle" => {
                 let first = self.rectangle_first?;
-                let opposite = self.viewport.screen_to_construction_plane(rect, position)?;
+                let opposite = snap
+                    .map(|snap| snap.point)
+                    .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
                 Some(ToolPreview::Rectangle {
                     corners: self
                         .viewport
@@ -3924,7 +3951,22 @@ impl MeshcraftApp {
             .ctx()
             .pointer_interact_pos()
             .filter(|position| predicted_rect.contains(*position));
-        let preview = self.tool_preview(predicted_rect, pointer);
+        let snap_radius_points = (self.document.model_settings().snap_radius
+            / f64::from(ui.ctx().pixels_per_point())) as f32;
+        let snap = if matches!(self.active_tool.as_str(), "Line" | "Rectangle") {
+            pointer.and_then(|position| {
+                self.viewport.snap_point(
+                    predicted_rect,
+                    &self.document,
+                    position,
+                    snap_radius_points,
+                    self.document.model_settings().grid_size,
+                )
+            })
+        } else {
+            None
+        };
+        let preview = self.tool_preview(predicted_rect, pointer, snap);
         let selection = self.selected_occurrences();
         let input = self.viewport.show(
             ui,
@@ -3934,6 +3976,7 @@ impl MeshcraftApp {
                 selection: &selection,
                 active_tool: &self.active_tool,
                 preview,
+                snap,
                 grid: GridStyle {
                     visible: self.preferences.show_permanent_grid,
                     spacing: self.document.model_settings().grid_size,
@@ -3946,7 +3989,7 @@ impl MeshcraftApp {
         self.viewport_size = input.rect.size();
         self.pointer_in_viewport = input.pointer_local;
         if let Some(position) = input.click {
-            self.handle_viewport_click(input.rect, position);
+            self.handle_viewport_click(input.rect, position, snap);
         }
     }
 
@@ -4853,7 +4896,7 @@ mod tests {
         SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
         shell_commands, tool_command_id,
     };
-    use crate::viewport::Viewport;
+    use crate::viewport::{SnapKind, Viewport};
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
@@ -4863,6 +4906,7 @@ mod tests {
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
     use meshcraft_core::document::Document;
+    use meshcraft_core::geometry::Vec3;
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
     use serde_json::{Value, json};
@@ -5579,8 +5623,8 @@ mod tests {
         app.viewport.set_orthographic_view(OrthoView::Front);
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
 
-        app.handle_viewport_click(rect, rect.center());
-        app.handle_viewport_click(rect, Pos2::new(456.0, 244.0));
+        app.handle_viewport_click(rect, rect.center(), None);
+        app.handle_viewport_click(rect, Pos2::new(456.0, 244.0), None);
 
         assert_eq!("Select", app.active_tool);
         let occurrence = app.selected_occurrences().pop().unwrap();
@@ -5605,6 +5649,53 @@ mod tests {
                 .values()
                 .any(|vertex| vertex.position.y == 2.0)
         );
+    }
+
+    #[test]
+    fn line_tool_commits_scene_snaps_as_one_undoable_edit() {
+        let mut app = test_app();
+        let source = app
+            .document
+            .add_line_segment(
+                "reference",
+                Vec3::new(2.0, 0.0, 0.0),
+                Vec3::new(4.0, 0.0, 0.0),
+            )
+            .unwrap();
+        app.active_tool = "Line".to_owned();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let start = Vec3::new(2.0, 0.0, 0.0);
+        let start_screen = app.viewport.world_to_screen(rect, start);
+        let start_snap = app
+            .viewport
+            .snap_point(rect, &app.document, start_screen, 12.0, 1.0)
+            .unwrap();
+        assert_eq!(SnapKind::Endpoint, start_snap.kind);
+
+        let raw_end = Vec3::new(-3.02, 0.0, 4.02);
+        let end_screen = app.viewport.world_to_screen(rect, raw_end);
+        let end_snap = app
+            .viewport
+            .snap_point(rect, &app.document, end_screen, 12.0, 1.0)
+            .unwrap();
+        assert_eq!(SnapKind::Grid, end_snap.kind);
+
+        app.handle_viewport_click(rect, start_screen, Some(start_snap));
+        app.handle_viewport_click(rect, end_screen, Some(end_snap));
+
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(1, app.history.entries().len());
+        assert!(app.status.contains("Grid snap"));
+        let created = app.selected_occurrences().pop().unwrap();
+        assert_ne!(source, created);
+        let geometry = app.document.effective_geometry(&created).unwrap();
+        let positions = geometry
+            .vertices
+            .values()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        assert!(positions.contains(&start_snap.point));
+        assert!(positions.contains(&end_snap.point));
     }
 
     #[test]

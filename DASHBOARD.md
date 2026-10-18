@@ -6,8 +6,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 | Status | Tasks |
 | --- | ---: |
-| Todo | 39 |
-| In progress | 5 |
+| Todo | 38 |
+| In progress | 6 |
 | Done | 7 |
 | **Total** | **51** |
 
@@ -17,11 +17,12 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T07 — Build desktop window and basic viewport**
 - **T09 — Implement desktop document service and safe storage**
 - **T10 — Port orbit, orthographic and walkthrough cameras**
+- **T11 — Implement snapping, permanent grid and guides**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
 
 ## Current Activity
 
-T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active document stays intact until a choice; replacement follows a successful save only when no newer edits remain, and a save failure or newer edit restores the decision prompt. Tests cover cancel, discard, save continuation, and edits during save. `cargo test --workspace` passes: 78 core, 77 desktop, 14 IO, and 5 CLI tests. T05’s read-only schema-17 round-trip probe passes all 60 pinned fixtures, including the 1,281-placement interface tutorial; one documented zero-basis repair is reported. T06 is complete: a regression clicks the Cuboid Tools-menu item and toolbar button, invokes it through Ctrl+Shift+P and structured dispatch, then compares document, tool, selection, revision, and undo state. T10 tests perspective picking and all six orthographic construction planes across compact, panel-offset, and wide viewport rectangles. A T07 regression now also exercises pointer-to-viewport mapping with panel/menu offsets at native DPI scales of 1, 1.5, and 2. Autosave and recovery remain open. The 194-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, plus disabled deferred rendering commands. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking remain recorded in the modeling spec for upcoming tool tasks. T07 has validated `--size`, `--windowed`, `--maximized`, `--help`, and `--version` launch options while preserving maximized startup and positional project paths. Task counts remain 39 Todo, 5 In Progress, 7 Done.
+T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active document stays intact until a choice; replacement follows a successful save only when no newer edits remain, and a save failure or newer edit restores the decision prompt. Tests cover cancel, discard, save continuation, and edits during save. `cargo test --workspace` passes: 78 core, 80 desktop library, 14 IO, and 5 CLI tests. T05’s read-only schema-17 round-trip probe passes all 60 pinned fixtures, including the 1,281-placement interface tutorial; one documented zero-basis repair is reported. T06 is complete: a regression clicks the Cuboid Tools-menu item and toolbar button, invokes it through Ctrl+Shift+P and structured dispatch, then compares document, tool, selection, revision, and undo state. T10 tests perspective picking and all six orthographic construction planes across compact, panel-offset, and wide viewport rectangles; a T07 regression covers native DPI scales of 1, 1.5, and 2. T11 now snaps Line and Rectangle preview/commit points to transformed geometry endpoints, midpoints, segments, faces, and grid points, with a visible marker and configured screen radius; an app regression verifies snapped Line geometry creates one undoable edit. Grid guides, axis guides, adaptive helpers, and the complete visibility matrix remain open. Autosave and recovery also remain open. The 194-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, plus disabled deferred rendering commands. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking remain recorded in the modeling spec for upcoming tool tasks. T07 has validated `--size`, `--windowed`, `--maximized`, `--help`, and `--version` launch options while preserving maximized startup and positional project paths. Task counts remain 38 Todo, 6 In Progress, 7 Done.
 
 ## Task Statuses
 
@@ -38,7 +39,7 @@ T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active docu
 | T08 | Implement shared desktop menus, button and hybrid workspaces | Todo |
 | T09 | Implement desktop document service and safe storage | In progress |
 | T10 | Port orbit, orthographic and walkthrough cameras | In progress |
-| T11 | Implement snapping, permanent grid and guides | Todo |
+| T11 | Implement snapping, permanent grid and guides | In progress |
 | T12 | Port mixed selection and semantic picking framework | Todo |
 | T13 | Implement tool protocol and line editing | Todo |
 | T14 | Implement basic planar shape tools | Todo |

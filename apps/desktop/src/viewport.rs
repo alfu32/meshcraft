@@ -150,6 +150,54 @@ pub struct ViewportInput {
     pub pointer_local: Option<Vec2>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SnapKind {
+    Free,
+    Face,
+    Line,
+    Grid,
+    Endpoint,
+    Midpoint,
+}
+
+impl SnapKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Free => "Free",
+            Self::Face => "Face",
+            Self::Line => "Line",
+            Self::Grid => "Grid",
+            Self::Endpoint => "Endpoint",
+            Self::Midpoint => "Midpoint",
+        }
+    }
+
+    fn priority(self) -> u8 {
+        match self {
+            Self::Free => 0,
+            Self::Face => 1,
+            Self::Line => 2,
+            Self::Grid => 3,
+            Self::Endpoint | Self::Midpoint => 4,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SnapResult {
+    pub point: Vec3,
+    pub kind: SnapKind,
+    pub screen_distance: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SnapCandidate {
+    point: Vec3,
+    kind: SnapKind,
+    screen_distance: f32,
+    depth: f64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct GridStyle {
     pub visible: bool,
@@ -165,6 +213,7 @@ pub struct ViewportScene<'a> {
     pub selection: &'a [OccurrenceRef],
     pub active_tool: &'a str,
     pub preview: Option<ToolPreview>,
+    pub snap: Option<SnapResult>,
     pub grid: GridStyle,
 }
 
@@ -336,6 +385,21 @@ impl Viewport {
             }
         }
 
+        if let Some(snap) = scene.snap.filter(|snap| snap.kind != SnapKind::Free)
+            && let Some(position) = self.project_if_visible(rect, snap.point)
+        {
+            let color = match snap.kind {
+                SnapKind::Free => Color32::WHITE,
+                SnapKind::Face => Color32::from_rgb(255, 218, 77),
+                SnapKind::Line => Color32::from_rgb(87, 192, 255),
+                SnapKind::Grid => Color32::from_rgb(105, 226, 177),
+                SnapKind::Endpoint => Color32::from_rgb(255, 113, 138),
+                SnapKind::Midpoint => Color32::from_rgb(203, 149, 255),
+            };
+            painter.circle_stroke(position, 6.0, Stroke::new(2.0, Color32::BLACK));
+            painter.circle_stroke(position, 4.0, Stroke::new(2.0, color));
+        }
+
         let pointer = pointer_position.filter(|_| pointer_over_viewport);
         let click = (scene.active_tool != "Orbit"
             && response.clicked_by(egui::PointerButton::Primary))
@@ -378,6 +442,310 @@ impl Viewport {
             return Some(target_on_plane + right * f64::from(screen.x) + up * f64::from(screen.y));
         }
         self.screen_to_ground(rect, position)
+    }
+
+    /// Snaps a logical-pixel pointer to visible model geometry or the active construction grid.
+    /// The caller supplies a radius in egui points, converted from the configured pixel radius.
+    pub fn snap_point(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+        snap_radius: f32,
+        grid_spacing: f64,
+    ) -> Option<SnapResult> {
+        let construction_point = self.screen_to_construction_plane(rect, position);
+        let ray = self.ray_for_screen(rect, position);
+        let mut best = None;
+        let radius = snap_radius.max(0.0);
+        let mut base_point = construction_point;
+        let mut base_normal = self.construction_plane_normal();
+        let mut base_depth = f64::INFINITY;
+
+        if let (Some((ray_origin, _ray_direction)), Ok(occurrences)) =
+            (ray, document.occurrence_refs())
+        {
+            for occurrence in occurrences {
+                if let Some(bounds) = self.derived.world_bounds(document, &occurrence) {
+                    let projected = bounds_corners(bounds)
+                        .into_iter()
+                        .filter_map(|corner| self.project_if_visible(rect, corner))
+                        .collect::<Vec<_>>();
+                    if !projected.is_empty() {
+                        let (min_x, max_x) = projected
+                            .iter()
+                            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                                (range.0.min(point.x), range.1.max(point.x))
+                            });
+                        let (min_y, max_y) = projected
+                            .iter()
+                            .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                                (range.0.min(point.y), range.1.max(point.y))
+                            });
+                        if position.x < min_x - radius
+                            || position.x > max_x + radius
+                            || position.y < min_y - radius
+                            || position.y > max_y + radius
+                        {
+                            continue;
+                        }
+                    }
+                }
+
+                let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                    continue;
+                };
+                let Some(geometry) = document.effective_geometry(&occurrence) else {
+                    continue;
+                };
+
+                for segment in geometry.segments.values() {
+                    let (Some(start_local), Some(end_local)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let start = resolved.world_transform.transform_point(start_local);
+                    let end = resolved.world_transform.transform_point(end_local);
+                    let start_screen = self.project_if_visible(rect, start);
+                    let end_screen = self.project_if_visible(rect, end);
+
+                    for (point, screen) in [(start, start_screen), (end, end_screen)] {
+                        if let Some(screen) = screen {
+                            let distance = screen.distance(position);
+                            self.consider_snap(
+                                &mut best,
+                                SnapCandidate {
+                                    point,
+                                    kind: SnapKind::Endpoint,
+                                    screen_distance: distance,
+                                    depth: point.distance(ray_origin),
+                                },
+                                radius,
+                                grid_spacing,
+                            );
+                        }
+                    }
+
+                    let midpoint = (start + end) * 0.5;
+                    if let Some(screen) = self.project_if_visible(rect, midpoint) {
+                        let distance = screen.distance(position);
+                        self.consider_snap(
+                            &mut best,
+                            SnapCandidate {
+                                point: midpoint,
+                                kind: SnapKind::Midpoint,
+                                screen_distance: distance,
+                                depth: midpoint.distance(ray_origin),
+                            },
+                            radius,
+                            grid_spacing,
+                        );
+                    }
+
+                    if let (Some(a), Some(b)) = (start_screen, end_screen) {
+                        let screen_direction = b - a;
+                        let length_squared = screen_direction.length_sq();
+                        let fraction = if length_squared <= f32::EPSILON {
+                            0.0
+                        } else {
+                            ((position - a).dot(screen_direction) / length_squared).clamp(0.0, 1.0)
+                        };
+                        let screen_closest = a + screen_direction * fraction;
+                        let distance = screen_closest.distance(position);
+                        let world_fraction =
+                            self.world_fraction_for_screen_fraction(start, end, fraction);
+                        let line_point = start + (end - start) * world_fraction;
+                        self.consider_snap(
+                            &mut best,
+                            SnapCandidate {
+                                point: line_point,
+                                kind: SnapKind::Line,
+                                screen_distance: distance,
+                                depth: line_point.distance(ray_origin),
+                            },
+                            radius,
+                            grid_spacing,
+                        );
+                    }
+                }
+
+                if let Some((ray_origin, ray_direction)) = ray {
+                    for triangle in geometry.triangles.values() {
+                        let [Some(a), Some(b), Some(c)] = triangle
+                            .vertices
+                            .map(|reference| geometry.vertex_position(reference))
+                        else {
+                            continue;
+                        };
+                        let [a, b, c] =
+                            [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                        let Some(distance_along_ray) =
+                            ray_triangle_distance(ray_origin, ray_direction, a, b, c)
+                        else {
+                            continue;
+                        };
+                        let point = ray_origin + ray_direction * distance_along_ray;
+                        if distance_along_ray < base_depth {
+                            let normal = (b - a)
+                                .cross(c - a)
+                                .try_normalized(1.0e-12)
+                                .unwrap_or(base_normal);
+                            base_normal = if normal.dot(ray_direction) > 0.0 {
+                                -normal
+                            } else {
+                                normal
+                            };
+                            base_point = Some(point);
+                            base_depth = distance_along_ray;
+                        }
+                        let Some(screen) = self.project_if_visible(rect, point) else {
+                            continue;
+                        };
+                        self.consider_snap(
+                            &mut best,
+                            SnapCandidate {
+                                point,
+                                kind: SnapKind::Face,
+                                screen_distance: screen.distance(position),
+                                depth: distance_along_ray,
+                            },
+                            radius,
+                            grid_spacing,
+                        );
+                    }
+                }
+            }
+        }
+
+        if grid_spacing.is_finite()
+            && grid_spacing > 0.0
+            && let Some(point) = base_point
+            && let Some((origin, axis_u, axis_v)) = self.grid_basis_at(point, base_normal)
+        {
+            let relative = point - origin;
+            let u = (relative.dot(axis_u) / grid_spacing).round() * grid_spacing;
+            let v = (relative.dot(axis_v) / grid_spacing).round() * grid_spacing;
+            let grid_point = origin + axis_u * u + axis_v * v;
+            if let Some(screen) = self.project_if_visible(rect, grid_point) {
+                let distance = screen.distance(position);
+                let depth = ray.map_or(0.0, |(ray_origin, _)| grid_point.distance(ray_origin));
+                self.consider_snap(
+                    &mut best,
+                    SnapCandidate {
+                        point: grid_point,
+                        kind: SnapKind::Grid,
+                        screen_distance: distance,
+                        depth,
+                    },
+                    radius,
+                    grid_spacing,
+                );
+            }
+        }
+
+        best.map(|candidate| SnapResult {
+            point: candidate.point,
+            kind: candidate.kind,
+            screen_distance: candidate.screen_distance,
+        })
+        .or_else(|| {
+            construction_point.map(|point| SnapResult {
+                point,
+                kind: SnapKind::Free,
+                screen_distance: 0.0,
+            })
+        })
+    }
+
+    fn consider_snap(
+        &self,
+        best: &mut Option<SnapCandidate>,
+        candidate: SnapCandidate,
+        radius: f32,
+        grid_spacing: f64,
+    ) {
+        if candidate.screen_distance > radius {
+            return;
+        }
+        let Some(current) = *best else {
+            *best = Some(candidate);
+            return;
+        };
+        let depth_tolerance = (grid_spacing * 2.0).max(1.5);
+        let priority_difference = candidate.kind.priority().cmp(&current.kind.priority());
+        if priority_difference.is_gt() && candidate.depth <= current.depth + depth_tolerance {
+            *best = Some(candidate);
+            return;
+        }
+        if priority_difference.is_lt() && current.depth <= candidate.depth + depth_tolerance {
+            return;
+        }
+        if candidate.depth + 0.35 < current.depth {
+            *best = Some(candidate);
+            return;
+        }
+        if current.depth + 0.35 < candidate.depth {
+            return;
+        }
+        let candidate_score = f64::from(candidate.screen_distance) + candidate.depth * 0.02;
+        let current_score = f64::from(current.screen_distance) + current.depth * 0.02;
+        if candidate_score + 1.0e-4 < current_score {
+            *best = Some(candidate);
+        }
+    }
+
+    fn construction_plane_normal(&self) -> Vec3 {
+        self.orthographic
+            .map_or(Vec3::Y, |view| view.screen_axes().2)
+    }
+
+    fn grid_basis_at(&self, point: Vec3, normal: Vec3) -> Option<(Vec3, Vec3, Vec3)> {
+        let normal = normal.try_normalized(1.0e-12)?;
+        let reference = if normal.y.abs() < 0.95 {
+            Vec3::Y
+        } else {
+            Vec3::X
+        };
+        let axis_u = reference
+            .cross(normal)
+            .try_normalized(1.0e-12)
+            .or_else(|| Vec3::Z.cross(normal).try_normalized(1.0e-12))?;
+        let axis_v = normal.cross(axis_u).try_normalized(1.0e-12)?;
+        let origin = normal * normal.dot(point);
+        Some((origin, axis_u, axis_v))
+    }
+
+    fn world_fraction_for_screen_fraction(
+        &self,
+        start: Vec3,
+        end: Vec3,
+        screen_fraction: f32,
+    ) -> f64 {
+        let fraction = f64::from(screen_fraction);
+        if self.orthographic.is_some() {
+            return fraction;
+        }
+        let forward = -self.camera_direction();
+        let camera_position = self.camera_position();
+        let start_depth = forward.dot(start - camera_position);
+        let end_depth = forward.dot(end - camera_position);
+        let denominator = end_depth * (1.0 - fraction) + start_depth * fraction;
+        if denominator <= 1.0e-12 || !denominator.is_finite() {
+            fraction
+        } else {
+            (fraction * start_depth / denominator).clamp(0.0, 1.0)
+        }
+    }
+
+    fn ray_for_screen(&self, rect: Rect, position: Pos2) -> Option<(Vec3, Vec3)> {
+        if let Some(view) = self.orthographic {
+            let point_on_view_plane = self.screen_to_construction_plane(rect, position)?;
+            let normal = view.screen_axes().2;
+            return Some((point_on_view_plane + normal * self.far_plane, -normal));
+        }
+        self.ray_from_screen(rect, position)
     }
 
     /// Returns a rectangle's four corners in the active construction plane.
@@ -1413,12 +1781,35 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
     point.distance_sq(start + direction * t)
 }
 
+fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f64> {
+    let edge_ab = b - a;
+    let edge_ac = c - a;
+    let perpendicular = direction.cross(edge_ac);
+    let determinant = edge_ab.dot(perpendicular);
+    if !determinant.is_finite() || determinant.abs() <= 1.0e-12 {
+        return None;
+    }
+    let inverse_determinant = 1.0 / determinant;
+    let from_a = origin - a;
+    let u = from_a.dot(perpendicular) * inverse_determinant;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let across = from_a.cross(edge_ab);
+    let v = direction.dot(across) * inverse_determinant;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let distance = edge_ac.dot(across) * inverse_determinant;
+    (distance.is_finite() && distance >= 0.0).then_some(distance)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE, MAX_ELEVATION, MIN_ELEVATION, OrthoView,
-        Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners, height_in_triangle_xz,
-        point_in_triangle,
+        SnapKind, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
+        height_in_triangle_xz, point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -1445,6 +1836,7 @@ mod tests {
                         selection: &[],
                         active_tool: "Select",
                         preview: None,
+                        snap: None,
                         grid: super::GridStyle {
                             visible: false,
                             spacing: 1.0,
@@ -2022,6 +2414,152 @@ mod tests {
     }
 
     #[test]
+    fn snapping_prefers_transformed_endpoints_and_segment_midpoints() {
+        let rect = Rect::from_min_size(Pos2::new(72.0, 34.0), Vec2::new(920.0, 680.0));
+        let mut document = meshcraft_core::document::Document::new();
+        let line = document
+            .add_line_segment(
+                "source",
+                Vec3::new(-2.0, 0.0, 0.0),
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let copy = document
+            .copy_root_occurrence(&line, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let mut viewport = Viewport {
+            target: Vec3::new(10.0, 0.0, 0.0),
+            ..Viewport::default()
+        };
+        let expected_endpoint = Vec3::new(8.0, 0.0, 0.0);
+        let pointer = viewport.world_to_screen(rect, expected_endpoint) + Vec2::new(3.0, -2.0);
+        let endpoint = viewport
+            .snap_point(rect, &document, pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Endpoint, endpoint.kind);
+        assert_eq!(expected_endpoint, endpoint.point);
+        assert!(document.resolve_occurrence(&copy).is_some());
+
+        let mut midpoint_document = meshcraft_core::document::Document::new();
+        midpoint_document
+            .add_line_segment(
+                "midpoint",
+                Vec3::new(-3.0, 0.0, 4.0),
+                Vec3::new(3.0, 0.0, 4.0),
+            )
+            .unwrap();
+        let mut midpoint_viewport = Viewport {
+            target: Vec3::new(0.0, 0.0, 4.0),
+            ..Viewport::default()
+        };
+        let midpoint = Vec3::new(0.0, 0.0, 4.0);
+        let midpoint_screen = midpoint_viewport.world_to_screen(rect, midpoint);
+        let snapped_midpoint = midpoint_viewport
+            .snap_point(rect, &midpoint_document, midpoint_screen, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Midpoint, snapped_midpoint.kind);
+        assert_eq!(midpoint, snapped_midpoint.point);
+
+        let mut line_document = meshcraft_core::document::Document::new();
+        line_document
+            .add_line_segment(
+                "line",
+                Vec3::new(-3.2, 0.0, 0.37),
+                Vec3::new(2.8, 0.0, 0.37),
+            )
+            .unwrap();
+        let mut line_viewport = Viewport {
+            target: Vec3::new(-1.7, 0.0, 0.37),
+            ..Viewport::default()
+        };
+        let line_point = Vec3::new(-1.7, 0.0, 0.37);
+        let line_screen = line_viewport.world_to_screen(rect, line_point);
+        let line = line_viewport
+            .snap_point(rect, &line_document, line_screen, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Line, line.kind);
+        assert!(line.point.distance(line_point) < 1.0e-5);
+    }
+
+    #[test]
+    fn snapping_uses_face_hits_grid_points_and_pixel_radius() {
+        let rect = Rect::from_min_size(Pos2::new(48.0, 28.0), Vec2::new(900.0, 640.0));
+        let mut document = meshcraft_core::document::Document::new();
+        let min = Vec3::new(-4.6, 0.0, -4.4);
+        let max = Vec3::new(5.4, 0.0, 5.6);
+        document.add_ground_rectangle("surface", min, max).unwrap();
+        let face_center = (min + max) * 0.5;
+        let mut viewport = Viewport {
+            target: face_center,
+            ..Viewport::default()
+        };
+        let face_pointer = viewport.world_to_screen(rect, face_center);
+        let face = viewport
+            .snap_point(rect, &document, face_pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Face, face.kind);
+        assert!(face.point.distance(face_center) < 1.0e-6);
+
+        let mut side_document = meshcraft_core::document::Document::new();
+        side_document
+            .add_cuboid(
+                "side-face",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(2.0, 3.0, 5.0),
+            )
+            .unwrap();
+        let center = Vec3::new(3.0, 4.0, 6.0);
+        let mut front = Viewport {
+            target: center,
+            ..Viewport::default()
+        };
+        front.set_orthographic_view(OrthoView::Front);
+        let front_pointer = front.world_to_screen(rect, center);
+        let front_face = front
+            .snap_point(rect, &side_document, front_pointer, 8.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Face, front_face.kind);
+        assert!((front_face.point.z - 7.0).abs() < 1.0e-6);
+        let front_grid = front
+            .snap_point(rect, &side_document, front_pointer, 8.0, 1.0)
+            .unwrap();
+        assert_eq!(SnapKind::Grid, front_grid.kind);
+        assert!(front_grid.point.distance(Vec3::new(3.0, 4.0, 7.0)) < 1.0e-6);
+
+        let empty = meshcraft_core::document::Document::new();
+        let mut top = Viewport::default();
+        top.set_orthographic_view(OrthoView::Top);
+        let grid_point = Vec3::new(2.0, 0.0, -3.0);
+        let grid_pointer = top.world_to_screen(rect, grid_point) + Vec2::new(3.0, 0.0);
+        let grid = top
+            .snap_point(rect, &empty, grid_pointer, 8.0, 1.0)
+            .unwrap();
+        assert_eq!(SnapKind::Grid, grid.kind);
+        assert_eq!(grid_point, grid.point);
+
+        let line = document
+            .add_line_segment(
+                "radius",
+                Vec3::new(-2.0, 0.0, 8.0),
+                Vec3::new(2.0, 0.0, 8.0),
+            )
+            .unwrap();
+        let mut line_viewport = Viewport {
+            target: Vec3::new(0.0, 0.0, 8.0),
+            ..Viewport::default()
+        };
+        let start_screen = line_viewport.world_to_screen(rect, Vec3::new(-2.0, 0.0, 8.0));
+        let end_screen = line_viewport.world_to_screen(rect, Vec3::new(2.0, 0.0, 8.0));
+        let line_direction = (end_screen - start_screen).normalized();
+        let outside_radius = start_screen + Vec2::new(-line_direction.y, line_direction.x) * 13.0;
+        let free = line_viewport
+            .snap_point(rect, &document, outside_radius, 12.0, 1_000.0)
+            .unwrap();
+        assert_eq!(SnapKind::Free, free.kind);
+        assert!(document.resolve_occurrence(&line).is_some());
+    }
+
+    #[test]
     fn viewport_pointer_mapping_uses_logical_points_at_multiple_dpi_scales() {
         let document = meshcraft_core::document::Document::new();
         let physical_window = Vec2::new(1920.0, 1080.0);
@@ -2067,6 +2605,7 @@ mod tests {
                             selection: &[],
                             active_tool: "Select",
                             preview: None,
+                            snap: None,
                             grid: super::GridStyle {
                                 visible: false,
                                 spacing: 1.0,
