@@ -387,7 +387,7 @@
         "Core tests remain headless and platform services are isolated."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T08",
