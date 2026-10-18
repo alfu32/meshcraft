@@ -2472,9 +2472,8 @@ impl MeshcraftApp {
 
     fn handle_viewport_click(&mut self, rect: egui::Rect, position: egui::Pos2) {
         if self.active_tool == "Line" {
-            let Some(point) = self.viewport.screen_to_ground(rect, position) else {
-                self.status =
-                    "Line construction needs the isometric or top/bottom view.".to_owned();
+            let Some(point) = self.viewport.screen_to_construction_plane(rect, position) else {
+                self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
             if let Some(start) = self.line_first {
@@ -2500,16 +2499,15 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Rectangle" {
-            let Some(point) = self.viewport.screen_to_ground(rect, position) else {
-                self.status =
-                    "Ground rectangle construction needs the isometric or top/bottom view."
-                        .to_owned();
+            let Some(point) = self.viewport.screen_to_construction_plane(rect, position) else {
+                self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
             if let Some(first) = self.rectangle_first {
+                let corners = self.viewport.construction_rectangle_corners(first, point);
                 match self.commit_document_edit("Create rectangle", |document| {
                     document
-                        .add_ground_rectangle("rectangle", first, point)
+                        .add_planar_rectangle("rectangle", corners)
                         .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
                 }) {
                     Ok(occurrence) => {
@@ -2517,9 +2515,9 @@ impl MeshcraftApp {
                         self.active_tool = "Select".to_owned();
                         self.rectangle_first = None;
                         self.status = format!(
-                            "Created ground rectangle {:.2} × {:.2}.",
-                            (point.x - first.x).abs(),
-                            (point.z - first.z).abs()
+                            "Created rectangle {:.2} × {:.2}.",
+                            corners[0].distance(corners[1]),
+                            corners[1].distance(corners[2])
                         );
                     }
                     Err(error) => self.status = error,
@@ -2534,7 +2532,7 @@ impl MeshcraftApp {
         if self.active_tool == "Cuboid" {
             let Some(ground) = self.viewport.screen_to_ground(rect, position) else {
                 self.status =
-                    "Cuboid construction needs the isometric or top/bottom view.".to_owned();
+                    "Cuboid construction needs the perspective or top/bottom view.".to_owned();
                 return;
             };
             if self.cuboid_first.is_none() {
@@ -2641,14 +2639,16 @@ impl MeshcraftApp {
                 let start = self.line_first?;
                 Some(ToolPreview::Line {
                     start,
-                    end: self.viewport.screen_to_ground(rect, position)?,
+                    end: self.viewport.screen_to_construction_plane(rect, position)?,
                 })
             }
             "Rectangle" => {
                 let first = self.rectangle_first?;
-                Some(ToolPreview::GroundRectangle {
-                    first,
-                    opposite: self.viewport.screen_to_ground(rect, position)?,
+                let opposite = self.viewport.screen_to_construction_plane(rect, position)?;
+                Some(ToolPreview::Rectangle {
+                    corners: self
+                        .viewport
+                        .construction_rectangle_corners(first, opposite),
                 })
             }
             _ => None,
@@ -4266,6 +4266,41 @@ mod tests {
 
         assert_eq!(original_revision, app.document.revision());
         assert!(!app.document_is_dirty());
+    }
+
+    #[test]
+    fn rectangle_tool_creates_a_face_in_the_active_orthographic_plane() {
+        let mut app = test_app();
+        app.active_tool = "Rectangle".to_owned();
+        app.viewport.set_orthographic_view(OrthoView::Front);
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+
+        app.handle_viewport_click(rect, rect.center());
+        app.handle_viewport_click(rect, Pos2::new(456.0, 244.0));
+
+        assert_eq!("Select", app.active_tool);
+        let occurrence = app.selected_occurrences().pop().unwrap();
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert!(
+            geometry
+                .vertices
+                .values()
+                .all(|vertex| vertex.position.z == 0.0)
+        );
+        assert!(
+            geometry
+                .vertices
+                .values()
+                .any(|vertex| vertex.position.x == 2.0)
+        );
+        assert!(
+            geometry
+                .vertices
+                .values()
+                .any(|vertex| vertex.position.y == 2.0)
+        );
     }
 
     #[test]

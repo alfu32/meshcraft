@@ -902,6 +902,83 @@ impl Document {
         self.add_root_geometry(name, geometry, Affine3::IDENTITY)
     }
 
+    /// Adds a filled rectangle from four ordered world-space corners.
+    ///
+    /// Corners must form a non-degenerate rectangle in any plane. This is used by camera-aligned
+    /// construction views while `add_ground_rectangle` remains the explicit XZ-plane operation.
+    pub fn add_planar_rectangle(
+        &mut self,
+        name: impl Into<String>,
+        corners: [Vec3; 4],
+    ) -> Option<OccurrenceRef> {
+        if corners.iter().any(|point| !point.is_finite()) {
+            return None;
+        }
+        let edge_u = corners[1] - corners[0];
+        let edge_v = corners[3] - corners[0];
+        let scale = corners
+            .iter()
+            .map(|point| point.length())
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(scale);
+        let edge_u_length = edge_u.length();
+        let edge_v_length = edge_v.length();
+        if edge_u_length <= tolerance
+            || edge_v_length <= tolerance
+            || edge_u.cross(edge_v).length() <= tolerance * tolerance
+            || edge_u.dot(edge_v).abs() > tolerance * edge_u_length.max(edge_v_length)
+            || corners[2].distance(corners[0] + edge_u + edge_v) > tolerance * 2.0
+        {
+            return None;
+        }
+
+        let mut geometry = GeometryBundle::default();
+        let mut vertex_ids = Vec::with_capacity(corners.len());
+        for position in corners {
+            let id = VertexId(self.allocate_id());
+            geometry.vertices.insert(
+                id,
+                Vertex {
+                    id,
+                    position,
+                    legacy_aliases: Vec::new(),
+                },
+            );
+            vertex_ids.push(id);
+        }
+        for [a, b] in [[0, 1], [1, 2], [2, 3], [3, 0]] {
+            let id = SegmentId(self.allocate_id());
+            geometry.segments.insert(
+                id,
+                Segment {
+                    id,
+                    endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+        }
+        for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
+            let id = TriangleId(self.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: [
+                        VertexRef::new(vertex_ids[a]),
+                        VertexRef::new(vertex_ids[b]),
+                        VertexRef::new(vertex_ids[c]),
+                    ],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+        }
+        self.add_root_geometry(name, geometry, Affine3::IDENTITY)
+    }
+
     fn add_root_geometry(
         &mut self,
         name: impl Into<String>,
@@ -1998,6 +2075,47 @@ mod tests {
                 .values()
                 .all(|vertex| vertex.position.y == 0.0)
         );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn planar_rectangle_creates_consistent_faces_in_vertical_views() {
+        let mut document = Document::new();
+        assert!(
+            document
+                .add_planar_rectangle(
+                    "invalid",
+                    [
+                        Vec3::ZERO,
+                        Vec3::new(1.0, 0.0, 0.0),
+                        Vec3::new(1.0, 1.0, 0.0),
+                        Vec3::new(0.0, 2.0, 0.0),
+                    ],
+                )
+                .is_none()
+        );
+        let rectangle = document
+            .add_planar_rectangle(
+                "front rectangle",
+                [
+                    Vec3::new(1.0, 2.0, 0.0),
+                    Vec3::new(4.0, 2.0, 0.0),
+                    Vec3::new(4.0, 5.0, 0.0),
+                    Vec3::new(1.0, 5.0, 0.0),
+                ],
+            )
+            .unwrap();
+
+        let geometry = document.effective_geometry(&rectangle).unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        for triangle in geometry.triangles.values() {
+            let [a, b, c] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference).unwrap());
+            assert!((b - a).cross(c - a).z > 0.0);
+        }
         assert!(document.validate().is_ok());
     }
 

@@ -70,7 +70,7 @@ pub struct CuboidPreview {
 pub enum ToolPreview {
     Cuboid(CuboidPreview),
     Line { start: Vec3, end: Vec3 },
-    GroundRectangle { first: Vec3, opposite: Vec3 },
+    Rectangle { corners: [Vec3; 4] },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -330,8 +330,8 @@ impl Viewport {
                 ToolPreview::Line { start, end } => {
                     self.draw_line_preview(&painter, rect, start, end)
                 }
-                ToolPreview::GroundRectangle { first, opposite } => {
-                    self.draw_rectangle_preview(&painter, rect, first, opposite);
+                ToolPreview::Rectangle { corners } => {
+                    self.draw_rectangle_preview(&painter, rect, corners);
                 }
             }
         }
@@ -364,6 +364,34 @@ impl Viewport {
         let (origin, direction) = self.ray_from_screen(rect, position)?;
         let parameter = -origin.y / direction.y;
         (parameter.is_finite() && parameter >= 0.0).then(|| origin + direction * parameter)
+    }
+
+    /// Maps a pointer onto the ground plane or, when edge-on, the active orthographic view plane.
+    pub fn screen_to_construction_plane(&self, rect: Rect, position: Pos2) -> Option<Vec3> {
+        if let Some(view) = self.orthographic {
+            let (right, up, normal) = view.screen_axes();
+            let screen = Vec2::new(
+                (position.x - rect.center().x - self.pan.x) / self.zoom,
+                -(position.y - rect.center().y - self.pan.y) / self.zoom,
+            );
+            let target_on_plane = self.target - normal * normal.dot(self.target);
+            return Some(target_on_plane + right * f64::from(screen.x) + up * f64::from(screen.y));
+        }
+        self.screen_to_ground(rect, position)
+    }
+
+    /// Returns a rectangle's four corners in the active construction plane.
+    pub fn construction_rectangle_corners(&self, first: Vec3, opposite: Vec3) -> [Vec3; 4] {
+        let (axis_u, axis_v) = self.orthographic.map_or((Vec3::X, -Vec3::Z), |view| {
+            let (right, up, _) = view.screen_axes();
+            (right, up)
+        });
+        let delta = opposite - first;
+        let along_u = delta.dot(axis_u);
+        let along_v = delta.dot(axis_v);
+        let p1 = first + axis_u * along_u;
+        let p3 = first + axis_v * along_v;
+        [first, p1, p1 + axis_v * along_v, p3]
     }
 
     pub fn request_frame(&mut self) {
@@ -1250,23 +1278,14 @@ impl Viewport {
         );
     }
 
-    fn draw_rectangle_preview(
-        &self,
-        painter: &egui::Painter,
-        rect: Rect,
-        first: Vec3,
-        opposite: Vec3,
-    ) {
-        if !self.point_in_front_of_camera(first) || !self.point_in_front_of_camera(opposite) {
+    fn draw_rectangle_preview(&self, painter: &egui::Painter, rect: Rect, corners: [Vec3; 4]) {
+        if corners
+            .iter()
+            .any(|corner| !self.point_in_front_of_camera(*corner))
+        {
             return;
         }
-        let points = [
-            Vec3::new(first.x, 0.0, first.z),
-            Vec3::new(first.x, 0.0, opposite.z),
-            Vec3::new(opposite.x, 0.0, opposite.z),
-            Vec3::new(opposite.x, 0.0, first.z),
-        ]
-        .map(|point| self.world_to_screen(rect, point));
+        let points = corners.map(|point| self.world_to_screen(rect, point));
         painter.add(Shape::convex_polygon(
             points.to_vec(),
             Color32::from_rgba_unmultiplied(235, 105, 70, 36),
@@ -1759,6 +1778,47 @@ mod tests {
             assert!((screen_up.y - screen_origin.y + viewport.zoom).abs() < 1.0e-4);
             assert!(screen_depth.distance(screen_origin) < 1.0e-4);
             assert_eq!(view, viewport.orthographic_view().unwrap());
+        }
+    }
+
+    #[test]
+    fn all_orthographic_views_round_trip_their_construction_planes() {
+        let rect = Rect::from_min_size(Pos2::new(40.0, 30.0), Vec2::new(960.0, 720.0));
+        let mut viewport = Viewport {
+            target: Vec3::new(4.0, 7.0, -3.0),
+            pan: Vec2::new(23.0, -19.0),
+            zoom: 31.0,
+            ..Viewport::default()
+        };
+        for view in [
+            OrthoView::Top,
+            OrthoView::Bottom,
+            OrthoView::Left,
+            OrthoView::Right,
+            OrthoView::Front,
+            OrthoView::Back,
+        ] {
+            viewport.orthographic = Some(view);
+            let screen = Pos2::new(340.0, 290.0);
+            let world = viewport.screen_to_construction_plane(rect, screen).unwrap();
+            let projected = viewport.world_to_screen(rect, world);
+            assert!(projected.distance(screen) < 1.0e-4, "view={view:?}");
+            assert!(
+                view.screen_axes().2.dot(world).abs() < 1.0e-10,
+                "view={view:?}"
+            );
+
+            let opposite_screen = Pos2::new(470.0, 390.0);
+            let opposite = viewport
+                .screen_to_construction_plane(rect, opposite_screen)
+                .unwrap();
+            let corners = viewport.construction_rectangle_corners(world, opposite);
+            assert!(
+                viewport
+                    .world_to_screen(rect, corners[2])
+                    .distance(opposite_screen)
+                    < 1.0e-4
+            );
         }
     }
 
