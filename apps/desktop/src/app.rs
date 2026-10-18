@@ -346,6 +346,7 @@ enum ShellAction {
     SetWalkthroughView,
     FrameDocument,
     ResetCamera,
+    SetCameraPose,
     TogglePanelSection(&'static str),
     ToggleToolbars,
     TogglePanels,
@@ -577,6 +578,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "camera default reset isometric",
                 None,
                 ShellAction::ResetCamera,
+            ),
+            (
+                "view.camera.set_pose",
+                "View> Set Camera Pose",
+                "View",
+                "camera position target field of view automation",
+                None,
+                ShellAction::SetCameraPose,
             ),
             (
                 "view.profile.menus",
@@ -858,6 +867,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
+        | ShellAction::SetCameraPose
         | ShellAction::ClearSelection
         | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
@@ -938,6 +948,7 @@ fn register_shell_command(
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
+        | ShellAction::SetCameraPose
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
@@ -999,6 +1010,13 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("walk_gravity", CommandValueType::Number),
             ("walk_height_adjust_speed", CommandValueType::Number),
         ],
+        "view.camera.set_pose" => &[
+            ("position", CommandValueType::Array),
+            ("target", CommandValueType::Array),
+            ("field_of_view", CommandValueType::Number),
+            ("near", CommandValueType::Number),
+            ("far", CommandValueType::Number),
+        ],
         "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
         _ => &[],
     };
@@ -1007,7 +1025,8 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         .map(|(name, value_type)| CommandParameter {
             name: (*name).to_owned(),
             value_type: *value_type,
-            required: id == "selection.set" && *name == "paths",
+            required: (id == "selection.set" && *name == "paths")
+                || (id == "view.camera.set_pose" && matches!(*name, "position" | "target")),
         })
         .collect()
 }
@@ -2283,6 +2302,66 @@ impl MeshcraftApp {
             ShellAction::ResetCamera => {
                 self.viewport.reset_camera();
                 self.status = "Camera reset to the default perspective view.".to_owned();
+            }
+            ShellAction::SetCameraPose => {
+                let Some(position_value) = payload.values.get("position") else {
+                    return CommandResult::failed("position is required");
+                };
+                let Some(target_value) = payload.values.get("target") else {
+                    return CommandResult::failed("target is required");
+                };
+                let position = match payload_vec3_value(position_value, "position") {
+                    Ok(position) => position,
+                    Err(error) => return CommandResult::failed(error),
+                };
+                let target = match payload_vec3_value(target_value, "target") {
+                    Ok(target) => target,
+                    Err(error) => return CommandResult::failed(error),
+                };
+                let mut camera_state = serde_json::json!({
+                    "position": {"x": position.x, "y": position.y, "z": position.z},
+                    "target": {"x": target.x, "y": target.y, "z": target.z},
+                });
+                for (payload_name, state_name, default) in [
+                    ("field_of_view", "fieldOfView", 67.0),
+                    ("near", "near", 0.1),
+                    ("far", "far", 500.0),
+                ] {
+                    let value = match payload.values.get(payload_name) {
+                        Some(value) => match value.as_f64().filter(|value| value.is_finite()) {
+                            Some(value) => value,
+                            None => {
+                                return CommandResult::failed(format!(
+                                    "{payload_name} must be a finite number"
+                                ));
+                            }
+                        },
+                        None => default,
+                    };
+                    camera_state[state_name] = value.into();
+                }
+                let field_of_view = camera_state["fieldOfView"].as_f64().unwrap_or_default();
+                let near = camera_state["near"].as_f64().unwrap_or_default();
+                let far = camera_state["far"].as_f64().unwrap_or_default();
+                if !(1.0..179.0).contains(&field_of_view) {
+                    return CommandResult::failed(
+                        "field_of_view must be greater than 1 and less than 179 degrees",
+                    );
+                }
+                if near <= 0.0 || far <= near {
+                    return CommandResult::failed("camera clipping planes require 0 < near < far");
+                }
+                if !self.viewport.restore_legacy_camera_state(&camera_state) {
+                    return CommandResult::failed(
+                        "camera position and target must define a finite, nonzero view direction",
+                    );
+                }
+                self.status = "Camera pose updated.".to_owned();
+                let mut result = CommandResult::completed();
+                result
+                    .outputs
+                    .insert("camera".to_owned(), self.viewport.legacy_camera_state());
+                return result;
             }
             ShellAction::TogglePanelSection(panel) => self.toggle_panel_section(panel),
             ShellAction::ToggleToolbars => {
@@ -4046,6 +4125,10 @@ fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<V
     let Some(value) = payload.values.get(name) else {
         return Ok(default);
     };
+    payload_vec3_value(value, name)
+}
+
+fn payload_vec3_value(value: &serde_json::Value, name: &str) -> Result<Vec3, String> {
     let Some(values) = value.as_array() else {
         return Err(format!("`{name}` must be an array of three numbers"));
     };
@@ -4324,7 +4407,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(185, entries.len());
+        assert_eq!(186, entries.len());
         assert_eq!(
             74,
             entries
@@ -4494,6 +4577,76 @@ mod tests {
 
         assert_eq!(original_revision, app.document.revision());
         assert!(!app.document_is_dirty());
+    }
+
+    #[test]
+    fn camera_pose_command_sets_typed_pose_without_mutating_the_document() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("position".to_owned(), json!([13.0, 8.0, 2.0]));
+        payload
+            .values
+            .insert("target".to_owned(), json!([1.0, 2.0, 3.0]));
+        payload
+            .values
+            .insert("field_of_view".to_owned(), json!(58.0));
+        payload.values.insert("near".to_owned(), json!(0.25));
+        payload.values.insert("far".to_owned(), json!(900.0));
+
+        let dispatch = app.dispatch_command("view.camera.set_pose", &payload);
+
+        assert!(dispatch.accepted);
+        assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(None, dispatch.result.document_revision);
+        let camera = dispatch.result.outputs.get("camera").unwrap();
+        for (axis, expected) in [("x", 13.0), ("y", 8.0), ("z", 2.0)] {
+            let actual = camera["position"][axis].as_f64().unwrap();
+            assert!((actual - expected).abs() < 1.0e-10);
+        }
+        assert_eq!(json!({"x": 1.0, "y": 2.0, "z": 3.0}), camera["target"]);
+        assert_eq!(json!(58.0), camera["fieldOfView"]);
+        assert_eq!(json!(0.25), camera["near"]);
+        assert_eq!(json!(900.0), camera["far"]);
+        assert_eq!(
+            "view.camera.set_pose",
+            dispatch.command_id.unwrap().as_str()
+        );
+    }
+
+    #[test]
+    fn camera_pose_command_rejects_missing_or_invalid_inputs_without_changing_pose() {
+        let mut app = test_app();
+        let original = app.viewport.legacy_camera_state();
+        let missing = app.dispatch_command("view.camera.set_pose", &CommandPayload::default());
+        assert!(!missing.accepted);
+        assert_eq!(original, app.viewport.legacy_camera_state());
+
+        let mut invalid = CommandPayload::default();
+        invalid
+            .values
+            .insert("position".to_owned(), json!([1.0, 1.0, 1.0]));
+        invalid
+            .values
+            .insert("target".to_owned(), json!([1.0, 1.0, 1.0]));
+        let rejected = app.dispatch_command("view.camera.set_pose", &invalid);
+        assert!(rejected.accepted);
+        assert_eq!(CommandCompletion::Failed, rejected.result.completion);
+        assert_eq!(original, app.viewport.legacy_camera_state());
+
+        invalid
+            .values
+            .insert("target".to_owned(), json!([0.0, 0.0, 0.0]));
+        invalid
+            .values
+            .insert("field_of_view".to_owned(), json!(179.0));
+        let rejected = app.dispatch_command("view.camera.set_pose", &invalid);
+        assert!(rejected.accepted);
+        assert_eq!(CommandCompletion::Failed, rejected.result.completion);
+        assert_eq!(original, app.viewport.legacy_camera_state());
     }
 
     #[test]
