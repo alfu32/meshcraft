@@ -27,7 +27,7 @@ These eight 1920×1080 captures were compared byte-for-byte with the screenshots
 1. Selection totals, Object section and the Objects list, alongside the cuboid array: ![Selection, Object and Objects panels](references/live-5.7.1/object-array.png)
 2. XRef controls and Model Settings; UI Settings starts at the bottom: ![Model Settings](references/live-5.7.1/model-settings.png)
 3. UI Settings and Help / About: ![UI Settings and Help / About](references/live-5.7.1/ui-settings-help-about.png)
-4. Help / About, Polyline Settings and Vector Text: ![Polyline and Vector Text settings](references/live-5.7.1/architecture-and-text-settings.png)
+4. Help / About, Polyline Settings and Vector Text: ![Polyline and Vector Text settings](references/live-5.7.1/polyline-vector-text-settings.png)
 5. Architecture - Walls, Slabs, Stairs and Frames; HVAC is below the captured area: ![Architecture settings](references/live-5.7.1/architecture-settings.png)
 6. HVAC Settings and Hotspot Settings, with Random Tools beginning at the bottom: ![HVAC and Hotspot settings](references/live-5.7.1/hvac-settings.png)
 7. Random Tools and tutorial controls, ending at the Shader Settings heading: ![Random Tools and Tutorials](references/live-5.7.1/random-tools-tutorials.png)
