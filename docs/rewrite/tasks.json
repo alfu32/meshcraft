@@ -655,19 +655,19 @@
         "commitInput"
       ],
       "slices": [
-        "Freeze ToolEvent/state/preview/measurement/operator contracts and numeric/copy/cancel dispatch, including separate hotspot action hook.",
+        "Freeze typed ToolEvent/state/preview/measurement and Line operator contracts with numeric/cancel dispatch. Transform-specific copy mode belongs to T15; hotspot placement remains a separate host-action mode, with hotspot definitions and attachments owned by T32.",
         "Implement chained Line and single Construction Line with local-space segment insertion, edge splits/collinear consolidation. Preserve the current lack of automatic face cutting/inference in this path; explicit cutters ship in their owning tasks.",
-        "Specify line-chain transaction boundaries and Enter/Escape/Backspace behavior; connect controls/shortcuts/menu registrations."
+        "Specify line-chain transaction boundaries and Enter/Escape/Backspace behavior; expose operators through controls, palette and menus, and preserve source-order L/D/O/M cycles plus Ctrl+N distance input."
       ],
       "done": [
-        "C02/C13 line cases pass; raw loading remains unaffected.",
-        "Numeric popup and direct typed input have consistent previews/commits."
+        "C02/C13 Line and Construction Line cases pass, including context isolation, raw-load isolation and no implicit face cuts.",
+        "Typed preview/commit parity, per-segment undo, keyboard cycles and the separate hotspot host-action route are covered."
       ],
       "tool_ids": [
         "LINE",
         "CONSTRUCTION_LINE"
       ],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T14",

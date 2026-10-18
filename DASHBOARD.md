@@ -7,8 +7,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status | Tasks |
 | --- | ---: |
 | Todo | 36 |
-| In progress | 5 |
-| Done | 10 |
+| In progress | 4 |
+| Done | 11 |
 | **Total** | **51** |
 
 ## Currently in Progress
@@ -16,12 +16,11 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T05 — Implement sparse legacy DTO reading and model/history containers**
 - **T07 — Build desktop window and basic viewport**
 - **T09 — Implement desktop document service and safe storage**
-- **T13 — Implement tool protocol and line editing**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
 
 ## Current Activity
 
-T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. T13 supports chained Line and paired Construction Line drawing directly in the active root or definition graph, with local-space insertion, same-context intersection splitting, collinear consolidation, selection-ID remapping across shared instances, numeric preview/commit, and one undo transaction per committed segment. The in-tool toolbar exposes Select and state-gated Distance; Finish, Undo Point/Input and Cancel are also palette commands. Escape clears pending input while preserving committed segments; ordinary line edits do not cut faces. Regression coverage now verifies that chained segments undo independently and that unrelated object definitions remain unchanged during local edits. Current validation passes: 92 core, 111 desktop, 14 IO and 5 CLI tests, Clippy with warnings denied, formatting, and `verify_plan.py`. T13 remains In Progress while generic copy-mode dispatch, the separate hotspot host-action hook, and source tool-cycle shortcuts are completed. The 203-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. User-confirmed requirements for selection-first modeling, planar-first construction, nested object definitions, attached hotspots, distinct linear/planar/spatial and rotational/helical arrays, and staged point-picking remain recorded for T14 and later tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 36 Todo, 5 In Progress, 10 Done.
+T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. T13 is complete: Line and Construction Line edit the active root or definition graph in local space, split same-context intersections, consolidate collinear overlap/touch, preserve face topology, and remap selection through inherited instances. Numeric preview and commit, Enter/Backspace/Escape, independent per-segment undo, in-tool Distance, and palette operators share the line state. Source-order L/D/O/M cycles and Ctrl+N distance focus are routed through commands; hotspot placement remains a separate host-action mode, with its model and attachment graph owned by T32. Validation passes: 94 core, 114 desktop, 14 IO and 5 CLI tests, Clippy with warnings denied, formatting, and `verify_plan.py`. The 209-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. Transform copy mode remains in T15. User-confirmed requirements for selection-first modeling, planar-first construction, nested object definitions, attached hotspots, distinct linear/planar/spatial and rotational/helical arrays, and staged point-picking remain recorded for T14 and later tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 36 Todo, 4 In Progress, 11 Done.
 
 ## Task Statuses
 
@@ -40,7 +39,7 @@ T12 is complete: mixed typed selection supports replace/add/remove, injected 350
 | T10 | Port orbit, orthographic and walkthrough cameras | Done |
 | T11 | Implement snapping, permanent grid and guides | Done |
 | T12 | Port mixed selection and semantic picking framework | Done |
-| T13 | Implement tool protocol and line editing | In progress |
+| T13 | Implement tool protocol and line editing | Done |
 | T14 | Implement basic planar shape tools | Todo |
 | T15 | Port transforms, stretch variants and painting | Todo |
 | T16 | Implement reusable objects, placement and explode | Todo |

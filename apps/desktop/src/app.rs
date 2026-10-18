@@ -18,7 +18,10 @@ use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
     SelectionMode, SelectionSession, SelectionTarget,
 };
-use meshcraft_core::tools::{DrawingTool, DrawingToolState, ToolEffect, ToolEvent};
+use meshcraft_core::tools::{
+    DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
+    ToolEvent,
+};
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
@@ -553,6 +556,9 @@ impl UiProfile {
 enum ShellAction {
     SelectTool(&'static str),
     SelectToolAlias(&'static str),
+    CycleTool(ToolCycle),
+    BeginHotspotPlacement,
+    CancelHotspotPlacement,
     FocusToolDistance,
     FinishToolInput,
     UndoToolPoint,
@@ -834,6 +840,54 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "draw segment",
                 Some("construction_line"),
                 ShellAction::SelectTool("Line"),
+            ),
+            (
+                "tool.cycle.planar_construction",
+                "Tools> Next Planar Construction Tool",
+                "Tools",
+                "cycle line construction line polyline double line rectangle mesh quad circle hotspot L",
+                None,
+                ShellAction::CycleTool(ToolCycle::PlanarConstruction),
+            ),
+            (
+                "tool.cycle.annotation",
+                "Tools> Next Annotation Tool",
+                "Tools",
+                "cycle dimension text vector text D",
+                None,
+                ShellAction::CycleTool(ToolCycle::Annotation),
+            ),
+            (
+                "tool.cycle.operations",
+                "Tools> Next Operation Tool",
+                "Tools",
+                "cycle offset push pull extrude section O",
+                None,
+                ShellAction::CycleTool(ToolCycle::Operations),
+            ),
+            (
+                "tool.cycle.modification",
+                "Tools> Next Modification Tool",
+                "Tools",
+                "cycle move rotate scale stretch copy array M",
+                None,
+                ShellAction::CycleTool(ToolCycle::Modification),
+            ),
+            (
+                "hotspot.begin_placement",
+                "Tools> Hotspot Add at Cursor",
+                "Tools",
+                "place add create hotspot operator attached geometry",
+                None,
+                ShellAction::BeginHotspotPlacement,
+            ),
+            (
+                "hotspot.cancel_placement",
+                "Tools> Cancel Hotspot Placement",
+                "Tools",
+                "cancel stop hotspot placement",
+                None,
+                ShellAction::CancelHotspotPlacement,
             ),
             (
                 "tool.distance",
@@ -1208,6 +1262,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
     match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
+        | ShellAction::CycleTool(_)
         | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::AddCuboid
@@ -1243,6 +1298,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::FocusToolDistance
         | ShellAction::UndoToolPoint
         | ShellAction::CancelActiveTool
+        | ShellAction::BeginHotspotPlacement
+        | ShellAction::CancelHotspotPlacement
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
         | ShellAction::ToggleGuides
@@ -1320,12 +1377,29 @@ fn register_shell_command(
     if id == "app.quit" {
         descriptor.shortcut = Some("Ctrl+Q".to_owned());
     }
+    if id == "tool.distance" {
+        descriptor.shortcut = Some("Ctrl+N".to_owned());
+    }
+    if let ShellAction::CycleTool(cycle) = action {
+        descriptor.shortcut = Some(
+            match cycle {
+                ToolCycle::PlanarConstruction => "L",
+                ToolCycle::Annotation => "D",
+                ToolCycle::Operations => "O",
+                ToolCycle::Modification => "M",
+            }
+            .to_owned(),
+        );
+    }
     if id == "edit.delete_selection" {
         descriptor.shortcut = Some("Delete".to_owned());
     }
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
+        | ShellAction::CycleTool(_)
+        | ShellAction::BeginHotspotPlacement
+        | ShellAction::CancelHotspotPlacement
         | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide
         | ShellAction::SetProfile(_)
@@ -1581,6 +1655,7 @@ pub struct MeshcraftApp {
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
     drawing_tool: DrawingToolState,
+    tool_cycle_state: ToolCycleState,
     rectangle_first: Option<Vec3>,
     array_count: usize,
     array_spacing: f64,
@@ -1715,6 +1790,7 @@ impl MeshcraftApp {
             cuboid_first: None,
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
+            tool_cycle_state: ToolCycleState::default(),
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -2634,6 +2710,7 @@ impl MeshcraftApp {
         self.current_project_path = Some(path.to_path_buf());
         self.selection.clear();
         self.object_name_edit = None;
+        self.tool_cycle_state.cancel_hotspot_placement();
         self.active_tool = "Select".to_owned();
         self.guides.clear();
         self.cuboid_first = None;
@@ -2770,6 +2847,7 @@ impl MeshcraftApp {
         }
         self.selection.clear();
         self.object_name_edit = None;
+        self.tool_cycle_state.cancel_hotspot_placement();
         self.cuboid_first = None;
         self.cuboid_base = None;
         self.drawing_tool
@@ -2819,37 +2897,67 @@ impl MeshcraftApp {
         }
     }
 
+    fn activate_tool(&mut self, tool: &str) {
+        self.tool_cycle_state.cancel_hotspot_placement();
+        self.active_tool = tool.to_owned();
+        if tool == "Orbit" {
+            self.viewport.set_perspective_view();
+        }
+        if self.preferences.auto_collapse_toolbars {
+            self.preferences.toolbars_visible = false;
+        }
+        self.cuboid_first = None;
+        self.cuboid_base = None;
+        self.drawing_tool.handle(ToolEvent::Activate(match tool {
+            "Line" => DrawingTool::Line,
+            "Construction Line" => DrawingTool::ConstructionLine,
+            _ => DrawingTool::Select,
+        }));
+        self.rectangle_first = None;
+        self.status = match tool {
+            "Cuboid" => "Cuboid: click two ground-plane corners, then click the height.".to_owned(),
+            "Line" => {
+                "Line: click a start and end point in the active construction plane.".to_owned()
+            }
+            "Construction Line" => {
+                "Construction Line: click two points; the tool stays active for another segment."
+                    .to_owned()
+            }
+            "Rectangle" => {
+                "Rectangle: click two opposite corners in the active construction plane.".to_owned()
+            }
+            _ => format!("{tool} tool selected."),
+        };
+    }
+
+    fn advance_tool_cycle(&mut self, cycle: ToolCycle) {
+        match self.tool_cycle_state.advance(cycle, &self.active_tool) {
+            ToolCycleEffect::ActivateTool(tool) => self.activate_tool(tool),
+            ToolCycleEffect::BeginHotspotPlacement => {
+                self.status =
+                    "Hotspot placement host action active; click a point or press Escape."
+                        .to_owned();
+            }
+        }
+    }
+
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
             ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
-                self.active_tool = tool.to_owned();
-                if tool == "Orbit" {
-                    self.viewport.set_perspective_view();
+                self.activate_tool(tool);
+            }
+            ShellAction::CycleTool(cycle) => self.advance_tool_cycle(cycle),
+            ShellAction::BeginHotspotPlacement => {
+                self.tool_cycle_state.begin_hotspot_placement();
+                self.status =
+                    "Hotspot placement host action active; click a point or press Escape."
+                        .to_owned();
+            }
+            ShellAction::CancelHotspotPlacement => {
+                if !self.tool_cycle_state.cancel_hotspot_placement() {
+                    return CommandResult::failed("hotspot placement is not active");
                 }
-                if self.preferences.auto_collapse_toolbars {
-                    self.preferences.toolbars_visible = false;
-                }
-                self.cuboid_first = None;
-                self.cuboid_base = None;
-                self.drawing_tool.handle(ToolEvent::Activate(match tool {
-                    "Line" => DrawingTool::Line,
-                    "Construction Line" => DrawingTool::ConstructionLine,
-                    _ => DrawingTool::Select,
-                }));
-                self.rectangle_first = None;
-                self.status = match tool {
-                    "Cuboid" => {
-                        "Cuboid: click two ground-plane corners, then click the height.".to_owned()
-                    }
-                    "Line" => "Line: click a start and end point in the active construction plane."
-                        .to_owned(),
-                    "Construction Line" => "Construction Line: click two points; the tool stays active for another segment.".to_owned(),
-                    "Rectangle" => {
-                        "Rectangle: click two opposite corners in the active construction plane."
-                            .to_owned()
-                    }
-                    _ => format!("{tool} tool selected."),
-                };
+                self.status = "Hotspot placement canceled.".to_owned();
             }
             ShellAction::FocusToolDistance => {
                 if self.drawing_tool.anchor().is_none() {
@@ -2999,6 +3107,7 @@ impl MeshcraftApp {
                 }
                 self.selection.clear();
                 self.object_name_edit = None;
+                self.tool_cycle_state.cancel_hotspot_placement();
                 self.active_tool = "Select".to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
@@ -3527,8 +3636,20 @@ impl MeshcraftApp {
         {
             return CommandState::disabled("start a Line or Construction Line first");
         }
-        if id == "tool.cancel" && self.active_tool == "Select" {
+        if id == "tool.cancel"
+            && self.active_tool == "Select"
+            && !self.tool_cycle_state.hotspot_placement_active()
+        {
             return CommandState::disabled("there is no active tool to cancel");
+        }
+        if id == "hotspot.cancel_placement" && !self.tool_cycle_state.hotspot_placement_active() {
+            return CommandState::disabled("hotspot placement is not active");
+        }
+        if id == "hotspot.begin_placement" {
+            return CommandState {
+                checked: Some(self.tool_cycle_state.hotspot_placement_active()),
+                ..CommandState::default()
+            };
         }
         if let Some(view) = id.strip_prefix("view.ortho.").and_then(OrthoView::from_id) {
             return CommandState {
@@ -3772,6 +3893,7 @@ impl MeshcraftApp {
     }
 
     fn cancel_active_tool(&mut self) {
+        self.tool_cycle_state.cancel_hotspot_placement();
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
         self.cuboid_base = None;
@@ -3943,6 +4065,18 @@ impl MeshcraftApp {
         modifiers: egui::Modifiers,
         click_count: u8,
     ) {
+        if self.tool_cycle_state.hotspot_placement_active() {
+            let Some(_) = construction_point else {
+                self.status =
+                    "Hotspot placement needs a point on the active construction view.".to_owned();
+                return;
+            };
+            self.tool_cycle_state.cancel_hotspot_placement();
+            self.status =
+                "Hotspot placement received the cursor point; hotspot editing is not implemented yet."
+                    .to_owned();
+            return;
+        }
         if self.active_tool == "Remove Guide" {
             let guides = if self.preferences.show_construction_guides {
                 self.guides.as_slice()
@@ -4795,7 +4929,12 @@ impl MeshcraftApp {
                         if shown {
                             egui::Frame::group(ui.style()).show(ui, |ui| {
                                 if stem == "in_tool_operators" {
-                                    ui.weak(format!("Active tool: {}", self.active_tool));
+                                    let mode = if self.tool_cycle_state.hotspot_placement_active() {
+                                        "Hotspot placement host action"
+                                    } else {
+                                        self.active_tool.as_str()
+                                    };
+                                    ui.weak(format!("Active tool: {mode}"));
                                 }
                                 ui.horizontal_wrapped(|ui| {
                                     for id in legacy_toolbar_command_ids(stem) {
@@ -5578,6 +5717,8 @@ impl MeshcraftApp {
                             ui.label("Platform: Desktop");
                             ui.label("Rust rewrite · development build");
                             ui.label("Ctrl+Shift+P opens the command palette.");
+                            ui.label("Ctrl+N focuses distance input after a Line start point.");
+                            ui.label("L cycles planar tools, D annotations, O operations, and M modifications.");
                             ui.label("G places a grid guide; T places an axis guide.");
                         });
                     }
@@ -5652,6 +5793,11 @@ impl MeshcraftApp {
                 self.handle_drawing_tool_effect(effect, None);
             }
         }
+        let distance_input_shortcut = shortcuts_allowed
+            && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::N));
+        if distance_input_shortcut {
+            self.run_command("tool.distance");
+        }
         let open_project_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
         if open_project_shortcut {
@@ -5718,6 +5864,46 @@ impl MeshcraftApp {
                     && !input.modifiers.shift
                     && !input.modifiers.alt
                     && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::L)
+            })
+        {
+            self.run_command("tool.cycle.planar_construction");
+        } else if shortcuts_allowed
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::D)
+            })
+        {
+            self.run_command("tool.cycle.annotation");
+        } else if shortcuts_allowed
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::O)
+            })
+        {
+            self.run_command("tool.cycle.operations");
+        } else if shortcuts_allowed
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
+                    && input.key_pressed(egui::Key::M)
+            })
+        {
+            self.run_command("tool.cycle.modification");
+        } else if shortcuts_allowed
+            && ui.input(|input| {
+                !input.modifiers.ctrl
+                    && !input.modifiers.shift
+                    && !input.modifiers.alt
+                    && !input.modifiers.mac_cmd
                     && input.key_pressed(egui::Key::G)
             })
         {
@@ -5734,7 +5920,7 @@ impl MeshcraftApp {
             self.run_command("view.axis_guide");
         } else if shortcuts_allowed
             && ui.input(|input| input.key_pressed(egui::Key::Escape))
-            && self.active_tool != "Select"
+            && (self.active_tool != "Select" || self.tool_cycle_state.hotspot_placement_active())
         {
             self.cancel_active_tool();
         } else if shortcuts_allowed
@@ -6040,8 +6226,8 @@ mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
         ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
-        SelectionSession, ToolEvent, TransactionHistory, UiProfile, command_matches,
-        registry_has_unique_ids, shell_commands, tool_command_id,
+        SelectionSession, ToolCycleState, ToolEvent, TransactionHistory, UiProfile,
+        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -6218,6 +6404,7 @@ mod tests {
             cuboid_first: None,
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
+            tool_cycle_state: ToolCycleState::default(),
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -6501,7 +6688,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(203, entries.len());
+        assert_eq!(209, entries.len());
         assert_eq!(
             74,
             entries
@@ -6676,6 +6863,217 @@ mod tests {
     }
 
     #[test]
+    fn tool_cycle_commands_match_legacy_order_and_keep_hotspot_outside_tool_ids() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+
+        for (id, shortcut) in [
+            ("tool.cycle.planar_construction", "L"),
+            ("tool.cycle.annotation", "D"),
+            ("tool.cycle.operations", "O"),
+            ("tool.cycle.modification", "M"),
+        ] {
+            let command = shell_commands()
+                .get(id)
+                .expect("cycle command is registered");
+            assert_eq!(Some(shortcut), command.descriptor.shortcut.as_deref());
+            assert!(command_matches(&command.descriptor, shortcut));
+        }
+
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Select", app.active_tool);
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        assert!(app.query_command_state("hotspot.cancel_placement").enabled);
+
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Construction Line", app.active_tool);
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Line", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Polyline", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Double Line", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Rectangle", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Surface Rect", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Mesh", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Quad", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert_eq!("Circle", app.active_tool);
+        app.run_command("tool.cycle.planar_construction");
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        app.run_command("hotspot.cancel_placement");
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+
+        app.run_command("tool.select");
+        app.run_command("tool.cycle.annotation");
+        assert_eq!("Linear Dimension", app.active_tool);
+        app.run_command("tool.cycle.annotation");
+        assert_eq!("Text", app.active_tool);
+        app.run_command("tool.cycle.annotation");
+        assert_eq!("Vector Text", app.active_tool);
+        app.run_command("tool.cycle.annotation");
+        assert_eq!("Linear Dimension", app.active_tool);
+
+        app.run_command("tool.select");
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Line Offset", app.active_tool);
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Push/Pull", app.active_tool);
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Extrude Swipe", app.active_tool);
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Extrude Swipe 3D", app.active_tool);
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Plane Section", app.active_tool);
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Line Offset", app.active_tool);
+
+        app.run_command("tool.select");
+        app.run_command("tool.cycle.modification");
+        assert_eq!("Move", app.active_tool);
+        for (expected, current) in [
+            ("Rotate", "Move"),
+            ("Rotate 2", "Rotate"),
+            ("Scale", "Rotate 2"),
+            ("Stretch", "Scale"),
+            ("Stretch Scale", "Stretch"),
+            ("Rotate Stretch", "Stretch Scale"),
+            ("Copy Multiple", "Rotate Stretch"),
+            ("Planar Translate Multiple", "Copy Multiple"),
+            ("Volumetric Translate Multiple", "Planar Translate Multiple"),
+            ("Planar Rotate Multiple", "Volumetric Translate Multiple"),
+            ("Helicoidal Rotate Multiple", "Planar Rotate Multiple"),
+            ("Rotational Array", "Helicoidal Rotate Multiple"),
+            ("Helical Array", "Rotational Array"),
+            ("Rotational Array Even", "Helical Array"),
+            ("Helical Array Even", "Rotational Array Even"),
+            ("Move", "Helical Array Even"),
+        ] {
+            assert_eq!(current, app.active_tool);
+            app.run_command("tool.cycle.modification");
+            assert_eq!(expected, app.active_tool);
+        }
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(0, app.history.entries().len());
+    }
+
+    #[test]
+    fn hotspot_host_action_consumes_a_cursor_pick_without_mutating_model() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        app.run_command("hotspot.begin_placement");
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        assert!(app.query_command_state("tool.cancel").enabled);
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::new(2.0, 0.0, 3.0)));
+
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+        assert!(app.status.contains("not implemented yet"));
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(0, app.history.entries().len());
+        assert!(!app.query_command_state("hotspot.cancel_placement").enabled);
+    }
+
+    #[test]
+    fn tool_cycle_shortcuts_obey_modifier_and_palette_focus_rules() {
+        let mut app = test_app();
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::L,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        assert_eq!("Select", app.active_tool);
+
+        let control = Modifiers::CTRL;
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::ModifiersChanged(control),
+                Event::Key {
+                    key: Key::D,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: control,
+                },
+            ],
+        );
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        assert_eq!("Select", app.active_tool);
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::ModifiersChanged(Modifiers::default()),
+                Event::Key {
+                    key: Key::D,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+        assert_eq!("Linear Dimension", app.active_tool);
+
+        app.run_command("tool.select");
+        app.command_palette_open = true;
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::ModifiersChanged(Modifiers::default()),
+                Event::Text("l".to_owned()),
+                Event::Key {
+                    key: Key::L,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+        assert_eq!("Select", app.active_tool);
+
+        app.command_palette_open = false;
+        app.run_command("tool.cycle.planar_construction");
+        assert!(app.tool_cycle_state.hotspot_placement_active());
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+    }
+
+    #[test]
     fn every_visible_tool_has_a_registry_command() {
         for tool in [
             "Select",
@@ -6707,13 +7105,38 @@ mod tests {
     fn distance_operator_requires_a_line_anchor_and_does_not_edit_the_document() {
         let mut app = test_app();
         let initial_revision = app.document.revision();
+        assert_eq!(
+            Some("Ctrl+N"),
+            shell_commands()
+                .get("tool.distance")
+                .unwrap()
+                .descriptor
+                .shortcut
+                .as_deref()
+        );
         assert!(!app.query_command_state("tool.distance").enabled);
 
         app.run_command("tool.line");
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
         app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
         assert!(app.query_command_state("tool.distance").enabled);
-        app.run_command("tool.distance");
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+        let control = Modifiers::CTRL;
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::ModifiersChanged(control),
+                Event::Key {
+                    key: Key::N,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: control,
+                },
+            ],
+        );
 
         assert!(app.drawing_tool.distance_focused());
         assert_eq!(initial_revision, app.document.revision());

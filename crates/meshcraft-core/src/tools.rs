@@ -42,6 +42,105 @@ pub struct ToolPreview {
     pub measurement: Option<f64>,
 }
 
+/// Legacy keyboard groups that activate the next tool in a fixed cycle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolCycle {
+    PlanarConstruction,
+    Annotation,
+    Operations,
+    Modification,
+}
+
+/// A result of advancing a legacy tool cycle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolCycleEffect {
+    ActivateTool(&'static str),
+    BeginHotspotPlacement,
+}
+
+/// Session state for the legacy hotspot placement action, which is not a ToolId.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ToolCycleState {
+    hotspot_placement_active: bool,
+}
+
+impl ToolCycleState {
+    pub fn hotspot_placement_active(&self) -> bool {
+        self.hotspot_placement_active
+    }
+
+    pub fn begin_hotspot_placement(&mut self) {
+        self.hotspot_placement_active = true;
+    }
+
+    pub fn cancel_hotspot_placement(&mut self) -> bool {
+        std::mem::replace(&mut self.hotspot_placement_active, false)
+    }
+
+    /// Advance a shortcut cycle using the active tool's legacy display name.
+    pub fn advance(&mut self, cycle: ToolCycle, active_tool: &str) -> ToolCycleEffect {
+        if cycle == ToolCycle::PlanarConstruction {
+            if self.cancel_hotspot_placement() {
+                return ToolCycleEffect::ActivateTool("Construction Line");
+            }
+            return match active_tool {
+                "Construction Line" => ToolCycleEffect::ActivateTool("Line"),
+                "Line" => ToolCycleEffect::ActivateTool("Polyline"),
+                "Polyline" => ToolCycleEffect::ActivateTool("Double Line"),
+                "Double Line" => ToolCycleEffect::ActivateTool("Rectangle"),
+                "Rectangle" => ToolCycleEffect::ActivateTool("Surface Rect"),
+                "Surface Rect" => ToolCycleEffect::ActivateTool("Mesh"),
+                "Mesh" => ToolCycleEffect::ActivateTool("Quad"),
+                "Quad" => ToolCycleEffect::ActivateTool("Circle"),
+                _ => {
+                    self.hotspot_placement_active = true;
+                    ToolCycleEffect::BeginHotspotPlacement
+                }
+            };
+        }
+
+        self.cancel_hotspot_placement();
+        let tools = match cycle {
+            ToolCycle::PlanarConstruction => unreachable!("handled above"),
+            ToolCycle::Annotation => &["Linear Dimension", "Text", "Vector Text"][..],
+            ToolCycle::Operations => &[
+                "Line Offset",
+                "Push/Pull",
+                "Extrude Swipe",
+                "Extrude Swipe 3D",
+                "Plane Section",
+            ][..],
+            ToolCycle::Modification => &[
+                "Move",
+                "Rotate",
+                "Rotate 2",
+                "Scale",
+                "Stretch",
+                "Stretch Scale",
+                "Rotate Stretch",
+                "Copy Multiple",
+                "Planar Translate Multiple",
+                "Volumetric Translate Multiple",
+                "Planar Rotate Multiple",
+                "Helicoidal Rotate Multiple",
+                "Rotational Array",
+                "Helical Array",
+                "Rotational Array Even",
+                "Helical Array Even",
+            ][..],
+        };
+        let next = if active_tool == "Select" {
+            0
+        } else {
+            tools
+                .iter()
+                .position(|tool| *tool == active_tool)
+                .map_or(0, |index| (index + 1) % tools.len())
+        };
+        ToolCycleEffect::ActivateTool(tools[next])
+    }
+}
+
 /// Transient state shared by Line and Construction Line.
 ///
 /// A completed Line segment advances the anchor and remains undoable as its own transaction.
@@ -239,7 +338,10 @@ impl DrawingToolState {
 
 #[cfg(test)]
 mod tests {
-    use super::{DrawingTool, DrawingToolState, ToolEffect, ToolEvent};
+    use super::{
+        DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
+        ToolEvent,
+    };
     use crate::geometry::Vec3;
 
     #[test]
@@ -334,5 +436,83 @@ mod tests {
         tool.handle(ToolEvent::Activate(DrawingTool::ConstructionLine));
         assert_eq!(None, tool.anchor());
         assert_eq!("", tool.numeric_input());
+    }
+
+    #[test]
+    fn legacy_tool_cycles_preserve_order_and_hotspot_is_a_separate_action() {
+        let mut cycles = ToolCycleState::default();
+        assert_eq!(
+            ToolCycleEffect::BeginHotspotPlacement,
+            cycles.advance(ToolCycle::PlanarConstruction, "Select")
+        );
+        assert!(cycles.hotspot_placement_active());
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Construction Line"),
+            cycles.advance(ToolCycle::PlanarConstruction, "Select")
+        );
+        assert!(!cycles.hotspot_placement_active());
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Line"),
+            cycles.advance(ToolCycle::PlanarConstruction, "Construction Line")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Polyline"),
+            cycles.advance(ToolCycle::PlanarConstruction, "Line")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Circle"),
+            cycles.advance(ToolCycle::PlanarConstruction, "Quad")
+        );
+        assert_eq!(
+            ToolCycleEffect::BeginHotspotPlacement,
+            cycles.advance(ToolCycle::PlanarConstruction, "Circle")
+        );
+
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Linear Dimension"),
+            cycles.advance(ToolCycle::Annotation, "Select")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Text"),
+            cycles.advance(ToolCycle::Annotation, "Linear Dimension")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Line Offset"),
+            cycles.advance(ToolCycle::Operations, "Select")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Push/Pull"),
+            cycles.advance(ToolCycle::Operations, "Line Offset")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Move"),
+            cycles.advance(ToolCycle::Modification, "Select")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Rotate"),
+            cycles.advance(ToolCycle::Modification, "Move")
+        );
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Move"),
+            cycles.advance(ToolCycle::Modification, "Helical Array Even")
+        );
+    }
+
+    #[test]
+    fn annotation_and_modification_cycles_cancel_pending_hotspot_action() {
+        let mut cycles = ToolCycleState::default();
+        cycles.advance(ToolCycle::PlanarConstruction, "Select");
+
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Linear Dimension"),
+            cycles.advance(ToolCycle::Annotation, "Select")
+        );
+        assert!(!cycles.hotspot_placement_active());
+        cycles.advance(ToolCycle::PlanarConstruction, "Select");
+        assert_eq!(
+            ToolCycleEffect::ActivateTool("Move"),
+            cycles.advance(ToolCycle::Modification, "Select")
+        );
+        assert!(!cycles.hotspot_placement_active());
     }
 }
