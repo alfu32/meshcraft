@@ -1973,6 +1973,55 @@ mod tests {
     }
 
     #[test]
+    fn camera_mapping_uses_the_actual_viewport_rect_across_layout_sizes() {
+        let rects = [
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0)),
+            Rect::from_min_size(Pos2::new(324.0, 28.0), Vec2::new(940.0, 820.0)),
+            Rect::from_min_size(Pos2::new(480.0, 32.0), Vec2::new(1400.0, 900.0)),
+        ];
+
+        for rect in rects {
+            let perspective = Viewport {
+                yaw: 0.72,
+                elevation: 0.91,
+                pan: Vec2::new(18.0, -12.0),
+                ..Viewport::default()
+            };
+            for ground_point in [Vec3::new(-8.5, 0.0, 4.25), Vec3::new(3.0, 0.0, -11.0)] {
+                let screen = perspective.world_to_screen(rect, ground_point);
+                let recovered = perspective.screen_to_ground(rect, screen).unwrap();
+                assert!(recovered.distance(ground_point) < 1.0e-5, "rect={rect:?}");
+            }
+
+            for view in [
+                OrthoView::Top,
+                OrthoView::Bottom,
+                OrthoView::Left,
+                OrthoView::Right,
+                OrthoView::Front,
+                OrthoView::Back,
+            ] {
+                let mut orthographic = Viewport {
+                    pan: Vec2::new(-21.0, 14.0),
+                    zoom: 28.0,
+                    ..Viewport::default()
+                };
+                orthographic.set_orthographic_view(view);
+                let (right, up, _) = view.screen_axes();
+                let point = right * 3.5 + up * -2.25;
+                let screen = orthographic.world_to_screen(rect, point);
+                let recovered = orthographic
+                    .screen_to_construction_plane(rect, screen)
+                    .unwrap();
+                assert!(
+                    recovered.distance(point) < 1.0e-5,
+                    "view={view:?}, rect={rect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn perspective_projection_scales_with_camera_depth() {
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0));
         let viewport = Viewport::default();
