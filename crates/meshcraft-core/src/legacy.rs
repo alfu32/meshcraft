@@ -1059,6 +1059,8 @@ mod tests {
         include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
     const HOTSPOT_SCENE: &str =
         include_str!("../../../fixtures/legacy/samples/examples/hotspots.demo.2.k3d");
+    const ALPHABET_GLYPHS: &str =
+        include_str!("../../../fixtures/legacy/samples/assets/glyphs/alphabet.octd");
 
     #[test]
     fn imports_prototype_geometry_and_child_instances_without_welding_unaliased_points() {
@@ -1281,6 +1283,57 @@ mod tests {
                 .legacy_aliases
                 .iter()
                 .any(|alias| alias.source == "k3d.vertex" && alias.id == "vertex-1")
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn imports_real_glyph_fixture_alias_collisions_with_exact_corner_positions() {
+        let document = import_current_json(ALPHABET_GLYPHS).unwrap();
+        let prototype = document
+            .definitions
+            .values()
+            .find(|definition| {
+                definition.legacy_aliases.iter().any(|alias| {
+                    alias.source == "k3d.prototype"
+                        && alias.id == "5764ebfb-723d-48fe-9572-d6ab917a2b3a"
+                })
+            })
+            .unwrap();
+        let vertex = prototype
+            .geometry
+            .vertices
+            .values()
+            .find(|vertex| {
+                vertex.legacy_aliases.iter().any(|alias| {
+                    alias.source == "k3d.vertex"
+                        && alias.id == "cc94ef9a-a22c-4491-a0bb-73be59c5e507"
+                })
+            })
+            .unwrap();
+        let segment_points = prototype
+            .geometry
+            .segments
+            .values()
+            .flat_map(|segment| segment.endpoints)
+            .filter(|reference| reference.id == vertex.id)
+            .filter_map(|reference| prototype.geometry.vertex_position(reference));
+        let triangle_points = prototype
+            .geometry
+            .triangles
+            .values()
+            .flat_map(|triangle| triangle.vertices)
+            .filter(|reference| reference.id == vertex.id)
+            .filter_map(|reference| prototype.geometry.vertex_position(reference));
+        let points: Vec<_> = segment_points.chain(triangle_points).collect();
+        let first = Vec3::new(4.0, 0.0, 11.000_025);
+        let second = Vec3::new(4.0, 0.0, 11.000_027);
+        assert!(points.contains(&first));
+        assert!(points.contains(&second));
+        assert!(
+            points
+                .iter()
+                .all(|point| *point == first || *point == second)
         );
         assert!(document.validate().is_ok());
     }

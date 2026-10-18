@@ -22,6 +22,8 @@ Reproduce the 60-fixture probe with `python3 docs/rewrite/scripts/geometry_stora
 
 Do not weld by exact or quantized coordinate equality. New geometry shares a `VertexId` only when its creating/editing operation establishes that relationship. The core represents each segment endpoint and triangle corner as `VertexRef { id, position_offset }`; resolve the exact point as the referenced vertex position plus its per-corner offset. Import maps persisted vertex IDs to shared identity aliases, uses offsets to preserve each source coordinate exactly, and gives unaliased corners independent IDs. `GeometryBundle::vertex_position` is the canonical point query. Serde accepts the previous bare-ID corner encoding as a zero-offset reference. Geometric adjacency remains a tolerance-based predicate, not identity. Segment/triangle IDs and RGBA remain independent records, so coincident faces with different IDs/colors survive. Topology edits return explicit old-to-new identity remaps for selection and hotspot attachments.
 
+The pinned `alphabet.octd` glyph fixture supplies a real alias collision: one legacy vertex ID is used at `(4, 0, 11.000025)` and `(4, 0, 11.000027)`. The Rust importer preserves both exact points under the shared identity; a regression test checks the fixture values directly.
+
 The source `prototypeVertices` map is not a complete mesh vertex table: 1,266 base-geometry keys have no record and 5,747 serialized keys are absent from base segment/face positions. Preserve unmatched aliases and unknown payloads; do not rebuild or discard the map from geometry alone. The probe reports its measurement scope in `geometry-storage-probe.json`.
 
 ## Occurrence, replacement and migration rules
