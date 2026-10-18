@@ -65,7 +65,7 @@
         "Captured results distinguish executed assertions, static evidence and manual visual checks; no fabricated baseline timings."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T01",
