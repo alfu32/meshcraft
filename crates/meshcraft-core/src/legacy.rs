@@ -1063,6 +1063,9 @@ mod tests {
         include_str!("../../../fixtures/legacy/samples/examples/test-shortcuts.0.octd");
     const ALPHABET_GLYPHS: &str =
         include_str!("../../../fixtures/legacy/samples/assets/glyphs/alphabet.octd");
+    const DIFFERING_INSTANCE_OVERRIDE: &str = include_str!(
+        "../../../fixtures/scenarios/object-model/differing-instance-override-input.octd"
+    );
 
     #[test]
     fn imports_prototype_geometry_and_child_instances_without_welding_unaliased_points() {
@@ -1176,13 +1179,14 @@ mod tests {
         assert_eq!(2, first_child.path.len());
         assert_eq!(2, second_child.path.len());
         assert_ne!(first_child, second_child);
-        assert!(
-            document
-                .resolve_occurrence(&OccurrenceRef {
-                    path: first_child.path.clone(),
-                })
-                .is_some()
-        );
+        let first_resolved = document
+            .resolve_occurrence(&OccurrenceRef {
+                path: first_child.path.clone(),
+            })
+            .unwrap();
+        assert!(first_resolved.entry.legacy_aliases.iter().any(|alias| {
+            alias.source == "k3d.instance" && alias.id == "d4c79371-673f-4818-9abf-8a708edf684c"
+        }));
     }
 
     #[test]
@@ -1217,6 +1221,58 @@ mod tests {
                 .default_child_layout
                 .is_none()
         );
+    }
+
+    #[test]
+    fn keeps_a_differing_instance_mesh_override_local_to_its_occurrence() {
+        let document = import_current_json(DIFFERING_INSTANCE_OVERRIDE).unwrap();
+        let occurrences = document.occurrence_refs().unwrap();
+        let changed = &occurrences[1];
+        let inherited = &occurrences[2];
+        let definition = document.resolve_occurrence(changed).unwrap().definition;
+        let replacement = document.effective_geometry(changed).unwrap();
+
+        assert_eq!(
+            definition.id,
+            document
+                .resolve_occurrence(inherited)
+                .unwrap()
+                .definition
+                .id
+        );
+        assert_ne!(
+            replacement.segments.values().next().unwrap().legacy_aliases,
+            definition
+                .geometry
+                .segments
+                .values()
+                .next()
+                .unwrap()
+                .legacy_aliases
+        );
+        assert_eq!(
+            Vec3::new(2.0, 0.0, 0.0),
+            replacement
+                .vertex_position(replacement.segments.values().next().unwrap().endpoints[0])
+                .unwrap()
+        );
+        assert!(
+            document.occurrence_edits[changed]
+                .geometry_replacement
+                .is_some()
+        );
+        assert!(
+            document
+                .occurrence_edits
+                .get(inherited)
+                .and_then(|edits| edits.geometry_replacement.as_ref())
+                .is_none()
+        );
+        assert!(std::ptr::eq(
+            &definition.geometry,
+            document.effective_geometry(inherited).unwrap()
+        ));
+        assert!(document.validate().is_ok());
     }
 
     #[test]

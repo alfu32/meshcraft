@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "C32-mixed-domain-content",
+  "acceptance": "C32",
+  "description": "A root definition stores loose mesh and architecture records together; preserve both while source attribution remains unresolved.",
+  "setup": {
+    "fixture": "fixtures/legacy/samples/examples/test-shortcuts.0.octd",
+    "fixture_sha256": "e82fda561dc694edcfeec87e3dd7b059ef65bbf3d4ac4073ee817c8612cde131"
+  },
+  "events": [],
+  "assertions": [
+    {
+      "kind": "count",
+      "path": "/definitions/by_name/Root/geometry/segments",
+      "expected": 48
+    },
+    {
+      "kind": "count",
+      "path": "/definitions/by_name/Root/geometry/triangles",
+      "expected": 50
+    },
+    {
+      "kind": "count",
+      "path": "/definitions/by_name/Root/domain/architectureWalls",
+      "expected": 5
+    },
+    {
+      "kind": "count",
+      "path": "/definitions/by_name/Root/domain/architectureSlabs",
+      "expected": 6
+    },
+    {
+      "kind": "count",
+      "path": "/definitions/by_name/Root/domain/architectureFrames",
+      "expected": 25
+    }
+  ]
+}

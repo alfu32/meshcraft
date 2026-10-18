@@ -1612,6 +1612,33 @@ mod tests {
                 .translation,
             Vec3::new(10.0, 5.0, 0.0)
         );
+        document.definitions.get_mut(&child).unwrap().geometry = triangle_bundle(500, 2.0);
+        let first_child_after_edit = document.effective_geometry(&first_child).unwrap();
+        let variant_child_after_edit = document.effective_geometry(&variant_ref).unwrap();
+        assert!(std::ptr::eq(
+            first_child_after_edit,
+            variant_child_after_edit
+        ));
+        assert_eq!(
+            2.0,
+            first_child_after_edit.vertices[&VertexId(501)].position.x
+        );
+        assert_eq!(
+            Vec3::new(0.0, 2.0, 0.0),
+            document
+                .resolve_occurrence(&first_child)
+                .unwrap()
+                .world_transform
+                .translation
+        );
+        assert_eq!(
+            Vec3::new(10.0, 5.0, 0.0),
+            document
+                .resolve_occurrence(&variant_ref)
+                .unwrap()
+                .world_transform
+                .translation
+        );
         assert!(document.validate().is_ok());
     }
 

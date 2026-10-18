@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "C32-legacy-alias-corners",
+  "acceptance": "C32",
+  "description": "One persisted glyph vertex identity occurs at two exact corner coordinates; import retains both points without splitting the identity.",
+  "setup": {
+    "fixture": "fixtures/legacy/samples/assets/glyphs/alphabet.octd",
+    "fixture_sha256": "db1f3838330cf0df604bcc959bee1b4e40ba1d60a8470a407ccaaae2bcecb1e5"
+  },
+  "events": [],
+  "assertions": [
+    {
+      "kind": "equals",
+      "path": "/definitions/by_legacy_id/5764ebfb-723d-48fe-9572-d6ab917a2b3a/geometry/legacy_aliases/cc94ef9a-a22c-4491-a0bb-73be59c5e507/vertex_id_count",
+      "expected": 1
+    },
+    {
+      "kind": "equals",
+      "path": "/definitions/by_legacy_id/5764ebfb-723d-48fe-9572-d6ab917a2b3a/geometry/legacy_aliases/cc94ef9a-a22c-4491-a0bb-73be59c5e507/corner_positions",
+      "expected": [[4.0, 0.0, 11.000025], [4.0, 0.0, 11.000027]]
+    }
+  ]
+}

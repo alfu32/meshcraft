@@ -1,0 +1,43 @@
+{
+  "prototypes": [
+    {
+      "id": "root",
+      "name": "Root",
+      "definitionAxisU": {"x": 1},
+      "definitionAxisV": {"y": 1},
+      "definitionAxisW": {"z": 1}
+    },
+    {
+      "id": "box",
+      "name": "box",
+      "definitionAxisU": {"x": 1},
+      "definitionAxisV": {"y": 1},
+      "definitionAxisW": {"z": 1},
+      "segments": [{"id": "base-line", "start": {}, "end": {"x": 1}}]
+    }
+  ],
+  "rootInstance": {
+    "id": "root-instance",
+    "prototypeId": "root",
+    "instanceAxisU": {"x": 1},
+    "instanceAxisV": {"y": 1},
+    "instanceAxisW": {"z": 1},
+    "children": [
+      {
+        "id": "changed",
+        "prototypeId": "box",
+        "instanceAxisU": {"x": 1},
+        "instanceAxisV": {"y": 1},
+        "instanceAxisW": {"z": 1},
+        "overrideSegments": [{"id": "changed-line", "start": {"x": 2}, "end": {"x": 3}}]
+      },
+      {
+        "id": "inherited",
+        "prototypeId": "box",
+        "instanceAxisU": {"x": 1},
+        "instanceAxisV": {"y": 1},
+        "instanceAxisW": {"z": 1}
+      }
+    ]
+  }
+}

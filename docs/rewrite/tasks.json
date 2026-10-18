@@ -2234,7 +2234,7 @@
         "Decision and fixture assertions are concrete enough for small-context core/IO/object/plugin agents to consume without repeating the investigation."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T47",

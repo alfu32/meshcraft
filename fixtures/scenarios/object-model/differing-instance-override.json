@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "C32-differing-instance-override",
+  "acceptance": "C32",
+  "description": "A changed geometry snapshot stays local to its occurrence while an unchanged sibling inherits the shared definition.",
+  "setup": {
+    "fixture": "fixtures/scenarios/object-model/differing-instance-override-input.octd",
+    "fixture_sha256": "9b21781f60f449d81b7c605c41c67e05e2210993f36a598dc0ea0f85d9398b04"
+  },
+  "events": [],
+  "assertions": [
+    {
+      "kind": "equals",
+      "path": "/occurrences/by_legacy_id/changed/geometry_source",
+      "expected": "instance_override"
+    },
+    {
+      "kind": "equals",
+      "path": "/occurrences/by_legacy_id/changed/geometry/segments/0/start",
+      "expected": [2.0, 0.0, 0.0]
+    },
+    {
+      "kind": "equals",
+      "path": "/occurrences/by_legacy_id/inherited/geometry_source",
+      "expected": "definition"
+    }
+  ]
+}
