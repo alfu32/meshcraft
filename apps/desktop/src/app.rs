@@ -289,6 +289,8 @@ enum ShellAction {
     Redo,
     NewDocument,
     SetProfile(UiProfile),
+    FrameDocument,
+    ResetCamera,
     ToggleToolbars,
     TogglePanels,
     ToggleGrid,
@@ -398,6 +400,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "camera rotate",
                 Some("camera_rotating_operation"),
                 ShellAction::SelectTool("Orbit"),
+            ),
+            (
+                "view.frame_document",
+                "View> Frame Document",
+                "View",
+                "camera zoom fit all",
+                None,
+                ShellAction::FrameDocument,
+            ),
+            (
+                "view.camera.reset",
+                "View> Reset Camera",
+                "View",
+                "camera default reset isometric",
+                None,
+                ShellAction::ResetCamera,
             ),
             (
                 "view.profile.menus",
@@ -584,10 +602,10 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             );
         }
         for (id, name, category, keywords, icon) in LEGACY_COMMANDS {
-            let action = if *id == "edit.group" {
-                ShellAction::CreateObject
-            } else {
-                ShellAction::Unsupported
+            let action = match *id {
+                "edit.group" => ShellAction::CreateObject,
+                "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
+                _ => ShellAction::Unsupported,
             };
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
         }
@@ -647,6 +665,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Redo
         | ShellAction::NewDocument => CommandKind::DocumentMutation,
         ShellAction::SetProfile(_)
+        | ShellAction::FrameDocument
+        | ShellAction::ResetCamera
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
@@ -706,6 +726,8 @@ fn register_shell_command(
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_)
+        | ShellAction::FrameDocument
+        | ShellAction::ResetCamera
         | ShellAction::About => CommandCapability::Desktop,
         ShellAction::Unsupported => CommandCapability::Deferred,
         _ => CommandCapability::Core,
@@ -1298,6 +1320,14 @@ impl MeshcraftApp {
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
                 self.status = format!("{} workspace profile selected.", profile.label());
+            }
+            ShellAction::FrameDocument => {
+                self.viewport.request_frame();
+                self.status = "Framed the document in the viewport.".to_owned();
+            }
+            ShellAction::ResetCamera => {
+                self.viewport.reset_camera();
+                self.status = "Camera reset to the default isometric view.".to_owned();
             }
             ShellAction::ToggleToolbars => {
                 self.preferences.toolbars_visible = !self.preferences.toolbars_visible;
@@ -2757,7 +2787,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(155, entries.len());
+        assert_eq!(157, entries.len());
         assert_eq!(
             74,
             entries
@@ -2829,6 +2859,37 @@ mod tests {
         assert_eq!(
             meshcraft_core::commands::CommandKind::ToolActivation,
             shell_commands().get("tool.cuboid").unwrap().descriptor.kind
+        );
+    }
+
+    #[test]
+    fn camera_commands_share_registry_and_do_not_edit_the_document() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+
+        app.run_command("view.camera.orbit");
+
+        assert_eq!("Orbit", app.active_tool);
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(
+            meshcraft_core::commands::CommandKind::ToolActivation,
+            shell_commands()
+                .get("view.camera.orbit")
+                .unwrap()
+                .descriptor
+                .kind
+        );
+
+        app.run_command("view.frame_document");
+        assert!(app.status.contains("Framed the document"));
+        assert_eq!(initial_revision, app.document.revision());
+        assert_eq!(
+            meshcraft_core::commands::CommandKind::SessionMutation,
+            shell_commands()
+                .get("view.frame_document")
+                .unwrap()
+                .descriptor
+                .kind
         );
     }
 

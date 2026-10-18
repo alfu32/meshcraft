@@ -137,6 +137,13 @@ impl Viewport {
         self.frame_pending = true;
     }
 
+    pub fn reset_camera(&mut self) {
+        self.zoom = 28.0;
+        self.pan = Vec2::ZERO;
+        self.yaw = 0.0;
+        self.frame_pending = false;
+    }
+
     fn frame_document(&mut self, rect: Rect, document: &Document) {
         let Ok(occurrences) = document.occurrence_refs() else {
             return;
@@ -561,6 +568,24 @@ mod tests {
     use super::{Viewport, point_in_triangle};
     use eframe::egui::{Pos2, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
+
+    #[test]
+    fn camera_reset_restores_the_default_projection_and_clears_pending_frame() {
+        let mut viewport = Viewport {
+            zoom: 91.0,
+            pan: Vec2::new(22.0, -17.0),
+            yaw: 1.2,
+            frame_pending: true,
+            ..Viewport::default()
+        };
+
+        viewport.reset_camera();
+
+        assert_eq!(28.0, viewport.zoom);
+        assert_eq!(Vec2::ZERO, viewport.pan);
+        assert_eq!(0.0, viewport.yaw);
+        assert!(!viewport.frame_pending);
+    }
 
     #[test]
     fn isometric_projection_and_ground_picking_round_trip_across_orbits() {
