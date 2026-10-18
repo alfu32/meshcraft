@@ -326,6 +326,7 @@ enum ShellAction {
     AddCuboid,
     CopySelection,
     DeleteSelection,
+    ClearSelection,
     CreateObject,
     ArraySelection,
     UpdateModelSettings,
@@ -453,6 +454,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "remove erase objects",
                 None,
                 ShellAction::DeleteSelection,
+            ),
+            (
+                "edit.clear_selection",
+                "Edit> Clear Selection",
+                "Edit",
+                "deselect unselect selection",
+                None,
+                ShellAction::ClearSelection,
             ),
             (
                 "object.create_from_selection",
@@ -828,6 +837,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
+        | ShellAction::ClearSelection
         | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
@@ -844,6 +854,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
         ShellAction::CopySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
+        ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
         ShellAction::CreateObject => CommandStateQuery::RootSelectionAvailable,
         ShellAction::ArraySelection => CommandStateQuery::SingleRootSelection,
         ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
@@ -2019,6 +2030,12 @@ impl MeshcraftApp {
                     .insert("deleted_count".to_owned(), removed.into());
                 return result;
             }
+            ShellAction::ClearSelection => {
+                self.selection.clear();
+                self.object_name_edit = None;
+                self.status = "Selection cleared.".to_owned();
+                return CommandResult::completed();
+            }
             ShellAction::CreateObject => return self.create_object_from_selection(),
             ShellAction::ArraySelection => {
                 let count = match payload.values.get("count") {
@@ -2929,7 +2946,7 @@ impl MeshcraftApp {
                 self.show_command_menu_item(ui, "edit.undo");
                 self.show_command_menu_item(ui, "edit.redo");
                 self.show_command_menu_item(ui, "edit.delete_selection");
-                ui.add_enabled(false, egui::Button::new("Clear Selection"));
+                self.show_command_menu_item(ui, "edit.clear_selection");
                 ui.separator();
                 self.show_command_menu_item(ui, "edit.copy_selection");
             });
@@ -4170,7 +4187,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(182, entries.len());
+        assert_eq!(183, entries.len());
         assert_eq!(
             74,
             entries
@@ -4194,6 +4211,7 @@ mod tests {
         );
         assert!(shell_commands().get("edit.group").is_some());
         assert!(shell_commands().get("edit.delete_selection").is_some());
+        assert!(shell_commands().get("edit.clear_selection").is_some());
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4524,6 +4542,29 @@ mod tests {
         assert!(command_matches(&command.descriptor, "delete selection"));
         assert_eq!(Some("Delete"), command.descriptor.shortcut.as_deref());
         assert_eq!(CommandKind::DocumentMutation, command.descriptor.kind);
+    }
+
+    #[test]
+    fn clear_selection_command_is_searchable_and_does_not_edit_the_document() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let revision = app.document.revision();
+        let can_undo = app.can_undo_document();
+        assert!(!app.selected_occurrences().is_empty());
+        assert!(app.query_command_state("edit.clear_selection").enabled);
+
+        let command = shell_commands()
+            .get("edit.clear_selection")
+            .expect("clear selection command is registered");
+        assert!(command_matches(&command.descriptor, "clear selection"));
+        assert_eq!(CommandKind::SessionMutation, command.descriptor.kind);
+        let dispatch = app.dispatch_command("edit.clear_selection", &CommandPayload::default());
+
+        assert!(dispatch.accepted);
+        assert!(app.selected_occurrences().is_empty());
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(can_undo, app.can_undo_document());
+        assert!(!app.query_command_state("edit.clear_selection").enabled);
     }
 
     #[test]
