@@ -18,6 +18,7 @@ use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
 use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::operations::extrude::{ExtrudeSourceTriangle, extrude_region};
 use meshcraft_core::operations::objects as modeling_objects;
+use meshcraft_core::operations::primitives as modeling_primitives;
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
@@ -35,6 +36,7 @@ use meshcraft_core::tools::{
         build_line_offset_mesh_from_segments, build_polyline_mesh,
         build_polyline_mesh_from_segments,
     },
+    primitives::{PrimitiveKind, PrimitivePick, PrimitiveToolState},
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
 };
@@ -100,6 +102,38 @@ fn vector_feedback_text(tool: &str, displacement: Vec3, unit_name: &str) -> Stri
         displacement.y,
         displacement.z,
     )
+}
+
+fn primitive_feedback_text(
+    kind: PrimitiveKind,
+    picks: &[Vec3],
+    point: Vec3,
+    unit_name: &str,
+) -> String {
+    if kind == PrimitiveKind::Sphere {
+        return picks.first().map_or_else(
+            || point_feedback_text(kind.label(), point, unit_name),
+            |center| vector_feedback_text("Sphere radius", point - *center, unit_name),
+        );
+    }
+    let Some(base) = picks.first().copied() else {
+        return point_feedback_text(kind.label(), point, unit_name);
+    };
+    if picks.len() < 2 {
+        return vector_feedback_text("Radius point", point - base, unit_name);
+    }
+    let height = point - base;
+    let radius_vector = picks[1] - base;
+    let radius = height
+        .try_normalized(1.0e-12)
+        .map(|axis| (radius_vector - axis * radius_vector.dot(axis)).length());
+    match radius.filter(|radius| radius.is_finite()) {
+        Some(radius) => format!(
+            "{} | radius {radius:.2} {unit_name}",
+            vector_feedback_text(&format!("{} height", kind.label()), height, unit_name)
+        ),
+        None => vector_feedback_text(&format!("{} height", kind.label()), height, unit_name),
+    }
 }
 const ARCHITECTURE_PANEL_IDS: &[&str] = &[
     "architecture_walls",
@@ -1316,6 +1350,10 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "stretch_scale" => ShellAction::SelectToolAlias("Stretch Scale"),
                 "rotate_stretch" => ShellAction::SelectToolAlias("Rotate Stretch"),
                 "paint" => ShellAction::SelectToolAlias("Paint"),
+                "primitive_sphere" => ShellAction::SelectToolAlias("Sphere"),
+                "primitive_cylinder" => ShellAction::SelectToolAlias("Cylinder"),
+                "primitive_cone" => ShellAction::SelectToolAlias("Cone"),
+                "primitive_pill" => ShellAction::SelectToolAlias("Pill"),
                 "object_place" => ShellAction::BeginObjectPlacement,
                 _ => ShellAction::Unsupported,
             };
@@ -1925,6 +1963,7 @@ pub struct MeshcraftApp {
     push_pull_distance_focused: bool,
     push_pull_numeric_input: String,
     tool_cycle_state: ToolCycleState,
+    primitive_tool_state: PrimitiveToolState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
     object_place_tool_state: ObjectPlaceToolState,
@@ -2074,6 +2113,7 @@ impl MeshcraftApp {
             push_pull_distance_focused: false,
             push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
+            primitive_tool_state: PrimitiveToolState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: ObjectPlaceToolState::default(),
@@ -2249,6 +2289,54 @@ impl MeshcraftApp {
             mesh.triangles,
             label,
         )
+    }
+
+    fn create_primitive_in_active_context(
+        &mut self,
+        mesh: PlanarMesh,
+        kind: PrimitiveKind,
+    ) -> Result<Vec<SelectionTarget>, String> {
+        let (owner, occurrence, _) = self.line_geometry_context();
+        let color = self.current_paint_color;
+        let segments = mesh
+            .segments
+            .into_iter()
+            .map(|segment| (segment, color))
+            .collect::<Vec<_>>();
+        let triangles = mesh
+            .triangles
+            .into_iter()
+            .map(|triangle| (triangle, color))
+            .collect::<Vec<_>>();
+        let inserted = self.commit_document_edit(
+            &format!("Create {}", kind.label()),
+            |document| match owner {
+                LineOwner::SceneRoot => document.append_colored_indexed_mesh_to_scene_root(
+                    mesh.vertices,
+                    segments,
+                    triangles,
+                ),
+                LineOwner::Definition(definition) => document
+                    .append_colored_indexed_mesh_to_definition(
+                        definition,
+                        mesh.vertices,
+                        segments,
+                        triangles,
+                    ),
+            },
+        )?;
+        let (segment_ids, triangle_ids) = inserted;
+        Ok(segment_ids
+            .into_iter()
+            .map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(id),
+            })
+            .chain(triangle_ids.into_iter().map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            }))
+            .collect())
     }
 
     fn commit_local_planar_mesh(
@@ -3563,6 +3651,7 @@ impl MeshcraftApp {
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.clear_picks();
+        self.primitive_tool_state.cancel();
         self.viewport.reset_camera();
         let restored_camera = meshcraft_core::legacy::legacy_camera_state(&self.document)
             .is_some_and(|state| self.viewport.restore_legacy_camera_state(state));
@@ -3698,6 +3787,7 @@ impl MeshcraftApp {
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.clear_picks();
+        self.primitive_tool_state.cancel();
         self.guides.clear();
         self.status = "New empty document.".to_owned();
         let mut result = CommandResult::completed();
@@ -3767,6 +3857,8 @@ impl MeshcraftApp {
         }));
         self.shape_tool_state
             .activate(PlanarShapeTool::from_label(tool));
+        self.primitive_tool_state
+            .activate(PrimitiveKind::from_label(tool));
         self.transform_tool_state
             .activate(TransformTool::from_label(tool));
         self.status = match tool {
@@ -3795,6 +3887,10 @@ impl MeshcraftApp {
             }
             "Quad" => "Quad: pick the origin, second point, then third point.".to_owned(),
             "Circle" => "Circle: pick a center, then a radius point.".to_owned(),
+            "Sphere" => "Sphere: pick a center, then a radius point.".to_owned(),
+            "Cylinder" => "Cylinder: pick a base center, radius point, then height point.".to_owned(),
+            "Cone" => "Cone: pick a base center, radius point, then apex point.".to_owned(),
+            "Pill" => "Pill: pick a base center, radius point, then top hemisphere center.".to_owned(),
             "Move" => "Move: pick a reference point, then its destination.".to_owned(),
             "Rotate" => {
                 "Rotate: pick center, axis point, reference point, then final point.".to_owned()
@@ -5125,6 +5221,7 @@ impl MeshcraftApp {
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.activate(None);
+        self.primitive_tool_state.cancel();
         self.transform_tool_state.activate(None);
         self.status = format!("Place {name}: click a point; Escape cancels.");
         CommandResult::completed()
@@ -5197,6 +5294,7 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.drawing_tool.handle(ToolEvent::Escape);
         self.shape_tool_state.activate(None);
+        self.primitive_tool_state.cancel();
         self.transform_tool_state.cancel();
         self.polyline_tool_state.cancel();
         self.mesh_tool_state.cancel();
@@ -5564,6 +5662,52 @@ impl MeshcraftApp {
                 }
                 Ok(PolylinePickEffect::Closed) => {
                     self.finish_polyline(true);
+                }
+                Err(error) => self.status = error.to_owned(),
+            }
+            return;
+        }
+
+        if let Some(kind) = self.primitive_tool_state.active() {
+            let Some(point) = construction_point else {
+                self.status = format!(
+                    "{} needs a point in the active construction view.",
+                    kind.label()
+                );
+                return;
+            };
+            match self.primitive_tool_state.pick(point) {
+                Ok(PrimitivePick::NeedPoint { prompt }) => self.status = prompt.to_owned(),
+                Ok(PrimitivePick::Complete(picks)) => {
+                    let (_, _, inverse) = self.line_geometry_context();
+                    let local_picks = picks
+                        .into_iter()
+                        .map(|point| inverse.transform_point(point))
+                        .collect::<Vec<_>>();
+                    match modeling_primitives::build_primitive(
+                        kind,
+                        &local_picks,
+                        self.document.model_settings().circle_segments,
+                    ) {
+                        Ok(mesh) => match self.create_primitive_in_active_context(mesh, kind) {
+                            Ok(targets) => {
+                                let edges = targets
+                                    .iter()
+                                    .filter(|target| {
+                                        matches!(target.entity, SelectedEntity::Segment(_))
+                                    })
+                                    .count();
+                                let faces = targets.len() - edges;
+                                self.selection.apply(targets, SelectionMode::Replace);
+                                self.status = format!(
+                                    "Created {} with {faces} face(s) and {edges} edge(s) in the active geometry graph.",
+                                    kind.label()
+                                );
+                            }
+                            Err(error) => self.status = error,
+                        },
+                        Err(error) => self.status = error.to_owned(),
+                    }
                 }
                 Err(error) => self.status = error.to_owned(),
             }
@@ -6261,6 +6405,52 @@ impl MeshcraftApp {
             }
             return point_preview();
         }
+        if let Some(kind) = self.primitive_tool_state.active() {
+            let point = point?;
+            let Some(world_picks) = self.primitive_tool_state.preview_picks(point) else {
+                return point_preview();
+            };
+            if world_picks.len() < kind.pick_count() {
+                return Some(ToolPreview::Line {
+                    start: *world_picks.last().unwrap_or(&point),
+                    end: point,
+                });
+            }
+            let (_, _, inverse) = self.line_geometry_context();
+            let local_picks = world_picks
+                .iter()
+                .map(|point| inverse.transform_point(*point))
+                .collect::<Vec<_>>();
+            let mesh = modeling_primitives::build_primitive(
+                kind,
+                &local_picks,
+                self.document.model_settings().circle_segments,
+            )
+            .ok()?;
+            let world_transform = inverse.inverse(GeometryTolerance::default())?;
+            let edges = mesh
+                .segments
+                .iter()
+                .map(|[start, end]| {
+                    [
+                        world_transform.transform_point(mesh.vertices[*start]),
+                        world_transform.transform_point(mesh.vertices[*end]),
+                    ]
+                })
+                .collect();
+            let color = self.current_paint_color;
+            let triangles = mesh
+                .triangles
+                .iter()
+                .map(|triangle| {
+                    (
+                        triangle.map(|index| world_transform.transform_point(mesh.vertices[index])),
+                        color,
+                    )
+                })
+                .collect();
+            return Some(ToolPreview::Primitive { edges, triangles });
+        }
         if self.shape_tool_state.active().is_some() {
             let point = point?;
             return Some(
@@ -6530,11 +6720,26 @@ impl MeshcraftApp {
             })?
         };
 
+        if let Some(kind) = self.primitive_tool_state.active()
+            && !self.primitive_tool_state.picks().is_empty()
+        {
+            return Some(ToolFeedback {
+                screen_position,
+                text: primitive_feedback_text(
+                    kind,
+                    self.primitive_tool_state.picks(),
+                    point,
+                    unit_name,
+                ),
+            });
+        }
+
         let label = match self.active_tool.as_str() {
             "Line" | "Construction Line" | "Rectangle" | "Surface Rect" | "Quad" | "Circle"
             | "Polyline" | "Double Line" | "Line Offset" | "Push/Pull" | "Move" | "Rotate"
             | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" | "Cuboid"
-            | "Object Place" | "Axis Guide" | "Grid Guide" => self.active_tool.as_str(),
+            | "Object Place" | "Axis Guide" | "Grid Guide" | "Sphere" | "Cylinder" | "Cone"
+            | "Pill" => self.active_tool.as_str(),
             "Mesh" => "Mesh",
             _ => return None,
         };
@@ -6576,6 +6781,9 @@ impl MeshcraftApp {
             }
             "Polyline" | "Double Line" => self.polyline_tool_state.points().last().copied(),
             "Mesh" => self.mesh_tool_state.points().last().copied(),
+            "Sphere" | "Cylinder" | "Cone" | "Pill" => {
+                self.primitive_tool_state.picks().last().copied()
+            }
             "Line Offset" => self.line_offset_tool_state.reference(),
             "Push/Pull" => self.push_pull_reference,
             "Move" | "Rotate" | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" => {
@@ -8586,10 +8794,10 @@ impl Drop for MeshcraftApp {
 mod tests {
     use super::{
         CommandPayload, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
-        MeshcraftApp, OrthoView, PolylineToolState, Preferences, ReplacementDecision,
-        SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionMode,
-        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
-        TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
+        MeshcraftApp, OrthoView, PolylineToolState, Preferences, PrimitiveToolState,
+        ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
+        SelectionMode, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
+        ToolEvent, TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
         command_matches, point_feedback_text, push_pull_feedback_text, registry_has_unique_ids,
         shell_commands, tool_command_id, vector_feedback_text,
     };
@@ -8779,6 +8987,7 @@ mod tests {
             push_pull_distance_focused: false,
             push_pull_numeric_input: String::new(),
             tool_cycle_state: ToolCycleState::default(),
+            primitive_tool_state: PrimitiveToolState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: super::ObjectPlaceToolState::default(),
@@ -10303,6 +10512,197 @@ mod tests {
                 .color
         );
         assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
+    fn primitive_commands_preview_and_commit_all_four_mesh_generators() {
+        let cases = [
+            ("primitive_sphere", "Sphere", vec![Vec3::ZERO, Vec3::X]),
+            (
+                "primitive_cylinder",
+                "Cylinder",
+                vec![Vec3::ZERO, Vec3::X, Vec3::Y * 2.0],
+            ),
+            (
+                "primitive_cone",
+                "Cone",
+                vec![Vec3::ZERO, Vec3::X, Vec3::Y * 2.0],
+            ),
+            (
+                "primitive_pill",
+                "Pill",
+                vec![Vec3::ZERO, Vec3::X, Vec3::Y * 2.0],
+            ),
+        ];
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for (tool_id, label, picks) in cases {
+            let mut app = test_app();
+            let command_id = format!("tool.builtin.{tool_id}");
+            assert!(app.query_command_state(&command_id).enabled);
+            let activated = app.dispatch_command(&command_id, &CommandPayload::default());
+            assert!(activated.accepted, "{}: {}", label, app.status);
+            assert_eq!(label, app.active_tool);
+
+            for (index, point) in picks.iter().copied().enumerate() {
+                if index + 1 == picks.len() {
+                    let preview = app
+                        .tool_preview(
+                            rect,
+                            Some(Pos2::ZERO),
+                            Some(SnapResult {
+                                point,
+                                normal: Vec3::Y,
+                                kind: SnapKind::Free,
+                                screen_distance: 0.0,
+                            }),
+                        )
+                        .expect("the last primitive pick previews a closed solid");
+                    assert!(matches!(
+                        preview,
+                        ToolPreview::Primitive { ref edges, ref triangles }
+                            if !edges.is_empty() && !triangles.is_empty()
+                    ));
+                    let feedback = app
+                        .tool_feedback(
+                            rect,
+                            Some(Pos2::ZERO),
+                            Some(SnapResult {
+                                point,
+                                normal: Vec3::Y,
+                                kind: SnapKind::Free,
+                                screen_distance: 0.0,
+                            }),
+                            Some(&preview),
+                        )
+                        .expect("primitive input has dimensional feedback");
+                    assert!(
+                        feedback.text.to_lowercase().contains("radius"),
+                        "{}: {}",
+                        label,
+                        feedback.text
+                    );
+                }
+                app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+            }
+
+            let geometry = app
+                .document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap();
+            assert!(!geometry.segments.is_empty(), "{label} has wireframe edges");
+            assert!(!geometry.triangles.is_empty(), "{label} has closed faces");
+            assert_eq!(
+                geometry.segments.len() + geometry.triangles.len(),
+                app.selection.selected().len(),
+                "all generated edges and faces should be selected"
+            );
+            assert_eq!(1, app.history.entries().len());
+            assert!(
+                geometry
+                    .segments
+                    .values()
+                    .all(|segment| segment.color == Rgba8::WHITE)
+            );
+            assert!(
+                geometry
+                    .triangles
+                    .values()
+                    .all(|triangle| triangle.color == Rgba8::WHITE)
+            );
+
+            app.run_command("edit.undo");
+            let geometry = app
+                .document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap();
+            assert!(geometry.segments.is_empty());
+            assert!(geometry.triangles.is_empty());
+        }
+    }
+
+    #[test]
+    fn primitive_creation_in_a_transformed_instance_uses_its_local_definition() {
+        let mut app = test_app();
+        let prototype = app
+            .document
+            .add_cuboid("primitive host", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&prototype)
+            .unwrap()
+            .definition
+            .id;
+        let occurrence = app
+            .document
+            .add_layout_entry(
+                app.document.root_layout(),
+                definition,
+                Affine3::from_translation(Vec3::X * 10.0),
+            )
+            .map(OccurrenceRef::root)
+            .unwrap();
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        assert!(
+            app.dispatch_command(
+                "tool.builtin.primitive_cylinder",
+                &CommandPayload::default()
+            )
+            .accepted
+        );
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for point in [
+            Vec3::X * 10.0,
+            Vec3::X * 12.0,
+            Vec3::X * 10.0 + Vec3::Y * 3.0,
+        ] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+        }
+
+        let resolved = app.document.resolve_occurrence(&occurrence).unwrap();
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(108, geometry.triangles.len());
+        let world_vertices = geometry
+            .vertices
+            .values()
+            .map(|vertex| resolved.world_transform.transform_point(vertex.position))
+            .collect::<Vec<_>>();
+        assert!(world_vertices.contains(&(Vec3::X * 12.0)));
+        assert!(world_vertices.contains(&(Vec3::X * 10.0 + Vec3::Y * 3.0)));
+        assert_eq!(
+            108,
+            app.document
+                .effective_geometry(&prototype)
+                .unwrap()
+                .triangles
+                .len()
+        );
+        assert_eq!(1, app.history.entries().len());
+        assert_eq!(definition, app.document.definition(definition).unwrap().id);
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| target.occurrence == occurrence)
+        );
+    }
+
+    #[test]
+    fn canceling_a_primitive_pick_leaves_the_document_unchanged() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        app.dispatch_command("tool.builtin.primitive_pill", &CommandPayload::default());
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        assert_eq!(1, app.primitive_tool_state.picks().len());
+        app.handle_escape();
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(None, app.primitive_tool_state.active());
+        assert!(app.primitive_tool_state.picks().is_empty());
+        assert_eq!(revision, app.document.revision());
+        assert!(app.history.entries().is_empty());
     }
 
     #[test]

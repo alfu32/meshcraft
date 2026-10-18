@@ -1221,8 +1221,10 @@
         "C19"
       ],
       "targets": [
-        "crates/meshcraft-core/src/tools/primitives/",
-        "crates/meshcraft-core/src/operations/primitives.rs"
+        "crates/meshcraft-core/src/tools/primitives.rs",
+        "crates/meshcraft-core/src/operations/primitives.rs",
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/tools/PrimitiveTools.kt"
@@ -1234,7 +1236,7 @@
         "PillPrimitiveTool"
       ],
       "slices": [
-        "Extract per-primitive center/radius/height/orientation/numeric stages and tessellation rules.",
+        "Extract per-primitive center/radius/height/orientation pick stages and tessellation rules.",
         "Implement sphere/cylinder/cone/pill mesh generation with caps/seams/normals and configurable resolution.",
         "Register menus/operators and use the generators as deterministic solids for later regression fixtures."
       ],
@@ -1248,7 +1250,7 @@
         "PRIMITIVE_CONE",
         "PRIMITIVE_PILL"
       ],
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "T26",

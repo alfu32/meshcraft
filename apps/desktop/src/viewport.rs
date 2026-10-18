@@ -289,6 +289,10 @@ pub enum ToolPreview {
         edges: Vec<[Vec3; 2]>,
         triangles: Vec<([Vec3; 3], meshcraft_core::document::Rgba8)>,
     },
+    Primitive {
+        edges: Vec<[Vec3; 2]>,
+        triangles: Vec<([Vec3; 3], meshcraft_core::document::Rgba8)>,
+    },
     Paint {
         edges: Vec<[Vec3; 2]>,
         triangles: Vec<[Vec3; 3]>,
@@ -917,6 +921,9 @@ impl Viewport {
                     }
                 }
                 ToolPreview::PushPull { edges, triangles } => {
+                    self.draw_push_pull_preview(&painter, rect, edges, triangles);
+                }
+                ToolPreview::Primitive { edges, triangles } => {
                     self.draw_push_pull_preview(&painter, rect, edges, triangles);
                 }
                 ToolPreview::Paint {
