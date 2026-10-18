@@ -1140,12 +1140,12 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
             "z": 0,
             "color": {"r": 1, "g": 1, "b": 1, "a": 1}
         }),
-        "dimensions" => serde_json::json!({
+        "dimensions" | "overrideDimensions" => serde_json::json!({
             "start": {"x": 0, "y": 0, "z": 0},
             "end": {"x": 0, "y": 0, "z": 0},
             "offset": {"x": 0, "y": 0, "z": 0}
         }),
-        "texts" => serde_json::json!({
+        "texts" | "overrideTexts" => serde_json::json!({
             "position": {"x": 0, "y": 0, "z": 0},
             "text": "",
             "size": 0.1,
@@ -1592,7 +1592,12 @@ fn parse_instance(
         &mut preserved_fields,
         "k3d.",
     );
-    for field in ["hotspotSegmentAttachments", "hotspotTriangleAttachments"] {
+    for field in [
+        "hotspotSegmentAttachments",
+        "hotspotTriangleAttachments",
+        "overrideDimensions",
+        "overrideTexts",
+    ] {
         if let Some(value) = object.get(field) {
             preserved_fields.insert(
                 format!("k3d.{field}"),
@@ -2181,6 +2186,8 @@ mod tests {
             "id": "triangle-attachments",
             "refs": [{"id": "triangle-ref"}]
         }]);
+        source["rootInstance"]["overrideDimensions"] = serde_json::json!([{"start": {"x": 4}}]);
+        source["rootInstance"]["overrideTexts"] = serde_json::json!([{"text": "instance label"}]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
@@ -2284,6 +2291,8 @@ mod tests {
             0,
             root_instance["hotspotTriangleAttachments"][0]["refs"][0]["c"]["z"]
         );
+        assert_eq!(0, root_instance["overrideDimensions"][0]["offset"]["x"]);
+        assert_eq!(0.1, root_instance["overrideTexts"][0]["size"]);
     }
 
     #[test]
