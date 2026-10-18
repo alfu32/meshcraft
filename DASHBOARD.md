@@ -7,8 +7,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status      |  Tasks |
 |-------------|-------:|
 | Todo        |     31 |
-| In progress |      7 |
-| Done        |     13 |
+| In progress |      6 |
+| Done        |     14 |
 | **Total**   | **51** |
 
 ## Currently in Progress
@@ -18,16 +18,15 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T09 — Implement desktop document service and safe storage**
 - **T16 — Implement reusable objects, placement and explode**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
-- **T19 — Implement paths, offsets, outlines and mesh creation**
 - **T39 — Complete real-time lighting, shadows and view capture**
 
 ## Current Activity
 
-T10 is complete: orbit and restored perspective camera poses now clamp at ±89°, and tests cover both limits. T12 is complete: actual viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection to scene geometry, which the user confirmed works. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is in progress: Polyline, Double Line, Face Outline and Polyline Mesh are implemented; Mesh now incrementally creates edges and nearest-neighbor triangles in the active graph with staged preview and chain controls. Shared boundary ordering and Line Offset remain open.
+T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage.
 
 T39 is in progress: the viewport distinguishes darker, slightly bluer back faces and uses a bounded CPU directional depth map for shadows on the ground and other entity faces, including transformed instances. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
 
-Validation: `cargo test --workspace --quiet` passes (135 core, 149 desktop, 14 IO and 5 CLI tests); `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, `python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` pass. Camera coverage includes orbit and restored poses at ±89°. Selection coverage exercises real viewport drag release in both window directions; Mesh coverage checks incremental edge/triangle insertion, active graph placement, winding and chain controls. Current task counts: 31 Todo, 7 In Progress, 13 Done.
+Validation: `cargo test --workspace --quiet` passes (139 core, 153 desktop, 14 IO and 5 CLI tests); `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`, `python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` pass. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. Current task counts: 31 Todo, 6 In Progress, 14 Done.
 
 ## Task Statuses
 
@@ -52,7 +51,7 @@ Validation: `cargo test --workspace --quiet` passes (135 core, 149 desktop, 14 I
 | T16 | Implement reusable objects, placement and explode                        | In progress |
 | T17 | Complete inspectors, settings, preferences and menu coverage             | In progress |
 | T18 | Implement dimensions, bitmap text and vector glyph text                  | Todo        |
-| T19 | Implement paths, offsets, outlines and mesh creation                     | In progress |
+| T19 | Implement paths, offsets, outlines and mesh creation                     | Done        |
 | T20 | Implement region push/pull                                               | Todo        |
 | T21 | Port every copy and array state machine                                  | Todo        |
 | T22 | Port hole/cutout algorithms and robust replacement                       | Todo        |

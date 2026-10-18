@@ -10,7 +10,9 @@ const PATH_EPSILON: f64 = 1.0e-9;
 const MESH_PICK_EPSILON: f64 = 1.0e-9;
 pub const FACE_OUTLINE_MERGE_TOLERANCE: f64 = 1.0e-4;
 pub const POLYLINE_MESH_MERGE_TOLERANCE: f64 = 1.0e-3;
+pub const LINE_OFFSET_MERGE_TOLERANCE: f64 = 1.0e-3;
 const MAX_ARC_SAMPLES: usize = 4096;
+const LINE_OFFSET_EPSILON: f64 = 1.0e-3;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum PolylineSegmentMode {
@@ -56,6 +58,87 @@ pub struct MeshToolState {
     active: bool,
     points: Vec<Vec3>,
     pointer: Option<Vec3>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LineOffsetPick {
+    Reference(Vec3),
+    Complete { reference: Vec3, target: Vec3 },
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LineOffsetToolState {
+    active: bool,
+    reference: Option<Vec3>,
+    pointer: Option<Vec3>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineOffsetResult {
+    pub mesh: PlanarMesh,
+    /// Signed offset distance for each connected selected path.
+    pub offsets: Vec<f64>,
+    /// Base path, offset path, cross guides and reference vector for viewport preview.
+    pub preview_edges: Vec<[Vec3; 2]>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct OrderedSegmentPath {
+    points: Vec<Vec3>,
+    closed: bool,
+}
+
+impl LineOffsetToolState {
+    pub fn active(&self) -> bool {
+        self.active
+    }
+
+    pub fn reference(&self) -> Option<Vec3> {
+        self.reference
+    }
+
+    pub fn pointer(&self) -> Option<Vec3> {
+        self.pointer
+    }
+
+    pub fn activate(&mut self, active: bool) {
+        self.active = active;
+        self.clear_reference();
+    }
+
+    pub fn set_pointer(&mut self, point: Option<Vec3>) {
+        self.pointer = point.filter(|point| point.is_finite());
+    }
+
+    pub fn pick(&mut self, point: Vec3) -> Result<LineOffsetPick, &'static str> {
+        if !self.active {
+            return Err("Line Offset tool is not active.");
+        }
+        if !point.is_finite() {
+            return Err("Line Offset points must be finite.");
+        }
+        if let Some(reference) = self.reference.take() {
+            self.pointer = None;
+            Ok(LineOffsetPick::Complete {
+                reference,
+                target: point,
+            })
+        } else {
+            self.reference = Some(point);
+            self.pointer = Some(point);
+            Ok(LineOffsetPick::Reference(point))
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        self.clear_reference();
+        self.active = false;
+    }
+
+    fn clear_reference(&mut self) {
+        self.reference = None;
+        self.pointer = None;
+    }
 }
 
 impl MeshToolState {
@@ -557,72 +640,14 @@ pub fn build_polyline_mesh_from_segments(
     segments: &[[Vec3; 2]],
     merge_tolerance: f64,
 ) -> Result<PlanarMesh, &'static str> {
-    if !merge_tolerance.is_finite() || merge_tolerance <= 0.0 {
-        return Err("Polyline-mesh tolerance must be finite and positive.");
-    }
-    let mut point_by_key = BTreeMap::<[i64; 3], Vec3>::new();
-    let mut segment_keys = Vec::with_capacity(segments.len());
-    let mut adjacency = BTreeMap::<[i64; 3], Vec<usize>>::new();
-    for (index, segment) in segments.iter().enumerate() {
-        if segment.iter().any(|point| !point.is_finite()) {
-            return Err("Polyline-mesh points must be finite.");
-        }
-        let start = quantized_point_key(segment[0], merge_tolerance)?;
-        let end = quantized_point_key(segment[1], merge_tolerance)?;
-        point_by_key.entry(start).or_insert(segment[0]);
-        point_by_key.entry(end).or_insert(segment[1]);
-        segment_keys.push((start, end));
-        adjacency.entry(start).or_default().push(index);
-        adjacency.entry(end).or_default().push(index);
-    }
-
-    let mut start_order = (0..segment_keys.len()).collect::<Vec<_>>();
-    start_order.sort_by_key(|index| {
-        let (start, end) = segment_keys[*index];
-        adjacency[&start].len().min(adjacency[&end].len())
-    });
-    let mut visited = vec![false; segment_keys.len()];
     let mut vertices = Vec::new();
     let mut triangles = Vec::new();
-    for seed in start_order {
-        if visited[seed] {
-            continue;
-        }
-        let (start, end) = segment_keys[seed];
-        let start_degree = adjacency[&start].len();
-        let end_degree = adjacency[&end].len();
-        let chain_start = if start_degree <= end_degree {
-            start
-        } else {
-            end
-        };
-        let mut current = chain_start;
-        let mut chain_keys = vec![chain_start];
-        while let Some(next_segment) = adjacency[&current]
-            .iter()
-            .copied()
-            .find(|index| !visited[*index])
-        {
-            visited[next_segment] = true;
-            let (segment_start, segment_end) = segment_keys[next_segment];
-            current = if segment_start == current {
-                segment_end
-            } else {
-                segment_start
-            };
-            chain_keys.push(current);
-            if current == chain_start {
-                break;
-            }
-        }
-        if chain_keys.len() > 1 && chain_keys.first() == chain_keys.last() {
-            chain_keys.pop();
-        }
-        if chain_keys.len() < 3 {
+    for path in ordered_segment_paths(segments, merge_tolerance)? {
+        if path.points.len() < 3 {
             continue;
         }
         let polygon = PolylinePath {
-            points: chain_keys.iter().map(|key| point_by_key[key]).collect(),
+            points: path.points,
             closed: true,
         };
         let Ok(mesh) = build_polyline_mesh_with_planarity(&polygon, false) else {
@@ -647,6 +672,313 @@ pub fn build_polyline_mesh_from_segments(
         segments: Vec::new(),
         triangles,
     })
+}
+
+/// Builds offset copies of selected line paths and triangulated strips between source and copy.
+/// The reference/target vector determines the offset distance and which side is positive.
+pub fn build_line_offset_mesh_from_segments(
+    segments: &[[Vec3; 2]],
+    reference: Vec3,
+    target: Vec3,
+    merge_tolerance: f64,
+) -> Result<LineOffsetResult, &'static str> {
+    if !reference.is_finite() || !target.is_finite() {
+        return Err("Line Offset points must be finite.");
+    }
+    let delta = target - reference;
+    let distance = delta.length();
+    if !distance.is_finite() {
+        return Err("Line Offset distance must be finite.");
+    }
+    if distance <= LINE_OFFSET_EPSILON {
+        return Err("Offset is too small.");
+    }
+
+    let paths = ordered_segment_paths(segments, merge_tolerance)?;
+    if paths.is_empty() {
+        return Err("No edges selected.");
+    }
+    let mut result = LineOffsetResult {
+        mesh: PlanarMesh {
+            vertices: Vec::new(),
+            segments: Vec::new(),
+            triangles: Vec::new(),
+        },
+        offsets: Vec::new(),
+        preview_edges: Vec::new(),
+    };
+    for path in paths {
+        if path.points.len() < 2 {
+            continue;
+        }
+        let plane_normal = line_offset_plane_normal(&path.points);
+        let base_direction = path.points[1] - path.points[0];
+        let Some(base_direction) = base_direction.try_normalized(PATH_EPSILON) else {
+            continue;
+        };
+        let segment_count = if path.closed {
+            path.points.len()
+        } else {
+            path.points.len() - 1
+        };
+        let closest_segment = (0..segment_count)
+            .map(|index| {
+                let next = (index + 1) % path.points.len();
+                (
+                    index,
+                    distance_to_segment_squared(reference, path.points[index], path.points[next]),
+                )
+            })
+            .min_by(|left, right| left.1.total_cmp(&right.1))
+            .map(|(index, _)| index)
+            .ok_or("Selected line path has no segments.")?;
+        let edge_direction =
+            path.points[(closest_segment + 1) % path.points.len()] - path.points[closest_segment];
+        let signed_side = edge_direction.cross(delta).dot(plane_normal);
+        let sign = if signed_side > LINE_OFFSET_EPSILON {
+            1.0
+        } else if signed_side < -LINE_OFFSET_EPSILON {
+            -1.0
+        } else {
+            let perpendicular = plane_normal
+                .cross(base_direction)
+                .try_normalized(PATH_EPSILON)
+                .unwrap_or(Vec3::Z);
+            if delta.dot(perpendicular) >= 0.0 {
+                1.0
+            } else {
+                -1.0
+            }
+        };
+        let signed_offset = distance * sign;
+        let offset_points =
+            offset_line_path(&path.points, signed_offset, plane_normal, path.closed);
+        if offset_points.iter().any(|point| !point.is_finite()) {
+            return Err("Line Offset produced non-finite geometry.");
+        }
+        if (0..segment_count).any(|index| {
+            offset_points[index].distance(offset_points[(index + 1) % path.points.len()])
+                <= PATH_EPSILON
+        }) {
+            return Err("Line Offset collapses a selected edge at this distance.");
+        }
+
+        let base_index = result.mesh.vertices.len();
+        result.mesh.vertices.extend(path.points.iter().copied());
+        let offset_index = result.mesh.vertices.len();
+        result.mesh.vertices.extend(offset_points.iter().copied());
+        for index in 0..segment_count {
+            let next = (index + 1) % path.points.len();
+            let base_a = base_index + index;
+            let base_b = base_index + next;
+            let offset_a = offset_index + index;
+            let offset_b = offset_index + next;
+            result.mesh.segments.push([offset_a, offset_b]);
+            if signed_offset >= 0.0 {
+                result.mesh.triangles.push([base_a, base_b, offset_b]);
+                result.mesh.triangles.push([base_a, offset_b, offset_a]);
+            } else {
+                result.mesh.triangles.push([base_a, offset_b, base_b]);
+                result.mesh.triangles.push([base_a, offset_a, offset_b]);
+            }
+            result
+                .preview_edges
+                .push([path.points[index], path.points[next]]);
+            result
+                .preview_edges
+                .push([offset_points[index], offset_points[next]]);
+        }
+        for (&base, &offset) in path.points.iter().zip(&offset_points) {
+            result.preview_edges.push([base, offset]);
+        }
+        result.offsets.push(signed_offset);
+    }
+    if result.mesh.segments.is_empty() {
+        return Err("Selected edges do not form an offsettable line path.");
+    }
+    result.preview_edges.push([reference, target]);
+    Ok(result)
+}
+
+fn ordered_segment_paths(
+    segments: &[[Vec3; 2]],
+    merge_tolerance: f64,
+) -> Result<Vec<OrderedSegmentPath>, &'static str> {
+    if !merge_tolerance.is_finite() || merge_tolerance <= 0.0 {
+        return Err("Line merge tolerance must be finite and positive.");
+    }
+    let mut point_by_key = BTreeMap::<[i64; 3], Vec3>::new();
+    let mut segment_keys = Vec::with_capacity(segments.len());
+    let mut adjacency = BTreeMap::<[i64; 3], Vec<usize>>::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if segment.iter().any(|point| !point.is_finite()) {
+            return Err("Selected line points must be finite.");
+        }
+        let start = quantized_point_key(segment[0], merge_tolerance)?;
+        let end = quantized_point_key(segment[1], merge_tolerance)?;
+        if start == end {
+            return Err("Selected line segments must have distinct endpoints.");
+        }
+        point_by_key.entry(start).or_insert(segment[0]);
+        point_by_key.entry(end).or_insert(segment[1]);
+        segment_keys.push((start, end));
+        adjacency.entry(start).or_default().push(index);
+        adjacency.entry(end).or_default().push(index);
+    }
+
+    let mut visited = vec![false; segment_keys.len()];
+    let mut paths = Vec::new();
+    for (start, incident) in &adjacency {
+        if incident.len() == 2 {
+            continue;
+        }
+        for &first in incident {
+            if !visited[first] {
+                paths.push(walk_ordered_segment_path(
+                    *start,
+                    first,
+                    &segment_keys,
+                    &point_by_key,
+                    &adjacency,
+                    &mut visited,
+                ));
+            }
+        }
+    }
+    for (first, (start, _)) in segment_keys.iter().copied().enumerate() {
+        if !visited[first] {
+            paths.push(walk_ordered_segment_path(
+                start,
+                first,
+                &segment_keys,
+                &point_by_key,
+                &adjacency,
+                &mut visited,
+            ));
+        }
+    }
+    Ok(paths)
+}
+
+fn walk_ordered_segment_path(
+    start: [i64; 3],
+    first: usize,
+    segment_keys: &[([i64; 3], [i64; 3])],
+    point_by_key: &BTreeMap<[i64; 3], Vec3>,
+    adjacency: &BTreeMap<[i64; 3], Vec<usize>>,
+    visited: &mut [bool],
+) -> OrderedSegmentPath {
+    let mut points = vec![point_by_key[&start]];
+    let mut current = start;
+    let mut edge = first;
+    let mut closed = false;
+    loop {
+        if visited[edge] {
+            break;
+        }
+        visited[edge] = true;
+        let (a, b) = segment_keys[edge];
+        let next = if a == current { b } else { a };
+        points.push(point_by_key[&next]);
+        if next == start {
+            closed = true;
+            break;
+        }
+        if adjacency[&next].len() != 2 {
+            break;
+        }
+        let Some(next_edge) = adjacency[&next]
+            .iter()
+            .copied()
+            .find(|candidate| !visited[*candidate])
+        else {
+            break;
+        };
+        current = next;
+        edge = next_edge;
+    }
+    if closed {
+        points.pop();
+    }
+    OrderedSegmentPath {
+        closed: closed && points.len() >= 3,
+        points,
+    }
+}
+
+fn line_offset_plane_normal(points: &[Vec3]) -> Vec3 {
+    if points.len() >= 3 {
+        let origin = points[0];
+        for index in 1..points.len() - 1 {
+            if let Some(normal) = (points[index] - origin)
+                .cross(points[index + 1] - origin)
+                .try_normalized(PATH_EPSILON)
+            {
+                return normal;
+            }
+        }
+    }
+    let direction = points[1] - points[0];
+    direction
+        .cross(Vec3::Y)
+        .try_normalized(PATH_EPSILON)
+        .or_else(|| direction.cross(Vec3::X).try_normalized(PATH_EPSILON))
+        .unwrap_or(Vec3::Z)
+}
+
+fn distance_to_segment_squared(point: Vec3, start: Vec3, end: Vec3) -> f64 {
+    let direction = end - start;
+    let length_squared = direction.dot(direction);
+    if length_squared <= PATH_EPSILON * PATH_EPSILON {
+        return point.distance(start).powi(2);
+    }
+    let fraction = ((point - start).dot(direction) / length_squared).clamp(0.0, 1.0);
+    let difference = point - (start + direction * fraction);
+    difference.dot(difference)
+}
+
+fn offset_line_path(points: &[Vec3], offset: f64, plane_normal: Vec3, closed: bool) -> Vec<Vec3> {
+    let mut result = Vec::with_capacity(points.len());
+    for index in 0..points.len() {
+        let current = points[index];
+        let previous = if index > 0 {
+            Some(points[index - 1])
+        } else if closed {
+            Some(points[points.len() - 1])
+        } else {
+            None
+        };
+        let next = if index + 1 < points.len() {
+            Some(points[index + 1])
+        } else if closed {
+            Some(points[0])
+        } else {
+            None
+        };
+        let perpendicular = |start: Vec3, end: Vec3| {
+            (end - start)
+                .try_normalized(PATH_EPSILON)
+                .and_then(|direction| plane_normal.cross(direction).try_normalized(PATH_EPSILON))
+        };
+        let previous_perpendicular = previous.and_then(|point| perpendicular(point, current));
+        let next_perpendicular = next.and_then(|point| perpendicular(current, point));
+        let miter = previous_perpendicular
+            .zip(next_perpendicular)
+            .and_then(|(previous, next)| {
+                let miter = (previous + next).try_normalized(PATH_EPSILON)?;
+                let denominator = miter.dot(previous);
+                if denominator.abs() <= 0.01 {
+                    return None;
+                }
+                let scale = offset / denominator;
+                let miter_limit = offset.abs() * 10.0 + 1.0;
+                (scale.abs() <= miter_limit).then_some(miter * scale)
+            });
+        let fallback = previous_perpendicular.or(next_perpendicular);
+        let offset_vector = miter.or_else(|| fallback.map(|direction| direction * offset));
+        result.push(current + offset_vector.unwrap_or(Vec3::ZERO));
+    }
+    result
 }
 
 /// Builds two offset rails from a path. The returned paths retain matching point indices,
@@ -862,11 +1194,13 @@ fn arc_samples(
 #[cfg(test)]
 mod tests {
     use super::{
-        FACE_OUTLINE_MERGE_TOLERANCE, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        FACE_OUTLINE_MERGE_TOLERANCE, LINE_OFFSET_MERGE_TOLERANCE, LineOffsetPick,
+        LineOffsetToolState, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
         PolylinePickEffect, PolylineSegmentMode, PolylineToolState, arc_from_center, arc_through,
         build_double_line_mesh, build_double_line_mesh_in_plane, build_double_line_paths,
-        build_double_line_paths_in_plane, build_face_outline_mesh, build_polyline_mesh,
-        build_polyline_mesh_from_segments,
+        build_double_line_paths_in_plane, build_face_outline_mesh,
+        build_line_offset_mesh_from_segments, build_polyline_mesh,
+        build_polyline_mesh_from_segments, ordered_segment_paths,
     };
     use crate::geometry::Vec3;
 
@@ -900,6 +1234,164 @@ mod tests {
         assert_eq!(Ok(Default::default()), state.pick(Vec3::Y));
         state.cancel();
         assert!(!state.active());
+    }
+
+    #[test]
+    fn line_offset_tool_state_collects_reference_and_target_then_stays_active() {
+        let mut state = LineOffsetToolState::default();
+        assert!(state.pick(Vec3::ZERO).is_err());
+        state.activate(true);
+        assert_eq!(
+            Ok(LineOffsetPick::Reference(Vec3::ZERO)),
+            state.pick(Vec3::ZERO)
+        );
+        state.set_pointer(Some(Vec3::Z));
+        assert_eq!(Some(Vec3::Z), state.pointer());
+        assert_eq!(
+            Ok(LineOffsetPick::Complete {
+                reference: Vec3::ZERO,
+                target: Vec3::Y,
+            }),
+            state.pick(Vec3::Y)
+        );
+        assert!(state.active());
+        assert_eq!(None, state.reference());
+        state.cancel();
+        assert!(!state.active());
+    }
+
+    #[test]
+    fn line_offset_builds_connected_ribbon_and_reverses_when_target_crosses_reference_side() {
+        let segments = [
+            [Vec3::new(4.0, 0.0, 3.0), Vec3::new(4.0, 0.0, 0.0)],
+            [Vec3::new(4.0, 0.0, 0.0), Vec3::ZERO],
+        ];
+        let positive = build_line_offset_mesh_from_segments(
+            &segments,
+            Vec3::X,
+            Vec3::X + Vec3::Z * 2.0,
+            LINE_OFFSET_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        assert_eq!(vec![2.0], positive.offsets);
+        assert_eq!(2, positive.mesh.segments.len());
+        assert_eq!(4, positive.mesh.triangles.len());
+        assert_eq!(Vec3::Z * 2.0, positive.mesh.vertices[3]);
+        assert_eq!(8, positive.preview_edges.len());
+
+        let negative = build_line_offset_mesh_from_segments(
+            &segments,
+            Vec3::X,
+            Vec3::X - Vec3::Z * 2.0,
+            LINE_OFFSET_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        assert_eq!(vec![-2.0], negative.offsets);
+        assert_eq!(Vec3::Z * -2.0, negative.mesh.vertices[3]);
+        let positive_normal = (positive.mesh.vertices[1] - positive.mesh.vertices[0])
+            .cross(positive.mesh.vertices[4] - positive.mesh.vertices[0]);
+        let negative_normal = (negative.mesh.vertices[1] - negative.mesh.vertices[0])
+            .cross(negative.mesh.vertices[4] - negative.mesh.vertices[0]);
+        assert!(positive_normal.dot(negative_normal) < 0.0);
+    }
+
+    #[test]
+    fn shared_segment_ordering_keeps_closed_loops_disconnected_paths_and_branches() {
+        let square = [
+            [Vec3::ZERO, Vec3::X],
+            [Vec3::X + Vec3::Z, Vec3::Z],
+            [Vec3::Z, Vec3::ZERO],
+            [Vec3::X, Vec3::X + Vec3::Z],
+        ];
+        let loop_paths = ordered_segment_paths(&square, LINE_OFFSET_MERGE_TOLERANCE).unwrap();
+        assert_eq!(1, loop_paths.len());
+        assert!(loop_paths[0].closed);
+        assert_eq!(4, loop_paths[0].points.len());
+        let loop_offset = build_line_offset_mesh_from_segments(
+            &square,
+            Vec3::new(0.5, 0.0, 0.0),
+            Vec3::new(0.5, 0.0, 1.0),
+            LINE_OFFSET_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        assert_eq!(4, loop_offset.mesh.segments.len());
+        assert_eq!(8, loop_offset.mesh.triangles.len());
+
+        let branches = [
+            [Vec3::ZERO, Vec3::X],
+            [Vec3::ZERO, -Vec3::X],
+            [Vec3::ZERO, Vec3::Z],
+            [Vec3::new(8.0, 0.0, 0.0), Vec3::new(9.0, 0.0, 0.0)],
+        ];
+        let branch_paths = ordered_segment_paths(&branches, LINE_OFFSET_MERGE_TOLERANCE).unwrap();
+        assert_eq!(4, branch_paths.len());
+        let branch_offset = build_line_offset_mesh_from_segments(
+            &branches,
+            Vec3::ZERO,
+            Vec3::Y,
+            LINE_OFFSET_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        assert_eq!(4, branch_offset.mesh.segments.len());
+        assert_eq!(8, branch_offset.mesh.triangles.len());
+    }
+
+    #[test]
+    fn line_offset_rejects_empty_degenerate_non_finite_and_zero_distance_inputs() {
+        let valid = [[Vec3::ZERO, Vec3::X]];
+        assert!(
+            build_line_offset_mesh_from_segments(
+                &[],
+                Vec3::ZERO,
+                Vec3::Y,
+                LINE_OFFSET_MERGE_TOLERANCE
+            )
+            .is_err()
+        );
+        assert!(
+            build_line_offset_mesh_from_segments(
+                &valid,
+                Vec3::ZERO,
+                Vec3::new(0.0, 0.0005, 0.0),
+                LINE_OFFSET_MERGE_TOLERANCE
+            )
+            .is_err()
+        );
+        assert!(
+            build_line_offset_mesh_from_segments(
+                &[[Vec3::ZERO, Vec3::ZERO]],
+                Vec3::ZERO,
+                Vec3::Y,
+                LINE_OFFSET_MERGE_TOLERANCE
+            )
+            .is_err()
+        );
+        assert!(
+            build_line_offset_mesh_from_segments(
+                &[[Vec3::ZERO, Vec3::new(f64::NAN, 0.0, 0.0)]],
+                Vec3::ZERO,
+                Vec3::Y,
+                LINE_OFFSET_MERGE_TOLERANCE
+            )
+            .is_err()
+        );
+        assert!(
+            build_line_offset_mesh_from_segments(&valid, Vec3::ZERO, Vec3::Y, f64::NAN).is_err()
+        );
+        let short_corner = [
+            [Vec3::ZERO, Vec3::X * 2.0],
+            [Vec3::X * 2.0, Vec3::X * 2.0 + Vec3::Z * 2.0],
+        ];
+        assert_eq!(
+            Err("Line Offset collapses a selected edge at this distance."),
+            build_line_offset_mesh_from_segments(
+                &short_corner,
+                Vec3::X,
+                Vec3::X + Vec3::Z * 2.0,
+                LINE_OFFSET_MERGE_TOLERANCE,
+            )
+            .map(|_| ())
+        );
     }
 
     #[test]

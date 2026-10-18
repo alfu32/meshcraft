@@ -27,9 +27,11 @@ use meshcraft_core::tools::{
     ToolEvent,
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
-        FACE_OUTLINE_MERGE_TOLERANCE, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        FACE_OUTLINE_MERGE_TOLERANCE, LINE_OFFSET_MERGE_TOLERANCE, LineOffsetPick,
+        LineOffsetToolState, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
         PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
-        build_double_line_mesh_in_plane, build_face_outline_mesh, build_polyline_mesh,
+        build_double_line_mesh_in_plane, build_face_outline_mesh,
+        build_line_offset_mesh_from_segments, build_polyline_mesh,
         build_polyline_mesh_from_segments,
     },
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
@@ -1267,6 +1269,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "double_line" => ShellAction::SelectToolAlias("Double Line"),
                 "face_outline" => ShellAction::FaceOutline,
                 "polyline_mesh" => ShellAction::PolylineMesh,
+                "line_offset" => ShellAction::SelectToolAlias("Line Offset"),
                 "mesh" => ShellAction::SelectToolAlias("Mesh"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
@@ -1789,6 +1792,7 @@ pub struct MeshcraftApp {
     drawing_tool: DrawingToolState,
     polyline_tool_state: PolylineToolState,
     mesh_tool_state: MeshToolState,
+    line_offset_tool_state: LineOffsetToolState,
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
@@ -1929,6 +1933,7 @@ impl MeshcraftApp {
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
+            line_offset_tool_state: LineOffsetToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -2254,7 +2259,7 @@ impl MeshcraftApp {
         result
     }
 
-    fn mesh_selected_polylines(&mut self) -> CommandResult {
+    fn selected_world_segments(&self) -> Vec<[Vec3; 2]> {
         let mut world_segments = Vec::new();
         for target in self.selection.selected() {
             let SelectedEntity::Segment(segment_id) = target.entity else {
@@ -2280,6 +2285,11 @@ impl MeshcraftApp {
                 resolved.world_transform.transform_point(end),
             ]);
         }
+        world_segments
+    }
+
+    fn mesh_selected_polylines(&mut self) -> CommandResult {
+        let world_segments = self.selected_world_segments();
         if world_segments.is_empty() {
             return CommandResult::failed("Select connected line segments to fill with faces.");
         }
@@ -2325,6 +2335,73 @@ impl MeshcraftApp {
             serde_json::json!({"faces": face_count, "segments": world_segments.len()}),
         );
         result
+    }
+
+    fn commit_line_offset(&mut self, reference: Vec3, target: Vec3) -> CommandResult {
+        let world_segments = self.selected_world_segments();
+        if world_segments.is_empty() {
+            return CommandResult::failed("No edges selected.");
+        }
+        let offset = match build_line_offset_mesh_from_segments(
+            &world_segments,
+            reference,
+            target,
+            LINE_OFFSET_MERGE_TOLERANCE,
+        ) {
+            Ok(offset) => offset,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let edge_count = offset.mesh.segments.len();
+        let face_count = offset.mesh.triangles.len();
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let vertices = offset
+            .mesh
+            .vertices
+            .into_iter()
+            .map(|point| inverse.transform_point(point))
+            .collect();
+        let targets = match self.commit_local_planar_mesh(
+            owner,
+            occurrence,
+            vertices,
+            offset.mesh.segments,
+            offset.mesh.triangles,
+            "Line Offset",
+        ) {
+            Ok(targets) => targets,
+            Err(error) => return CommandResult::failed(error),
+        };
+        self.selection.apply(targets, SelectionMode::Replace);
+        self.status = format!("Offset copy | edges {edge_count} faces {face_count}");
+        let mut result = CommandResult::completed();
+        result.outputs.insert(
+            "line_offset".to_owned(),
+            serde_json::json!({"edges": edge_count, "faces": face_count, "offsets": offset.offsets}),
+        );
+        result
+    }
+
+    fn pick_line_offset_point(&mut self, point: Vec3) {
+        if self.selected_world_segments().is_empty() {
+            self.status = "No edges selected.".to_owned();
+            return;
+        }
+        match self.line_offset_tool_state.pick(point) {
+            Ok(LineOffsetPick::Reference(_)) => {
+                self.status = "Line Offset: pick target point.".to_owned();
+            }
+            Ok(LineOffsetPick::Complete { reference, target }) => {
+                let result = self.commit_line_offset(reference, target);
+                if result.completion == CommandCompletion::Failed {
+                    self.status = result
+                        .diagnostics
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "Line Offset failed.".to_owned());
+                }
+            }
+            Err(error) => self.status = error.to_owned(),
+        }
     }
 
     fn finish_polyline(&mut self, closed: bool) -> CommandResult {
@@ -3339,6 +3416,7 @@ impl MeshcraftApp {
         self.polyline_tool_state
             .activate(matches!(tool, "Polyline" | "Double Line"));
         self.mesh_tool_state.activate(tool == "Mesh");
+        self.line_offset_tool_state.activate(tool == "Line Offset");
         self.drawing_tool.handle(ToolEvent::Activate(match tool {
             "Line" => DrawingTool::Line,
             "Construction Line" => DrawingTool::ConstructionLine,
@@ -3360,6 +3438,7 @@ impl MeshcraftApp {
                 "Double Line: click a center path; A/C/L switch arc modes, Enter finishes the ribbon.".to_owned()
             }
             "Mesh" => "Mesh: pick points to add connecting edges and nearest-point triangles. Enter starts a new mesh chain; Escape exits.".to_owned(),
+            "Line Offset" => "Line Offset: select edges, then pick a reference point and target point.".to_owned(),
             "Construction Line" => {
                 "Construction Line: click two points; the tool stays active for another segment."
                     .to_owned()
@@ -4256,6 +4335,15 @@ impl MeshcraftApp {
         {
             return CommandState::disabled("select connected line segments first");
         }
+        if id == "tool.builtin.line_offset"
+            && !self
+                .selection
+                .selected()
+                .iter()
+                .any(|target| matches!(target.entity, SelectedEntity::Segment(_)))
+        {
+            return CommandState::disabled("select edges before starting Line Offset");
+        }
         let line_distance_ready = matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
@@ -4725,6 +4813,7 @@ impl MeshcraftApp {
         self.transform_tool_state.cancel();
         self.polyline_tool_state.cancel();
         self.mesh_tool_state.cancel();
+        self.line_offset_tool_state.cancel();
         self.status = "Current tool operation canceled.".to_owned();
     }
 
@@ -5033,6 +5122,16 @@ impl MeshcraftApp {
                 return;
             };
             self.pick_mesh_point(point, snap.map(|result| result.normal));
+            return;
+        }
+
+        if self.active_tool == "Line Offset" {
+            let Some(point) = construction_point else {
+                self.status =
+                    "Line Offset needs a point in the active construction view.".to_owned();
+                return;
+            };
+            self.pick_line_offset_point(point);
             return;
         }
 
@@ -5729,6 +5828,28 @@ impl MeshcraftApp {
                 return Some(ToolPreview::Transform { edges });
             }
         }
+        if let (Some(reference), Some(target)) = (
+            self.line_offset_tool_state.reference(),
+            self.line_offset_tool_state.pointer(),
+        ) {
+            let result = build_line_offset_mesh_from_segments(
+                &self.selected_world_segments(),
+                reference,
+                target,
+                LINE_OFFSET_MERGE_TOLERANCE,
+            );
+            let (edges, signed_offset) = match result {
+                Ok(result) => (result.preview_edges, result.offsets.first().copied()),
+                Err(_) => (vec![[reference, target]], None),
+            };
+            if !edges.is_empty() {
+                return Some(ToolPreview::LineOffset {
+                    edges,
+                    target,
+                    signed_offset,
+                });
+            }
+        }
         match self.active_tool.as_str() {
             "Cuboid" => {
                 let (first, opposite) = self.cuboid_base?;
@@ -6236,6 +6357,15 @@ impl MeshcraftApp {
                 })
             });
             self.mesh_tool_state.set_pointer(point);
+        }
+        if self.line_offset_tool_state.active() {
+            let point = pointer.and_then(|position| {
+                snap.map(|snap| snap.point).or_else(|| {
+                    self.viewport
+                        .screen_to_construction_plane(predicted_rect, position)
+                })
+            });
+            self.line_offset_tool_state.set_pointer(point);
         }
         let visible_guides = if self.preferences.show_construction_guides {
             self.guides.as_slice()
@@ -7627,15 +7757,16 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, DrawingToolState, EditContext, MeshToolState, MeshcraftApp, OrthoView,
-        PolylineToolState, Preferences, ReplacementDecision, SelectedEntity, SelectionClickTracker,
-        SelectionDisplayPolicy, SelectionMode, SelectionSession, SelectionTarget, ShapeToolState,
-        ToolCycleState, ToolEvent, TransactionHistory, TransformTool, TransformToolState,
-        UiProfile, command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
+        CommandPayload, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
+        MeshcraftApp, OrthoView, PolylineToolState, Preferences, ReplacementDecision,
+        SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionMode,
+        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
+        TransactionHistory, TransformTool, TransformToolState, UiProfile, command_matches,
+        registry_has_unique_ids, shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
-        SnapResult, SnapScope, Viewport, ViewportClick,
+        SnapResult, SnapScope, ToolPreview, Viewport, ViewportClick,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -7810,6 +7941,7 @@ mod tests {
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
+            line_offset_tool_state: LineOffsetToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -9430,6 +9562,204 @@ mod tests {
         app.handle_escape();
         assert_eq!("Select", app.active_tool);
         assert!(!app.mesh_tool_state.active());
+    }
+
+    #[test]
+    fn line_offset_command_offsets_selected_edges_and_creates_strip_faces() {
+        let mut app = test_app();
+        assert!(!app.query_command_state("tool.builtin.line_offset").enabled);
+
+        let first = app
+            .create_line_in_active_context(Vec3::ZERO, Vec3::X * 2.0)
+            .unwrap();
+        app.selection.apply(first, SelectionMode::Replace);
+        let second = app
+            .create_line_in_active_context(Vec3::X * 2.0, Vec3::X * 2.0 + Vec3::Z * 2.0)
+            .unwrap();
+        app.selection.apply(second, SelectionMode::Add);
+        assert_eq!(2, app.selection.summary().edges);
+        assert!(app.query_command_state("tool.builtin.line_offset").enabled);
+
+        let activation =
+            app.dispatch_command("tool.builtin.line_offset", &CommandPayload::default());
+        assert!(activation.accepted, "{}", app.status);
+        assert_eq!("Line Offset", app.active_tool);
+        assert!(app.line_offset_tool_state.active());
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::X));
+        assert_eq!(Some(Vec3::X), app.line_offset_tool_state.reference());
+        assert_eq!("Line Offset: pick target point.", app.status);
+        app.line_offset_tool_state
+            .set_pointer(Some(Vec3::X + Vec3::Z));
+        let Some(ToolPreview::LineOffset {
+            edges,
+            signed_offset,
+            target,
+        }) = app.tool_preview(rect, Some(Pos2::ZERO), None)
+        else {
+            panic!("Line Offset should preview the source, offset and connector edges");
+        };
+        assert_eq!(8, edges.len());
+        assert_eq!(Some(1.0), signed_offset);
+        assert_eq!(Vec3::X + Vec3::Z, target);
+
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::X + Vec3::Z));
+
+        assert_eq!("Offset copy | edges 2 faces 4", app.status);
+        assert_eq!(3, app.history.entries().len());
+        assert_eq!(2, app.selection.summary().edges);
+        assert_eq!(4, app.selection.summary().faces);
+        assert!(app.line_offset_tool_state.active());
+        assert_eq!(None, app.line_offset_tool_state.reference());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(4, geometry.triangles.len());
+        let selected_edge_points = app
+            .selection
+            .selected()
+            .iter()
+            .filter_map(|target| {
+                let SelectedEntity::Segment(segment_id) = target.entity else {
+                    return None;
+                };
+                let segment = geometry.segments.get(&segment_id)?;
+                Some(
+                    segment
+                        .endpoints
+                        .map(|reference| geometry.vertex_position(reference))
+                        .map(|point| point.unwrap()),
+                )
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(selected_edge_points.iter().all(|point| point.z >= 1.0));
+    }
+
+    #[test]
+    fn line_offset_rejects_no_selection_and_escape_clears_its_reference() {
+        let mut app = test_app();
+        app.run_command("tool.cycle.operations");
+        assert_eq!("Line Offset", app.active_tool);
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::ZERO));
+        assert_eq!("No edges selected.", app.status);
+        assert_eq!(None, app.line_offset_tool_state.reference());
+
+        let line = app
+            .create_line_in_active_context(Vec3::ZERO, Vec3::X)
+            .unwrap();
+        app.selection.apply(line, SelectionMode::Replace);
+        app.run_command("tool.builtin.line_offset");
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::ZERO));
+        assert_eq!(Some(Vec3::ZERO), app.line_offset_tool_state.reference());
+        app.handle_escape();
+        assert_eq!("Select", app.active_tool);
+        assert!(!app.line_offset_tool_state.active());
+        assert_eq!(None, app.line_offset_tool_state.reference());
+    }
+
+    #[test]
+    fn line_offset_rejection_preserves_the_selected_source_geometry() {
+        let mut app = test_app();
+        let first = app
+            .create_line_in_active_context(Vec3::ZERO, Vec3::X * 2.0)
+            .unwrap();
+        app.selection.apply(first, SelectionMode::Replace);
+        let second = app
+            .create_line_in_active_context(Vec3::X * 2.0, Vec3::X * 2.0 + Vec3::Z * 2.0)
+            .unwrap();
+        app.selection.apply(second, SelectionMode::Add);
+        let original_selection = app.selection.selected().clone();
+        let revision = app.document.revision();
+        let history_len = app.history.entries().len();
+
+        app.run_command("tool.builtin.line_offset");
+        app.handle_viewport_click_at_point(Rect::NOTHING, Pos2::ZERO, None, Some(Vec3::X));
+        app.handle_viewport_click_at_point(
+            Rect::NOTHING,
+            Pos2::ZERO,
+            None,
+            Some(Vec3::X + Vec3::Z * 2.0),
+        );
+
+        assert_eq!(
+            "Line Offset collapses a selected edge at this distance.",
+            app.status
+        );
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(history_len, app.history.entries().len());
+        assert_eq!(&original_selection, app.selection.selected());
+        assert_eq!("Line Offset", app.active_tool);
+        assert_eq!(None, app.line_offset_tool_state.reference());
+    }
+
+    #[test]
+    fn line_offset_in_an_entered_instance_commits_to_its_definition_in_local_space() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "translated editable",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        let first = app
+            .create_line_in_active_context(Vec3::new(10.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 0.0))
+            .unwrap();
+        app.selection.apply(first, SelectionMode::Replace);
+        let second = app
+            .create_line_in_active_context(Vec3::new(12.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 2.0))
+            .unwrap();
+        app.selection.apply(second, SelectionMode::Add);
+
+        app.run_command("tool.builtin.line_offset");
+        app.handle_viewport_click_at_point(
+            Rect::NOTHING,
+            Pos2::ZERO,
+            None,
+            Some(Vec3::new(11.0, 4.0, 0.0)),
+        );
+        app.handle_viewport_click_at_point(
+            Rect::NOTHING,
+            Pos2::ZERO,
+            None,
+            Some(Vec3::new(11.0, 4.0, 1.0)),
+        );
+
+        assert_eq!("Offset copy | edges 2 faces 4", app.status);
+        let resolved = app.document.resolve_occurrence(&occurrence).unwrap();
+        assert_eq!(definition, resolved.definition.id);
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(16, geometry.segments.len());
+        assert_eq!(16, geometry.triangles.len());
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| { target.occurrence == occurrence })
+        );
+        for target in app.selection.selected() {
+            let SelectedEntity::Segment(segment_id) = target.entity else {
+                continue;
+            };
+            let segment = &geometry.segments[&segment_id];
+            let world_points = segment.endpoints.map(|reference| {
+                let local = geometry.vertex_position(reference).unwrap();
+                resolved.world_transform.transform_point(local)
+            });
+            assert!(world_points.iter().all(|point| point.z >= 1.0));
+        }
     }
 
     #[test]

@@ -958,7 +958,9 @@
       ],
       "done": [
         "C14 open/closed/concave path and boundary tests pass.",
-        "Face outlines do not emit every interior triangulation edge."
+        "Face outlines do not emit every interior triangulation edge.",
+        "Shared endpoint ordering covers open, closed, disconnected and branched selections without dropping edges.",
+        "C14 covers Mesh, Polyline Mesh, Face Outline and Line Offset command selection, output, invalid-input and active-definition behavior."
       ],
       "tool_ids": [
         "POLYLINE",
@@ -968,7 +970,7 @@
         "FACE_OUTLINE",
         "LINE_OFFSET"
       ],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T20",

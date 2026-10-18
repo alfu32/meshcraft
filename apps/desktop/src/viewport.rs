@@ -272,6 +272,11 @@ pub enum ToolPreview {
     Transform {
         edges: Vec<[Vec3; 2]>,
     },
+    LineOffset {
+        edges: Vec<[Vec3; 2]>,
+        target: Vec3,
+        signed_offset: Option<f64>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -854,6 +859,25 @@ impl Viewport {
                 }
                 ToolPreview::Transform { edges } => {
                     self.draw_transform_preview(&painter, rect, edges);
+                }
+                ToolPreview::LineOffset {
+                    edges,
+                    target,
+                    signed_offset,
+                    ..
+                } => {
+                    self.draw_transform_preview(&painter, rect, edges);
+                    if let Some(offset) = signed_offset.filter(|offset| offset.is_finite())
+                        && self.point_in_front_of_camera(*target)
+                    {
+                        painter.text(
+                            self.world_to_screen(rect, *target) + Vec2::new(10.0, 12.0),
+                            egui::Align2::LEFT_TOP,
+                            format!("Offset {offset:.2}"),
+                            egui::FontId::proportional(12.0),
+                            Color32::WHITE,
+                        );
+                    }
                 }
             }
         }
