@@ -10,7 +10,7 @@ use meshcraft_core::commands::{
     CommandParameter, CommandPayload, CommandPresentation, CommandRegistry, CommandResult,
     CommandState, CommandStateQuery, CommandValueType,
 };
-use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef};
+use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
 use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
 use meshcraft_core::transactions::{
@@ -329,6 +329,7 @@ enum ShellAction {
     ClearSelection,
     ResetSceneForCapture,
     SnapshotDocument,
+    SetSelection,
     CreateObject,
     ArraySelection,
     UpdateModelSettings,
@@ -432,6 +433,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "snapshot scene capture automation regression state",
                 None,
                 ShellAction::SnapshotDocument,
+            ),
+            (
+                "selection.set",
+                "Selection> Set Occurrences",
+                "Selection",
+                "select set occurrence paths automation setup",
+                None,
+                ShellAction::SetSelection,
             ),
             (
                 "edit.undo",
@@ -856,6 +865,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
+        ShellAction::SetSelection => CommandKind::SessionMutation,
         ShellAction::SnapshotDocument | ShellAction::About => CommandKind::ReadOnly,
     }
 }
@@ -962,6 +972,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("dimensions", CommandValueType::Array),
             ("origin", CommandValueType::Array),
         ],
+        "selection.set" => &[("paths", CommandValueType::Array)],
         "object.array_selection" => &[
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
@@ -996,7 +1007,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         .map(|(name, value_type)| CommandParameter {
             name: (*name).to_owned(),
             value_type: *value_type,
-            required: false,
+            required: id == "selection.set" && *name == "paths",
         })
         .collect()
 }
@@ -2097,6 +2108,68 @@ impl MeshcraftApp {
                 result
                     .outputs
                     .insert("camera".to_owned(), self.viewport.legacy_camera_state());
+                return result;
+            }
+            ShellAction::SetSelection => {
+                let Some(paths) = payload
+                    .values
+                    .get("paths")
+                    .and_then(|value| value.as_array())
+                else {
+                    return CommandResult::failed("paths must be an array of occurrence paths");
+                };
+                let mut seen = BTreeSet::new();
+                let mut selection = Vec::with_capacity(paths.len());
+                for path_value in paths {
+                    let Some(path_values) = path_value.as_array() else {
+                        return CommandResult::failed(
+                            "each occurrence path must be an array of layout-entry IDs",
+                        );
+                    };
+                    if path_values.is_empty() {
+                        return CommandResult::failed("occurrence paths cannot be empty");
+                    }
+                    let mut path = Vec::with_capacity(path_values.len());
+                    for entry_value in path_values {
+                        let Some(entry_id) = entry_value.as_u64() else {
+                            return CommandResult::failed(
+                                "layout-entry IDs must be unsigned integers",
+                            );
+                        };
+                        path.push(LayoutEntryId(entry_id));
+                    }
+                    let occurrence = OccurrenceRef { path };
+                    if !seen.insert(occurrence.clone()) {
+                        return CommandResult::failed("occurrence paths must be distinct");
+                    }
+                    if self.document.resolve_occurrence(&occurrence).is_none() {
+                        return CommandResult::failed(
+                            "an occurrence path does not resolve in the current document",
+                        );
+                    }
+                    selection.push(occurrence);
+                }
+                selection.sort();
+                let selection_value = match serde_json::to_value(&selection) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return CommandResult::failed(format!(
+                            "could not serialize selection result: {error}"
+                        ));
+                    }
+                };
+                let selected_count = selection.len();
+                self.set_selection(selection);
+                self.object_name_edit = None;
+                self.status = "Selection updated.".to_owned();
+                let mut result = CommandResult::completed();
+                result.document_revision = Some(self.document.revision());
+                result
+                    .outputs
+                    .insert("selected_count".to_owned(), selected_count.into());
+                result
+                    .outputs
+                    .insert("selection".to_owned(), selection_value);
                 return result;
             }
             ShellAction::CreateObject => return self.create_object_from_selection(),
@@ -4251,7 +4324,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(184, entries.len());
+        assert_eq!(185, entries.len());
         assert_eq!(
             74,
             entries
@@ -4282,6 +4355,7 @@ mod tests {
                 .is_some()
         );
         assert!(shell_commands().get("document.snapshot").is_some());
+        assert!(shell_commands().get("selection.set").is_some());
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4687,6 +4761,66 @@ mod tests {
         assert_eq!(expected_camera, dispatch.result.outputs["camera"]);
         assert_eq!(revision, app.document.revision());
         assert_eq!(can_undo, app.can_undo_document());
+    }
+
+    #[test]
+    fn set_selection_command_validates_paths_before_changing_session_state() {
+        let mut app = test_app();
+        let first = app
+            .document
+            .add_cuboid(
+                "first",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::ZERO,
+            )
+            .unwrap();
+        let second = app
+            .document
+            .add_cuboid(
+                "second",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::new(3.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let revision = app.document.revision();
+        let can_undo = app.can_undo_document();
+        let command = shell_commands()
+            .get("selection.set")
+            .expect("selection command is registered");
+        assert!(command_matches(&command.descriptor, "set occurrences"));
+        assert_eq!(CommandKind::SessionMutation, command.descriptor.kind);
+        assert!(command.descriptor.parameters[0].required);
+
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "paths".to_owned(),
+            json!([[second.path[0].0], [first.path[0].0]]),
+        );
+        let dispatch = app.dispatch_command("selection.set", &payload);
+
+        assert!(dispatch.accepted);
+        assert_eq!(json!(2), dispatch.result.outputs["selected_count"]);
+        assert_eq!(
+            json!(app.selected_occurrences()),
+            dispatch.result.outputs["selection"]
+        );
+        assert_eq!(Some(revision), dispatch.result.document_revision);
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(can_undo, app.can_undo_document());
+        let previous_selection = app.selected_occurrences();
+
+        payload
+            .values
+            .insert("paths".to_owned(), json!([[first.path[0].0], [u64::MAX]]));
+        let rejected = app.dispatch_command("selection.set", &payload);
+
+        assert!(rejected.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected.result.completion
+        );
+        assert_eq!(previous_selection, app.selected_occurrences());
+        assert_eq!(revision, app.document.revision());
     }
 
     #[test]
