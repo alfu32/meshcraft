@@ -855,6 +855,53 @@ impl Viewport {
             painter.circle_stroke(position, 4.0, Stroke::new(2.0, color));
         }
 
+        if scene.active_tool == "Select"
+            && (response.dragged_by(egui::PointerButton::Primary)
+                || response.drag_stopped_by(egui::PointerButton::Primary))
+        {
+            let (origin, end, modifiers) = ui.input(|input| {
+                (
+                    input.pointer.press_origin(),
+                    input.pointer.interact_pos(),
+                    input.modifiers,
+                )
+            });
+            if let Some((origin, end)) = origin.zip(end) {
+                let region = Rect::from_two_pos(origin, end);
+                if region.width() >= 2.0 || region.height() >= 2.0 {
+                    let crossing = end.x < origin.x && !modifiers.alt;
+                    let (fill, stroke, label) = if crossing {
+                        (
+                            Color32::from_rgba_unmultiplied(42, 190, 126, 38),
+                            Color32::from_rgb(32, 164, 105),
+                            "Crossing",
+                        )
+                    } else {
+                        (
+                            Color32::from_rgba_unmultiplied(53, 132, 238, 36),
+                            Color32::from_rgb(37, 111, 220),
+                            "Window",
+                        )
+                    };
+                    let marquee_painter = painter.with_clip_rect(rect);
+                    marquee_painter.rect_filled(region, 0.0, fill);
+                    marquee_painter.rect_stroke(
+                        region,
+                        0.0,
+                        Stroke::new(1.5, stroke),
+                        egui::StrokeKind::Inside,
+                    );
+                    marquee_painter.text(
+                        region.left_top() + Vec2::new(4.0, 3.0),
+                        egui::Align2::LEFT_TOP,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        stroke,
+                    );
+                }
+            }
+        }
+
         let pointer = pointer_position.filter(|_| pointer_over_viewport);
         let click =
             if scene.active_tool != "Orbit" && response.clicked_by(egui::PointerButton::Primary) {
@@ -3811,6 +3858,93 @@ mod tests {
         );
         output.textures_delta.clear();
         viewport_input.expect("viewport rendered during test frame")
+    }
+
+    fn render_selection_drag(start: Pos2, end: Pos2) -> egui::FullOutput {
+        let mut viewport = Viewport::default();
+        let context = egui::Context::default();
+        let document = meshcraft_core::document::Document::new();
+        let render_frame = |viewport: &mut Viewport, events: Vec<Event>| {
+            context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    viewport.show(
+                        ui,
+                        &super::ViewportScene {
+                            size: Vec2::new(800.0, 600.0),
+                            document: &document,
+                            selection: &[],
+                            scope: super::SnapScope::Document,
+                            display_policy: &SelectionDisplayPolicy::default(),
+                            active_tool: "Select",
+                            preview: None,
+                            snap: None,
+                            guides: &[],
+                            guide_preview: None,
+                            grid: super::GridStyle {
+                                visible: false,
+                                spacing: 1.0,
+                                extent: 20,
+                                normal_axis: super::GridNormalAxis::Y,
+                                normal_width: 1.0,
+                                thick_width: 3.0,
+                            },
+                        },
+                    );
+                },
+            )
+        };
+        let mut initial_frame = render_frame(&mut viewport, Vec::new());
+        initial_frame.textures_delta.clear();
+        let mut first_frame = render_frame(
+            &mut viewport,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+        );
+        first_frame.textures_delta.clear();
+        let mut output = render_frame(&mut viewport, vec![Event::PointerMoved(end)]);
+        output.textures_delta.clear();
+        output
+    }
+
+    #[test]
+    fn selection_drag_draws_direction_coded_window_and_crossing_marquees() {
+        let cases = [
+            (
+                Pos2::new(180.0, 160.0),
+                Pos2::new(340.0, 300.0),
+                egui::Color32::from_rgb(37, 111, 220),
+            ),
+            (
+                Pos2::new(340.0, 300.0),
+                Pos2::new(180.0, 160.0),
+                egui::Color32::from_rgb(32, 164, 105),
+            ),
+        ];
+        for (start, end, expected_stroke) in cases {
+            let output = render_selection_drag(start, end);
+            let region = Rect::from_two_pos(start, end);
+            assert!(output.shapes.iter().any(|clipped| {
+                matches!(
+                    &clipped.shape,
+                    egui::epaint::Shape::Rect(shape)
+                        if shape.rect == region
+                            && shape.stroke.width == 1.5
+                            && shape.stroke.color == expected_stroke
+                )
+            }));
+        }
     }
 
     #[test]

@@ -601,13 +601,14 @@
         "recordPickSelection"
       ],
       "slices": [
-        "Implement click/add/remove, timed coplanar double/connected triple click, instance edit entry and independent screen-window/crossing/world-volume workflows.",
+        "Implement click/add/remove, timed connected-coplanar double/connected triple click, instance edit entry and independent screen-window/crossing/world-volume workflows.",
         "Centralize per-type visibility/lock/wireframe and selectable-handle dispatch; support domain handle providers added by later tasks.",
         "Expose consistent selection summaries/counts and result updates to commands/UI/automation."
       ],
       "done": [
         "C11 passes under transformed/occluded geometry; domain providers have C12 contract tests.",
-        "Timing is injectable and window versus volume selection remains distinct."
+        "Timing is injectable and window versus volume selection remains distinct.",
+        "A live direction-coded marquee shows left-to-right containment and right-to-left crossing behavior; plain clicks toggle an already selected entity off."
       ],
       "tool_ids": [
         "SELECT"

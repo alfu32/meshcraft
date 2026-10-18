@@ -11,7 +11,9 @@ use meshcraft_core::commands::{
     CommandParameter, CommandPayload, CommandPresentation, CommandRegistry, CommandResult,
     CommandState, CommandStateQuery, CommandValueType,
 };
-use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8};
+use meshcraft_core::document::{
+    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, VertexId,
+};
 use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
 use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::operations::objects as modeling_objects;
@@ -5291,6 +5293,11 @@ impl MeshcraftApp {
                 SelectionMode::Remove
             } else if modifiers.shift {
                 SelectionMode::Add
+            } else if target
+                .as_ref()
+                .is_some_and(|target| self.selection.selected().contains(target))
+            {
+                SelectionMode::Remove
             } else {
                 SelectionMode::Replace
             };
@@ -5346,16 +5353,56 @@ impl MeshcraftApp {
         let Some((_, start_point, start_normal)) = triangle_data(start_triangle) else {
             return vec![target.clone()];
         };
-        geometry
+        let is_coplanar = |triangle: &meshcraft_core::document::Triangle| {
+            triangle_data(triangle).is_some_and(|(_, point, normal)| {
+                normal.dot(start_normal).abs() >= 1.0 - 1.0e-8
+                    && (point - start_point).dot(start_normal).abs() <= 1.0e-7
+            })
+        };
+        let mut coplanar_vertices = BTreeMap::new();
+        let mut edge_faces = BTreeMap::<(VertexId, VertexId), Vec<_>>::new();
+        for triangle in geometry
             .triangles
             .values()
-            .filter(|triangle| {
-                triangle_data(triangle).is_some_and(|(_, point, normal)| {
-                    normal.dot(start_normal).abs() >= 1.0 - 1.0e-8
-                        && (point - start_point).dot(start_normal).abs() <= 1.0e-7
-                })
-            })
-            .map(|triangle| triangle.id)
+            .filter(|triangle| is_coplanar(triangle))
+        {
+            let Some((vertices, _, _)) = triangle_data(triangle) else {
+                continue;
+            };
+            coplanar_vertices.insert(triangle.id, vertices);
+            for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+                let mut edge = [vertices[first], vertices[second]];
+                edge.sort_unstable();
+                edge_faces
+                    .entry((edge[0], edge[1]))
+                    .or_default()
+                    .push(triangle.id);
+            }
+        }
+        let mut selected = BTreeSet::new();
+        let mut pending = vec![*start_id];
+        while let Some(triangle_id) = pending.pop() {
+            if !selected.insert(triangle_id) {
+                continue;
+            }
+            let Some(vertices) = coplanar_vertices.get(&triangle_id) else {
+                continue;
+            };
+            for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+                let mut edge = [vertices[first], vertices[second]];
+                edge.sort_unstable();
+                if let Some(neighbors) = edge_faces.get(&(edge[0], edge[1])) {
+                    pending.extend(
+                        neighbors
+                            .iter()
+                            .copied()
+                            .filter(|neighbor| !selected.contains(neighbor)),
+                    );
+                }
+            }
+        }
+        selected
+            .into_iter()
             .map(|id| SelectionTarget {
                 occurrence: target.occurrence.clone(),
                 entity: SelectedEntity::Triangle(id),
@@ -10921,7 +10968,8 @@ mod tests {
     }
 
     #[test]
-    fn desktop_double_click_selects_all_coplanar_faces_and_triple_clicks_connected_geometry() {
+    fn desktop_double_click_selects_connected_coplanar_faces_and_triple_clicks_connected_geometry()
+    {
         let mut app = test_app();
         let occurrence = app
             .document
@@ -10953,6 +11001,18 @@ mod tests {
                 vec![[0, 1, 2]],
             )
             .unwrap();
+        app.document
+            .append_planar_mesh_to_definition(
+                definition,
+                vec![
+                    Vec3::new(-2.0, 0.0, -2.0),
+                    Vec3::new(2.0, 0.0, -2.0),
+                    Vec3::new(0.0, 1.0, -2.0),
+                ],
+                vec![[0, 1], [1, 2], [2, 0]],
+                vec![[0, 1, 2]],
+            )
+            .unwrap();
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
         let position = app.viewport.world_to_screen(rect, Vec3::new(0.7, 0.0, 0.4));
         for time_millis in [100, 200] {
@@ -10967,7 +11027,7 @@ mod tests {
                 None,
             );
         }
-        assert_eq!(3, app.selection.summary().faces);
+        assert_eq!(2, app.selection.summary().faces);
         assert_eq!(0, app.selection.summary().vertices);
 
         app.handle_viewport_click_input(
@@ -10981,13 +11041,64 @@ mod tests {
             None,
         );
         let summary = app.selection.summary();
-        assert_eq!(4, summary.vertices);
-        assert_eq!(4, summary.edges);
-        assert_eq!(2, summary.faces);
+        assert_eq!(5, summary.vertices);
+        assert_eq!(6, summary.edges);
+        assert_eq!(3, summary.faces);
         assert_eq!(
             occurrence,
             app.selection.selected().first().unwrap().occurrence
         );
+    }
+
+    #[test]
+    fn plain_click_toggles_a_selected_entity_off_without_dropping_other_selection() {
+        let mut app = test_app();
+        app.viewport.set_orthographic_view(OrthoView::Top);
+        let first = app
+            .document
+            .add_line_segment(
+                "first selected line",
+                Vec3::new(-2.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let second = app
+            .document
+            .add_line_segment(
+                "second selected line",
+                Vec3::new(3.0, 0.0, 0.0),
+                Vec3::new(5.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let segment_target = |document: &Document, occurrence: &OccurrenceRef| {
+            let geometry = document.effective_geometry(occurrence).unwrap();
+            SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(*geometry.segments.keys().next().unwrap()),
+            }
+        };
+        let first_target = segment_target(&app.document, &first);
+        let second_target = segment_target(&app.document, &second);
+        app.selection.apply(
+            [first_target.clone(), second_target.clone()],
+            SelectionMode::Replace,
+        );
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let position = app
+            .viewport
+            .world_to_screen(rect, Vec3::new(-1.0, 0.0, 0.0));
+        app.handle_viewport_click_at_point_with_selection(
+            rect,
+            position,
+            None,
+            None,
+            egui::Modifiers::default(),
+            1,
+        );
+
+        assert_eq!(1, app.selection.selected().len());
+        assert!(app.selection.selected().contains(&second_target));
     }
 
     #[test]
