@@ -1138,6 +1138,18 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
         );
     }
     let defaults = match field {
+        "segments" | "overrideSegments" => serde_json::json!({
+            "id": "",
+            "start": {"x": 0, "y": 0, "z": 0},
+            "end": {"x": 0, "y": 0, "z": 0}
+        }),
+        "faces" | "overrideFaces" => serde_json::json!({
+            "id": "",
+            "a": {"x": 0, "y": 0, "z": 0},
+            "b": {"x": 0, "y": 0, "z": 0},
+            "c": {"x": 0, "y": 0, "z": 0},
+            "color": {"r": 1, "g": 1, "b": 1, "a": 1}
+        }),
         "voxels" => serde_json::json!({
             "x": 0,
             "y": 0,
@@ -1425,7 +1437,10 @@ fn parse_prototype_geometry(
     )?;
     let mut geometry = GeometryDraft::new();
     let mut reusable = HashMap::new();
-    let segment_values = read_array(object.get("segments"), &format!("{path}/segments"))?;
+    let normalized_segments = object
+        .get("segments")
+        .map(|value| normalize_sparse_component_dtos("segments", value));
+    let segment_values = read_array(normalized_segments.as_ref(), &format!("{path}/segments"))?;
     for (index, value) in segment_values.iter().enumerate() {
         let segment_path = format!("{path}/segments/{index}");
         let segment = value
@@ -1453,7 +1468,10 @@ fn parse_prototype_geometry(
         });
     }
 
-    let face_values = read_array(object.get("faces"), &format!("{path}/faces"))?;
+    let normalized_faces = object
+        .get("faces")
+        .map(|value| normalize_sparse_component_dtos("faces", value));
+    let face_values = read_array(normalized_faces.as_ref(), &format!("{path}/faces"))?;
     for (index, value) in face_values.iter().enumerate() {
         let face_path = format!("{path}/faces/{index}");
         let face = value
@@ -1664,12 +1682,12 @@ fn parse_override_segments(
     path: &str,
 ) -> ImportResult<Vec<ParsedOverrideSegment>> {
     let mut output = Vec::new();
-    for (index, value) in read_array(
-        object.get("overrideSegments"),
-        &format!("{path}/overrideSegments"),
-    )?
-    .iter()
-    .enumerate()
+    let normalized = object
+        .get("overrideSegments")
+        .map(|value| normalize_sparse_component_dtos("overrideSegments", value));
+    for (index, value) in read_array(normalized.as_ref(), &format!("{path}/overrideSegments"))?
+        .iter()
+        .enumerate()
     {
         let segment_path = format!("{path}/overrideSegments/{index}");
         let segment = value
@@ -1690,12 +1708,12 @@ fn parse_override_faces(
     path: &str,
 ) -> ImportResult<Vec<ParsedOverrideFace>> {
     let mut output = Vec::new();
-    for (index, value) in read_array(
-        object.get("overrideFaces"),
-        &format!("{path}/overrideFaces"),
-    )?
-    .iter()
-    .enumerate()
+    let normalized = object
+        .get("overrideFaces")
+        .map(|value| normalize_sparse_component_dtos("overrideFaces", value));
+    for (index, value) in read_array(normalized.as_ref(), &format!("{path}/overrideFaces"))?
+        .iter()
+        .enumerate()
     {
         let face_path = format!("{path}/overrideFaces/{index}");
         let face = value
@@ -2203,6 +2221,20 @@ mod tests {
             },
             {"id": "explicit-frame", "depth": 0.75, "glazingEnabled": true}
         ]);
+        source["prototypes"][0]["segments"] = serde_json::json!([{
+            "id": "sparse-segment",
+            "start": {"x": 4},
+            "end": {"x": 5},
+            "vendorSegment": true
+        }]);
+        source["prototypes"][0]["faces"] = serde_json::json!([{
+            "id": "sparse-face",
+            "a": {},
+            "b": {"x": 1},
+            "c": {"y": 1},
+            "color": {"r": 0.4},
+            "vendorFace": true
+        }]);
         source["prototypes"][0]["prototypeVertices"] =
             serde_json::json!([{"id": "sparse-vertex", "vendorVertex": true}]);
         source["prototypes"][0]["architectureWalls"] = serde_json::json!([{
@@ -2241,6 +2273,20 @@ mod tests {
         }]);
         source["rootInstance"]["overrideDimensions"] = serde_json::json!([{"start": {"x": 4}}]);
         source["rootInstance"]["overrideTexts"] = serde_json::json!([{"text": "instance label"}]);
+        source["rootInstance"]["overrideSegments"] = serde_json::json!([{
+            "id": "sparse-override-segment",
+            "start": {"z": 6},
+            "end": {"z": 7},
+            "vendorOverrideSegment": true
+        }]);
+        source["rootInstance"]["overrideFaces"] = serde_json::json!([{
+            "id": "sparse-override-face",
+            "a": {"z": 1},
+            "b": {"x": 1, "z": 1},
+            "c": {"y": 1, "z": 1},
+            "color": {"b": 0.4},
+            "vendorOverrideFace": true
+        }]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
@@ -2255,6 +2301,35 @@ mod tests {
             })
             .unwrap();
         let frames = prototype["architectureFrames"].as_array().unwrap();
+
+        let segment = &prototype["segments"][0];
+        assert_eq!(4.0, segment["start"]["x"].as_f64().unwrap());
+        assert_eq!(0.0, segment["start"]["y"].as_f64().unwrap());
+        assert_eq!(0.0, segment["end"]["z"].as_f64().unwrap());
+        assert_eq!(true, segment["vendorSegment"]);
+
+        let face = &prototype["faces"][0];
+        assert_eq!(0.0, face["a"]["z"].as_f64().unwrap());
+        assert_eq!(1.0, face["b"]["x"].as_f64().unwrap());
+        assert_eq!(1.0, face["c"]["y"].as_f64().unwrap());
+        assert_eq!(1.0, face["color"]["g"].as_f64().unwrap());
+        assert_eq!(1.0, face["color"]["a"].as_f64().unwrap());
+        assert_eq!(true, face["vendorFace"]);
+
+        let root_instance = &exported["rootInstance"];
+        let override_segment = &root_instance["overrideSegments"][0];
+        assert_eq!(0.0, override_segment["start"]["x"].as_f64().unwrap());
+        assert_eq!(6.0, override_segment["start"]["z"].as_f64().unwrap());
+        assert_eq!(0.0, override_segment["end"]["x"].as_f64().unwrap());
+        assert_eq!(true, override_segment["vendorOverrideSegment"]);
+
+        let override_face = &root_instance["overrideFaces"][0];
+        assert_eq!(0.0, override_face["a"]["x"].as_f64().unwrap());
+        assert_eq!(1.0, override_face["b"]["x"].as_f64().unwrap());
+        assert_eq!(1.0, override_face["c"]["y"].as_f64().unwrap());
+        assert_eq!(1.0, override_face["color"]["r"].as_f64().unwrap());
+        assert_eq!(1.0, override_face["color"]["a"].as_f64().unwrap());
+        assert_eq!(true, override_face["vendorOverrideFace"]);
 
         assert_eq!(
             serde_json::json!({
@@ -2352,7 +2427,6 @@ mod tests {
         assert_eq!(1.25, text["lineSpacing"]);
         assert_eq!("embedded:alphabet", text["glyphSourcePath"]);
 
-        let root_instance = &exported["rootInstance"];
         assert_eq!(0.0, root_instance["hotspotPositions"][0]["position"]["z"]);
         assert_eq!(
             0,

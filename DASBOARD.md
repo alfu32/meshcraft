@@ -20,6 +20,10 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T10 — Port orbit, orthographic and walkthrough cameras**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
 
+## Current Activity
+
+T05 now applies explicit schema-17 defaults to sparse segment and face DTOs in prototype geometry and instance overrides. The focused regression, all 77 core/67 desktop/14 IO workspace tests, formatting, diff checks, plan validation, workspace Clippy, and desktop WASM check pass. Next: continue defaults coverage for the remaining DTO families and complete Kotlin/Rust fixture parity.
+
 ## Task Statuses
 
 | ID | Task | Status |
