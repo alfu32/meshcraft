@@ -564,6 +564,8 @@ enum ShellAction {
     CancelProjectLoad,
     SaveProject,
     SaveProjectAs,
+    ResetWorkspaceLayout,
+    Quit,
     SetProfile(UiProfile),
     SetOrthographicView(OrthoView),
     SetWalkthroughView,
@@ -764,6 +766,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::SaveProjectAs,
             ),
             (
+                "app.quit",
+                "File> Exit",
+                "File",
+                "quit close exit application",
+                None,
+                ShellAction::Quit,
+            ),
+            (
                 "tool.line",
                 "Tool> Line",
                 "Tools",
@@ -858,6 +868,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "grid visibility display",
                 None,
                 ShellAction::ToggleGrid,
+            ),
+            (
+                "view.workspace.reset_layout",
+                "View> Reset Workspace Layout",
+                "View",
+                "workspace layout reset default panels toolbars",
+                None,
+                ShellAction::ResetWorkspaceLayout,
             ),
             (
                 "help.about",
@@ -1090,6 +1108,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
         | ShellAction::SaveProjectAs
+        | ShellAction::Quit
         | ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
@@ -1104,6 +1123,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
+        | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
         ShellAction::SetSelection => CommandKind::SessionMutation,
@@ -1165,6 +1185,9 @@ fn register_shell_command(
     if id == "file.save" {
         descriptor.shortcut = Some("Ctrl+S".to_owned());
     }
+    if id == "app.quit" {
+        descriptor.shortcut = Some("Ctrl+Q".to_owned());
+    }
     if id == "edit.delete_selection" {
         descriptor.shortcut = Some("Delete".to_owned());
     }
@@ -1189,6 +1212,8 @@ fn register_shell_command(
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
         | ShellAction::SaveProjectAs
+        | ShellAction::ResetWorkspaceLayout
+        | ShellAction::Quit
         | ShellAction::About => CommandCapability::Desktop,
         ShellAction::Unsupported => CommandCapability::Deferred,
         _ => CommandCapability::Core,
@@ -1369,6 +1394,7 @@ pub struct MeshcraftApp {
     command_search: String,
     command_selection: usize,
     focus_command_search: bool,
+    quit_requested: bool,
     panel_focus: Option<String>,
     document: Document,
     saved_revision: u64,
@@ -1496,6 +1522,7 @@ impl MeshcraftApp {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
+            quit_requested: false,
             panel_focus: None,
             document,
             saved_revision,
@@ -2578,6 +2605,15 @@ impl MeshcraftApp {
             ShellAction::CancelProjectLoad => return self.cancel_project_load(),
             ShellAction::SaveProject => return self.save_project(false, payload),
             ShellAction::SaveProjectAs => return self.save_project(true, payload),
+            ShellAction::ResetWorkspaceLayout => {
+                self.preferences = Preferences::default();
+                self.panel_focus = None;
+                self.status = "Workspace layout reset to the default profile.".to_owned();
+            }
+            ShellAction::Quit => {
+                self.quit_requested = true;
+                self.status = "Closing Meshcraft.".to_owned();
+            }
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
                 self.status = format!("{} workspace profile selected.", profile.label());
@@ -2866,6 +2902,10 @@ impl MeshcraftApp {
                 "{} is not implemented in this build",
                 command.descriptor.label
             ));
+        }
+        if id == "app.quit" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("The browser tab cannot be closed by the app");
         }
         if let Some(view) = id.strip_prefix("view.ortho.").and_then(OrthoView::from_id) {
             return CommandState {
@@ -3509,7 +3549,7 @@ impl MeshcraftApp {
                 ui.separator();
                 ui.add_enabled(false, egui::Button::new("Import Geometry…"));
                 ui.add_enabled(false, egui::Button::new("Export Geometry…"));
-                ui.add_enabled(false, egui::Button::new("Exit"));
+                self.show_command_menu_item(ui, "app.quit");
             });
             if request_file_menu {
                 let popup_id = egui::Popup::default_response_id(&file_menu.response);
@@ -3566,7 +3606,7 @@ impl MeshcraftApp {
             ui.menu_button("Window", |ui| {
                 ui.label("Workspace panels");
                 self.show_command_toggle(ui, "view.panels.toggle");
-                ui.add_enabled(false, egui::Button::new("Reset Workspace Layout"));
+                self.show_command_menu_item(ui, "view.workspace.reset_layout");
             });
 
             ui.menu_button("Help", |ui| {
@@ -4284,6 +4324,13 @@ impl MeshcraftApp {
         if save_as_shortcut {
             self.run_command("file.save_as");
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.command_palette_open
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Q))
+        {
+            self.run_command("app.quit");
+        }
         let delete_shortcut = !self.command_palette_open
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| input.key_pressed(egui::Key::Delete));
@@ -4592,6 +4639,9 @@ fn registry_has_unique_ids() -> bool {
 impl eframe::App for MeshcraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| self.show_workspace(ui));
+        if std::mem::take(&mut self.quit_requested) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -4760,6 +4810,7 @@ mod tests {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
+            quit_requested: false,
             panel_focus: None,
             document: Document::new(),
             saved_revision: 0,
@@ -4833,7 +4884,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(192, entries.len());
+        assert_eq!(194, entries.len());
         assert_eq!(
             74,
             entries
@@ -4865,6 +4916,12 @@ mod tests {
         );
         assert!(shell_commands().get("document.snapshot").is_some());
         assert!(shell_commands().get("selection.set").is_some());
+        assert!(
+            shell_commands()
+                .get("view.workspace.reset_layout")
+                .is_some()
+        );
+        assert!(shell_commands().get("app.quit").is_some());
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4924,6 +4981,46 @@ mod tests {
         let serialized = serde_json::to_string(&app.preferences).unwrap();
         let restored: Preferences = serde_json::from_str(&serialized).unwrap();
         assert_eq!(app.preferences, restored);
+    }
+
+    #[test]
+    fn workspace_reset_is_command_driven_and_keeps_document_unchanged() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let document_revision = app.document.revision();
+        app.preferences.profile = super::UiProfile::Hybrid;
+        app.preferences.toolbars_visible = false;
+        app.preferences.panels_visible = false;
+        app.preferences.toolbar_icon_size = 48;
+        app.preferences
+            .panel_open
+            .insert("objects".to_owned(), false);
+        app.panel_focus = Some("objects".to_owned());
+
+        let outcome =
+            app.dispatch_command("view.workspace.reset_layout", &CommandPayload::default());
+
+        assert!(outcome.accepted);
+        assert_eq!(Preferences::default(), app.preferences);
+        assert_eq!(None, app.panel_focus);
+        assert_eq!(document_revision, app.document.revision());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn quit_is_a_palette_command_and_requests_native_close_without_document_mutation() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let document_revision = app.document.revision();
+        let command = shell_commands().get("app.quit").unwrap();
+
+        assert_eq!(Some("Ctrl+Q"), command.descriptor.shortcut.as_deref());
+        assert!(app.query_command_state("app.quit").enabled);
+        let outcome = app.dispatch_command("app.quit", &CommandPayload::default());
+
+        assert!(outcome.accepted);
+        assert!(app.quit_requested);
+        assert_eq!(document_revision, app.document.revision());
     }
 
     #[test]
