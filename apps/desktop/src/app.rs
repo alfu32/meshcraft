@@ -23,6 +23,7 @@ use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::operations::extrude::{ExtrudeSourceTriangle, extrude_region};
 use meshcraft_core::operations::objects as modeling_objects;
 use meshcraft_core::operations::primitives as modeling_primitives;
+use meshcraft_core::operations::sweep::{self as modeling_sweep, SweepMesh, SweepProfileSegment};
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
@@ -1345,6 +1346,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "cut_holes_2" => ShellAction::CutSelectedFaces(CutTool::Holes2),
                 "cut_out_3" => ShellAction::CutSelectedFaces(CutTool::Cutout),
                 "line_offset" => ShellAction::SelectToolAlias("Line Offset"),
+                "extrude_swipe" => ShellAction::SelectToolAlias("Extrude Swipe"),
                 "mesh" => ShellAction::SelectToolAlias("Mesh"),
                 "push_pull" => ShellAction::SelectToolAlias("Push/Pull"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
@@ -3043,13 +3045,24 @@ impl MeshcraftApp {
                 "Polyline needs at least two points to finish."
             });
         };
-        let result = self.commit_polyline_path(path);
+        let result = if self.active_tool == "Extrude Swipe" {
+            self.commit_extrude_swipe_path(path)
+        } else {
+            self.commit_polyline_path(path)
+        };
+        if result.completion == CommandCompletion::Completed && self.active_tool == "Extrude Swipe"
+        {
+            let status = self.status.clone();
+            self.activate_tool("Select");
+            self.status = status;
+            return result;
+        }
         if result.completion == CommandCompletion::Failed {
             self.polyline_tool_state = previous;
-            let tool_name = if self.active_tool == "Double Line" {
-                "Double Line"
-            } else {
-                "Polyline"
+            let tool_name = match self.active_tool.as_str() {
+                "Double Line" => "Double Line",
+                "Extrude Swipe" => "Extrude Swipe",
+                _ => "Polyline",
             };
             self.status = result
                 .diagnostics
@@ -3076,6 +3089,172 @@ impl MeshcraftApp {
                     path.points.len(),
                     if path.closed { " as a closed mesh" } else { "" }
                 );
+                CommandResult::completed()
+            }
+            Err(error) => CommandResult::failed(error),
+        }
+    }
+
+    fn selected_sweep_profile(
+        &self,
+    ) -> Result<(LineOwner, OccurrenceRef, Affine3, Vec<SweepProfileSegment>), String> {
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let geometry = self
+            .document
+            .effective_geometry(&occurrence)
+            .ok_or_else(|| "Extrude Swipe needs an active geometry graph.".to_owned())?;
+        let profile = self
+            .selection
+            .selected()
+            .iter()
+            .filter(|target| target.occurrence == occurrence)
+            .filter_map(|target| {
+                let SelectedEntity::Segment(id) = target.entity else {
+                    return None;
+                };
+                let segment = geometry.segments.get(&id)?;
+                let [Some(start), Some(end)] = segment
+                    .endpoints
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    return None;
+                };
+                Some(SweepProfileSegment {
+                    endpoints: [start, end],
+                })
+            })
+            .collect::<Vec<_>>();
+        if profile.is_empty() {
+            return Err(
+                "Select one or more profile edges in the active geometry graph first.".to_owned(),
+            );
+        }
+        Ok((owner, occurrence, inverse, profile))
+    }
+
+    fn build_extrude_swipe_mesh(&self, path: &PolylinePath) -> Result<SweepMesh, String> {
+        let (_, _, inverse, profile) = self.selected_sweep_profile()?;
+        let local_path = path
+            .points
+            .iter()
+            .map(|point| inverse.transform_point(*point))
+            .collect::<Vec<_>>();
+        let scale = profile
+            .iter()
+            .flat_map(|segment| segment.endpoints)
+            .chain(local_path.iter().copied())
+            .map(Vec3::length)
+            .fold(0.0, f64::max);
+        let tolerance = GeometryTolerance::default().linear_at(scale);
+        modeling_sweep::extrude_swipe(&profile, &local_path, path.closed, Vec3::Y, tolerance)
+            .map_err(str::to_owned)
+    }
+
+    fn extrude_swipe_preview(&self, path: Option<&PolylinePath>) -> Option<ToolPreview> {
+        let (_, _, inverse, profile) = self.selected_sweep_profile().ok()?;
+        let world_transform = inverse.inverse(GeometryTolerance::default())?;
+        let color = self.current_paint_color;
+        if let Some(path) = path
+            && let Ok(mesh) = self.build_extrude_swipe_mesh(path)
+        {
+            let edges = mesh
+                .segments
+                .iter()
+                .map(|[start, end]| {
+                    [
+                        world_transform.transform_point(mesh.vertices[*start]),
+                        world_transform.transform_point(mesh.vertices[*end]),
+                    ]
+                })
+                .collect();
+            let triangles = mesh
+                .triangles
+                .iter()
+                .map(|triangle| {
+                    (
+                        triangle
+                            .vertices
+                            .map(|index| world_transform.transform_point(mesh.vertices[index])),
+                        color,
+                    )
+                })
+                .collect();
+            return Some(ToolPreview::Primitive { edges, triangles });
+        }
+
+        let mut edges = profile
+            .iter()
+            .map(|segment| {
+                segment
+                    .endpoints
+                    .map(|point| world_transform.transform_point(point))
+            })
+            .collect::<Vec<_>>();
+        if let Some(path) = path {
+            edges.extend(path.points.windows(2).map(|pair| [pair[0], pair[1]]));
+            if path.closed && path.points.len() > 2 {
+                edges.push([*path.points.last()?, path.points[0]]);
+            }
+        }
+        Some(ToolPreview::Primitive {
+            edges,
+            triangles: Vec::new(),
+        })
+    }
+
+    fn commit_extrude_swipe_path(&mut self, path: PolylinePath) -> CommandResult {
+        let (owner, occurrence, _, _) = match self.selected_sweep_profile() {
+            Ok(input) => input,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let mesh = match self.build_extrude_swipe_mesh(&path) {
+            Ok(mesh) => mesh,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let color = self.current_paint_color;
+        let inserted = self.commit_document_edit("Extrude Swipe", |document| match owner {
+            LineOwner::SceneRoot => document.append_colored_indexed_mesh_to_scene_root(
+                mesh.vertices,
+                mesh.segments
+                    .into_iter()
+                    .map(|segment| (segment, color))
+                    .collect(),
+                mesh.triangles
+                    .into_iter()
+                    .map(|triangle| (triangle.vertices, color))
+                    .collect(),
+            ),
+            LineOwner::Definition(definition) => document
+                .append_colored_indexed_mesh_to_definition(
+                    definition,
+                    mesh.vertices,
+                    mesh.segments
+                        .into_iter()
+                        .map(|segment| (segment, color))
+                        .collect(),
+                    mesh.triangles
+                        .into_iter()
+                        .map(|triangle| (triangle.vertices, color))
+                        .collect(),
+                ),
+        });
+        match inserted {
+            Ok((segments, triangles)) => {
+                let targets = segments
+                    .into_iter()
+                    .map(|id| SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity: SelectedEntity::Segment(id),
+                    })
+                    .chain(triangles.into_iter().map(|id| SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity: SelectedEntity::Triangle(id),
+                    }))
+                    .collect::<Vec<_>>();
+                self.selection.apply(targets, SelectionMode::Replace);
+                self.status =
+                    "Extrude Swipe created a connected surface in the active geometry graph."
+                        .to_owned();
                 CommandResult::completed()
             }
             Err(error) => CommandResult::failed(error),
@@ -4043,7 +4222,7 @@ impl MeshcraftApp {
         self.cuboid_first = None;
         self.cuboid_base = None;
         self.polyline_tool_state
-            .activate(matches!(tool, "Polyline" | "Double Line"));
+            .activate(matches!(tool, "Polyline" | "Double Line" | "Extrude Swipe"));
         self.mesh_tool_state.activate(tool == "Mesh");
         self.line_offset_tool_state.activate(tool == "Line Offset");
         self.drawing_tool.handle(ToolEvent::Activate(match tool {
@@ -4067,6 +4246,9 @@ impl MeshcraftApp {
             }
             "Double Line" => {
                 "Double Line: click a center path; A/C/L switch arc modes, Enter finishes the ribbon.".to_owned()
+            }
+            "Extrude Swipe" => {
+                "Extrude Swipe: select profile edges, then pick a path; A/C/L switch arc modes, Enter finishes.".to_owned()
             }
             "Mesh" => "Mesh: pick points to add connecting edges and nearest-point triangles. Enter starts a new mesh chain; Escape exits.".to_owned(),
             "Line Offset" => "Line Offset: select edges, then pick a reference point and target point.".to_owned(),
@@ -4176,7 +4358,10 @@ impl MeshcraftApp {
                     self.status = "Mesh chain finished; pick a point to start another.".to_owned();
                     return CommandResult::completed();
                 }
-                if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+                if matches!(
+                    self.active_tool.as_str(),
+                    "Polyline" | "Double Line" | "Extrude Swipe"
+                ) {
                     return self.finish_polyline(false);
                 }
                 self.sync_drawing_tool_state();
@@ -4206,7 +4391,10 @@ impl MeshcraftApp {
                 if self.mesh_tool_state.active() {
                     return CommandResult::failed("Mesh does not support undoing individual picks");
                 }
-                if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+                if matches!(
+                    self.active_tool.as_str(),
+                    "Polyline" | "Double Line" | "Extrude Swipe"
+                ) {
                     if !self.polyline_tool_state.backspace() {
                         return CommandResult::failed("there is no path point to undo");
                     }
@@ -4995,6 +5183,11 @@ impl MeshcraftApp {
         {
             return CommandState::disabled("select connected line segments first");
         }
+        if id == "tool.builtin.extrude_swipe" && self.selected_sweep_profile().is_err() {
+            return CommandState::disabled(
+                "select profile edges in the active geometry graph first",
+            );
+        }
         if matches!(
             id,
             "tool.builtin.cut_holes" | "tool.builtin.cut_holes_2" | "tool.builtin.cut_out_3"
@@ -5039,7 +5232,10 @@ impl MeshcraftApp {
             && self.drawing_tool.anchor().is_some();
         let transform_input_ready = self.transform_tool_state.active().is_some()
             && !self.transform_tool_state.points().is_empty();
-        let path_tool_active = matches!(self.active_tool.as_str(), "Polyline" | "Double Line");
+        let path_tool_active = matches!(
+            self.active_tool.as_str(),
+            "Polyline" | "Double Line" | "Extrude Swipe"
+        );
         let polyline_finish_ready =
             path_tool_active && self.polyline_tool_state.points().len() >= 2;
         let mesh_finish_ready =
@@ -5064,7 +5260,7 @@ impl MeshcraftApp {
             && !mesh_finish_ready
         {
             return CommandState::disabled(
-                "start a Line, Construction Line, Polyline, Double Line, or Mesh chain first",
+                "start a Line, Construction Line, Polyline, Double Line, Extrude Swipe, or Mesh chain first",
             );
         }
         if id == "tool.undo_point"
@@ -5845,8 +6041,17 @@ impl MeshcraftApp {
             return;
         }
 
-        if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+        if matches!(
+            self.active_tool.as_str(),
+            "Polyline" | "Double Line" | "Extrude Swipe"
+        ) {
             let tool_name = self.active_tool.clone();
+            if tool_name == "Extrude Swipe" && self.selected_sweep_profile().is_err() {
+                self.status =
+                    "Select one or more profile edges in the active geometry graph first."
+                        .to_owned();
+                return;
+            }
             let Some(point) = construction_point else {
                 self.status = format!("{tool_name} needs a point in the active construction view.");
                 return;
@@ -6692,6 +6897,11 @@ impl MeshcraftApp {
                 .polyline_tool_state
                 .preview(point, self.document.model_settings().arc_max_length)
             else {
+                if self.active_tool == "Extrude Swipe"
+                    && let Some(preview) = self.extrude_swipe_preview(None)
+                {
+                    return Some(preview);
+                }
                 return point_preview();
             };
             if self.active_tool == "Double Line" {
@@ -6737,6 +6947,11 @@ impl MeshcraftApp {
                     })
                     .collect();
                 return Some(ToolPreview::Transform { edges });
+            }
+            if self.active_tool == "Extrude Swipe"
+                && let Some(preview) = self.extrude_swipe_preview(Some(&preview))
+            {
+                return Some(preview);
             }
             return Some(ToolPreview::Polyline {
                 outline: preview.points,
@@ -6951,10 +7166,10 @@ impl MeshcraftApp {
 
         let label = match self.active_tool.as_str() {
             "Line" | "Construction Line" | "Rectangle" | "Surface Rect" | "Quad" | "Circle"
-            | "Polyline" | "Double Line" | "Line Offset" | "Push/Pull" | "Move" | "Rotate"
-            | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" | "Cuboid"
-            | "Object Place" | "Axis Guide" | "Grid Guide" | "Sphere" | "Cylinder" | "Cone"
-            | "Pill" => self.active_tool.as_str(),
+            | "Polyline" | "Double Line" | "Extrude Swipe" | "Line Offset" | "Push/Pull"
+            | "Move" | "Rotate" | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch"
+            | "Cuboid" | "Object Place" | "Axis Guide" | "Grid Guide" | "Sphere" | "Cylinder"
+            | "Cone" | "Pill" => self.active_tool.as_str(),
             "Mesh" => "Mesh",
             _ => return None,
         };
@@ -6994,7 +7209,9 @@ impl MeshcraftApp {
             "Rectangle" | "Surface Rect" | "Quad" | "Circle" => {
                 self.shape_tool_state.picks().last().copied()
             }
-            "Polyline" | "Double Line" => self.polyline_tool_state.points().last().copied(),
+            "Polyline" | "Double Line" | "Extrude Swipe" => {
+                self.polyline_tool_state.points().last().copied()
+            }
             "Mesh" => self.mesh_tool_state.points().last().copied(),
             "Sphere" | "Cylinder" | "Cone" | "Pill" => {
                 self.primitive_tool_state.picks().last().copied()
@@ -8451,7 +8668,12 @@ impl MeshcraftApp {
                 self.handle_drawing_tool_effect(effect, None);
             }
         }
-        if shortcuts_allowed && matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
+        if shortcuts_allowed
+            && matches!(
+                self.active_tool.as_str(),
+                "Polyline" | "Double Line" | "Extrude Swipe"
+            )
+        {
             let tool_name = self.active_tool.clone();
             if ui.input(|input| input.key_pressed(egui::Key::Backspace))
                 && self.polyline_tool_state.backspace()
@@ -11883,6 +12105,112 @@ mod tests {
         let geometry = app.document.effective_geometry(&occurrence).unwrap();
         assert!(geometry.segments.is_empty());
         assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn extrude_swipe_sweeps_selected_profile_edges_and_is_undoable() {
+        let mut app = test_app();
+        assert!(
+            !app.query_command_state("tool.builtin.extrude_swipe")
+                .enabled
+        );
+        let profile = app
+            .create_line_in_active_context(Vec3::ZERO, Vec3::Y)
+            .unwrap();
+        app.selection.apply(profile, SelectionMode::Replace);
+        assert!(
+            app.query_command_state("tool.builtin.extrude_swipe")
+                .enabled
+        );
+        let activated =
+            app.dispatch_command("tool.builtin.extrude_swipe", &CommandPayload::default());
+        assert!(activated.accepted, "{}", app.status);
+        assert_eq!("Extrude Swipe", app.active_tool);
+        assert!(app.polyline_tool_state.active());
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::ZERO));
+        let end = Vec3::X * 2.0;
+        let end_screen = app.viewport.world_to_screen(rect, end);
+        let preview = app.tool_preview(rect, Some(end_screen), None);
+        assert!(matches!(preview, Some(ToolPreview::Primitive { .. })));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(end));
+        let result = app.dispatch_command("tool.finish", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!("Select", app.active_tool);
+
+        let occurrence = OccurrenceRef::scene_root();
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(4, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert_eq!(4, app.selection.summary().edges);
+        assert_eq!(2, app.selection.summary().faces);
+        assert_eq!(2, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(1, geometry.segments.len());
+        assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn extrude_swipe_commits_in_entered_instance_local_space() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "editable profile",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        let profile = app
+            .create_line_in_active_context(Vec3::new(10.0, 4.0, 0.0), Vec3::new(10.0, 5.0, 0.0))
+            .unwrap();
+        app.selection.apply(profile, SelectionMode::Replace);
+        let before = app.document.effective_geometry(&occurrence).unwrap();
+        let before_segments = before.segments.len();
+        let before_triangles = before.triangles.len();
+        app.run_command("tool.builtin.extrude_swipe");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        for point in [Vec3::new(10.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 0.0)] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+        }
+        let result = app.dispatch_command("tool.finish", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(before_segments + 3, geometry.segments.len());
+        assert_eq!(before_triangles + 2, geometry.triangles.len());
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| { target.occurrence == occurrence })
+        );
+        let resolved = app.document.resolve_occurrence(&occurrence).unwrap();
+        let swept_points = app
+            .selection
+            .selected()
+            .iter()
+            .filter_map(|target| {
+                let SelectedEntity::Triangle(id) = target.entity else {
+                    return None;
+                };
+                let triangle = geometry.triangles.get(&id)?;
+                Some(triangle.vertices.map(|reference| {
+                    resolved
+                        .world_transform
+                        .transform_point(geometry.vertex_position(reference).unwrap())
+                }))
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(swept_points.iter().all(|point| point.x >= 10.0 - 1.0e-9));
+        assert!(swept_points.iter().all(|point| point.x <= 12.0 + 1.0e-9));
     }
 
     #[test]
