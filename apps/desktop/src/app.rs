@@ -3,7 +3,6 @@ use crate::viewport::{
     CuboidPreview, GridStyle, OrthoView, ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
-#[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::commands::HostEffect;
 use meshcraft_core::commands::{
     CommandCapability, CommandCompletion, CommandDescriptor, CommandDispatch, CommandKind,
@@ -581,6 +580,27 @@ enum ShellAction {
     OpenPanelGroup(&'static [&'static str]),
     Unsupported,
     About,
+}
+
+#[derive(Clone, Debug)]
+enum ReplacementTarget {
+    NewDocument,
+    #[cfg(not(target_arch = "wasm32"))]
+    OpenProject(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+struct PendingReplacement {
+    job_id: String,
+    target: ReplacementTarget,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplacementDecision {
+    #[cfg(not(target_arch = "wasm32"))]
+    Save,
+    Discard,
+    Cancel,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1403,9 +1423,11 @@ pub struct MeshcraftApp {
     legacy_active_index: Option<usize>,
     #[cfg(not(target_arch = "wasm32"))]
     current_project_path: Option<PathBuf>,
-    #[cfg(not(target_arch = "wasm32"))]
     next_job_id: u64,
     job_results: BTreeMap<String, CommandResult>,
+    pending_replacement: Option<PendingReplacement>,
+    #[cfg(not(target_arch = "wasm32"))]
+    replacement_after_save: Option<PendingReplacement>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_project_load: Option<PendingProjectLoad>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -1531,9 +1553,11 @@ impl MeshcraftApp {
             legacy_active_index,
             #[cfg(not(target_arch = "wasm32"))]
             current_project_path: None,
-            #[cfg(not(target_arch = "wasm32"))]
             next_job_id: 1,
             job_results: BTreeMap::new(),
+            pending_replacement: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            replacement_after_save: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_project_load: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1979,6 +2003,7 @@ impl MeshcraftApp {
             Ok(Ok(())) => {
                 self.saved_revision = pending.input_revision;
                 self.current_project_path = Some(pending.path.clone());
+                let replacement = self.replacement_after_save.take();
                 self.status = if self.document_is_dirty() {
                     format!(
                         "Saved {} at revision {}; newer edits remain unsaved.",
@@ -1995,11 +2020,26 @@ impl MeshcraftApp {
                 }
                 self.job_results
                     .insert(pending.job_id, CommandResult::completed());
+                if let Some(replacement) = replacement {
+                    if self.document_is_dirty() {
+                        self.status.push_str(
+                            " Save the newer edits, discard them, or cancel the replacement.",
+                        );
+                        self.pending_replacement = Some(replacement);
+                    } else {
+                        self.continue_document_replacement(replacement);
+                    }
+                }
             }
             Ok(Err(error)) => {
                 self.status = format!("Could not save {}: {error}", pending.path.display());
                 self.job_results
                     .insert(pending.job_id, CommandResult::failed(error));
+                if let Some(replacement) = self.replacement_after_save.take() {
+                    self.pending_replacement = Some(replacement);
+                    self.status
+                        .push_str(" Choose Save to retry, Discard, or Cancel.");
+                }
             }
             Err(TryRecvError::Empty) => {
                 self.status = format!("Saving {}…", pending.path.display());
@@ -2010,6 +2050,11 @@ impl MeshcraftApp {
                 self.status = format!("Could not save {}: {error}", pending.path.display());
                 self.job_results
                     .insert(pending.job_id, CommandResult::failed(error));
+                if let Some(replacement) = self.replacement_after_save.take() {
+                    self.pending_replacement = Some(replacement);
+                    self.status
+                        .push_str(" Choose Save to retry, Discard, or Cancel.");
+                }
             }
         }
     }
@@ -2019,13 +2064,11 @@ impl MeshcraftApp {
         if self.pending_project_load.is_some() {
             return CommandResult::failed("A project is already being opened.");
         }
-        if self.document_is_dirty() {
-            return CommandResult::failed(
-                "Save or discard the current document before opening another project.",
-            );
-        }
         if self.pending_project_save.is_some() {
             return CommandResult::failed("Wait for the current project save to finish first.");
+        }
+        if self.pending_replacement.is_some() {
+            return CommandResult::failed("A document replacement is already awaiting a decision.");
         }
 
         let path = match payload.values.get("path") {
@@ -2049,6 +2092,20 @@ impl MeshcraftApp {
             }
         };
 
+        if self.document_is_dirty() {
+            return self.request_document_replacement(ReplacementTarget::OpenProject(path));
+        }
+        self.start_project_load(path, None)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_project_load(&mut self, path: PathBuf, job_id: Option<String>) -> CommandResult {
+        if self.pending_project_load.is_some() {
+            return CommandResult::failed("A project is already being opened.");
+        }
+        if self.pending_project_save.is_some() {
+            return CommandResult::failed("Wait for the current project save to finish first.");
+        }
         let metadata = match fs::metadata(&path) {
             Ok(metadata) if metadata.is_file() => metadata,
             Ok(_) => return CommandResult::failed("the selected path is not a file"),
@@ -2066,8 +2123,11 @@ impl MeshcraftApp {
             ));
         }
 
-        let job_id = format!("document-load-{}", self.next_job_id);
-        self.next_job_id = self.next_job_id.saturating_add(1);
+        let job_id = job_id.unwrap_or_else(|| {
+            let job_id = format!("document-load-{}", self.next_job_id);
+            self.next_job_id = self.next_job_id.saturating_add(1);
+            job_id
+        });
         let input_revision = self.document.revision();
         let cancellation = Arc::new(AtomicBool::new(false));
         let worker_cancellation = Arc::clone(&cancellation);
@@ -2315,6 +2375,142 @@ impl MeshcraftApp {
 
     fn run_command(&mut self, id: &str) {
         self.dispatch_command(id, &CommandPayload::default());
+    }
+
+    fn request_document_replacement(&mut self, target: ReplacementTarget) -> CommandResult {
+        if self.pending_replacement.is_some() {
+            return CommandResult::failed("A document replacement is already awaiting a decision.");
+        }
+        self.command_palette_open = false;
+        self.focus_command_search = false;
+        let job_id = format!("document-replace-{}", self.next_job_id);
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        let result = CommandResult::pending(
+            job_id.clone(),
+            HostEffect::StartJob {
+                job_id: job_id.clone(),
+                kind: "document.replace_confirmation".to_owned(),
+                input_revision: Some(self.document.revision()),
+            },
+        );
+        self.pending_replacement = Some(PendingReplacement {
+            job_id: job_id.clone(),
+            target,
+        });
+        self.job_results.insert(job_id, result.clone());
+        self.status = "Save changes before replacing this document?".to_owned();
+        result
+    }
+
+    fn resolve_document_replacement(&mut self, decision: ReplacementDecision) {
+        let Some(pending) = self.pending_replacement.take() else {
+            return;
+        };
+        match decision {
+            ReplacementDecision::Cancel => {
+                self.status = "Document replacement cancelled.".to_owned();
+                let mut result = CommandResult::completed();
+                result.document_revision = Some(self.document.revision());
+                result.outputs.insert("cancelled".to_owned(), true.into());
+                self.job_results.insert(pending.job_id, result);
+            }
+            ReplacementDecision::Discard => match pending.target.clone() {
+                ReplacementTarget::NewDocument => {
+                    let result = self.start_new_document();
+                    self.job_results.insert(pending.job_id, result);
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                ReplacementTarget::OpenProject(path) => {
+                    let result = self.start_project_load(path, Some(pending.job_id.clone()));
+                    if result.completion == CommandCompletion::Failed {
+                        self.job_results.insert(pending.job_id, result);
+                    }
+                }
+            },
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementDecision::Save => {
+                let save_as = self.current_project_path.is_none();
+                self.replacement_after_save = Some(pending.clone());
+                let result = self.save_project_native(save_as, &CommandPayload::default());
+                if !matches!(result.completion, CommandCompletion::Pending { .. }) {
+                    self.replacement_after_save = None;
+                    self.pending_replacement = Some(pending);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn continue_document_replacement(&mut self, pending: PendingReplacement) {
+        match pending.target {
+            ReplacementTarget::NewDocument => {
+                let result = self.start_new_document();
+                self.job_results.insert(pending.job_id, result);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementTarget::OpenProject(path) => {
+                let result = self.start_project_load(path, Some(pending.job_id.clone()));
+                if result.completion == CommandCompletion::Failed {
+                    self.job_results.insert(pending.job_id, result);
+                }
+            }
+        }
+    }
+
+    fn start_new_document(&mut self) -> CommandResult {
+        if let Err(error) = self.commit_document_edit("New document", |document| {
+            *document = Document::new();
+            Ok(())
+        }) {
+            return CommandResult::failed(error);
+        }
+        self.selection.clear();
+        self.object_name_edit = None;
+        self.cuboid_first = None;
+        self.cuboid_base = None;
+        self.line_first = None;
+        self.rectangle_first = None;
+        self.status = "New empty document.".to_owned();
+        let mut result = CommandResult::completed();
+        result.document_revision = Some(self.document.revision());
+        result
+    }
+
+    fn show_document_replacement_dialog(&mut self, context: &egui::Context) {
+        let Some(pending) = self.pending_replacement.as_ref() else {
+            return;
+        };
+        let target_label = match &pending.target {
+            ReplacementTarget::NewDocument => "create a new document",
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementTarget::OpenProject(_) => "open another project",
+        };
+        let mut decision = None;
+        egui::Modal::new(egui::Id::unique("document-replacement-confirmation")).show(
+            context,
+            |ui| {
+                ui.set_min_width(360.0);
+                ui.heading("Unsaved changes");
+                ui.label(format!("Save changes before you {target_label}?"));
+                ui.horizontal(|ui| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if ui.button("Save").clicked() {
+                        decision = Some(ReplacementDecision::Save);
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    ui.add_enabled(false, egui::Button::new("Save"));
+                    if ui.button("Discard").clicked() {
+                        decision = Some(ReplacementDecision::Discard);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        decision = Some(ReplacementDecision::Cancel);
+                    }
+                });
+            },
+        );
+        if let Some(decision) = decision {
+            self.resolve_document_replacement(decision);
+        }
     }
 
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
@@ -2584,23 +2780,10 @@ impl MeshcraftApp {
             }
             ShellAction::Undo => self.undo_document(),
             ShellAction::Redo => self.redo_document(),
-            ShellAction::NewDocument => {
-                match self.commit_document_edit("New document", |document| {
-                    *document = Document::new();
-                    Ok(())
-                }) {
-                    Ok(()) => {
-                        self.selection.clear();
-                        self.object_name_edit = None;
-                        self.cuboid_first = None;
-                        self.cuboid_base = None;
-                        self.line_first = None;
-                        self.rectangle_first = None;
-                        self.status = "New empty document.".to_owned();
-                    }
-                    Err(error) => return CommandResult::failed(error),
-                }
+            ShellAction::NewDocument if self.document_is_dirty() => {
+                return self.request_document_replacement(ReplacementTarget::NewDocument);
             }
+            ShellAction::NewDocument => return self.start_new_document(),
             ShellAction::OpenProject => return self.open_project(payload),
             ShellAction::CancelProjectLoad => return self.cancel_project_load(),
             ShellAction::SaveProject => return self.save_project(false, payload),
@@ -2924,29 +3107,28 @@ impl MeshcraftApp {
             return CommandState::disabled("Open Project is available in the desktop app");
             #[cfg(not(target_arch = "wasm32"))]
             {
+                if self.pending_replacement.is_some() {
+                    return CommandState::disabled("a document replacement is awaiting a decision");
+                }
                 if self.pending_project_load.is_some() {
                     return CommandState::disabled("another project is still loading");
                 }
                 if self.pending_project_save.is_some() {
                     return CommandState::disabled("a project save is still running");
                 }
-                if self.document_is_dirty() {
-                    return CommandState::disabled(
-                        "save or discard the current document before opening another project",
-                    );
-                }
             }
         }
-        if id == "file.new" && self.document_is_dirty() {
-            return CommandState::disabled(
-                "save or open another project before starting a new document",
-            );
+        if id == "file.new" && self.pending_replacement.is_some() {
+            return CommandState::disabled("a document replacement is awaiting a decision");
         }
         if id == "file.save" {
             #[cfg(target_arch = "wasm32")]
             return CommandState::disabled("Saving project files is available in the desktop app");
             #[cfg(not(target_arch = "wasm32"))]
-            if self.pending_project_save.is_some() || self.pending_project_load.is_some() {
+            if self.pending_replacement.is_some()
+                || self.pending_project_save.is_some()
+                || self.pending_project_load.is_some()
+            {
                 return CommandState::disabled("another project operation is still running");
             }
         }
@@ -2954,7 +3136,10 @@ impl MeshcraftApp {
             #[cfg(target_arch = "wasm32")]
             return CommandState::disabled("Saving project files is available in the desktop app");
             #[cfg(not(target_arch = "wasm32"))]
-            if self.pending_project_save.is_some() || self.pending_project_load.is_some() {
+            if self.pending_replacement.is_some()
+                || self.pending_project_save.is_some()
+                || self.pending_project_load.is_some()
+            {
                 return CommandState::disabled("another project operation is still running");
             }
         }
@@ -4303,12 +4488,14 @@ impl MeshcraftApp {
         ui.ctx()
             .set_zoom_factor(self.preferences.ui_text_scale.clamp(0.5, 2.0));
         let open_project_shortcut = !self.command_palette_open
+            && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
         if open_project_shortcut {
             self.run_command("file.open");
         }
         let save_shortcut = !self.command_palette_open
+            && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| {
                 input.modifiers.ctrl && input.key_pressed(egui::Key::S) && !input.modifiers.shift
@@ -4317,6 +4504,7 @@ impl MeshcraftApp {
             self.run_command("file.save");
         }
         let save_as_shortcut = !self.command_palette_open
+            && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| {
                 input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::S)
@@ -4326,20 +4514,23 @@ impl MeshcraftApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         if !self.command_palette_open
+            && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Q))
         {
             self.run_command("app.quit");
         }
         let delete_shortcut = !self.command_palette_open
+            && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && ui.input(|input| input.key_pressed(egui::Key::Delete));
         if delete_shortcut {
             self.run_command("edit.delete_selection");
         }
-        let toggle_command_palette = ui.input(|input| {
-            input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
-        });
+        let toggle_command_palette = self.pending_replacement.is_none()
+            && ui.input(|input| {
+                input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
+            });
         if toggle_command_palette {
             self.command_palette_open = !self.command_palette_open;
             self.command_search.clear();
@@ -4443,6 +4634,7 @@ impl MeshcraftApp {
         });
 
         self.show_command_palette(ui.ctx());
+        self.show_document_replacement_dialog(ui.ctx());
     }
 }
 
@@ -4661,8 +4853,9 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, MeshcraftApp, OrthoView, Preferences, SelectionSession, TransactionHistory,
-        command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
+        CommandPayload, MeshcraftApp, OrthoView, Preferences, ReplacementDecision,
+        SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
+        shell_commands, tool_command_id,
     };
     use crate::viewport::Viewport;
     use base64::Engine as _;
@@ -4819,9 +5012,11 @@ mod tests {
             legacy_active_index: None,
             #[cfg(not(target_arch = "wasm32"))]
             current_project_path: None,
-            #[cfg(not(target_arch = "wasm32"))]
             next_job_id: 1,
             job_results: BTreeMap::new(),
+            pending_replacement: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            replacement_after_save: None,
             pending_project_load: None,
             pending_project_save: None,
             selection: SelectionSession::default(),
@@ -6117,7 +6312,7 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn open_project_is_disabled_when_changes_cannot_be_saved_yet() {
+    fn dirty_open_requests_a_decision_and_cancel_preserves_the_document() {
         let mut app = test_app();
         app.run_command("geometry.add_cuboid");
         let before = app.document.clone();
@@ -6127,12 +6322,128 @@ mod tests {
             project_fixture_path().display().to_string().into(),
         );
 
-        assert!(!app.query_command_state("file.open").enabled);
+        assert!(app.query_command_state("file.open").enabled);
         let result = app.dispatch_command("file.open", &payload);
 
-        assert!(!result.accepted);
+        assert!(result.accepted);
+        assert!(matches!(
+            &result.result.completion,
+            CommandCompletion::Pending { .. }
+        ));
+        assert!(app.pending_replacement.is_some());
         assert_eq!(before, app.document);
-        assert!(result.result.diagnostics[0].contains("save or discard"));
+
+        app.resolve_document_replacement(ReplacementDecision::Cancel);
+
+        assert!(app.pending_replacement.is_none());
+        assert_eq!(before, app.document);
+        assert_eq!("Document replacement cancelled.", app.status);
+        let job_id = match result.result.completion {
+            CommandCompletion::Pending { job_id, .. } => job_id,
+            _ => unreachable!(),
+        };
+        let completed = app.job_results.get(&job_id).unwrap();
+        assert_eq!(CommandCompletion::Completed, completed.completion);
+        assert_eq!(Some(&true.into()), completed.outputs.get("cancelled"));
+    }
+
+    #[test]
+    fn dirty_new_can_discard_and_replace_the_document() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let result = app.dispatch_command("file.new", &CommandPayload::default());
+
+        assert!(result.accepted);
+        assert_eq!(1, app.document.definitions().count());
+        app.resolve_document_replacement(ReplacementDecision::Discard);
+
+        assert!(app.pending_replacement.is_none());
+        assert_eq!(0, app.document.definitions().count());
+        assert_eq!("New empty document.", app.status);
+        let job_id = match result.result.completion {
+            CommandCompletion::Pending { job_id, .. } => job_id,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.job_results.get(&job_id).unwrap().completion
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn saving_before_new_continues_after_the_save_finishes() {
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-replace-save-{}-{}.octd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        app.current_project_path = Some(path.clone());
+        let replacement = app.dispatch_command("file.new", &CommandPayload::default());
+        let replacement_job = match &replacement.result.completion {
+            CommandCompletion::Pending { job_id } => job_id.clone(),
+            _ => panic!("dirty New should wait for a decision"),
+        };
+
+        app.resolve_document_replacement(ReplacementDecision::Save);
+        assert!(app.pending_project_save.is_some());
+        for _ in 0..100 {
+            app.poll_project_save();
+            if app.pending_project_save.is_none() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(app.pending_project_save.is_none());
+        assert!(app.document.definitions().next().is_none());
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.job_results.get(&replacement_job).unwrap().completion
+        );
+        let saved = read_project(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(1, saved.document.definitions().count());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn newer_edits_after_save_prompt_again_before_replacement() {
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-replace-newer-{}-{}.octd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        app.current_project_path = Some(path.clone());
+        app.dispatch_command("file.new", &CommandPayload::default());
+        app.resolve_document_replacement(ReplacementDecision::Save);
+        app.run_command("geometry.add_cuboid");
+
+        for _ in 0..100 {
+            app.poll_project_save();
+            if app.pending_project_save.is_none() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(app.pending_project_save.is_none());
+        assert!(app.document_is_dirty());
+        assert!(app.pending_replacement.is_some());
+        assert_eq!(2, app.document.definitions().count());
+        app.resolve_document_replacement(ReplacementDecision::Cancel);
+        assert_eq!(2, app.document.definitions().count());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
