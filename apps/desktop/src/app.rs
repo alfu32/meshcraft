@@ -15,18 +15,18 @@ use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use meshcraft_io::project::{DecodeProgress, read_project_with};
+use meshcraft_io::project::{DecodeProgress, read_project_with, write_project};
 use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
 use std::collections::BTreeSet;
 #[cfg(not(target_arch = "wasm32"))]
-use std::fs;
+use std::fs::{self, OpenOptions};
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::Read;
+use std::io::{Read, Write};
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -334,6 +334,8 @@ enum ShellAction {
     NewDocument,
     OpenProject,
     CancelProjectLoad,
+    SaveProject,
+    SaveProjectAs,
     SetProfile(UiProfile),
     FrameDocument,
     ResetCamera,
@@ -361,6 +363,15 @@ struct PendingProjectLoad {
     input_revision: u64,
     cancellation: Arc<AtomicBool>,
     receiver: Receiver<ProjectLoadEvent>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct PendingProjectSave {
+    job_id: String,
+    path: PathBuf,
+    input_revision: u64,
+    dropped_legacy_history: bool,
+    receiver: Receiver<Result<(), String>>,
 }
 
 fn shell_commands() -> &'static CommandRegistry<ShellAction> {
@@ -471,6 +482,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "cancel stop loading project",
                 None,
                 ShellAction::CancelProjectLoad,
+            ),
+            (
+                "file.save",
+                "File> Save",
+                "File",
+                "write save project octd k3d",
+                None,
+                ShellAction::SaveProject,
+            ),
+            (
+                "file.save_as",
+                "File> Save As…",
+                "File",
+                "write export project choose path",
+                None,
+                ShellAction::SaveProjectAs,
             ),
             (
                 "tool.line",
@@ -774,9 +801,11 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Undo
         | ShellAction::Redo
         | ShellAction::NewDocument => CommandKind::DocumentMutation,
-        ShellAction::OpenProject | ShellAction::CancelProjectLoad | ShellAction::Unsupported => {
-            CommandKind::HostRequest
-        }
+        ShellAction::OpenProject
+        | ShellAction::CancelProjectLoad
+        | ShellAction::SaveProject
+        | ShellAction::SaveProjectAs
+        | ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::SetProfile(_)
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
@@ -837,6 +866,9 @@ fn register_shell_command(
     if id == "file.open" {
         descriptor.shortcut = Some("Ctrl+O".to_owned());
     }
+    if id == "file.save" {
+        descriptor.shortcut = Some("Ctrl+S".to_owned());
+    }
     descriptor.capability = match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
@@ -852,6 +884,8 @@ fn register_shell_command(
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
+        | ShellAction::SaveProject
+        | ShellAction::SaveProjectAs
         | ShellAction::About => CommandCapability::Desktop,
         ShellAction::Unsupported => CommandCapability::Deferred,
         _ => CommandCapability::Core,
@@ -903,7 +937,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("toolbar_flow_top_down", CommandValueType::Boolean),
             ("toolbars_visible", CommandValueType::Boolean),
         ],
-        "file.open" => &[("path", CommandValueType::String)],
+        "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
         _ => &[],
     };
     parameters
@@ -967,6 +1001,7 @@ pub struct MeshcraftApp {
     focus_command_search: bool,
     panel_focus: Option<String>,
     document: Document,
+    saved_revision: u64,
     history: TransactionHistory<SystemHistoryClock>,
     legacy_history: Option<OpaqueLegacyHistory>,
     legacy_active_index: Option<usize>,
@@ -977,6 +1012,8 @@ pub struct MeshcraftApp {
     job_results: BTreeMap<String, CommandResult>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_project_load: Option<PendingProjectLoad>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_project_save: Option<PendingProjectSave>,
     selection: SelectionSession,
     object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
@@ -1011,6 +1048,10 @@ impl MeshcraftApp {
         {
             None
         }
+    }
+
+    fn document_is_dirty(&self) -> bool {
+        self.document.revision() != self.saved_revision
     }
 
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
@@ -1064,6 +1105,7 @@ impl MeshcraftApp {
         let legacy_active_index = legacy_history
             .as_ref()
             .and_then(OpaqueLegacyHistory::active_entry_index);
+        let saved_revision = document.revision();
 
         Self {
             preferences,
@@ -1080,6 +1122,7 @@ impl MeshcraftApp {
             focus_command_search: false,
             panel_focus: None,
             document,
+            saved_revision,
             history: TransactionHistory::default(),
             legacy_history,
             legacy_active_index,
@@ -1090,6 +1133,8 @@ impl MeshcraftApp {
             job_results: BTreeMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_project_load: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_project_save: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: {
@@ -1408,15 +1453,160 @@ impl MeshcraftApp {
         }
     }
 
+    fn save_project(&mut self, as_new_path: bool, payload: &CommandPayload) -> CommandResult {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (as_new_path, payload);
+            CommandResult::failed("Saving project files is available in the desktop app.")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.save_project_native(as_new_path, payload)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_project_native(
+        &mut self,
+        as_new_path: bool,
+        payload: &CommandPayload,
+    ) -> CommandResult {
+        if self.pending_project_save.is_some() || self.pending_project_load.is_some() {
+            return CommandResult::failed("Another project operation is already running.");
+        }
+        let explicit_path = payload.values.get("path").and_then(|value| value.as_str());
+        let path = if let Some(path) = explicit_path {
+            if path.trim().is_empty() {
+                return CommandResult::failed("path must be a non-empty string");
+            }
+            PathBuf::from(path)
+        } else if !as_new_path {
+            if let Some(path) = &self.current_project_path {
+                path.clone()
+            } else {
+                let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Octodraw projects", &["octd", "k3d"])
+                    .set_file_name("Untitled.octd")
+                    .save_file()
+                else {
+                    self.status = "Save cancelled.".to_owned();
+                    let mut result = CommandResult::completed();
+                    result.outputs.insert("cancelled".to_owned(), true.into());
+                    return result;
+                };
+                path
+            }
+        } else {
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("Octodraw projects", &["octd", "k3d"])
+                .set_file_name("Untitled.octd")
+                .save_file()
+            else {
+                self.status = "Save cancelled.".to_owned();
+                let mut result = CommandResult::completed();
+                result.outputs.insert("cancelled".to_owned(), true.into());
+                return result;
+            };
+            path
+        };
+        let path = normalize_project_path(path);
+        let job_id = format!("document-save-{}", self.next_job_id);
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        let input_revision = self.document.revision();
+        let document = self.document.clone();
+        let document_is_dirty = self.document_is_dirty();
+        let dropped_legacy_history = document_is_dirty && self.legacy_history.is_some();
+        let history = if document_is_dirty {
+            None
+        } else {
+            self.legacy_history.clone()
+        };
+        let worker_path = path.clone();
+        let (sender, receiver) = mpsc::channel();
+        let worker_name = job_id.clone();
+        let spawn_result = thread::Builder::new().name(worker_name).spawn(move || {
+            let result = write_project_file(&worker_path, &document, history.as_ref());
+            let _ = sender.send(result);
+        });
+        if let Err(error) = spawn_result {
+            return CommandResult::failed(format!("could not start project writer: {error}"));
+        }
+        self.status = format!("Saving {}…", path.display());
+        self.pending_project_save = Some(PendingProjectSave {
+            job_id: job_id.clone(),
+            path,
+            input_revision,
+            dropped_legacy_history,
+            receiver,
+        });
+        let result = CommandResult::pending(
+            job_id.clone(),
+            HostEffect::StartJob {
+                job_id: job_id.clone(),
+                kind: "document.save".to_owned(),
+                input_revision: Some(input_revision),
+            },
+        );
+        self.job_results.insert(job_id, result.clone());
+        result
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_project_save(&mut self) {
+        let Some(pending) = self.pending_project_save.take() else {
+            return;
+        };
+        match pending.receiver.try_recv() {
+            Ok(Ok(())) => {
+                self.saved_revision = pending.input_revision;
+                self.current_project_path = Some(pending.path.clone());
+                self.status = if self.document_is_dirty() {
+                    format!(
+                        "Saved {} at revision {}; newer edits remain unsaved.",
+                        pending.path.display(),
+                        pending.input_revision
+                    )
+                } else {
+                    format!("Saved {}.", pending.path.display())
+                };
+                if pending.dropped_legacy_history {
+                    self.status.push_str(
+                        " Imported undo snapshots were cleared because they no longer match the saved model.",
+                    );
+                }
+                self.job_results
+                    .insert(pending.job_id, CommandResult::completed());
+            }
+            Ok(Err(error)) => {
+                self.status = format!("Could not save {}: {error}", pending.path.display());
+                self.job_results
+                    .insert(pending.job_id, CommandResult::failed(error));
+            }
+            Err(TryRecvError::Empty) => {
+                self.status = format!("Saving {}…", pending.path.display());
+                self.pending_project_save = Some(pending);
+            }
+            Err(TryRecvError::Disconnected) => {
+                let error = "project writer stopped before returning a result".to_owned();
+                self.status = format!("Could not save {}: {error}", pending.path.display());
+                self.job_results
+                    .insert(pending.job_id, CommandResult::failed(error));
+            }
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn open_project_native(&mut self, payload: &CommandPayload) -> CommandResult {
         if self.pending_project_load.is_some() {
             return CommandResult::failed("A project is already being opened.");
         }
-        if self.history.cursor() > 0 {
+        if self.document_is_dirty() {
             return CommandResult::failed(
-                "Save support is not available yet; the edited document was kept open.",
+                "Save or discard the current document before opening another project.",
             );
+        }
+        if self.pending_project_save.is_some() {
+            return CommandResult::failed("Wait for the current project save to finish first.");
         }
 
         let path = match payload.values.get("path") {
@@ -1649,6 +1839,7 @@ impl MeshcraftApp {
         project: ImportedProject,
     ) -> CommandResult {
         self.document = project.document;
+        self.saved_revision = self.document.revision();
         self.history.clear();
         self.legacy_active_index = project
             .history
@@ -1843,6 +2034,8 @@ impl MeshcraftApp {
             }
             ShellAction::OpenProject => return self.open_project(payload),
             ShellAction::CancelProjectLoad => return self.cancel_project_load(),
+            ShellAction::SaveProject => return self.save_project(false, payload),
+            ShellAction::SaveProjectAs => return self.save_project(true, payload),
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
                 self.status = format!("{} workspace profile selected.", profile.label());
@@ -2016,11 +2209,35 @@ impl MeshcraftApp {
                 if self.pending_project_load.is_some() {
                     return CommandState::disabled("another project is still loading");
                 }
-                if self.history.cursor() > 0 {
+                if self.pending_project_save.is_some() {
+                    return CommandState::disabled("a project save is still running");
+                }
+                if self.document_is_dirty() {
                     return CommandState::disabled(
-                        "save support is not available for edited documents yet",
+                        "save or discard the current document before opening another project",
                     );
                 }
+            }
+        }
+        if id == "file.new" && self.document_is_dirty() {
+            return CommandState::disabled(
+                "save or open another project before starting a new document",
+            );
+        }
+        if id == "file.save" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Saving project files is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_project_save.is_some() || self.pending_project_load.is_some() {
+                return CommandState::disabled("another project operation is still running");
+            }
+        }
+        if id == "file.save_as" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Saving project files is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_project_save.is_some() || self.pending_project_load.is_some() {
+                return CommandState::disabled("another project operation is still running");
             }
         }
         if id == "file.cancel_open" {
@@ -2541,8 +2758,8 @@ impl MeshcraftApp {
                 ui.separator();
                 self.show_command_menu_item(ui, "file.open");
                 self.show_command_menu_item(ui, "file.cancel_open");
-                ui.add_enabled(false, egui::Button::new("Save"));
-                ui.add_enabled(false, egui::Button::new("Save As…"));
+                self.show_command_menu_item(ui, "file.save");
+                self.show_command_menu_item(ui, "file.save_as");
                 ui.separator();
                 ui.add_enabled(false, egui::Button::new("Import Geometry…"));
                 ui.add_enabled(false, egui::Button::new("Export Geometry…"));
@@ -3162,7 +3379,8 @@ impl MeshcraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.poll_project_load();
-            if self.pending_project_load.is_some() {
+            self.poll_project_save();
+            if self.pending_project_load.is_some() || self.pending_project_save.is_some() {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             }
         }
@@ -3173,6 +3391,22 @@ impl MeshcraftApp {
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
         if open_project_shortcut {
             self.run_command("file.open");
+        }
+        let save_shortcut = !self.command_palette_open
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| {
+                input.modifiers.ctrl && input.key_pressed(egui::Key::S) && !input.modifiers.shift
+            });
+        if save_shortcut {
+            self.run_command("file.save");
+        }
+        let save_as_shortcut = !self.command_palette_open
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|input| {
+                input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::S)
+            });
+        if save_as_shortcut {
+            self.run_command("file.save_as");
         }
         let toggle_command_palette = ui.input(|input| {
             input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
@@ -3281,6 +3515,85 @@ impl MeshcraftApp {
 
         self.show_command_palette(ui.ctx());
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn normalize_project_path(mut path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.set_extension("octd");
+    }
+    path
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_project_file(
+    path: &Path,
+    document: &Document,
+    history: Option<&OpaqueLegacyHistory>,
+) -> Result<(), String> {
+    let bytes = write_project(document, history).map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_PROJECT_BYTES {
+        return Err(format!(
+            "encoded project exceeds the {} MiB limit",
+            MAX_PROJECT_BYTES / (1024 * 1024)
+        ));
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "project path has no valid file name".to_owned())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let mut temporary_path = None;
+    let mut temporary_file = None;
+    for attempt in 0..32 {
+        let candidate = parent.join(format!(
+            ".{file_name}.meshcraft-{}-{nonce}-{attempt}.tmp",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                temporary_path = Some(candidate);
+                temporary_file = Some(file);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "could not create a temporary project file: {error}"
+                ));
+            }
+        }
+    }
+    let Some(temporary_path) = temporary_path else {
+        return Err("could not reserve a temporary project file".to_owned());
+    };
+    let mut temporary_file = temporary_file.expect("temporary path and file are created together");
+    let write_result = temporary_file
+        .write_all(&bytes)
+        .and_then(|()| temporary_file.sync_all());
+    drop(temporary_file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!("could not write temporary project file: {error}"));
+    }
+    if let Err(error) = fs::rename(&temporary_path, path) {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!("could not replace {}: {error}", path.display()));
+    }
+    if let Ok(directory) = fs::File::open(parent) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3485,6 +3798,21 @@ mod tests {
         panic!("project loading did not finish");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_for_project_save(app: &mut MeshcraftApp, job_id: &str) {
+        for _ in 0..2500 {
+            app.poll_project_save();
+            let finished = app.command_job_result(job_id).is_some_and(|result| {
+                !matches!(result.completion, CommandCompletion::Pending { .. })
+            });
+            if finished {
+                return;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        panic!("project saving did not finish");
+    }
+
     fn encode_history_snapshot(root_only: bool) -> String {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder
@@ -3525,6 +3853,7 @@ mod tests {
         let active_index = legacy_history.active_entry_index();
         let mut app = test_app();
         app.document = current_project.document;
+        app.saved_revision = app.document.revision();
         app.legacy_active_index = active_index;
         app.legacy_history = Some(legacy_history);
         app
@@ -3546,6 +3875,7 @@ mod tests {
             focus_command_search: false,
             panel_focus: None,
             document: Document::new(),
+            saved_revision: 0,
             history: TransactionHistory::default(),
             legacy_history: None,
             legacy_active_index: None,
@@ -3555,6 +3885,7 @@ mod tests {
             next_job_id: 1,
             job_results: BTreeMap::new(),
             pending_project_load: None,
+            pending_project_save: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: Default::default(),
@@ -3615,7 +3946,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(179, entries.len());
+        assert_eq!(181, entries.len());
         assert_eq!(
             74,
             entries
@@ -4229,6 +4560,16 @@ mod tests {
         assert_eq!(CommandValueType::String, command.parameters[0].value_type);
         assert!(!command.parameters[0].required);
         assert!(command_matches(&command, "open project"));
+
+        for id in ["file.save", "file.save_as"] {
+            let save = MeshcraftApp::command_catalog()
+                .into_iter()
+                .find(|command| command.id.as_str() == id)
+                .unwrap();
+            assert_eq!(CommandKind::HostRequest, save.kind);
+            assert_eq!(CommandCapability::Desktop, save.capability);
+            assert_eq!("path", save.parameters[0].name);
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -4248,7 +4589,105 @@ mod tests {
 
         assert!(!result.accepted);
         assert_eq!(before, app.document);
-        assert!(result.result.diagnostics[0].contains("save support"));
+        assert!(result.result.diagnostics[0].contains("save or discard"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn save_and_save_as_write_legacy_projects_and_track_the_saved_revision() {
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-save-{}-{}.octd",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        assert!(app.document_is_dirty());
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("path".to_owned(), path.display().to_string().into());
+        let dispatch = app.dispatch_command("file.save_as", &payload);
+        assert!(dispatch.accepted);
+        let CommandCompletion::Pending { job_id } = dispatch.result.completion else {
+            panic!("Save As did not start a save job");
+        };
+        wait_for_project_save(&mut app, &job_id);
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        assert!(!app.document_is_dirty());
+        assert_eq!(Some(path.display().to_string()), app.current_project_path());
+        let reopened = read_project(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(1, reopened.document.occurrence_refs().unwrap().len());
+        assert!(reopened.history.is_none());
+
+        app.legacy_history = Some(OpaqueLegacyHistory {
+            max_entries: 4,
+            index: 0,
+            entries: vec![OpaqueLegacyUndoEntry {
+                data: "stale-snapshot".to_owned(),
+                label: Some("Old state".to_owned()),
+                timestamp_millis: 1,
+                diagnostic: None,
+                extensions: BTreeMap::new(),
+            }],
+            extensions: BTreeMap::new(),
+        });
+        let mut settings_payload = CommandPayload::default();
+        settings_payload
+            .values
+            .insert("grid_size".to_owned(), json!(2.0));
+        assert!(
+            app.dispatch_command("model.update_settings", &settings_payload)
+                .accepted
+        );
+        let dirty_revision = app.document.revision();
+        assert!(app.document_is_dirty());
+        let dispatch = app.dispatch_command("file.save", &CommandPayload::default());
+        assert!(dispatch.accepted);
+        let CommandCompletion::Pending { job_id } = dispatch.result.completion else {
+            panic!("Save did not start a save job");
+        };
+        wait_for_project_save(&mut app, &job_id);
+        assert_eq!(dirty_revision, app.saved_revision);
+        assert!(!app.document_is_dirty());
+        let reopened = read_project(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(1, reopened.document.occurrence_refs().unwrap().len());
+        assert_eq!(2.0, reopened.document.model_settings().grid_size);
+        assert!(reopened.history.is_none());
+        assert!(app.status.contains("Imported undo snapshots were cleared"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn failed_project_save_keeps_the_document_dirty_and_does_not_set_its_path() {
+        let path = std::env::temp_dir()
+            .join(format!("meshcraft-missing-parent-{}", std::process::id()))
+            .join("project.octd");
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("path".to_owned(), path.display().to_string().into());
+        let dispatch = app.dispatch_command("file.save_as", &payload);
+        let CommandCompletion::Pending { job_id } = dispatch.result.completion else {
+            panic!("Save As did not start a save job");
+        };
+        wait_for_project_save(&mut app, &job_id);
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        assert!(app.document_is_dirty());
+        assert_eq!(None, app.current_project_path());
+        assert!(app.status.contains("Could not save"));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -4286,6 +4725,7 @@ mod tests {
         let mut app = test_app();
         app.run_command("geometry.add_cuboid");
         app.history.clear();
+        app.saved_revision = app.document.revision();
         let before = app.document.clone();
 
         let job_id = start_project_load(&mut app, &path);
