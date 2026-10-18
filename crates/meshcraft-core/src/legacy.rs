@@ -213,11 +213,18 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
-        if let Some(frames) = object.get("architectureFrames") {
-            definition.extensions.insert(
-                "k3d.architectureFrames".to_owned(),
-                normalize_sparse_architecture_frames(frames),
-            );
+        for field in [
+            "architectureWalls",
+            "architectureSlabs",
+            "architectureStairs",
+            "architectureFrames",
+        ] {
+            if let Some(value) = object.get(field) {
+                definition.extensions.insert(
+                    format!("k3d.{field}"),
+                    normalize_sparse_architecture_dtos(field, value),
+                );
+            }
         }
         if let Some(vertices) = object.get("prototypeVertices") {
             definition
@@ -1120,34 +1127,101 @@ fn preserve_unknown_fields(
     }
 }
 
-fn normalize_sparse_architecture_frames(value: &Value) -> Value {
-    let Some(frames) = value.as_array() else {
+fn normalize_sparse_architecture_dtos(field: &str, value: &Value) -> Value {
+    let defaults = match field {
+        "architectureWalls" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "start": {"x": 0, "y": 0, "z": 0},
+            "end": {"x": 0, "y": 0, "z": 0},
+            "thickness": 0.2,
+            "height": 2.7,
+            "inclinationDeg": 0,
+            "exteriorColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+            "interiorColor": {"r": 0.84, "g": 0.84, "b": 0.84, "a": 1},
+            "holes": []
+        }),
+        "architectureSlabs" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "min": {"x": 0, "y": 0, "z": 0},
+            "max": {"x": 0, "y": 0, "z": 0},
+            "axisU": {"x": 1, "y": 0, "z": 0},
+            "axisV": {"x": 0, "y": 0, "z": 1},
+            "normal": {"x": 0, "y": 1, "z": 0},
+            "thickness": 0.2,
+            "topColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+            "bottomColor": {"r": 0.84, "g": 0.84, "b": 0.84, "a": 1},
+            "sideColor": {"r": 0.88, "g": 0.88, "b": 0.88, "a": 1},
+            "holes": []
+        }),
+        "architectureStairs" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "min": {"x": 0, "y": 0, "z": 0},
+            "max": {"x": 0, "y": 0, "z": 0},
+            "contour": [],
+            "walkingPath": [],
+            "walkingStart": {"x": 0, "y": 0, "z": 0},
+            "walkingEnd": {"x": 0, "y": 0, "z": 0},
+            "height": 2.7,
+            "stepCount": 14,
+            "supportThickness": 0.2,
+            "railLeft": true,
+            "railRight": true,
+            "treadColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+            "supportColor": {"r": 0.82, "g": 0.82, "b": 0.82, "a": 1}
+        }),
+        "architectureFrames" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "cornerA": {"x": 0, "y": 0, "z": 0},
+            "cornerB": {"x": 0, "y": 0, "z": 0},
+            "contour": [],
+            "normal": {"x": 0, "y": 1, "z": 0},
+            "depth": 0.12,
+            "frameWidth": 0.06,
+            "kind": "WINDOW",
+            "color": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1},
+            "glazingEnabled": false,
+            "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
+        }),
+        _ => return value.clone(),
+    };
+    let mut dtos = normalize_sparse_dto_array(value, &defaults);
+    if matches!(field, "architectureWalls" | "architectureSlabs")
+        && let Some(dtos) = dtos.as_array_mut()
+    {
+        let hole_defaults = serde_json::json!({
+            "id": "",
+            "name": "",
+            "u0": 0,
+            "u1": 0,
+            "v0": 0,
+            "v1": 0
+        });
+        for dto in dtos {
+            if let Some(holes) = dto.as_object_mut().and_then(|dto| dto.get_mut("holes")) {
+                *holes = normalize_sparse_dto_array(holes, &hole_defaults);
+            }
+        }
+    }
+    dtos
+}
+
+fn normalize_sparse_dto_array(value: &Value, defaults: &Value) -> Value {
+    let Some(dtos) = value.as_array() else {
         return value.clone();
     };
 
     Value::Array(
-        frames
-            .iter()
+        dtos.iter()
             .map(|frame| {
                 let Some(frame) = frame.as_object() else {
                     return frame.clone();
                 };
                 let mut frame = frame.clone();
-                let defaults = serde_json::json!({
-                    "id": "",
-                    "name": "",
-                    "cornerA": {"x": 0, "y": 0, "z": 0},
-                    "cornerB": {"x": 0, "y": 0, "z": 0},
-                    "contour": [],
-                    "normal": {"x": 0, "y": 1, "z": 0},
-                    "depth": 0.12,
-                    "frameWidth": 0.06,
-                    "kind": "WINDOW",
-                    "color": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1},
-                    "glazingEnabled": false,
-                    "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
-                });
-                for (field, default) in defaults.as_object().expect("object defaults") {
+                for (field, default) in defaults.as_object().expect("DTO defaults") {
                     frame
                         .entry(field.clone())
                         .or_insert_with(|| default.clone());
@@ -1934,27 +2008,30 @@ mod tests {
     }
 
     #[test]
-    fn sparse_architecture_frame_dtos_receive_legacy_defaults() {
+    fn sparse_architecture_dtos_receive_legacy_defaults() {
         let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
         source["prototypes"][0]["architectureFrames"] = serde_json::json!([
             {"id": "sparse-frame", "vendorData": {"kept": true}},
             {"id": "explicit-frame", "depth": 0.75, "glazingEnabled": true}
         ]);
+        source["prototypes"][0]["architectureWalls"] =
+            serde_json::json!([{"id": "wall", "holes": [{"id": "hole"}]}]);
+        source["prototypes"][0]["architectureSlabs"] = serde_json::json!([{"id": "slab"}]);
+        source["prototypes"][0]["architectureStairs"] = serde_json::json!([{"id": "stair"}]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
-        let frames = exported["prototypes"]
+        let prototype = exported["prototypes"]
             .as_array()
             .unwrap()
             .iter()
-            .find_map(|prototype| {
-                let frames = prototype["architectureFrames"].as_array()?;
-                frames
-                    .iter()
-                    .any(|frame| frame["id"] == "sparse-frame")
-                    .then_some(frames)
+            .find(|prototype| {
+                prototype["architectureFrames"]
+                    .as_array()
+                    .is_some_and(|frames| frames.iter().any(|frame| frame["id"] == "sparse-frame"))
             })
             .unwrap();
+        let frames = prototype["architectureFrames"].as_array().unwrap();
 
         assert_eq!(
             serde_json::json!({
@@ -1976,6 +2053,25 @@ mod tests {
         );
         assert_eq!(0.75, frames[1]["depth"]);
         assert_eq!(true, frames[1]["glazingEnabled"]);
+
+        let wall = &prototype["architectureWalls"][0];
+        assert_eq!(0.2, wall["thickness"]);
+        assert_eq!(2.7, wall["height"]);
+        assert_eq!(0, wall["holes"][0]["u0"]);
+        assert_eq!("", wall["holes"][0]["name"]);
+
+        let slab = &prototype["architectureSlabs"][0];
+        assert_eq!(0.2, slab["thickness"]);
+        assert_eq!(1, slab["axisU"]["x"]);
+        assert_eq!(1, slab["axisV"]["z"]);
+        assert_eq!(0.93, slab["topColor"]["r"]);
+
+        let stair = &prototype["architectureStairs"][0];
+        assert_eq!(2.7, stair["height"]);
+        assert_eq!(14, stair["stepCount"]);
+        assert_eq!(0.2, stair["supportThickness"]);
+        assert_eq!(true, stair["railLeft"]);
+        assert_eq!(true, stair["railRight"]);
     }
 
     #[test]
@@ -1992,9 +2088,50 @@ mod tests {
         let expected = serde_json::json!({
             "voxelColor": {"r": 0.2, "g": 0.4, "b": 0.6, "a": 1.0},
             "voxels": [{"position": {"x": 1, "y": 2, "z": 3}, "futureVoxel": true}],
-            "architectureWalls": [{"id": "wall-1", "thickness": 0.2, "futureWall": "stone"}],
-            "architectureSlabs": [{"id": "slab-1", "thickness": 0.3}],
-            "architectureStairs": [{"id": "stair-1", "steps": 14}],
+            "architectureWalls": [{
+                "id": "wall-1",
+                "name": "",
+                "start": {"x": 0, "y": 0, "z": 0},
+                "end": {"x": 0, "y": 0, "z": 0},
+                "thickness": 0.2,
+                "height": 2.7,
+                "inclinationDeg": 0,
+                "exteriorColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+                "interiorColor": {"r": 0.84, "g": 0.84, "b": 0.84, "a": 1},
+                "holes": [],
+                "futureWall": "stone"
+            }],
+            "architectureSlabs": [{
+                "id": "slab-1",
+                "name": "",
+                "min": {"x": 0, "y": 0, "z": 0},
+                "max": {"x": 0, "y": 0, "z": 0},
+                "axisU": {"x": 1, "y": 0, "z": 0},
+                "axisV": {"x": 0, "y": 0, "z": 1},
+                "normal": {"x": 0, "y": 1, "z": 0},
+                "thickness": 0.3,
+                "topColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+                "bottomColor": {"r": 0.84, "g": 0.84, "b": 0.84, "a": 1},
+                "sideColor": {"r": 0.88, "g": 0.88, "b": 0.88, "a": 1},
+                "holes": []
+            }],
+            "architectureStairs": [{
+                "id": "stair-1",
+                "name": "",
+                "min": {"x": 0, "y": 0, "z": 0},
+                "max": {"x": 0, "y": 0, "z": 0},
+                "contour": [],
+                "walkingPath": [],
+                "walkingStart": {"x": 0, "y": 0, "z": 0},
+                "walkingEnd": {"x": 0, "y": 0, "z": 0},
+                "height": 2.7,
+                "stepCount": 14,
+                "supportThickness": 0.2,
+                "railLeft": true,
+                "railRight": true,
+                "treadColor": {"r": 0.93, "g": 0.93, "b": 0.93, "a": 1},
+                "supportColor": {"r": 0.82, "g": 0.82, "b": 0.82, "a": 1}
+            }],
             "architectureFrames": [{
                 "id": "frame-1",
                 "name": "",
