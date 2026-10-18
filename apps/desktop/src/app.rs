@@ -3469,6 +3469,46 @@ impl MeshcraftApp {
         position: egui::Pos2,
         snap: Option<SnapResult>,
     ) {
+        let construction_point = snap
+            .map(|snap| snap.point)
+            .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+        self.handle_viewport_click_at_point(rect, position, snap, construction_point);
+    }
+
+    /// Routes a world-space construction point through the active tool's shared click path.
+    pub fn handle_world_pointer_request(
+        &mut self,
+        rect: egui::Rect,
+        point: Vec3,
+        pixels_per_point: f32,
+    ) {
+        if !point.is_finite() || !pixels_per_point.is_finite() || pixels_per_point <= 0.0 {
+            self.status =
+                "World pointer needs finite coordinates and a valid device scale.".to_owned();
+            return;
+        }
+        let position = self.viewport.world_to_screen(rect, point);
+        if !rect.contains(position)
+            || self
+                .viewport
+                .screen_to_construction_plane(rect, position)
+                .is_none_or(|mapped| mapped.distance(point) > 1.0e-4)
+        {
+            self.status = "World pointer point is outside the active construction view.".to_owned();
+            return;
+        }
+        let snap = self.snap_at_viewport_position(rect, position, pixels_per_point);
+        let construction_point = snap.map_or(point, |snap| snap.point);
+        self.handle_viewport_click_at_point(rect, position, snap, Some(construction_point));
+    }
+
+    fn handle_viewport_click_at_point(
+        &mut self,
+        rect: egui::Rect,
+        position: egui::Pos2,
+        snap: Option<SnapResult>,
+        construction_point: Option<Vec3>,
+    ) {
         if self.active_tool == "Remove Guide" {
             let guides = if self.preferences.show_construction_guides {
                 self.guides.as_slice()
@@ -3492,11 +3532,8 @@ impl MeshcraftApp {
             return;
         }
         if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
-            let point = snap.map(|snap| (snap.point, snap.normal)).or_else(|| {
-                self.viewport
-                    .screen_to_construction_plane(rect, position)
-                    .map(|point| (point, Vec3::Y))
-            });
+            let point =
+                construction_point.map(|point| (point, snap.map_or(Vec3::Y, |snap| snap.normal)));
             let Some((point, normal)) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
@@ -3520,9 +3557,7 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Line" {
-            let point = snap
-                .map(|snap| snap.point)
-                .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+            let point = construction_point;
             let Some(point) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
@@ -3556,9 +3591,7 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Rectangle" {
-            let point = snap
-                .map(|snap| snap.point)
-                .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+            let point = construction_point;
             let Some(point) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
@@ -4135,39 +4168,9 @@ impl MeshcraftApp {
             .ctx()
             .pointer_interact_pos()
             .filter(|position| predicted_rect.contains(*position));
-        let snap_radius_points = (self.document.model_settings().snap_radius
-            / f64::from(ui.ctx().pixels_per_point())) as f32;
-        let snap_scope = match &self.selection.context {
-            EditContext::Document => SnapScope::Document,
-            EditContext::Definition(definition) => SnapScope::Definition(*definition),
-            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
-        };
-        let snap = if matches!(
-            self.active_tool.as_str(),
-            "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
-        ) {
-            let visible_guides = if self.preferences.show_construction_guides {
-                self.guides.as_slice()
-            } else {
-                &[]
-            };
-            pointer.and_then(|position| {
-                self.viewport.snap_point_with_options(
-                    predicted_rect,
-                    &self.document,
-                    position,
-                    SnapOptions {
-                        snap_radius: snap_radius_points,
-                        grid_spacing: self.document.model_settings().grid_size,
-                        guides: visible_guides,
-                        scope: snap_scope,
-                        visibility: SnapVisibility::default(),
-                    },
-                )
-            })
-        } else {
-            None
-        };
+        let snap = pointer.and_then(|position| {
+            self.snap_at_viewport_position(predicted_rect, position, ui.ctx().pixels_per_point())
+        });
         let visible_guides = if self.preferences.show_construction_guides {
             self.guides.as_slice()
         } else {
@@ -4213,6 +4216,45 @@ impl MeshcraftApp {
         if let Some(position) = input.click {
             self.handle_viewport_click(input.rect, position, snap);
         }
+    }
+
+    fn snap_at_viewport_position(
+        &mut self,
+        rect: egui::Rect,
+        position: egui::Pos2,
+        pixels_per_point: f32,
+    ) -> Option<SnapResult> {
+        if !matches!(
+            self.active_tool.as_str(),
+            "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
+        ) || !pixels_per_point.is_finite()
+            || pixels_per_point <= 0.0
+        {
+            return None;
+        }
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
+        let visible_guides = if self.preferences.show_construction_guides {
+            self.guides.as_slice()
+        } else {
+            &[]
+        };
+        self.viewport.snap_point_with_options(
+            rect,
+            &self.document,
+            position,
+            SnapOptions {
+                snap_radius: (self.document.model_settings().snap_radius
+                    / f64::from(pixels_per_point)) as f32,
+                grid_spacing: self.document.model_settings().grid_size,
+                guides: visible_guides,
+                scope,
+                visibility: SnapVisibility::default(),
+            },
+        )
     }
 
     fn show_panel_header(&mut self, ui: &mut egui::Ui, id: &str, title: &str) -> bool {
@@ -4769,25 +4811,24 @@ impl MeshcraftApp {
         }
         ui.ctx()
             .set_zoom_factor(self.preferences.ui_text_scale.clamp(0.5, 2.0));
-        let open_project_shortcut = !self.command_palette_open
+        let popup_open = egui::Popup::is_any_open(ui.ctx());
+        let shortcuts_allowed = !self.command_palette_open
             && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
+            && !popup_open;
+        let open_project_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
         if open_project_shortcut {
             self.run_command("file.open");
         }
-        let save_shortcut = !self.command_palette_open
-            && self.pending_replacement.is_none()
-            && !ui.ctx().egui_wants_keyboard_input()
+        let save_shortcut = shortcuts_allowed
             && ui.input(|input| {
                 input.modifiers.ctrl && input.key_pressed(egui::Key::S) && !input.modifiers.shift
             });
         if save_shortcut {
             self.run_command("file.save");
         }
-        let save_as_shortcut = !self.command_palette_open
-            && self.pending_replacement.is_none()
-            && !ui.ctx().egui_wants_keyboard_input()
+        let save_as_shortcut = shortcuts_allowed
             && ui.input(|input| {
                 input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::S)
             });
@@ -4795,21 +4836,18 @@ impl MeshcraftApp {
             self.run_command("file.save_as");
         }
         #[cfg(not(target_arch = "wasm32"))]
-        if !self.command_palette_open
-            && self.pending_replacement.is_none()
-            && !ui.ctx().egui_wants_keyboard_input()
+        if shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Q))
         {
             self.run_command("app.quit");
         }
-        let delete_shortcut = !self.command_palette_open
-            && self.pending_replacement.is_none()
-            && !ui.ctx().egui_wants_keyboard_input()
-            && ui.input(|input| input.key_pressed(egui::Key::Delete));
+        let delete_shortcut =
+            shortcuts_allowed && ui.input(|input| input.key_pressed(egui::Key::Delete));
         if delete_shortcut {
             self.run_command("edit.delete_selection");
         }
-        let toggle_command_palette = self.pending_replacement.is_none()
+        let toggle_command_palette = !popup_open
+            && self.pending_replacement.is_none()
             && ui.input(|input| {
                 input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::P)
             });
@@ -4838,7 +4876,7 @@ impl MeshcraftApp {
                     self.command_palette_open = false;
                 }
             }
-        } else if !ui.ctx().egui_wants_keyboard_input()
+        } else if shortcuts_allowed
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -4848,7 +4886,7 @@ impl MeshcraftApp {
             })
         {
             self.run_command("view.grid_guide");
-        } else if !ui.ctx().egui_wants_keyboard_input()
+        } else if shortcuts_allowed
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -4858,7 +4896,8 @@ impl MeshcraftApp {
             })
         {
             self.run_command("view.axis_guide");
-        } else if ui.input(|input| input.key_pressed(egui::Key::Escape))
+        } else if shortcuts_allowed
+            && ui.input(|input| input.key_pressed(egui::Key::Escape))
             && self.active_tool != "Select"
         {
             self.cancel_active_tool();
@@ -5388,6 +5427,66 @@ mod tests {
     }
 
     #[test]
+    fn world_pointer_request_matches_equivalent_gui_line_hits() {
+        let start = Vec3::new(2.0, 0.0, 0.0);
+        let end = Vec3::new(4.0, 0.0, 2.0);
+
+        let mut gui_app = test_app();
+        gui_app.active_tool = "Line".to_owned();
+        let gui_context = egui::Context::default();
+        run_workspace_frame(&mut gui_app, &gui_context, Vec::new());
+        let gui_rect = gui_app.viewport_rect;
+        let start_screen = gui_app.viewport.world_to_screen(gui_rect, start);
+        let end_screen = gui_app.viewport.world_to_screen(gui_rect, end);
+        assert!(gui_rect.contains(start_screen) && gui_rect.contains(end_screen));
+        click_workspace_position(&mut gui_app, &gui_context, start_screen);
+        click_workspace_position(&mut gui_app, &gui_context, end_screen);
+
+        let mut request_app = test_app();
+        request_app.active_tool = "Line".to_owned();
+        run_workspace_frame(&mut request_app, &egui::Context::default(), Vec::new());
+        let request_rect = request_app.viewport_rect;
+        request_app.handle_world_pointer_request(request_rect, start, 1.0);
+        request_app.handle_world_pointer_request(request_rect, end, 1.0);
+
+        assert_eq!("Select", gui_app.active_tool);
+        assert_eq!("Select", request_app.active_tool);
+        let gui_line = gui_app
+            .document
+            .effective_geometry(&gui_app.selected_occurrences()[0])
+            .unwrap();
+        let requested_line = request_app
+            .document
+            .effective_geometry(&request_app.selected_occurrences()[0])
+            .unwrap();
+        let mut gui_points = gui_line
+            .vertices
+            .values()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        let mut requested_points = requested_line
+            .vertices
+            .values()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        gui_points.sort_by(|left, right| left.x.total_cmp(&right.x));
+        requested_points.sort_by(|left, right| left.x.total_cmp(&right.x));
+        assert_eq!(2, gui_points.len());
+        assert!(
+            gui_points
+                .iter()
+                .zip(&requested_points)
+                .all(|(gui, requested)| gui.distance(*requested) < 1.0e-5)
+        );
+        assert!(
+            requested_points
+                .iter()
+                .zip([start, end])
+                .all(|(requested, expected)| requested.distance(expected) < 1.0e-5)
+        );
+    }
+
+    #[test]
     fn open_menu_captures_wheel_and_clicks_from_an_overlapping_viewport_tool() {
         let mut app = test_app();
         app.active_tool = "Line".to_owned();
@@ -5423,6 +5522,34 @@ mod tests {
 
         click_workspace_position(&mut app, &context, quit_item);
         assert!(app.quit_requested);
+        assert_eq!(None, app.line_first);
+        assert_eq!(revision, app.document.revision());
+    }
+
+    #[test]
+    fn open_menu_escape_does_not_cancel_the_active_viewport_tool() {
+        let mut app = test_app();
+        app.active_tool = "Line".to_owned();
+        let context = egui::Context::default();
+        let menu_bar = run_workspace_frame(&mut app, &context, Vec::new());
+        let file_menu = text_center_in_row(&menu_bar, "File", 48.0);
+        click_workspace_position(&mut app, &context, file_menu);
+        assert!(egui::Popup::is_any_open(&context));
+
+        let revision = app.document.revision();
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+
+        assert_eq!("Line", app.active_tool);
         assert_eq!(None, app.line_first);
         assert_eq!(revision, app.document.revision());
     }
