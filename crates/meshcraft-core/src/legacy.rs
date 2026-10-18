@@ -213,6 +213,12 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
+        if let Some(frames) = object.get("architectureFrames") {
+            definition.extensions.insert(
+                "k3d.architectureFrames".to_owned(),
+                normalize_sparse_architecture_frames(frames),
+            );
+        }
         if let Some(vertices) = object.get("prototypeVertices") {
             definition
                 .extensions
@@ -1114,6 +1120,44 @@ fn preserve_unknown_fields(
     }
 }
 
+fn normalize_sparse_architecture_frames(value: &Value) -> Value {
+    let Some(frames) = value.as_array() else {
+        return value.clone();
+    };
+
+    Value::Array(
+        frames
+            .iter()
+            .map(|frame| {
+                let Some(frame) = frame.as_object() else {
+                    return frame.clone();
+                };
+                let mut frame = frame.clone();
+                let defaults = serde_json::json!({
+                    "id": "",
+                    "name": "",
+                    "cornerA": {"x": 0, "y": 0, "z": 0},
+                    "cornerB": {"x": 0, "y": 0, "z": 0},
+                    "contour": [],
+                    "normal": {"x": 0, "y": 1, "z": 0},
+                    "depth": 0.12,
+                    "frameWidth": 0.06,
+                    "kind": "WINDOW",
+                    "color": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1},
+                    "glazingEnabled": false,
+                    "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
+                });
+                for (field, default) in defaults.as_object().expect("object defaults") {
+                    frame
+                        .entry(field.clone())
+                        .or_insert_with(|| default.clone());
+                }
+                Value::Object(frame)
+            })
+            .collect(),
+    )
+}
+
 fn parse_definition_kind(object: &Map<String, Value>, path: &str) -> ImportResult<DefinitionKind> {
     let kind = read_string(object, "kind", path)?.unwrap_or_else(|| "MESH".to_owned());
     Ok(match kind.to_ascii_uppercase().as_str() {
@@ -1890,6 +1934,51 @@ mod tests {
     }
 
     #[test]
+    fn sparse_architecture_frame_dtos_receive_legacy_defaults() {
+        let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+        source["prototypes"][0]["architectureFrames"] = serde_json::json!([
+            {"id": "sparse-frame", "vendorData": {"kept": true}},
+            {"id": "explicit-frame", "depth": 0.75, "glazingEnabled": true}
+        ]);
+
+        let imported = import_current_value(&source).unwrap();
+        let exported = export_current_value(&imported).unwrap();
+        let frames = exported["prototypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|prototype| {
+                let frames = prototype["architectureFrames"].as_array()?;
+                frames
+                    .iter()
+                    .any(|frame| frame["id"] == "sparse-frame")
+                    .then_some(frames)
+            })
+            .unwrap();
+
+        assert_eq!(
+            serde_json::json!({
+                "id": "sparse-frame",
+                "name": "",
+                "cornerA": {"x": 0, "y": 0, "z": 0},
+                "cornerB": {"x": 0, "y": 0, "z": 0},
+                "contour": [],
+                "normal": {"x": 0, "y": 1, "z": 0},
+                "depth": 0.12,
+                "frameWidth": 0.06,
+                "kind": "WINDOW",
+                "color": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1},
+                "glazingEnabled": false,
+                "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4},
+                "vendorData": {"kept": true}
+            }),
+            frames[0]
+        );
+        assert_eq!(0.75, frames[1]["depth"]);
+        assert_eq!(true, frames[1]["glazingEnabled"]);
+    }
+
+    #[test]
     fn exports_typed_domain_components_through_schema17_fields() {
         let mut document = Document::new();
         let occurrence = document
@@ -1906,7 +1995,20 @@ mod tests {
             "architectureWalls": [{"id": "wall-1", "thickness": 0.2, "futureWall": "stone"}],
             "architectureSlabs": [{"id": "slab-1", "thickness": 0.3}],
             "architectureStairs": [{"id": "stair-1", "steps": 14}],
-            "architectureFrames": [{"id": "frame-1", "glazingEnabled": false}],
+            "architectureFrames": [{
+                "id": "frame-1",
+                "name": "",
+                "cornerA": {"x": 0, "y": 0, "z": 0},
+                "cornerB": {"x": 0, "y": 0, "z": 0},
+                "contour": [],
+                "normal": {"x": 0, "y": 1, "z": 0},
+                "depth": 0.12,
+                "frameWidth": 0.06,
+                "kind": "WINDOW",
+                "color": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1},
+                "glazingEnabled": false,
+                "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
+            }],
             "hvacPlumbingRuns": [{"id": "pipe-1", "diameter": 0.2}],
             "hvacVentilationDucts": [{"id": "duct-1", "width": 0.5}],
             "hotspots": [{"id": "hotspot-1", "futureHotspot": {"mode": "switch"}}]
