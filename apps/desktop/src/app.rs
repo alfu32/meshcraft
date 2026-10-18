@@ -3,6 +3,7 @@ use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportS
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::document::{Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
+use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -243,7 +244,7 @@ pub struct MeshcraftApp {
     command_selection: usize,
     focus_command_search: bool,
     document: Document,
-    selection: Vec<OccurrenceRef>,
+    selection: SelectionSession,
     viewport: Viewport,
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
@@ -300,7 +301,7 @@ impl MeshcraftApp {
             command_selection: 0,
             focus_command_search: false,
             document,
-            selection: Vec::new(),
+            selection: SelectionSession::default(),
             viewport: {
                 let mut viewport = Viewport::default();
                 if frame_document {
@@ -343,6 +344,25 @@ impl MeshcraftApp {
             .collect()
     }
 
+    fn selected_occurrences(&self) -> Vec<OccurrenceRef> {
+        self.selection
+            .selected()
+            .iter()
+            .filter(|target| target.entity == SelectedEntity::Occurrence)
+            .map(|target| target.occurrence.clone())
+            .collect()
+    }
+
+    fn set_selection(&mut self, occurrences: impl IntoIterator<Item = OccurrenceRef>) {
+        self.selection.clear();
+        for occurrence in occurrences {
+            self.selection.select(SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::Occurrence,
+            });
+        }
+    }
+
     fn run_command(&mut self, id: &str) {
         let Some(command) = SHELL_COMMANDS.iter().find(|command| command.id == id) else {
             self.status = format!("Unknown command: {id}");
@@ -376,7 +396,7 @@ impl MeshcraftApp {
                     Vec3::new(2.0, 2.0, 2.0),
                     Vec3::new(-1.0, 0.0, -1.0),
                 ) {
-                    self.selection = vec![occurrence];
+                    self.set_selection([occurrence]);
                     self.status = "Created a 2 × 2 × 2 cuboid.".to_owned();
                 }
             }
@@ -427,11 +447,12 @@ impl MeshcraftApp {
     }
 
     fn copy_selection(&mut self) {
-        if self.selection.len() != 1 || self.selection[0].path.len() != 1 {
+        let selection = self.selected_occurrences();
+        if selection.len() != 1 || selection[0].path.len() != 1 {
             self.status = "Copy requires one selected root object.".to_owned();
             return;
         }
-        let source = self.selection[0].clone();
+        let source = selection[0].clone();
         let Some(resolved) = self.document.resolve_occurrence(&source) else {
             self.status = "The selected object no longer exists.".to_owned();
             return;
@@ -455,28 +476,30 @@ impl MeshcraftApp {
             self.status = "Copy could not create a root object instance.".to_owned();
             return;
         };
-        self.selection = vec![copy];
+        self.set_selection([copy]);
         self.status = "Copied the selected object; the copy shares its definition.".to_owned();
     }
 
     fn create_object_from_selection(&mut self) {
+        let selection = self.selected_occurrences();
         let Some(object) = self
             .document
-            .create_object_from_root_occurrences(&self.selection, "Object")
+            .create_object_from_root_occurrences(&selection, "Object")
         else {
             self.status = "Create Object requires one or more selected root objects.".to_owned();
             return;
         };
-        self.selection = vec![object];
+        self.set_selection([object]);
         self.status = "Created an object definition from the selected geometry.".to_owned();
     }
 
     fn array_selection(&mut self) {
-        if self.selection.len() != 1 || self.selection[0].path.len() != 1 {
+        let selection = self.selected_occurrences();
+        if selection.len() != 1 || selection[0].path.len() != 1 {
             self.status = "Array requires one selected root object.".to_owned();
             return;
         }
-        let source = self.selection[0].clone();
+        let source = selection[0].clone();
         let Some(copies) = self.document.array_root_occurrence(
             &source,
             self.array_count,
@@ -485,7 +508,7 @@ impl MeshcraftApp {
             self.status = "Array could not create the requested object instances.".to_owned();
             return;
         };
-        self.selection = copies;
+        self.set_selection(copies);
         self.status = format!("Created {} array copies.", self.array_count);
     }
 
@@ -503,7 +526,7 @@ impl MeshcraftApp {
             let point = self.viewport.screen_to_ground(rect, position);
             if let Some(start) = self.line_first {
                 if let Some(occurrence) = self.document.add_line_segment("line", start, point) {
-                    self.selection = vec![occurrence];
+                    self.set_selection([occurrence]);
                     self.active_tool = "Select".to_owned();
                     self.line_first = None;
                     self.status = format!("Created line {:.2} units long.", start.distance(point));
@@ -524,7 +547,7 @@ impl MeshcraftApp {
                     self.document
                         .add_ground_rectangle("rectangle", first, point)
                 {
-                    self.selection = vec![occurrence];
+                    self.set_selection([occurrence]);
                     self.active_tool = "Select".to_owned();
                     self.rectangle_first = None;
                     self.status = format!(
@@ -583,7 +606,7 @@ impl MeshcraftApp {
                 (opposite.z - first.z).abs(),
             );
             if let Some(occurrence) = self.document.add_cuboid("cuboid", dimensions, origin) {
-                self.selection = vec![occurrence];
+                self.set_selection([occurrence]);
                 self.active_tool = "Select".to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
@@ -596,12 +619,13 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Select" {
-            self.selection = self
+            let selection: Vec<OccurrenceRef> = self
                 .viewport
                 .pick(rect, &self.document, position)
                 .into_iter()
                 .collect();
-            self.status = if self.selection.is_empty() {
+            self.set_selection(selection);
+            self.status = if self.selection.selected().is_empty() {
                 "Selection cleared.".to_owned()
             } else {
                 "Object selected.".to_owned()
@@ -943,17 +967,18 @@ impl MeshcraftApp {
             .pointer_interact_pos()
             .filter(|position| predicted_rect.contains(*position));
         let preview = self.tool_preview(predicted_rect, pointer);
+        let selection = self.selected_occurrences();
         let input = self.viewport.show(
             ui,
             &ViewportScene {
                 size,
                 document: &self.document,
-                selection: &self.selection,
+                selection: &selection,
                 active_tool: &self.active_tool,
                 preview,
                 grid: GridStyle {
                     visible: self.preferences.show_permanent_grid,
-                    spacing: self.document.model_settings.grid_size,
+                    spacing: self.document.model_settings().grid_size,
                     extent: self.preferences.grid_extent,
                     normal_width: self.preferences.normal_grid_width,
                     thick_width: self.preferences.thick_grid_width,
@@ -1012,7 +1037,8 @@ impl MeshcraftApp {
                 all_faces += geometry.triangles.len();
             }
         }
-        let (selected_edges, selected_faces) = self.selection.iter().fold((0, 0), |sum, item| {
+        let selection = self.selected_occurrences();
+        let (selected_edges, selected_faces) = selection.iter().fold((0, 0), |sum, item| {
             self.document
                 .effective_geometry(item)
                 .map_or(sum, |geometry| {
@@ -1033,7 +1059,7 @@ impl MeshcraftApp {
             ("Faces", all_faces, selected_faces),
             ("Voxels", 0, 0),
             ("Hotspots", 0, 0),
-            ("Objects", root_objects.len(), self.selection.len()),
+            ("Objects", root_objects.len(), selection.len()),
             ("Dimensions", 0, 0),
             ("Texts", 0, 0),
             ("Walls", 0, 0),
@@ -1051,7 +1077,8 @@ impl MeshcraftApp {
     }
 
     fn show_object_panel(&mut self, ui: &mut egui::Ui) {
-        let Some(selected) = self.selection.first() else {
+        let selection = self.selected_occurrences();
+        let Some(selected) = selection.first() else {
             ui.label("No object selected");
             return;
         };
@@ -1059,7 +1086,7 @@ impl MeshcraftApp {
             ui.label("The selected object no longer exists");
             return;
         };
-        ui.label(format!("{} selected", self.selection.len()));
+        ui.label(format!("{} selected", selection.len()));
         ui.label("Name");
         let mut name = resolved.definition.name.clone();
         if ui
@@ -1088,16 +1115,19 @@ impl MeshcraftApp {
                         .resolve_occurrence(occurrence)
                         .map(|resolved| resolved.definition.name.as_str())
                         .unwrap_or("Missing object");
-                    let selected = self.selection.contains(occurrence);
+                    let selected = self.selection.selected().contains(&SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity: SelectedEntity::Occurrence,
+                    });
                     if ui.selectable_label(selected, label).clicked() {
-                        self.selection = vec![occurrence.clone()];
+                        self.set_selection([occurrence.clone()]);
                     }
                 }
             });
     }
 
     fn show_model_settings(&mut self, ui: &mut egui::Ui) {
-        let mut settings = self.document.model_settings.clone();
+        let mut settings = self.document.model_settings().clone();
         let mut changed = false;
         ui.label("Unit name");
         changed |= ui
@@ -1406,7 +1436,7 @@ impl MeshcraftApp {
                 let object_count = self.top_level_occurrences().len();
                 ui.weak(format!(
                     "{object_count} objects · revision {}",
-                    self.document.revision
+                    self.document.revision()
                 ));
                 if let Some(pointer) = self.pointer_in_viewport {
                     ui.weak(format!("Pointer: {:.0}, {:.0}", pointer.x, pointer.y));
@@ -1463,8 +1493,8 @@ impl eframe::App for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshcraftApp, Preferences, SHELL_COMMANDS, command_matches, registry_has_unique_ids,
-        tool_command_id,
+        MeshcraftApp, Preferences, SHELL_COMMANDS, SelectionSession, command_matches,
+        registry_has_unique_ids, tool_command_id,
     };
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::document::Document;
@@ -1485,7 +1515,7 @@ mod tests {
             command_selection: 0,
             focus_command_search: false,
             document: Document::new(),
-            selection: Vec::new(),
+            selection: SelectionSession::default(),
             viewport: Default::default(),
             cuboid_first: None,
             cuboid_base: None,
@@ -1577,6 +1607,28 @@ mod tests {
         assert!(command_matches(rectangle, "Rectangle"));
         assert!(command_matches(rectangle, "tool shape"));
         assert!(!command_matches(rectangle, "camera"));
+    }
+
+    #[test]
+    fn desktop_selection_is_owned_by_the_occurrence_session() {
+        let mut app = test_app();
+        let first = app
+            .document
+            .add_cuboid(
+                "shared",
+                meshcraft_core::geometry::Vec3::new(1.0, 1.0, 1.0),
+                meshcraft_core::geometry::Vec3::ZERO,
+            )
+            .unwrap();
+        let second = app
+            .document
+            .copy_root_occurrence(&first, meshcraft_core::geometry::Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+
+        app.set_selection([first.clone()]);
+        assert_eq!(app.selected_occurrences(), vec![first]);
+        app.set_selection([second.clone()]);
+        assert_eq!(app.selected_occurrences(), vec![second]);
     }
 
     #[test]

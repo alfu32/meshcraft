@@ -206,7 +206,7 @@
         "C32 ownership/no-op sharing cases pass; the Rust schema does not mirror duplicated legacy stores or per-occurrence cloned hierarchy."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "complete",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]

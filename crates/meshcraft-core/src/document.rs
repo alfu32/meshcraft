@@ -4,6 +4,8 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod derived;
+
 macro_rules! stable_id {
     ($name:ident) => {
         #[derive(
@@ -399,17 +401,17 @@ impl ModelSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Document {
-    pub schema_version: u32,
-    pub revision: u64,
-    pub root_layout: ChildLayoutId,
-    pub definitions: BTreeMap<DefinitionId, Definition>,
-    pub child_layouts: BTreeMap<ChildLayoutId, ChildLayout>,
+    pub(crate) schema_version: u32,
+    pub(crate) revision: u64,
+    pub(crate) root_layout: ChildLayoutId,
+    pub(crate) definitions: BTreeMap<DefinitionId, Definition>,
+    pub(crate) child_layouts: BTreeMap<ChildLayoutId, ChildLayout>,
     /// Overrides belong to realized occurrences, not shared layout entries.
     #[serde(with = "occurrence_edit_map")]
-    pub occurrence_edits: BTreeMap<OccurrenceRef, InstanceEdits>,
+    pub(crate) occurrence_edits: BTreeMap<OccurrenceRef, InstanceEdits>,
     #[serde(default)]
-    pub model_settings: ModelSettings,
-    pub extensions: BTreeMap<String, Value>,
+    pub(crate) model_settings: ModelSettings,
+    pub(crate) extensions: BTreeMap<String, Value>,
     next_id: u64,
 }
 
@@ -442,6 +444,31 @@ impl Document {
 
     pub fn root_layout(&self) -> ChildLayoutId {
         self.root_layout
+    }
+
+    /// Monotonic authored-state revision used to invalidate non-persistent caches.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn model_settings(&self) -> &ModelSettings {
+        &self.model_settings
+    }
+
+    pub fn definition(&self, id: DefinitionId) -> Option<&Definition> {
+        self.definitions.get(&id)
+    }
+
+    pub fn definitions(&self) -> impl Iterator<Item = &Definition> {
+        self.definitions.values()
+    }
+
+    pub fn child_layout(&self, id: ChildLayoutId) -> Option<&ChildLayout> {
+        self.child_layouts.get(&id)
+    }
+
+    pub fn occurrence_edits(&self, occurrence: &OccurrenceRef) -> Option<&InstanceEdits> {
+        self.occurrence_edits.get(occurrence)
     }
 
     pub fn update_model_settings(&mut self, settings: ModelSettings) -> Result<bool, String> {
@@ -1071,6 +1098,12 @@ impl Document {
         if layout.is_some_and(|layout| !self.child_layouts.contains_key(&layout)) {
             return false;
         }
+        let Some(current) = self.definitions.get(&definition) else {
+            return false;
+        };
+        if current.default_child_layout == layout {
+            return true;
+        }
         let Some(definition) = self.definitions.get_mut(&definition) else {
             return false;
         };
@@ -1101,6 +1134,11 @@ impl Document {
                 .is_some_and(|geometry| geometry.validate().is_err())
         {
             return false;
+        }
+        if self.occurrence_edits.get(&occurrence) == Some(&edits)
+            || (edits.is_empty() && !self.occurrence_edits.contains_key(&occurrence))
+        {
+            return true;
         }
         if edits.is_empty() {
             self.occurrence_edits.remove(&occurrence);

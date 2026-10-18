@@ -1,4 +1,5 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
+use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
 use std::collections::BTreeSet;
@@ -50,6 +51,7 @@ pub struct Viewport {
     pan: Vec2,
     yaw: f64,
     frame_pending: bool,
+    derived: DerivedIndexCache,
 }
 
 impl Default for Viewport {
@@ -59,6 +61,7 @@ impl Default for Viewport {
             pan: Vec2::ZERO,
             yaw: 0.0,
             frame_pending: false,
+            derived: DerivedIndexCache::default(),
         }
     }
 }
@@ -140,14 +143,10 @@ impl Viewport {
         };
         let mut bounds: Option<[f64; 4]> = None;
         for occurrence in occurrences {
-            let (Some(resolved), Some(geometry)) = (
-                document.resolve_occurrence(&occurrence),
-                document.effective_geometry(&occurrence),
-            ) else {
+            let Some(world_bounds) = self.derived.world_bounds(document, &occurrence) else {
                 continue;
             };
-            for vertex in geometry.vertices.values() {
-                let point = resolved.world_transform.transform_point(vertex.position);
+            for point in bounds_corners(world_bounds) {
                 let rotated_x = self.yaw.cos() * point.x + self.yaw.sin() * point.z;
                 let rotated_z = -self.yaw.sin() * point.x + self.yaw.cos() * point.z;
                 let projected_x = (rotated_x - rotated_z) * ISO_X;
@@ -200,10 +199,35 @@ impl Viewport {
         f64::from((base_screen.y - position.y) / self.zoom) / ISO_HEIGHT_Y
     }
 
-    pub fn pick(&self, rect: Rect, document: &Document, position: Pos2) -> Option<OccurrenceRef> {
+    pub fn pick(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+    ) -> Option<OccurrenceRef> {
         let occurrences = document.occurrence_refs().ok()?;
         let mut nearest: Option<(f32, f64, OccurrenceRef)> = None;
         for occurrence in occurrences {
+            if let Some(bounds) = self.derived.world_bounds(document, &occurrence) {
+                let points = bounds_corners(bounds).map(|point| self.world_to_screen(rect, point));
+                let (min_x, max_x) = points
+                    .iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                        (range.0.min(point.x), range.1.max(point.x))
+                    });
+                let (min_y, max_y) = points
+                    .iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
+                        (range.0.min(point.y), range.1.max(point.y))
+                    });
+                if position.x < min_x - 5.0
+                    || position.x > max_x + 5.0
+                    || position.y < min_y - 5.0
+                    || position.y > max_y + 5.0
+                {
+                    continue;
+                }
+            }
             let resolved = document.resolve_occurrence(&occurrence)?;
             let geometry = document.effective_geometry(&occurrence)?;
             for triangle in geometry.triangles.values() {
@@ -454,6 +478,21 @@ impl Viewport {
     }
 }
 
+fn bounds_corners(bounds: meshcraft_core::geometry::Aabb3) -> [Vec3; 8] {
+    let min = bounds.min;
+    let max = bounds.max;
+    [
+        Vec3::new(min.x, min.y, min.z),
+        Vec3::new(max.x, min.y, min.z),
+        Vec3::new(min.x, max.y, min.z),
+        Vec3::new(max.x, max.y, min.z),
+        Vec3::new(min.x, min.y, max.z),
+        Vec3::new(max.x, min.y, max.z),
+        Vec3::new(min.x, max.y, max.z),
+        Vec3::new(max.x, max.y, max.z),
+    ]
+}
+
 fn color32(color: Rgba8) -> Color32 {
     Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, color.alpha)
 }
@@ -552,7 +591,7 @@ mod tests {
     #[test]
     fn segment_picker_selects_standalone_lines_with_a_small_screen_tolerance() {
         let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
-        let viewport = Viewport::default();
+        let mut viewport = Viewport::default();
         let mut document = meshcraft_core::document::Document::new();
         let line = document
             .add_line_segment("line", Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
