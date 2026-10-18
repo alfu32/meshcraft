@@ -1053,6 +1053,9 @@ impl Document {
             .map(|point| point.length())
             .fold(0.0, f64::max);
         let tolerance = crate::geometry::GeometryTolerance::default().linear_at(model_scale);
+        if !tolerance.is_finite() || tolerance <= 0.0 {
+            return Err("triangle insertion coordinates exceed the supported range".to_owned());
+        }
         let mut vertex_ids = Vec::with_capacity(vertices.len());
         for position in vertices {
             let existing = geometry
@@ -1102,6 +1105,112 @@ impl Document {
         self.next_id = next_id;
         self.revision = self.revision.saturating_add(1);
         Ok((selected_segments.into_iter().collect(), triangle_ids))
+    }
+
+    /// Appends authored faces without creating or changing any line segments.
+    pub fn append_triangles_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        vertices: Vec<Vec3>,
+        triangles: Vec<[usize; 3]>,
+    ) -> Result<Vec<TriangleId>, String> {
+        if triangles.is_empty() {
+            return Err("triangle insertion needs at least one face".to_owned());
+        }
+        validate_indexed_geometry_input(&vertices, &[], &triangles)?;
+        let mut staged = self.clone();
+        let Some(definition) = staged.definitions.get(&definition_id) else {
+            return Err(format!("missing definition {}", definition_id.0));
+        };
+        let mut geometry = definition.geometry.clone();
+        let model_scale = vertices
+            .iter()
+            .map(|point| point.length())
+            .chain(
+                geometry
+                    .vertices
+                    .values()
+                    .map(|vertex| vertex.position.length()),
+            )
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(model_scale);
+        let mut vertex_ids = Vec::with_capacity(vertices.len());
+        for position in vertices {
+            let id = geometry
+                .vertices
+                .values()
+                .find(|vertex| vertex.position.distance(position) <= tolerance)
+                .map(|vertex| vertex.id)
+                .unwrap_or_else(|| {
+                    let id = VertexId(staged.allocate_id());
+                    geometry.vertices.insert(
+                        id,
+                        Vertex {
+                            id,
+                            position,
+                            legacy_aliases: Vec::new(),
+                        },
+                    );
+                    id
+                });
+            vertex_ids.push(id);
+        }
+        let mut triangle_ids = Vec::with_capacity(triangles.len());
+        for [first, second, third] in triangles {
+            let [first_id, second_id, third_id] =
+                [vertex_ids[first], vertex_ids[second], vertex_ids[third]];
+            let [Some(a), Some(b), Some(c)] = [first_id, second_id, third_id]
+                .map(|id| geometry.vertices.get(&id).map(|vertex| vertex.position))
+            else {
+                return Err("triangle insertion references a missing vertex".to_owned());
+            };
+            if first_id == second_id
+                || second_id == third_id
+                || third_id == first_id
+                || (b - a).cross(c - a).length() <= tolerance * tolerance
+            {
+                return Err("triangle insertion contains a degenerate face".to_owned());
+            }
+            let id = TriangleId(staged.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: [
+                        VertexRef::new(first_id),
+                        VertexRef::new(second_id),
+                        VertexRef::new(third_id),
+                    ],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                },
+            );
+            triangle_ids.push(id);
+        }
+        geometry.validate()?;
+        staged
+            .definitions
+            .get_mut(&definition_id)
+            .expect("definition checked before face insertion")
+            .geometry = geometry;
+        staged.revision = staged.revision.saturating_add(1);
+        *self = staged;
+        Ok(triangle_ids)
+    }
+
+    /// Appends authored faces to the scene-root graph without creating line segments.
+    pub fn append_triangles_to_scene_root(
+        &mut self,
+        vertices: Vec<Vec3>,
+        triangles: Vec<[usize; 3]>,
+    ) -> Result<Vec<TriangleId>, String> {
+        let mut staged = self.clone();
+        let definition_id = staged.ensure_scene_root();
+        let triangle_ids =
+            staged.append_triangles_to_definition(definition_id, vertices, triangles)?;
+        *self = staged;
+        Ok(triangle_ids)
     }
 
     /// Inserts a planar mesh directly into the scene-root graph.
@@ -3172,6 +3281,41 @@ mod tests {
         assert!(segments.iter().all(|id| geometry.segments.contains_key(id)));
         assert_eq!(2, triangles.len());
         assert_eq!(2, geometry.triangles.len());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn triangle_only_insertion_adds_faces_without_changing_selected_lines() {
+        let mut document = Document::new();
+        document
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X * 2.0)
+            .unwrap();
+        let triangles = document
+            .append_triangles_to_scene_root(
+                vec![
+                    Vec3::ZERO,
+                    Vec3::X * 2.0,
+                    Vec3::new(2.0, 0.0, 2.0),
+                    Vec3::Z * 2.0,
+                ],
+                vec![[0, 1, 2], [0, 2, 3]],
+            )
+            .unwrap();
+        let geometry = document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(2, triangles.len());
+        assert_eq!(1, geometry.segments.len());
+        assert_eq!(4, geometry.vertices.len());
+        assert_eq!(2, geometry.triangles.len());
+
+        let revision = document.revision();
+        assert!(
+            document
+                .append_triangles_to_scene_root(vec![Vec3::ZERO, Vec3::X], vec![[0, 1, 2]])
+                .is_err()
+        );
+        assert_eq!(revision, document.revision());
         assert!(document.validate().is_ok());
     }
 

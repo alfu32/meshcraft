@@ -25,9 +25,10 @@ use meshcraft_core::tools::{
     ToolEvent,
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
-        FACE_OUTLINE_MERGE_TOLERANCE, PolylinePath, PolylinePickEffect, PolylineSegmentMode,
-        PolylineToolState, build_double_line_mesh_in_plane, build_face_outline_mesh,
-        build_polyline_mesh,
+        FACE_OUTLINE_MERGE_TOLERANCE, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
+        build_double_line_mesh_in_plane, build_face_outline_mesh, build_polyline_mesh,
+        build_polyline_mesh_from_segments,
     },
     shapes::{PlanarMesh, PlanarShapeTool, ShapeToolState},
     transforms::{TransformPick, TransformTool, TransformToolState},
@@ -577,6 +578,7 @@ enum ShellAction {
     ToggleTransformCopyMode,
     PaintSelection,
     FaceOutline,
+    PolylineMesh,
     SetPaintColor,
     CancelActiveTool,
     PlaceGuide(ConstructionGuideKind),
@@ -1262,6 +1264,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "polyline" => ShellAction::SelectToolAlias("Polyline"),
                 "double_line" => ShellAction::SelectToolAlias("Double Line"),
                 "face_outline" => ShellAction::FaceOutline,
+                "polyline_mesh" => ShellAction::PolylineMesh,
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -1361,6 +1364,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
         | ShellAction::FaceOutline
+        | ShellAction::PolylineMesh
         | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
@@ -1417,6 +1421,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
         ShellAction::CopySelection => CommandStateQuery::SelectionAvailable,
         ShellAction::FaceOutline => CommandStateQuery::SelectionAvailable,
+        ShellAction::PolylineMesh => CommandStateQuery::SelectionAvailable,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
         ShellAction::CreateObject
@@ -2185,6 +2190,79 @@ impl MeshcraftApp {
         result.outputs.insert(
             "outlined".to_owned(),
             serde_json::json!({"edges": edge_count, "faces": face_count}),
+        );
+        result
+    }
+
+    fn mesh_selected_polylines(&mut self) -> CommandResult {
+        let mut world_segments = Vec::new();
+        for target in self.selection.selected() {
+            let SelectedEntity::Segment(segment_id) = target.entity else {
+                continue;
+            };
+            let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
+                continue;
+            };
+            let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+                continue;
+            };
+            let Some(segment) = geometry.segments.get(&segment_id) else {
+                continue;
+            };
+            let [Some(start), Some(end)] = segment
+                .endpoints
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            world_segments.push([
+                resolved.world_transform.transform_point(start),
+                resolved.world_transform.transform_point(end),
+            ]);
+        }
+        if world_segments.is_empty() {
+            return CommandResult::failed("Select connected line segments to fill with faces.");
+        }
+        let mesh =
+            match build_polyline_mesh_from_segments(&world_segments, POLYLINE_MESH_MERGE_TOLERANCE)
+            {
+                Ok(mesh) => mesh,
+                Err(error) => return CommandResult::failed(error),
+            };
+        let face_count = mesh.triangles.len();
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let vertices = mesh
+            .vertices
+            .into_iter()
+            .map(|point| inverse.transform_point(point))
+            .collect();
+        let triangle_ids =
+            match self.commit_document_edit("Polyline Mesh", |document| match owner {
+                LineOwner::SceneRoot => {
+                    document.append_triangles_to_scene_root(vertices, mesh.triangles)
+                }
+                LineOwner::Definition(definition) => {
+                    document.append_triangles_to_definition(definition, vertices, mesh.triangles)
+                }
+            }) {
+                Ok(triangle_ids) => triangle_ids,
+                Err(error) => return CommandResult::failed(error),
+            };
+        self.selection.apply(
+            triangle_ids.into_iter().map(|triangle| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(triangle),
+            }),
+            SelectionMode::Replace,
+        );
+        self.status = format!(
+            "Created {face_count} face(s) from {} selected segment(s).",
+            world_segments.len()
+        );
+        let mut result = CommandResult::completed();
+        result.outputs.insert(
+            "polyline_mesh".to_owned(),
+            serde_json::json!({"faces": face_count, "segments": world_segments.len()}),
         );
         result
     }
@@ -3369,6 +3447,7 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::FaceOutline => return self.outline_selected_faces(),
+            ShellAction::PolylineMesh => return self.mesh_selected_polylines(),
             ShellAction::SetPaintColor => {
                 let channels = ["red", "green", "blue", "alpha"]
                     .map(|name| payload.values.get(name).and_then(serde_json::Value::as_u64));
@@ -4097,6 +4176,15 @@ impl MeshcraftApp {
                 .any(|target| matches!(target.entity, SelectedEntity::Triangle(_)))
         {
             return CommandState::disabled("select one or more faces first");
+        }
+        if id == "tool.builtin.polyline_mesh"
+            && !self
+                .selection
+                .selected()
+                .iter()
+                .any(|target| matches!(target.entity, SelectedEntity::Segment(_)))
+        {
+            return CommandState::disabled("select connected line segments first");
         }
         let line_distance_ready = matches!(self.active_tool.as_str(), "Line" | "Construction Line")
             && self.drawing_tool.anchor().is_some();
@@ -9283,6 +9371,75 @@ mod tests {
         assert!(!state.enabled);
         assert_eq!(
             "select one or more faces first",
+            state.disabled_reason.as_deref().unwrap()
+        );
+    }
+
+    #[test]
+    fn polyline_mesh_command_fills_selected_segments_without_adding_edges() {
+        let mut app = test_app();
+        let points = [
+            Vec3::ZERO,
+            Vec3::X * 2.0,
+            Vec3::new(2.0, 0.0, 2.0),
+            Vec3::Z * 2.0,
+        ];
+        for [start, end] in [[0, 1], [1, 2], [2, 3]] {
+            app.document
+                .append_line_segment_to_scene_root(points[start], points[end])
+                .unwrap();
+        }
+        let occurrence = OccurrenceRef::scene_root();
+        let segment_ids = app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .segments
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        app.selection.apply(
+            segment_ids.into_iter().map(|segment| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(segment),
+            }),
+            SelectionMode::Replace,
+        );
+        assert!(
+            app.query_command_state("tool.builtin.polyline_mesh")
+                .enabled
+        );
+
+        let dispatch =
+            app.dispatch_command("tool.builtin.polyline_mesh", &CommandPayload::default());
+
+        assert!(dispatch.accepted, "{}", app.status);
+        assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+        assert_eq!(
+            json!({"faces": 2, "segments": 3}),
+            dispatch.result.outputs["polyline_mesh"]
+        );
+        assert_eq!(2, app.selection.summary().faces);
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(3, geometry.segments.len());
+        assert_eq!(2, geometry.triangles.len());
+        assert_eq!(1, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(3, geometry.segments.len());
+        assert!(geometry.triangles.is_empty());
+    }
+
+    #[test]
+    fn polyline_mesh_command_is_disabled_without_selected_segments() {
+        let app = test_app();
+
+        let state = app.query_command_state("tool.builtin.polyline_mesh");
+
+        assert!(!state.enabled);
+        assert_eq!(
+            "select connected line segments first",
             state.disabled_reason.as_deref().unwrap()
         );
     }

@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 const DEFAULT_CLOSE_DISTANCE: f64 = 0.15;
 const PATH_EPSILON: f64 = 1.0e-9;
 pub const FACE_OUTLINE_MERGE_TOLERANCE: f64 = 1.0e-4;
+pub const POLYLINE_MESH_MERGE_TOLERANCE: f64 = 1.0e-3;
 const MAX_ARC_SAMPLES: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -260,6 +261,13 @@ pub fn arc_through(start: Vec3, middle: Vec3, end: Vec3, max_length: f64) -> Vec
 
 /// Converts an open or closed path into authored segment and face geometry.
 pub fn build_polyline_mesh(path: &PolylinePath) -> Result<PlanarMesh, &'static str> {
+    build_polyline_mesh_with_planarity(path, true)
+}
+
+fn build_polyline_mesh_with_planarity(
+    path: &PolylinePath,
+    require_planar: bool,
+) -> Result<PlanarMesh, &'static str> {
     let points = sanitized_path_points(path)?;
     if points.len() < 2 {
         return Err("Polyline needs at least two distinct points.");
@@ -282,9 +290,10 @@ pub fn build_polyline_mesh(path: &PolylinePath) -> Result<PlanarMesh, &'static s
             .map(|index| (points[index] - origin).cross(points[index + 1] - origin))
             .find_map(|candidate| candidate.try_normalized(tolerance.linear_at(scale)))
             .ok_or("Closed polyline points are collinear.")?;
-        if points
-            .iter()
-            .any(|point| (*point - origin).dot(normal).abs() > tolerance.linear_at(scale))
+        if require_planar
+            && points
+                .iter()
+                .any(|point| (*point - origin).dot(normal).abs() > tolerance.linear_at(scale))
         {
             return Err("Closed polyline points must lie in one plane.");
         }
@@ -359,9 +368,9 @@ pub fn build_face_outline_mesh(
             return Err("Face-outline points must be finite.");
         }
         let keys = [
-            face_outline_point_key(triangle[0], merge_tolerance)?,
-            face_outline_point_key(triangle[1], merge_tolerance)?,
-            face_outline_point_key(triangle[2], merge_tolerance)?,
+            quantized_point_key(triangle[0], merge_tolerance)?,
+            quantized_point_key(triangle[1], merge_tolerance)?,
+            quantized_point_key(triangle[2], merge_tolerance)?,
         ];
         for (point, key) in triangle.iter().zip(keys) {
             points.entry(key).or_insert(*point);
@@ -408,17 +417,115 @@ pub fn build_face_outline_mesh(
     })
 }
 
-fn face_outline_point_key(point: Vec3, merge_tolerance: f64) -> Result<[i64; 3], &'static str> {
+fn quantized_point_key(point: Vec3, merge_tolerance: f64) -> Result<[i64; 3], &'static str> {
     let mut key = [0; 3];
     for (index, coordinate) in [point.x, point.y, point.z].into_iter().enumerate() {
         let quantized = coordinate / merge_tolerance;
         let rounded = quantized.round();
         if !rounded.is_finite() || rounded < i64::MIN as f64 || rounded >= -(i64::MIN as f64) {
-            return Err("Face-outline coordinates exceed the supported tolerance range.");
+            return Err("Geometry coordinates exceed the supported tolerance range.");
         }
         key[index] = rounded as i64;
     }
     Ok(key)
+}
+
+/// Orders selected segments into connected chains and triangulates each chain as a polygon.
+/// Open chains are closed by a final polygon edge, matching the legacy Polyline Mesh operation.
+pub fn build_polyline_mesh_from_segments(
+    segments: &[[Vec3; 2]],
+    merge_tolerance: f64,
+) -> Result<PlanarMesh, &'static str> {
+    if !merge_tolerance.is_finite() || merge_tolerance <= 0.0 {
+        return Err("Polyline-mesh tolerance must be finite and positive.");
+    }
+    let mut point_by_key = BTreeMap::<[i64; 3], Vec3>::new();
+    let mut segment_keys = Vec::with_capacity(segments.len());
+    let mut adjacency = BTreeMap::<[i64; 3], Vec<usize>>::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if segment.iter().any(|point| !point.is_finite()) {
+            return Err("Polyline-mesh points must be finite.");
+        }
+        let start = quantized_point_key(segment[0], merge_tolerance)?;
+        let end = quantized_point_key(segment[1], merge_tolerance)?;
+        point_by_key.entry(start).or_insert(segment[0]);
+        point_by_key.entry(end).or_insert(segment[1]);
+        segment_keys.push((start, end));
+        adjacency.entry(start).or_default().push(index);
+        adjacency.entry(end).or_default().push(index);
+    }
+
+    let mut start_order = (0..segment_keys.len()).collect::<Vec<_>>();
+    start_order.sort_by_key(|index| {
+        let (start, end) = segment_keys[*index];
+        adjacency[&start].len().min(adjacency[&end].len())
+    });
+    let mut visited = vec![false; segment_keys.len()];
+    let mut vertices = Vec::new();
+    let mut triangles = Vec::new();
+    for seed in start_order {
+        if visited[seed] {
+            continue;
+        }
+        let (start, end) = segment_keys[seed];
+        let start_degree = adjacency[&start].len();
+        let end_degree = adjacency[&end].len();
+        let chain_start = if start_degree <= end_degree {
+            start
+        } else {
+            end
+        };
+        let mut current = chain_start;
+        let mut chain_keys = vec![chain_start];
+        while let Some(next_segment) = adjacency[&current]
+            .iter()
+            .copied()
+            .find(|index| !visited[*index])
+        {
+            visited[next_segment] = true;
+            let (segment_start, segment_end) = segment_keys[next_segment];
+            current = if segment_start == current {
+                segment_end
+            } else {
+                segment_start
+            };
+            chain_keys.push(current);
+            if current == chain_start {
+                break;
+            }
+        }
+        if chain_keys.len() > 1 && chain_keys.first() == chain_keys.last() {
+            chain_keys.pop();
+        }
+        if chain_keys.len() < 3 {
+            continue;
+        }
+        let polygon = PolylinePath {
+            points: chain_keys.iter().map(|key| point_by_key[key]).collect(),
+            closed: true,
+        };
+        let Ok(mesh) = build_polyline_mesh_with_planarity(&polygon, false) else {
+            continue;
+        };
+        if mesh.triangles.is_empty() {
+            continue;
+        }
+        let vertex_offset = vertices.len();
+        vertices.extend(mesh.vertices);
+        triangles.extend(
+            mesh.triangles
+                .into_iter()
+                .map(|triangle| triangle.map(|index| index + vertex_offset)),
+        );
+    }
+    if triangles.is_empty() {
+        return Err("Selected segments do not form a valid planar polygon.");
+    }
+    Ok(PlanarMesh {
+        vertices,
+        segments: Vec::new(),
+        triangles,
+    })
 }
 
 /// Builds two offset rails from a path. The returned paths retain matching point indices,
@@ -634,10 +741,11 @@ fn arc_samples(
 #[cfg(test)]
 mod tests {
     use super::{
-        FACE_OUTLINE_MERGE_TOLERANCE, PolylinePath, PolylinePickEffect, PolylineSegmentMode,
-        PolylineToolState, arc_from_center, arc_through, build_double_line_mesh,
-        build_double_line_mesh_in_plane, build_double_line_paths, build_double_line_paths_in_plane,
-        build_face_outline_mesh, build_polyline_mesh,
+        FACE_OUTLINE_MERGE_TOLERANCE, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        PolylinePickEffect, PolylineSegmentMode, PolylineToolState, arc_from_center, arc_through,
+        build_double_line_mesh, build_double_line_mesh_in_plane, build_double_line_paths,
+        build_double_line_paths_in_plane, build_face_outline_mesh, build_polyline_mesh,
+        build_polyline_mesh_from_segments,
     };
     use crate::geometry::Vec3;
 
@@ -799,6 +907,91 @@ mod tests {
             build_face_outline_mesh(&[[Vec3::new(1.0e20, 0.0, 0.0), Vec3::X, Vec3::Z]], 1.0e-4,)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn polyline_mesh_orders_selected_segments_and_triangulates_concave_loops() {
+        let points = [
+            Vec3::ZERO,
+            Vec3::new(3.0, 0.0, 0.0),
+            Vec3::new(3.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 3.0),
+            Vec3::new(0.0, 0.0, 3.0),
+        ];
+        let mesh = build_polyline_mesh_from_segments(
+            &[
+                [points[2], points[3]],
+                [points[5], points[0]],
+                [points[1], points[2]],
+                [points[3], points[4]],
+                [points[0], points[1]],
+                [points[4], points[5]],
+            ],
+            POLYLINE_MESH_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        let area = mesh
+            .triangles
+            .iter()
+            .map(|triangle| {
+                let [a, b, c] = triangle.map(|index| mesh.vertices[index]);
+                (b - a).cross(c - a).length() * 0.5
+            })
+            .sum::<f64>();
+
+        assert_eq!(6, mesh.vertices.len());
+        assert!(mesh.segments.is_empty());
+        assert_eq!(4, mesh.triangles.len());
+        assert!((5.0 - area).abs() < 1.0e-8);
+    }
+
+    #[test]
+    fn polyline_mesh_closes_open_chains_and_joins_nearby_endpoints() {
+        let mesh = build_polyline_mesh_from_segments(
+            &[
+                [Vec3::ZERO, Vec3::X * 2.0],
+                [Vec3::new(2.0, 0.0, 0.0004), Vec3::new(2.0, 0.0, 2.0)],
+                [Vec3::new(2.0, 0.0, 2.0), Vec3::Z * 2.0],
+            ],
+            POLYLINE_MESH_MERGE_TOLERANCE,
+        )
+        .unwrap();
+        let area = mesh
+            .triangles
+            .iter()
+            .map(|triangle| {
+                let [a, b, c] = triangle.map(|index| mesh.vertices[index]);
+                (b - a).cross(c - a).length() * 0.5
+            })
+            .sum::<f64>();
+
+        assert!(mesh.segments.is_empty());
+        assert_eq!(2, mesh.triangles.len());
+        assert!((4.0 - area).abs() < 1.0e-8);
+        assert!(
+            build_polyline_mesh_from_segments(
+                &[[Vec3::ZERO, Vec3::X], [Vec3::X, Vec3::X * 2.0]],
+                POLYLINE_MESH_MERGE_TOLERANCE,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn polyline_mesh_projects_nonplanar_chains_for_triangulation() {
+        let mesh = build_polyline_mesh_from_segments(
+            &[
+                [Vec3::ZERO, Vec3::X * 2.0],
+                [Vec3::X * 2.0, Vec3::new(2.0, 0.0, 2.0)],
+                [Vec3::new(2.0, 0.0, 2.0), Vec3::new(0.0, 0.5, 2.0)],
+            ],
+            POLYLINE_MESH_MERGE_TOLERANCE,
+        )
+        .unwrap();
+
+        assert_eq!(2, mesh.triangles.len());
+        assert!(mesh.vertices.iter().any(|point| point.y == 0.5));
     }
 
     #[test]
