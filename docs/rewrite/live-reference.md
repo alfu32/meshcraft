@@ -34,7 +34,7 @@ These eight 1920×1080 captures match the screenshots supplied for this walkthro
 5. Architecture - Walls, Slabs, Stairs, and the visible top of Frames; the Frames section continues below the crop: ![05 — Architecture walls, slabs, stairs, and frames](references/live-5.7.1/panels-architecture-walls-slabs-stairs-frames.png)
 6. HVAC Settings, Hotspot Settings, and the beginning of Random Tools: ![06 — HVAC, Hotspot, and start of Random Tools](references/live-5.7.1/panels-hvac-hotspots-random-tools-start.png)
 7. Random Tools (Fuzzy Offset, Random Surface Array, and Planar Regularize / Surface Remesh), Tutorials and playback controls, plus the Shader Settings heading: ![07 — Random Tools, Tutorials, and Shader Settings heading](references/live-5.7.1/panels-random-tools-tutorials-shader-heading.png)
-8. The tail of Random Tools, Tutorials, and visible Shader Settings controls through shadow bias, normal bias, PCF, CSM, and dithering: ![08 — Remesh, Tutorials, and Shader Settings controls](references/live-5.7.1/panels-remesh-tutorials-shader-settings.png)
+8. The visible Align to surface normal checkbox and Planar Regularize / Surface Remesh values, Tutorials playback controls, and Shader Settings through shadow bias, normal bias, PCF, CSM, and dithering: ![08 — Planar Regularize / Surface Remesh, Tutorials, and Shader Settings](references/live-5.7.1/panels-planar-regularize-tutorials-shader-settings.png)
 
 ## Command palette screenshot
 
