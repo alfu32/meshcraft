@@ -521,7 +521,7 @@
         "No camera mode silently uses the wrong projection for picking."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T11",

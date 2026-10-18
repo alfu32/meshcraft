@@ -1477,7 +1477,7 @@ pub struct MeshcraftApp {
     active_tool: String,
     status: String,
     pointer_in_viewport: Option<egui::Vec2>,
-    viewport_size: Vec2,
+    viewport_rect: egui::Rect,
     open_file_menu: bool,
     command_palette_open: bool,
     command_search: String,
@@ -1608,7 +1608,7 @@ impl MeshcraftApp {
             active_tool: "Select".to_owned(),
             status,
             pointer_in_viewport: None,
-            viewport_size: Vec2::ZERO,
+            viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             command_palette_open: false,
             command_search: String::new(),
@@ -4208,7 +4208,7 @@ impl MeshcraftApp {
                 },
             },
         );
-        self.viewport_size = input.rect.size();
+        self.viewport_rect = input.rect;
         self.pointer_in_viewport = input.pointer_local;
         if let Some(position) = input.click {
             self.handle_viewport_click(input.rect, position, snap);
@@ -4930,7 +4930,8 @@ impl MeshcraftApp {
                 ui.separator();
                 ui.weak(format!(
                     "Viewport {:.0} × {:.0}",
-                    self.viewport_size.x, self.viewport_size.y
+                    self.viewport_rect.width(),
+                    self.viewport_rect.height()
                 ));
             });
         });
@@ -5156,7 +5157,7 @@ impl Drop for MeshcraftApp {
 mod tests {
     use super::{
         CommandPayload, MeshcraftApp, OrthoView, Preferences, ReplacementDecision,
-        SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
+        SelectionSession, TransactionHistory, UiProfile, command_matches, registry_has_unique_ids,
         shell_commands, tool_command_id,
     };
     use crate::viewport::{
@@ -5302,7 +5303,7 @@ mod tests {
             active_tool: "Select".to_owned(),
             status: String::new(),
             pointer_in_viewport: None,
-            viewport_size: Vec2::ZERO,
+            viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             command_palette_open: false,
             command_search: String::new(),
@@ -5354,6 +5355,36 @@ mod tests {
         );
         output.textures_delta.clear();
         output
+    }
+
+    #[test]
+    fn viewport_world_mapping_uses_the_real_menu_and_button_layout_rects() {
+        let expected_world = Vec3::ZERO;
+        for profile in [UiProfile::DesktopMenus, UiProfile::Buttons] {
+            let mut app = test_app();
+            app.preferences.profile = profile;
+            let context = egui::Context::default();
+            run_workspace_frame(&mut app, &context, Vec::new());
+            let rect = app.viewport_rect;
+            let expected_screen = app.viewport.world_to_screen(rect, expected_world);
+            run_workspace_frame(
+                &mut app,
+                &context,
+                vec![Event::PointerMoved(expected_screen)],
+            );
+            let local = app
+                .pointer_in_viewport
+                .expect("world point remains inside the viewport");
+            assert!((local - (expected_screen - rect.min)).length() < 1.0e-4);
+            let recovered = app
+                .viewport
+                .screen_to_ground(rect, rect.min + local)
+                .expect("viewport pointer maps onto the ground construction plane");
+            assert!(
+                recovered.distance(expected_world) < 1.0e-5,
+                "profile={profile:?}"
+            );
+        }
     }
 
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {
