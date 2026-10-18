@@ -28,7 +28,7 @@ Source: `K/model/{ModelUnit,DraftLineStore,DraftFaceStore,HotspotStore}.kt`, `K/
 
 Rust must separate raw insertion/deserialization from editing insertion with segment intersection/cleanup and explicit face-cut operations. Raw load must not run interactive topology repair or generate fresh IDs. Preserve winding, face RGBA, independent lines, and open/nonmanifold meshes. Current `ModelCleanup.run` invokes line cleanup per prototype; do not infer automatic face union from the older roadmap. Derived adjacency, spatial indexes, render chunks, and generated domain triangles are revision-keyed caches. A failed cleanup must leave original geometry intact and report failure.
 
-Primitive semantics and IDs do not require storing a repeated Vector3 on each segment/triangle corner. F10 evaluates a per-bundle stable vertex table with indexed primitives, preserving coincident independent identities and legacy slot aliases. Base geometry, authored instance edits and generated runtime geometry must not become three competing authorities.
+Primitive semantics and IDs do not require storing a repeated Vector3 on each segment/triangle corner. F10 evaluates a per-bundle stable vertex table with indexed primitives; a corner reference may carry a sparse position offset when a legacy alias shares identity across slightly different serialized coordinates. This preserves coincident independent identities and legacy slot aliases. Base geometry, authored instance edits and generated runtime geometry must not become three competing authorities.
 
 Source: `K/model/DraftLineStore.kt`: `addSegment`, raw insertion, cleanup; `DraftFaceStore.kt`: `addPolygon`, `appendTriangleRaw`, `cutBySegmentInPlane`; `ModelCleanup.kt`. Acceptance: C02, C03, C04.
 

@@ -207,34 +207,19 @@ impl Viewport {
             let resolved = document.resolve_occurrence(&occurrence)?;
             let geometry = document.effective_geometry(&occurrence)?;
             for triangle in geometry.triangles.values() {
-                let a = self.world_to_screen(
-                    rect,
-                    resolved
-                        .world_transform
-                        .transform_point(geometry.vertices[&triangle.vertices[0]].position),
-                );
-                let b = self.world_to_screen(
-                    rect,
-                    resolved
-                        .world_transform
-                        .transform_point(geometry.vertices[&triangle.vertices[1]].position),
-                );
-                let c = self.world_to_screen(
-                    rect,
-                    resolved
-                        .world_transform
-                        .transform_point(geometry.vertices[&triangle.vertices[2]].position),
-                );
+                let [Some(a), Some(b), Some(c)] = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    continue;
+                };
+                let world_points =
+                    [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                let [a, b, c] = world_points.map(|point| self.world_to_screen(rect, point));
                 if point_in_triangle(position, a, b, c) {
-                    let depth = triangle
-                        .vertices
+                    let depth = world_points
                         .iter()
-                        .map(|vertex| {
-                            let point = resolved
-                                .world_transform
-                                .transform_point(geometry.vertices[vertex].position);
-                            point.x + point.z + point.y * 0.5
-                        })
+                        .map(|point| point.x + point.z + point.y * 0.5)
                         .sum::<f64>()
                         / 3.0;
                     if nearest.as_ref().is_none_or(|(distance, current_depth, _)| {
@@ -245,12 +230,14 @@ impl Viewport {
                 }
             }
             for segment in geometry.segments.values() {
-                let start = resolved
-                    .world_transform
-                    .transform_point(geometry.vertices[&segment.endpoints[0]].position);
-                let end = resolved
-                    .world_transform
-                    .transform_point(geometry.vertices[&segment.endpoints[1]].position);
+                let (Some(start_local), Some(end_local)) = (
+                    geometry.vertex_position(segment.endpoints[0]),
+                    geometry.vertex_position(segment.endpoints[1]),
+                ) else {
+                    continue;
+                };
+                let start = resolved.world_transform.transform_point(start_local);
+                let end = resolved.world_transform.transform_point(end_local);
                 let a = self.world_to_screen(rect, start);
                 let b = self.world_to_screen(rect, end);
                 let distance = distance_to_segment_squared(position, a, b);
@@ -345,28 +332,25 @@ impl Viewport {
             let mut surface_edges = BTreeSet::new();
             let mut visible_surface_edges = BTreeSet::new();
             for triangle in geometry.triangles.values() {
-                let world_points = triangle.vertices.map(|vertex| {
-                    resolved
-                        .world_transform
-                        .transform_point(geometry.vertices[&vertex].position)
-                });
+                let [Some(a), Some(b), Some(c)] = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    continue;
+                };
+                let world_points =
+                    [a, b, c].map(|point| resolved.world_transform.transform_point(point));
                 let points = world_points.map(|point| self.world_to_screen(rect, point));
                 let facing = (world_points[1] - world_points[0])
                     .cross(world_points[2] - world_points[0])
                     .dot(view_direction);
-                let depth = triangle
-                    .vertices
+                let depth = world_points
                     .iter()
-                    .map(|vertex| {
-                        let point = resolved
-                            .world_transform
-                            .transform_point(geometry.vertices[vertex].position);
-                        point.x + point.z + point.y * 0.5
-                    })
+                    .map(|point| point.x + point.z + point.y * 0.5)
                     .sum::<f64>()
                     / 3.0;
                 for [a, b] in [[0, 1], [1, 2], [2, 0]] {
-                    let edge = edge_key(triangle.vertices[a], triangle.vertices[b]);
+                    let edge = edge_key(triangle.vertices[a].id, triangle.vertices[b].id);
                     surface_edges.insert(edge);
                     if facing > 0.0 {
                         visible_surface_edges.insert(edge);
@@ -376,18 +360,21 @@ impl Viewport {
                 faces.push((depth, points, color));
             }
             for segment in geometry.segments.values() {
-                if surface_edges.contains(&edge_key(segment.endpoints[0], segment.endpoints[1]))
+                if surface_edges
+                    .contains(&edge_key(segment.endpoints[0].id, segment.endpoints[1].id))
                     && !visible_surface_edges
-                        .contains(&edge_key(segment.endpoints[0], segment.endpoints[1]))
+                        .contains(&edge_key(segment.endpoints[0].id, segment.endpoints[1].id))
                 {
                     continue;
                 }
-                let start = resolved
-                    .world_transform
-                    .transform_point(geometry.vertices[&segment.endpoints[0]].position);
-                let end = resolved
-                    .world_transform
-                    .transform_point(geometry.vertices[&segment.endpoints[1]].position);
+                let (Some(start_local), Some(end_local)) = (
+                    geometry.vertex_position(segment.endpoints[0]),
+                    geometry.vertex_position(segment.endpoints[1]),
+                ) else {
+                    continue;
+                };
+                let start = resolved.world_transform.transform_point(start_local);
+                let end = resolved.world_transform.transform_point(end_local);
                 let depth = (start.x + start.y * 0.5 + start.z + end.x + end.y * 0.5 + end.z) * 0.5;
                 let edge_color = if selected {
                     Color32::from_rgb(244, 166, 77)

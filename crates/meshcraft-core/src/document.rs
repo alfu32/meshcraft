@@ -1,5 +1,5 @@
 use crate::geometry::{Affine3, Vec3};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -106,11 +106,10 @@ impl GeometryBundle {
                     id.0, segment.id.0
                 ));
             }
-            if segment
-                .endpoints
-                .iter()
-                .any(|vertex| !self.vertices.contains_key(vertex))
-            {
+            if segment.endpoints.iter().any(|reference| {
+                self.vertex_position(*reference)
+                    .is_none_or(|point| !point.is_finite())
+            }) {
                 return Err(format!("segment {} has invalid endpoints", id.0));
             }
         }
@@ -121,11 +120,10 @@ impl GeometryBundle {
                     id.0, triangle.id.0
                 ));
             }
-            if triangle
-                .vertices
-                .iter()
-                .any(|vertex| !self.vertices.contains_key(vertex))
-            {
+            if triangle.vertices.iter().any(|reference| {
+                self.vertex_position(*reference)
+                    .is_none_or(|point| !point.is_finite())
+            }) {
                 return Err(format!("triangle {} has invalid vertex references", id.0));
             }
         }
@@ -134,6 +132,13 @@ impl GeometryBundle {
 
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty() && self.segments.is_empty() && self.triangles.is_empty()
+    }
+
+    /// Resolves a primitive corner to its exact point while retaining its topological vertex ID.
+    pub fn vertex_position(&self, reference: VertexRef) -> Option<Vec3> {
+        self.vertices
+            .get(&reference.id)
+            .map(|vertex| vertex.position + reference.position_offset)
     }
 }
 
@@ -145,10 +150,57 @@ pub struct Vertex {
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
+/// A topological vertex reference with a per-corner offset for source formats that store
+/// slightly different coordinates for corners sharing one persisted vertex identity.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct VertexRef {
+    pub id: VertexId,
+    #[serde(default)]
+    pub position_offset: Vec3,
+}
+
+impl<'de> Deserialize<'de> for VertexRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Representation {
+            Legacy(VertexId),
+            Current {
+                id: VertexId,
+                #[serde(default)]
+                position_offset: Vec3,
+            },
+        }
+
+        Ok(match Representation::deserialize(deserializer)? {
+            Representation::Legacy(id) => Self::new(id),
+            Representation::Current {
+                id,
+                position_offset,
+            } => Self {
+                id,
+                position_offset,
+            },
+        })
+    }
+}
+
+impl VertexRef {
+    pub const fn new(id: VertexId) -> Self {
+        Self {
+            id,
+            position_offset: Vec3::ZERO,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Segment {
     pub id: SegmentId,
-    pub endpoints: [VertexId; 2],
+    pub endpoints: [VertexRef; 2],
     pub color: Rgba8,
     #[serde(default)]
     pub legacy_aliases: Vec<LegacyAlias>,
@@ -157,31 +209,38 @@ pub struct Segment {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Triangle {
     pub id: TriangleId,
-    pub vertices: [VertexId; 3],
+    pub vertices: [VertexRef; 3],
     pub color: Rgba8,
     #[serde(default)]
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
-/// A raw vertex supplied by an importer; positions are never welded implicitly.
+/// A raw topological vertex supplied by an importer; positions are never welded implicitly.
 #[derive(Clone, Debug)]
 pub struct RawGeometryVertex {
     pub position: Vec3,
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
-/// A raw segment whose endpoints index the vertex array passed to the import operation.
+/// An indexed reference to a raw vertex plus an exact source-corner position offset.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RawVertexRef {
+    pub vertex: usize,
+    pub position_offset: Vec3,
+}
+
+/// A raw segment whose endpoints reference the vertex array passed to the import operation.
 #[derive(Clone, Debug)]
 pub struct RawGeometrySegment {
-    pub endpoints: [usize; 2],
+    pub endpoints: [RawVertexRef; 2],
     pub color: Rgba8,
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
-/// A raw triangle whose corners index the vertex array passed to the import operation.
+/// A raw triangle whose corners reference the vertex array passed to the import operation.
 #[derive(Clone, Debug)]
 pub struct RawGeometryTriangle {
-    pub vertices: [usize; 3],
+    pub vertices: [RawVertexRef; 3],
     pub color: Rgba8,
     pub legacy_aliases: Vec<LegacyAlias>,
 }
@@ -447,20 +506,16 @@ impl Document {
             return Err("raw geometry contains a non-finite vertex".to_owned());
         }
         for segment in &segments {
-            if segment
-                .endpoints
-                .iter()
-                .any(|index| *index >= vertices.len())
-            {
+            if segment.endpoints.iter().any(|reference| {
+                reference.vertex >= vertices.len() || !reference.position_offset.is_finite()
+            }) {
                 return Err("raw segment references a missing vertex".to_owned());
             }
         }
         for triangle in &triangles {
-            if triangle
-                .vertices
-                .iter()
-                .any(|index| *index >= vertices.len())
-            {
+            if triangle.vertices.iter().any(|reference| {
+                reference.vertex >= vertices.len() || !reference.position_offset.is_finite()
+            }) {
                 return Err("raw triangle references a missing vertex".to_owned());
             }
         }
@@ -489,8 +544,14 @@ impl Document {
                 Segment {
                     id,
                     endpoints: [
-                        vertex_ids[segment.endpoints[0]],
-                        vertex_ids[segment.endpoints[1]],
+                        VertexRef {
+                            id: vertex_ids[segment.endpoints[0].vertex],
+                            position_offset: segment.endpoints[0].position_offset,
+                        },
+                        VertexRef {
+                            id: vertex_ids[segment.endpoints[1].vertex],
+                            position_offset: segment.endpoints[1].position_offset,
+                        },
                     ],
                     color: segment.color,
                     legacy_aliases: segment.legacy_aliases,
@@ -503,7 +564,10 @@ impl Document {
                 id,
                 Triangle {
                     id,
-                    vertices: triangle.vertices.map(|index| vertex_ids[index]),
+                    vertices: triangle.vertices.map(|reference| VertexRef {
+                        id: vertex_ids[reference.vertex],
+                        position_offset: reference.position_offset,
+                    }),
                     color: triangle.color,
                     legacy_aliases: triangle.legacy_aliases,
                 },
@@ -595,7 +659,7 @@ impl Document {
                 id,
                 Segment {
                     id,
-                    endpoints: [vertex_ids[a], vertex_ids[b]],
+                    endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
                 },
@@ -620,7 +684,11 @@ impl Document {
                 id,
                 Triangle {
                     id,
-                    vertices: [vertex_ids[a], vertex_ids[b], vertex_ids[c]],
+                    vertices: [
+                        VertexRef::new(vertex_ids[a]),
+                        VertexRef::new(vertex_ids[b]),
+                        VertexRef::new(vertex_ids[c]),
+                    ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
                 },
@@ -668,7 +736,7 @@ impl Document {
             segment_id,
             Segment {
                 id: segment_id,
-                endpoints: [start_id, end_id],
+                endpoints: [VertexRef::new(start_id), VertexRef::new(end_id)],
                 color: Rgba8::WHITE,
                 legacy_aliases: Vec::new(),
             },
@@ -722,7 +790,7 @@ impl Document {
                 id,
                 Segment {
                     id,
-                    endpoints: [vertex_ids[a], vertex_ids[b]],
+                    endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
                 },
@@ -734,7 +802,11 @@ impl Document {
                 id,
                 Triangle {
                     id,
-                    vertices: [vertex_ids[a], vertex_ids[b], vertex_ids[c]],
+                    vertices: [
+                        VertexRef::new(vertex_ids[a]),
+                        VertexRef::new(vertex_ids[b]),
+                        VertexRef::new(vertex_ids[c]),
+                    ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
                 },
@@ -1299,7 +1371,8 @@ pub struct ResolvedOccurrence<'a> {
 mod tests {
     use super::{
         DefinitionKind, Document, GeometryBundle, InstanceEdits, ModelSettings, OccurrenceRef,
-        Rgba8, Triangle, TriangleId, Vertex, VertexId,
+        RawGeometryTriangle, RawGeometryVertex, RawVertexRef, Rgba8, Triangle, TriangleId, Vertex,
+        VertexId, VertexRef,
     };
     use crate::geometry::{Affine3, Vec3};
     use std::collections::BTreeMap;
@@ -1332,7 +1405,11 @@ mod tests {
             triangle_id,
             Triangle {
                 id: triangle_id,
-                vertices: [VertexId(id + 1), VertexId(id + 2), VertexId(id + 3)],
+                vertices: [
+                    VertexRef::new(VertexId(id + 1)),
+                    VertexRef::new(VertexId(id + 2)),
+                    VertexRef::new(VertexId(id + 3)),
+                ],
                 color: Rgba8::WHITE,
                 legacy_aliases: Vec::new(),
             },
@@ -1580,6 +1657,24 @@ mod tests {
     }
 
     #[test]
+    fn older_indexed_geometry_refs_default_to_zero_corner_offsets() {
+        let mut value = serde_json::to_value(triangle_bundle(200, 0.0)).unwrap();
+        value["triangles"]["204"]["vertices"] = serde_json::json!([201, 202, 203]);
+        let geometry: GeometryBundle = serde_json::from_value(value).unwrap();
+        let triangle = &geometry.triangles[&TriangleId(204)];
+        assert_eq!(
+            [VertexId(201), VertexId(202), VertexId(203)],
+            triangle.vertices.map(|reference| reference.id)
+        );
+        assert!(
+            triangle
+                .vertices
+                .iter()
+                .all(|reference| reference.position_offset == Vec3::ZERO)
+        );
+    }
+
+    #[test]
     fn cuboid_copy_object_and_array_keep_geometry_shared_and_world_positions() {
         let mut document = Document::new();
         let original = document
@@ -1703,7 +1798,9 @@ mod tests {
         assert_eq!(geometry.segments.len(), 4);
         assert_eq!(geometry.triangles.len(), 2);
         for triangle in geometry.triangles.values() {
-            let [a, b, c] = triangle.vertices.map(|id| geometry.vertices[&id].position);
+            let [a, b, c] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference).unwrap());
             assert!((b - a).cross(c - a).y > 0.0);
         }
         assert!(
@@ -1713,6 +1810,94 @@ mod tests {
                 .all(|vertex| vertex.position.y == 0.0)
         );
         assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn indexed_geometry_preserves_corner_offsets_coincident_identity_and_face_colors() {
+        let mut document = Document::new();
+        let bundle = document
+            .build_geometry_bundle_raw(
+                vec![
+                    RawGeometryVertex {
+                        position: Vec3::ZERO,
+                        legacy_aliases: vec![],
+                    },
+                    RawGeometryVertex {
+                        position: Vec3::ZERO,
+                        legacy_aliases: vec![],
+                    },
+                    RawGeometryVertex {
+                        position: Vec3::X,
+                        legacy_aliases: vec![],
+                    },
+                    RawGeometryVertex {
+                        position: Vec3::Y,
+                        legacy_aliases: vec![],
+                    },
+                ],
+                vec![],
+                vec![
+                    RawGeometryTriangle {
+                        vertices: [
+                            RawVertexRef {
+                                vertex: 0,
+                                position_offset: Vec3::ZERO,
+                            },
+                            RawVertexRef {
+                                vertex: 2,
+                                position_offset: Vec3::ZERO,
+                            },
+                            RawVertexRef {
+                                vertex: 3,
+                                position_offset: Vec3::ZERO,
+                            },
+                        ],
+                        color: Rgba8::new(255, 0, 0, 255),
+                        legacy_aliases: vec![],
+                    },
+                    RawGeometryTriangle {
+                        vertices: [
+                            RawVertexRef {
+                                vertex: 0,
+                                position_offset: Vec3::new(0.000_000_5, 0.0, 0.0),
+                            },
+                            RawVertexRef {
+                                vertex: 3,
+                                position_offset: Vec3::ZERO,
+                            },
+                            RawVertexRef {
+                                vertex: 2,
+                                position_offset: Vec3::ZERO,
+                            },
+                        ],
+                        color: Rgba8::new(0, 0, 255, 128),
+                        legacy_aliases: vec![],
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(4, bundle.vertices.len());
+        let vertices: Vec<_> = bundle.vertices.values().collect();
+        assert_ne!(vertices[0].id, vertices[1].id);
+        assert_eq!(vertices[0].position, vertices[1].position);
+        assert_eq!(2, bundle.triangles.len());
+        let triangles: Vec<_> = bundle.triangles.values().collect();
+        assert_eq!(Rgba8::new(255, 0, 0, 255), triangles[0].color);
+        assert_eq!(Rgba8::new(0, 0, 255, 128), triangles[1].color);
+        assert_eq!(triangles[0].vertices[0].id, triangles[1].vertices[0].id);
+        assert_ne!(
+            triangles[0].vertices[0].position_offset,
+            triangles[1].vertices[0].position_offset
+        );
+        assert_eq!(
+            Vec3::new(0.000_000_5, 0.0, 0.0),
+            bundle.vertex_position(triangles[1].vertices[0]).unwrap()
+        );
+        let round_trip: GeometryBundle =
+            serde_json::from_value(serde_json::to_value(&bundle).unwrap()).unwrap();
+        assert_eq!(bundle, round_trip);
+        assert!(round_trip.validate().is_ok());
     }
 
     #[test]

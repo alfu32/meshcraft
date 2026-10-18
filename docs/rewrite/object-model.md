@@ -55,7 +55,7 @@ Keep a small number of canonical concepts, with an explicit authoring/resolution
 | Concept | Canonical fields | Excluded derived/session fields |
 | --- | --- | --- |
 | `Definition` | Stable ID, name, glue/edit profile, optional nonidentity definition frame, authored geometry-bundle ID, typed domain parameters, hotspot definitions, default child-layout ID, external-source metadata | Per-instance selection, resolved triangles, world bounds, cached matrices, runtime hotspots |
-| `GeometryBundle` | Stable vertex records, segment endpoint IDs, triangle vertex IDs and RGBA, dimensions/text, local identities and unknown imported fields | Repeated full vertex vectors on every primitive, selected flags, GPU buffers, spatial indexes |
+| `GeometryBundle` | Stable vertex records, segment/triangle corner references with sparse position offsets and RGBA, dimensions/text, local identities and unknown imported fields | Repeated full vertex vectors on every primitive, selected flags, GPU buffers, spatial indexes |
 | `ChildLayout` | Ordered child-placement templates with stable template IDs, referenced definition, local transform and authored instance inputs | A cloned realized subtree for each parent occurrence |
 | `Placement` / authored occurrence edits | Definition reference, local transform, hotspot/input overrides, optional actual geometry replacement/edit, optional child-layout override | Automatically materialized copies equal to the definition; computed world matrix |
 | `OccurrenceRef` | Root placement and child-template path, with legacy instance-ID aliases as required | A pointer to a mutable copied GroupNode tree |
@@ -71,6 +71,8 @@ Use one effective-content view for viewport, picking, snapping, export, explode,
 ## Geometry identity: remove coordinate copies carefully
 
 The recommended candidate is a per-bundle vertex arena with stable VertexIds and indexed segments/triangles. Primitive types remain segments/triangles; a boundary-loop/half-edge migration is not implied. Shared vertices keep their identity when moved. Newly split topology emits an explicit identity remap consumed by selection/hotspots.
+
+An imported legacy alias may identify one vertex across corners whose serialized coordinates differ slightly. Those corners keep the same `VertexId` and store `position_offset`; `GeometryBundle::vertex_position` returns the original corner coordinate. Equal coordinates without an identity alias remain separate vertices. This avoids both alias loss and coordinate welding.
 
 Legacy files lack a universal authoritative vertex graph. Do not weld every equal/near-equal position or every matching quantized key. Import must record primitive-slot/legacy vertex aliases, reuse identity only where existing semantics establish it, and preserve coincident independent geometry when identity is ambiguous. Coordinate coincidence can inform adjacency predicates without imposing the same edit identity. T46 compares indexed storage and a minimal alternative on real fixtures, measures overhead, and records the selected rule before T03 becomes fixed.
 

@@ -3,7 +3,7 @@
 use crate::document::{
     ChildLayoutId, DefinitionId, DefinitionKind, Document, InstanceEdits, LayoutEntryId,
     LegacyAlias, ModelSettings, OccurrenceRef, RawGeometrySegment, RawGeometryTriangle,
-    RawGeometryVertex, Rgba8,
+    RawGeometryVertex, RawVertexRef, Rgba8,
 };
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use serde_json::{Map, Value};
@@ -47,10 +47,13 @@ impl GeometryDraft {
         aliases: Vec<LegacyAlias>,
         reusable: &mut HashMap<QuantizedVertex, usize>,
         quantized_alias: Option<QuantizedVertex>,
-    ) -> usize {
+    ) -> RawVertexRef {
         if let Some(key) = quantized_alias {
             if let Some(index) = reusable.get(&key) {
-                return *index;
+                return RawVertexRef {
+                    vertex: *index,
+                    position_offset: position - self.vertices[*index].position,
+                };
             }
             let index = self.vertices.len();
             self.vertices.push(RawGeometryVertex {
@@ -58,7 +61,10 @@ impl GeometryDraft {
                 legacy_aliases: aliases,
             });
             reusable.insert(key, index);
-            return index;
+            return RawVertexRef {
+                vertex: index,
+                position_offset: Vec3::ZERO,
+            };
         }
 
         let index = self.vertices.len();
@@ -66,7 +72,10 @@ impl GeometryDraft {
             position,
             legacy_aliases: aliases,
         });
-        index
+        RawVertexRef {
+            vertex: index,
+            position_offset: Vec3::ZERO,
+        }
     }
 
     fn into_parts(
@@ -485,7 +494,10 @@ fn parse_prototype_geometry(
             read_vec3(face.get("b"), &format!("{face_path}/b"))?,
             read_vec3(face.get("c"), &format!("{face_path}/c"))?,
         ];
-        let mut indices = [0; 3];
+        let mut indices = [RawVertexRef {
+            vertex: 0,
+            position_offset: Vec3::ZERO,
+        }; 3];
         for (corner, point) in points.into_iter().enumerate() {
             indices[corner] = geometry.add_vertex(
                 point,
@@ -1199,16 +1211,77 @@ mod tests {
         );
         let same_legacy_vertex = geometry.add_vertex(
             Vec3::new(0.010_000_5, 0.02, 0.03),
-            alias,
+            alias.clone(),
             &mut reusable,
             Some(key),
         );
+        let exact_legacy_vertex =
+            geometry.add_vertex(Vec3::new(0.01, 0.02, 0.03), alias, &mut reusable, Some(key));
         let unaliased_first =
             geometry.add_vertex(Vec3::new(0.01, 0.02, 0.03), Vec::new(), &mut reusable, None);
         let unaliased_second =
             geometry.add_vertex(Vec3::new(0.01, 0.02, 0.03), Vec::new(), &mut reusable, None);
-        assert_eq!(first, same_legacy_vertex);
-        assert_ne!(unaliased_first, unaliased_second);
+        assert_eq!(first.vertex, same_legacy_vertex.vertex);
+        assert_eq!(first.vertex, exact_legacy_vertex.vertex);
+        assert_eq!(Vec3::ZERO, exact_legacy_vertex.position_offset);
+        assert_ne!(Vec3::ZERO, same_legacy_vertex.position_offset);
+        let canonical = geometry.vertices[first.vertex].position;
+        assert_eq!(Vec3::new(0.01, 0.02, 0.03), canonical);
+        assert_eq!(
+            Vec3::new(0.010_000_5, 0.02, 0.03),
+            canonical + same_legacy_vertex.position_offset
+        );
+        assert_ne!(unaliased_first.vertex, unaliased_second.vertex);
         assert_eq!(3, geometry.vertices.len());
+    }
+
+    #[test]
+    fn imports_shared_legacy_vertex_aliases_without_losing_corner_coordinates() {
+        let source = r#"{
+            "prototypes": [{
+                "id": "root",
+                "name": "Root",
+                "definitionAxisU":{"x":1}, "definitionAxisV":{"y":1}, "definitionAxisW":{"z":1},
+                "prototypeVertices": [{"id":"vertex-1","x":10,"y":20,"z":30}],
+                "segments": [
+                    {"start":{"x":0.01,"y":0.02,"z":0.03},"end":{"x":1,"y":0,"z":0}},
+                    {"start":{"x":0.0100005,"y":0.02,"z":0.03},"end":{"x":1,"y":0,"z":0}}
+                ]
+            }],
+            "rootInstance": {
+                "id":"root-instance", "prototypeId":"root",
+                "instanceAxisU":{"x":1}, "instanceAxisV":{"y":1}, "instanceAxisW":{"z":1}
+            }
+        }"#;
+        let document = import_current_json(source).unwrap();
+        let occurrence = document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let geometry = document.effective_geometry(&occurrence).unwrap();
+        let segments: Vec<_> = geometry.segments.values().collect();
+        let first_corner = segments[0].endpoints[0];
+        let second_corner = segments[1].endpoints[0];
+
+        assert_eq!(first_corner.id, second_corner.id);
+        assert_ne!(first_corner.position_offset, second_corner.position_offset);
+        assert_eq!(
+            Vec3::new(0.01, 0.02, 0.03),
+            geometry.vertex_position(first_corner).unwrap()
+        );
+        assert_eq!(
+            Vec3::new(0.010_000_5, 0.02, 0.03),
+            geometry.vertex_position(second_corner).unwrap()
+        );
+        assert_ne!(segments[0].endpoints[1].id, segments[1].endpoints[1].id);
+        assert!(
+            geometry.vertices[&first_corner.id]
+                .legacy_aliases
+                .iter()
+                .any(|alias| alias.source == "k3d.vertex" && alias.id == "vertex-1")
+        );
+        assert!(document.validate().is_ok());
     }
 }
