@@ -2489,17 +2489,17 @@
         "measurements"
       ],
       "slices": [
-        "Inventory the currently enabled geometry commands and every pending pick stage; identify stages without geometry or vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals.",
+        "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals; include Paint target and selected-object Array previews.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
       "done": [
-        "Every enabled tool that constructs or changes geometry gives live preview at each pending pick stage; only selection is exempt.",
+        "Every enabled tool that constructs or changes geometry gives live preview at each pending pick or parameter stage; only selection is exempt.",
         "Vector feedback shows distance and relative coordinates, and preview data agrees with committed geometry for snapped, numeric and entered-definition workflows."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     }
   ]
 }

@@ -1,8 +1,8 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
-    SelectionGesture, SnapKind, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview,
-    Viewport, ViewportClick, ViewportScene, WalkthroughTuning,
+    SelectionGesture, SnapKind, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolFeedback,
+    ToolPreview, Viewport, ViewportClick, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -77,7 +77,24 @@ fn push_pull_feedback_text(displacement: Vec3, unit_name: &str) -> String {
         unit_name.trim()
     };
     format!(
-        "Push/Pull: {:.2} {unit_name} | ΔX {:.2}, ΔY {:.2}, ΔZ {:.2} {unit_name}",
+        "Push/Pull: {:.3} {unit_name} | ΔX {:+.3}, ΔY {:+.3}, ΔZ {:+.3} {unit_name}",
+        displacement.length(),
+        displacement.x,
+        displacement.y,
+        displacement.z,
+    )
+}
+
+fn point_feedback_text(tool: &str, point: Vec3, unit_name: &str) -> String {
+    format!(
+        "{tool}: X {:.3}, Y {:.3}, Z {:.3} {unit_name}",
+        point.x, point.y, point.z
+    )
+}
+
+fn vector_feedback_text(tool: &str, displacement: Vec3, unit_name: &str) -> String {
+    format!(
+        "{tool}: {:.3} {unit_name} | ΔX {:+.3}, ΔY {:+.3}, ΔZ {:+.3} {unit_name}",
         displacement.length(),
         displacement.x,
         displacement.y,
@@ -1824,6 +1841,7 @@ pub struct MeshcraftApp {
     current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
+    array_preview: Option<OccurrenceRef>,
     pending_selection_volume: Option<Vec3>,
 }
 
@@ -1972,6 +1990,7 @@ impl MeshcraftApp {
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
+            array_preview: None,
             pending_selection_volume: None,
         }
     }
@@ -3636,6 +3655,7 @@ impl MeshcraftApp {
     fn activate_tool(&mut self, tool: &str) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
+        self.array_preview = None;
         self.clear_push_pull_transient();
         self.active_tool = tool.to_owned();
         if tool == "Orbit" {
@@ -5069,6 +5089,7 @@ impl MeshcraftApp {
                 .ok_or_else(|| "Array could not create the requested object instances.".to_owned())
         }) {
             Ok(copies) => {
+                self.array_preview = None;
                 self.set_selection(copies.clone());
                 self.status = format!("Created {} array copies.", count);
                 command_result_with_occurrences(CommandResult::completed(), &copies)
@@ -5080,6 +5101,7 @@ impl MeshcraftApp {
     fn cancel_active_tool(&mut self) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
+        self.array_preview = None;
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
         self.cuboid_base = None;
@@ -5995,75 +6017,188 @@ impl MeshcraftApp {
     }
 
     fn tool_preview(
-        &self,
+        &mut self,
         rect: egui::Rect,
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if let Some(source) = self.array_preview.clone() {
+            let selected = self.selected_occurrences();
+            if selected.len() != 1 || selected.first() != Some(&source) {
+                self.array_preview = None;
+                return None;
+            }
+            if self.array_count == 0 || !self.array_spacing.is_finite() {
+                return None;
+            }
+            let edges = modeling_transforms::preview_selection_transform(
+                &self.document,
+                &self.selection,
+                Affine3::IDENTITY,
+            )
+            .ok()?;
+            if !edges.is_empty() {
+                return Some(ToolPreview::Array {
+                    edges,
+                    copies: self.array_count,
+                    displacement: Vec3::X * self.array_spacing,
+                });
+            }
+            return None;
+        }
         let position = pointer?;
+        let point = snap
+            .map(|result| result.point)
+            .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+        let point_preview = || point.and_then(|position| self.feedback_preview(position));
         if self.object_place_tool_state.active_definition().is_some() {
-            let preview = self
+            if let Ok(Some(preview)) = self
                 .object_place_tool_state
                 .preview(&self.document, &self.selection.context)
-                .ok()??;
-            let source = self
+                && let Some(source) = self
+                    .selection
+                    .selected()
+                    .iter()
+                    .find(|target| target.entity == SelectedEntity::Occurrence)
+                && let Some(source_world) = self
+                    .document
+                    .resolve_occurrence(&source.occurrence)
+                    .map(|resolved| resolved.world_transform)
+                && let Some(inverse) = source_world.inverse(GeometryTolerance::default())
+                && let Ok(edges) = modeling_transforms::preview_selection_transform(
+                    &self.document,
+                    &self.selection,
+                    preview.world_transform.compose(inverse),
+                )
+                && !edges.is_empty()
+            {
+                return Some(ToolPreview::Transform { edges });
+            }
+            return point_preview();
+        }
+        if self.active_tool == "Paint" {
+            let scope = match &self.selection.context {
+                EditContext::Document => SnapScope::Document,
+                EditContext::Definition(definition) => SnapScope::Definition(*definition),
+                EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+            };
+            let mut targets = self
                 .selection
                 .selected()
                 .iter()
-                .find(|target| target.entity == SelectedEntity::Occurrence)?;
-            let source_world = self
-                .document
-                .resolve_occurrence(&source.occurrence)?
-                .world_transform;
-            let inverse = source_world.inverse(GeometryTolerance::default())?;
-            let placement_delta = preview.world_transform.compose(inverse);
-            let edges = modeling_transforms::preview_selection_transform(
+                .filter(|target| {
+                    matches!(
+                        target.entity,
+                        SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+                    )
+                })
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            if let Some(target) = self.viewport.pick_selection_target(
+                rect,
                 &self.document,
-                &self.selection,
-                placement_delta,
-            )
-            .ok()?;
-            if !edges.is_empty() {
-                return Some(ToolPreview::Transform { edges });
+                position,
+                scope,
+                &self.selection_display_policy,
+            ) && matches!(
+                target.entity,
+                SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+            ) {
+                targets.insert(target);
             }
-        }
-        if self.transform_tool_state.active().is_some() {
-            let point = snap
-                .map(|result| result.point)
-                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
-            let transform = self.transform_tool_state.preview(Some(point))?;
-            let edges = modeling_transforms::preview_selection_transform(
-                &self.document,
-                &self.selection,
-                transform,
-            )
-            .ok()?;
-            if !edges.is_empty() {
-                return Some(ToolPreview::Transform { edges });
+            if targets.is_empty() {
+                return None;
             }
-        }
-        if self.shape_tool_state.active().is_some() {
-            let point = snap
-                .map(|result| result.point)
-                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
-            let preview = self.shape_tool_state.preview(
-                point,
-                self.viewport.construction_plane_normal(),
-                self.document.model_settings().circle_segments,
-            )?;
-            return Some(ToolPreview::PlanarShape {
-                outline: preview.outline,
-                closed: preview.closed,
-                measurements: preview.measurements,
+            let mut edges = Vec::new();
+            let mut triangles = Vec::new();
+            for target in targets {
+                let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
+                    continue;
+                };
+                let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+                    continue;
+                };
+                match target.entity {
+                    SelectedEntity::Segment(id) => {
+                        let Some(segment) = geometry.segments.get(&id) else {
+                            continue;
+                        };
+                        let [Some(start), Some(end)] = segment
+                            .endpoints
+                            .map(|vertex| geometry.vertex_position(vertex))
+                        else {
+                            continue;
+                        };
+                        edges.push([
+                            resolved.world_transform.transform_point(start),
+                            resolved.world_transform.transform_point(end),
+                        ]);
+                    }
+                    SelectedEntity::Triangle(id) => {
+                        let Some(triangle) = geometry.triangles.get(&id) else {
+                            continue;
+                        };
+                        let [Some(a), Some(b), Some(c)] = triangle
+                            .vertices
+                            .map(|vertex| geometry.vertex_position(vertex))
+                        else {
+                            continue;
+                        };
+                        triangles.push(
+                            [a, b, c].map(|point| resolved.world_transform.transform_point(point)),
+                        );
+                    }
+                    _ => continue,
+                }
+            }
+            return Some(ToolPreview::Paint {
+                edges,
+                triangles,
+                color: self.current_paint_color,
             });
         }
+        if self.transform_tool_state.active().is_some() {
+            let point = point?;
+            if let Some(transform) = self.transform_tool_state.preview(Some(point))
+                && let Ok(edges) = modeling_transforms::preview_selection_transform(
+                    &self.document,
+                    &self.selection,
+                    transform,
+                )
+                && !edges.is_empty()
+            {
+                return Some(ToolPreview::Transform { edges });
+            }
+            return point_preview();
+        }
+        if self.shape_tool_state.active().is_some() {
+            let point = point?;
+            return Some(
+                self.shape_tool_state
+                    .preview(
+                        point,
+                        self.viewport.construction_plane_normal(),
+                        self.document.model_settings().circle_segments,
+                    )
+                    .map(|preview| ToolPreview::PlanarShape {
+                        outline: preview.outline,
+                        closed: preview.closed,
+                        measurements: preview.measurements,
+                    })
+                    .unwrap_or_else(|| {
+                        self.feedback_preview(point)
+                            .unwrap_or(ToolPreview::Point { position: point })
+                    }),
+            );
+        }
         if self.polyline_tool_state.active() {
-            let point = snap
-                .map(|result| result.point)
-                .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
-            let preview = self
+            let point = point?;
+            let Some(preview) = self
                 .polyline_tool_state
-                .preview(point, self.document.model_settings().arc_max_length)?;
+                .preview(point, self.document.model_settings().arc_max_length)
+            else {
+                return point_preview();
+            };
             if self.active_tool == "Double Line" {
                 let (_, occurrence, inverse) = self.line_geometry_context();
                 let local_path = PolylinePath {
@@ -6085,11 +6220,17 @@ impl MeshcraftApp {
                     settings.double_line_offset,
                     local_plane_normal,
                 )
-                .ok()?;
+                .ok();
+                let Some(mesh) = mesh else {
+                    return point_preview();
+                };
                 let world_transform = self
                     .document
-                    .resolve_occurrence(&occurrence)?
-                    .world_transform;
+                    .resolve_occurrence(&occurrence)
+                    .map(|resolved| resolved.world_transform);
+                let Some(world_transform) = world_transform else {
+                    return point_preview();
+                };
                 let edges = mesh
                     .segments
                     .iter()
@@ -6112,6 +6253,7 @@ impl MeshcraftApp {
             if !edges.is_empty() {
                 return Some(ToolPreview::Transform { edges });
             }
+            return point_preview();
         }
         if let (Some(reference), Some(target)) = (
             self.line_offset_tool_state.reference(),
@@ -6134,6 +6276,9 @@ impl MeshcraftApp {
                     signed_offset,
                 });
             }
+        }
+        if self.active_tool == "Line Offset" {
+            return point_preview();
         }
         if let (Some(reference), Some(displacement)) =
             (self.push_pull_reference, self.push_pull_displacement())
@@ -6168,18 +6313,36 @@ impl MeshcraftApp {
                 end: reference + displacement,
             });
         }
+        if self.active_tool == "Push/Pull" {
+            return point_preview();
+        }
         match self.active_tool.as_str() {
             "Cuboid" => {
-                let (first, opposite) = self.cuboid_base?;
+                let ground = snap
+                    .map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
+                    .or_else(|| self.viewport.screen_to_ground(rect, position));
+                let ground = ground?;
+                let Some((first, opposite)) = self.cuboid_base else {
+                    return self.feedback_preview(ground);
+                };
                 let center = Vec3::new(
                     (first.x + opposite.x) * 0.5,
                     0.0,
                     (first.z + opposite.z) * 0.5,
                 );
-                let height = self
-                    .viewport
-                    .height_from_screen_position(rect, center, position)?
-                    .max(0.05);
+                let Some(height) = snap
+                    .filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
+                    .map(|snap| snap.point.y)
+                    .or_else(|| {
+                        self.viewport
+                            .height_from_screen_position(rect, center, position)
+                    })
+                else {
+                    return self.feedback_preview(ground);
+                };
+                if !height.is_finite() || height < 0.05 {
+                    return self.feedback_preview(Vec3::new(center.x, height, center.z));
+                }
                 Some(ToolPreview::Cuboid(CuboidPreview {
                     origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
                     dimensions: Vec3::new(
@@ -6190,13 +6353,154 @@ impl MeshcraftApp {
                 }))
             }
             "Line" | "Construction Line" => {
-                let point = snap
-                    .map(|snap| snap.point)
-                    .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
                 let preview = self.drawing_tool.preview(point);
-                let [start, end] = preview.segment?;
-                Some(ToolPreview::Line { start, end })
+                preview.segment.map_or_else(point_preview, |[start, end]| {
+                    Some(ToolPreview::Line { start, end })
+                })
             }
+            "Axis Guide" | "Grid Guide" => point_preview(),
+            _ => None,
+        }
+    }
+
+    fn tool_feedback(
+        &self,
+        rect: egui::Rect,
+        pointer: Option<egui::Pos2>,
+        snap: Option<SnapResult>,
+        preview: Option<&ToolPreview>,
+    ) -> Option<ToolFeedback> {
+        let screen_position = pointer?;
+        if self.array_preview.is_none()
+            && (self.active_tool == "Select"
+                || matches!(
+                    self.active_tool.as_str(),
+                    "Orbit" | "Pan" | "Zoom" | "Remove Guide"
+                ))
+        {
+            return None;
+        }
+
+        let unit_name = self.document.model_settings().unit_name.trim();
+        let unit_name = if unit_name.is_empty() {
+            "units"
+        } else {
+            unit_name
+        };
+        if let Some(ToolPreview::Array {
+            copies,
+            displacement,
+            ..
+        }) = preview
+        {
+            return Some(ToolFeedback {
+                screen_position,
+                text: format!(
+                    "Array preview: {copies} copies | {}",
+                    vector_feedback_text("Copy", *displacement, unit_name)
+                ),
+            });
+        }
+        if self.active_tool == "Paint" {
+            if !matches!(preview, Some(ToolPreview::Paint { .. })) {
+                return None;
+            }
+            let color = self.current_paint_color;
+            return Some(ToolFeedback {
+                screen_position,
+                text: format!(
+                    "Paint preview: #{:02x}{:02x}{:02x}{:02x}",
+                    color.red, color.green, color.blue, color.alpha
+                ),
+            });
+        }
+
+        let point = if self.active_tool == "Cuboid" {
+            if let Some((first, opposite)) = self.cuboid_base {
+                let center = Vec3::new(
+                    (first.x + opposite.x) * 0.5,
+                    0.0,
+                    (first.z + opposite.z) * 0.5,
+                );
+                snap.filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
+                    .map(|snap| snap.point.y)
+                    .or_else(|| {
+                        self.viewport
+                            .height_from_screen_position(rect, center, screen_position)
+                    })
+                    .map(|height| Vec3::new(center.x, height, center.z))?
+            } else {
+                snap.map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
+                    .or_else(|| self.viewport.screen_to_ground(rect, screen_position))?
+            }
+        } else {
+            snap.map(|snap| snap.point).or_else(|| {
+                self.viewport
+                    .screen_to_construction_plane(rect, screen_position)
+            })?
+        };
+
+        let label = match self.active_tool.as_str() {
+            "Line" | "Construction Line" | "Rectangle" | "Surface Rect" | "Quad" | "Circle"
+            | "Polyline" | "Double Line" | "Line Offset" | "Push/Pull" | "Move" | "Rotate"
+            | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" | "Cuboid"
+            | "Object Place" | "Axis Guide" | "Grid Guide" => self.active_tool.as_str(),
+            "Mesh" => "Mesh",
+            _ => return None,
+        };
+        let reference = self.tool_reference_point();
+
+        let displacement = match self.active_tool.as_str() {
+            "Line" | "Construction Line" => self
+                .drawing_tool
+                .preview(Some(point))
+                .segment
+                .map(|[start, end]| end - start),
+            "Push/Pull" => self.push_pull_displacement(),
+            _ => reference.map(|reference| point - reference),
+        };
+        let text = displacement.map_or_else(
+            || point_feedback_text(label, point, unit_name),
+            |delta| vector_feedback_text(label, delta, unit_name),
+        );
+        Some(ToolFeedback {
+            screen_position,
+            text,
+        })
+    }
+
+    fn feedback_preview(&self, point: Vec3) -> Option<ToolPreview> {
+        Some(match self.tool_reference_point() {
+            Some(start) if start.distance(point) > 1.0e-12 => {
+                ToolPreview::Line { start, end: point }
+            }
+            _ => ToolPreview::Point { position: point },
+        })
+    }
+
+    fn tool_reference_point(&self) -> Option<Vec3> {
+        match self.active_tool.as_str() {
+            "Line" | "Construction Line" => self.drawing_tool.anchor(),
+            "Rectangle" | "Surface Rect" | "Quad" | "Circle" => {
+                self.shape_tool_state.picks().last().copied()
+            }
+            "Polyline" | "Double Line" => self.polyline_tool_state.points().last().copied(),
+            "Mesh" => self.mesh_tool_state.points().last().copied(),
+            "Line Offset" => self.line_offset_tool_state.reference(),
+            "Push/Pull" => self.push_pull_reference,
+            "Move" | "Rotate" | "Scale" | "Stretch" | "Stretch Scale" | "Rotate Stretch" => {
+                self.transform_tool_state.points().last().copied()
+            }
+            "Cuboid" => self
+                .cuboid_base
+                .map(|(first, opposite)| {
+                    Vec3::new(
+                        (first.x + opposite.x) * 0.5,
+                        0.0,
+                        (first.z + opposite.z) * 0.5,
+                    )
+                })
+                .or(self.cuboid_first),
             _ => None,
         }
     }
@@ -6694,11 +6998,12 @@ impl MeshcraftApp {
             });
         }
         let visible_guides = if self.preferences.show_construction_guides {
-            self.guides.as_slice()
+            self.guides.clone()
         } else {
-            &[]
+            Vec::new()
         };
         let preview = self.tool_preview(predicted_rect, pointer, snap);
+        let feedback = self.tool_feedback(predicted_rect, pointer, snap, preview.as_ref());
         let guide_preview = if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
             snap.and_then(|snap| {
                 let kind = if self.active_tool == "Axis Guide" {
@@ -6732,8 +7037,9 @@ impl MeshcraftApp {
                 display_policy: &self.selection_display_policy,
                 active_tool: &self.active_tool,
                 preview,
+                feedback,
                 snap,
-                guides: visible_guides,
+                guides: &visible_guides,
                 guide_preview,
                 grid: GridStyle {
                     visible: self.preferences.show_permanent_grid,
@@ -7472,6 +7778,22 @@ impl MeshcraftApp {
                                     .speed(0.1)
                                     .prefix("Spacing: "),
                             );
+                            let array_state = self.query_command_state("object.array_selection");
+                            let preview_label = if self.array_preview.is_some() {
+                                "Hide Array Preview"
+                            } else {
+                                "Preview Array"
+                            };
+                            if ui
+                                .add_enabled(array_state.enabled, egui::Button::new(preview_label))
+                                .clicked()
+                            {
+                                self.array_preview = if self.array_preview.is_some() {
+                                    None
+                                } else {
+                                    self.selected_occurrences().into_iter().next()
+                                };
+                            }
                             ui.horizontal(|ui| {
                                 if ui.button("Copy").clicked() {
                                     self.run_command("edit.copy_selection");
@@ -8134,12 +8456,13 @@ mod tests {
         MeshcraftApp, OrthoView, PolylineToolState, Preferences, ReplacementDecision,
         SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionMode,
         SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
-        TransactionHistory, TransformTool, TransformToolState, UiProfile, command_matches,
-        push_pull_feedback_text, registry_has_unique_ids, shell_commands, tool_command_id,
+        TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
+        command_matches, point_feedback_text, push_pull_feedback_text, registry_has_unique_ids,
+        shell_commands, tool_command_id, vector_feedback_text,
     };
     use crate::viewport::{
-        ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
-        SnapResult, SnapScope, ToolPreview, Viewport, ViewportClick,
+        ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, SelectionGesture,
+        SnapKind, SnapResult, SnapScope, ToolPreview, Viewport, ViewportClick,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -8329,6 +8652,7 @@ mod tests {
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
+            array_preview: None,
             pending_selection_volume: None,
         }
     }
@@ -9619,6 +9943,22 @@ mod tests {
         }
         let color_result = app.dispatch_command("paint.set_color", &payload);
         assert_eq!(CommandCompletion::Completed, color_result.result.completion);
+        app.activate_tool("Paint");
+        let paint_preview = app
+            .tool_preview(
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)),
+                Some(Pos2::ZERO),
+                None,
+            )
+            .expect("selected faces preview the paint-selection operation");
+        assert!(matches!(
+            &paint_preview,
+            ToolPreview::Paint {
+                triangles,
+                color: preview_color,
+                ..
+            } if !triangles.is_empty() && *preview_color == color
+        ));
         let paint_result =
             app.dispatch_command("paint.apply_selection", &CommandPayload::default());
         assert_eq!(CommandCompletion::Completed, paint_result.result.completion);
@@ -9677,6 +10017,15 @@ mod tests {
             .expect("a cuboid face should be visible to the viewport picker");
         let color = Rgba8::new(222, 44, 91, 177);
         app.current_paint_color = color;
+        let preview = app.tool_preview(rect, Some(position), None);
+        let Some(ToolPreview::Paint { triangles, .. }) = preview.as_ref() else {
+            panic!("Paint should preview the hovered face in the current color");
+        };
+        assert_eq!(1, triangles.len());
+        let feedback = app
+            .tool_feedback(rect, Some(position), None, preview.as_ref())
+            .expect("Paint shows feedback for its hovered target");
+        assert!(feedback.text.contains("#de2c5bb1"), "{}", feedback.text);
         app.handle_viewport_click_at_point(rect, position, None, Some(point));
 
         let painted_id = match target.entity {
@@ -9971,7 +10320,7 @@ mod tests {
         assert!(activation.accepted, "{}", app.status);
         assert_eq!("Push/Pull", app.active_tool);
         assert_eq!(
-            "Push/Pull: 3.74 meter | ΔX -1.00, ΔY 2.00, ΔZ 3.00 meter",
+            "Push/Pull: 3.742 meter | ΔX -1.000, ΔY +2.000, ΔZ +3.000 meter",
             push_pull_feedback_text(Vec3::new(-1.0, 2.0, 3.0), "meter")
         );
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
@@ -10181,6 +10530,209 @@ mod tests {
         assert_eq!(history_count, app.history.entries().len());
         assert_eq!("Select", app.active_tool);
         assert!(app.push_pull_reference.is_none());
+    }
+
+    #[test]
+    fn point_input_feedback_reports_coordinates_and_signed_vectors_to_three_decimals() {
+        assert_eq!(
+            "Line: 0.500 meter | ΔX +0.500, ΔY +0.000, ΔZ +0.000 meter",
+            vector_feedback_text("Line", Vec3::new(0.5, 0.0, 0.0), "meter")
+        );
+        assert_eq!(
+            "Circle: X 1.235, Y -2.000, Z 0.000 meter",
+            point_feedback_text("Circle", Vec3::new(1.23456, -2.0, 0.0), "meter")
+        );
+
+        let mut app = test_app();
+        app.activate_tool("Line");
+        app.drawing_tool.handle(ToolEvent::Pick(Vec3::ZERO));
+        let snap = SnapResult {
+            point: Vec3::X * 0.5,
+            normal: Vec3::Y,
+            kind: SnapKind::Endpoint,
+            screen_distance: 0.0,
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap));
+        let Some(ToolPreview::Line { start, end }) = preview.as_ref() else {
+            panic!("line tool should show a live endpoint vector");
+        };
+        assert_eq!(Vec3::ZERO, *start);
+        assert_eq!(snap.point, *end);
+        let feedback = app
+            .tool_feedback(rect, Some(Pos2::ZERO), Some(snap), preview.as_ref())
+            .expect("point-input tools display live measurement feedback");
+        assert!(feedback.text.contains("0.500 unit"));
+        assert!(feedback.text.contains("ΔX +0.500"));
+    }
+
+    #[test]
+    fn every_transform_pick_stage_shows_a_point_vector_or_transformed_selection_preview() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let cases = [
+            (TransformTool::Move, vec![Vec3::ZERO], Vec3::X * 2.0),
+            (TransformTool::Stretch, vec![Vec3::ZERO], Vec3::X * 2.0),
+            (
+                TransformTool::Scale,
+                vec![Vec3::ZERO, Vec3::X],
+                Vec3::X * 2.0,
+            ),
+            (
+                TransformTool::StretchScale,
+                vec![Vec3::ZERO, Vec3::X],
+                Vec3::X * 2.0,
+            ),
+            (
+                TransformTool::Rotate,
+                vec![Vec3::ZERO, Vec3::Y, Vec3::X],
+                Vec3::Z,
+            ),
+            (
+                TransformTool::RotateStretch,
+                vec![Vec3::ZERO, Vec3::Y, Vec3::X],
+                Vec3::Z,
+            ),
+        ];
+
+        for (tool, picks, pointer) in cases {
+            for accepted in 0..=picks.len() {
+                let mut app = test_app();
+                let occurrence = app
+                    .document
+                    .add_cuboid("feedback target", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+                    .unwrap();
+                app.set_selection([occurrence]);
+                app.activate_tool(tool.label());
+                for point in picks.iter().take(accepted) {
+                    assert!(matches!(
+                        app.transform_tool_state.pick(*point),
+                        TransformPick::NeedPoint { .. }
+                    ));
+                }
+                let snap = SnapResult {
+                    point: pointer,
+                    normal: Vec3::Y,
+                    kind: SnapKind::Grid,
+                    screen_distance: 0.0,
+                };
+                let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap));
+                if accepted == 0 {
+                    assert!(
+                        matches!(&preview, Some(ToolPreview::Point { .. })),
+                        "{}",
+                        tool.label()
+                    );
+                } else if accepted == picks.len() {
+                    assert!(
+                        matches!(&preview, Some(ToolPreview::Transform { .. })),
+                        "{}",
+                        tool.label()
+                    );
+                } else {
+                    assert!(
+                        matches!(&preview, Some(ToolPreview::Line { .. })),
+                        "{}",
+                        tool.label()
+                    );
+                }
+                let feedback = app
+                    .tool_feedback(rect, Some(Pos2::ZERO), Some(snap), preview.as_ref())
+                    .expect("transform stages report pointer feedback");
+                if accepted == 0 {
+                    assert!(feedback.text.contains("X "), "{}", tool.label());
+                } else {
+                    assert!(feedback.text.contains("ΔX "), "{}", tool.label());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn construction_tools_show_feedback_before_and_after_their_first_pick() {
+        fn snap(point: Vec3) -> SnapResult {
+            SnapResult {
+                point,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            }
+        }
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let start = Vec3::ZERO;
+        let end = Vec3::new(2.0, 0.0, 1.0);
+
+        for tool in ["Rectangle", "Surface Rect", "Quad", "Circle"] {
+            let mut app = test_app();
+            app.activate_tool(tool);
+            let first_preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap(start)));
+            assert!(
+                matches!(
+                    &first_preview,
+                    Some(ToolPreview::Point { position }) if *position == start
+                ),
+                "{tool} should show its first snapped point"
+            );
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(start)), Some(start));
+            let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap(end)));
+            assert!(
+                matches!(&preview, Some(ToolPreview::PlanarShape { .. })),
+                "{tool} should generate geometry preview after its reference pick"
+            );
+            let feedback = app
+                .tool_feedback(rect, Some(Pos2::ZERO), Some(snap(end)), preview.as_ref())
+                .expect("planar tools display measurement feedback");
+            assert!(feedback.text.contains("ΔX +2.000"), "{tool}");
+        }
+
+        for tool in ["Polyline", "Double Line"] {
+            let mut app = test_app();
+            app.activate_tool(tool);
+            let first_preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap(start)));
+            assert!(
+                matches!(&first_preview, Some(ToolPreview::Point { .. })),
+                "{tool} should show its first snapped point"
+            );
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(start)), Some(start));
+            let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap(end)));
+            if tool == "Polyline" {
+                assert!(matches!(&preview, Some(ToolPreview::Polyline { .. })));
+            } else {
+                assert!(matches!(&preview, Some(ToolPreview::Transform { .. })));
+            }
+            let feedback = app
+                .tool_feedback(rect, Some(Pos2::ZERO), Some(snap(end)), preview.as_ref())
+                .expect("path tools display their current segment measurement");
+            assert!(feedback.text.contains("ΔX +2.000"), "{tool}");
+        }
+
+        let mut mesh = test_app();
+        mesh.activate_tool("Mesh");
+        let first_preview = mesh.tool_preview(rect, Some(Pos2::ZERO), Some(snap(start)));
+        assert!(matches!(&first_preview, Some(ToolPreview::Point { .. })));
+        mesh.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(start)), Some(start));
+        mesh.mesh_tool_state.set_pointer(Some(end));
+        let preview = mesh.tool_preview(rect, Some(Pos2::ZERO), Some(snap(end)));
+        assert!(matches!(&preview, Some(ToolPreview::Transform { .. })));
+        assert!(
+            mesh.tool_feedback(rect, Some(Pos2::ZERO), Some(snap(end)), preview.as_ref())
+                .unwrap()
+                .text
+                .contains("ΔX +2.000")
+        );
+
+        let mut cuboid = test_app();
+        cuboid.activate_tool("Cuboid");
+        cuboid.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap(start)), Some(start));
+        let preview = cuboid.tool_preview(rect, Some(Pos2::ZERO), Some(snap(end)));
+        assert!(matches!(&preview, Some(ToolPreview::Line { .. })));
+        assert!(
+            cuboid
+                .tool_feedback(rect, Some(Pos2::ZERO), Some(snap(end)), preview.as_ref())
+                .unwrap()
+                .text
+                .contains("ΔX +2.000")
+        );
     }
 
     #[test]
@@ -10829,6 +11381,16 @@ mod tests {
 
         let height_point = Vec3::new(2.0, 4.5, 3.0);
         let snap = snap_at(height_point);
+        let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap));
+        assert!(matches!(
+            &preview,
+            Some(ToolPreview::Cuboid(CuboidPreview { dimensions, .. }))
+                if (dimensions.y - 4.5).abs() < 1.0e-9
+        ));
+        let feedback = app
+            .tool_feedback(rect, Some(Pos2::ZERO), Some(snap), preview.as_ref())
+            .expect("cuboid height stage reports its snapped vector");
+        assert!(feedback.text.contains("ΔY +4.500"));
         app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(snap.point));
 
         let occurrence = app.selected_occurrences().remove(0);
@@ -11436,6 +11998,61 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(vec![3.0, 7.0], x_positions);
+    }
+
+    #[test]
+    fn array_preview_tracks_parameters_and_matches_committed_copy_geometry() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let source = app.selected_occurrences()[0].clone();
+        app.array_count = 2;
+        app.array_spacing = 4.0;
+        app.array_preview = Some(source);
+
+        let preview = app
+            .tool_preview(Rect::NOTHING, None, None)
+            .expect("array parameter preview is independent of pointer position");
+        let ToolPreview::Array {
+            edges,
+            copies,
+            displacement,
+        } = &preview
+        else {
+            panic!("Array should preview translated copies of the selected object");
+        };
+        assert_eq!(2, *copies);
+        assert_eq!(Vec3::X * 4.0, *displacement);
+        assert!(!edges.is_empty());
+        let feedback = app
+            .tool_feedback(Rect::NOTHING, Some(Pos2::ZERO), None, Some(&preview))
+            .expect("array preview displays its per-copy vector and count");
+        assert!(feedback.text.contains("2 copies"));
+        assert!(feedback.text.contains("4.000 unit"));
+
+        let expected_start = edges[0][0] + *displacement;
+        let result = app.array_selection(2, 4.0);
+        assert_eq!(CommandCompletion::Completed, result.completion);
+        assert_eq!(None, app.array_preview);
+        let copies = app.selected_occurrences();
+        let actual_copy_points = copies
+            .iter()
+            .flat_map(|occurrence| {
+                let resolved = app.document.resolve_occurrence(occurrence).unwrap();
+                let geometry = app.document.effective_geometry(occurrence).unwrap();
+                geometry.segments.values().flat_map(move |segment| {
+                    segment.endpoints.into_iter().filter_map(move |vertex| {
+                        geometry
+                            .vertex_position(vertex)
+                            .map(|point| resolved.world_transform.transform_point(point))
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            actual_copy_points
+                .iter()
+                .any(|point| { point.distance(expected_start) < 1.0e-9 })
+        );
     }
 
     #[test]

@@ -255,6 +255,9 @@ pub struct CuboidPreview {
 
 #[derive(Clone, Debug)]
 pub enum ToolPreview {
+    Point {
+        position: Vec3,
+    },
     Cuboid(CuboidPreview),
     Line {
         start: Vec3,
@@ -272,6 +275,11 @@ pub enum ToolPreview {
     Transform {
         edges: Vec<[Vec3; 2]>,
     },
+    Array {
+        edges: Vec<[Vec3; 2]>,
+        copies: usize,
+        displacement: Vec3,
+    },
     LineOffset {
         edges: Vec<[Vec3; 2]>,
         target: Vec3,
@@ -281,6 +289,17 @@ pub enum ToolPreview {
         edges: Vec<[Vec3; 2]>,
         triangles: Vec<([Vec3; 3], meshcraft_core::document::Rgba8)>,
     },
+    Paint {
+        edges: Vec<[Vec3; 2]>,
+        triangles: Vec<[Vec3; 3]>,
+        color: meshcraft_core::document::Rgba8,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ToolFeedback {
+    pub screen_position: Pos2,
+    pub text: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -636,6 +655,7 @@ pub struct ViewportScene<'a> {
     pub display_policy: &'a SelectionDisplayPolicy,
     pub active_tool: &'a str,
     pub preview: Option<ToolPreview>,
+    pub feedback: Option<ToolFeedback>,
     pub snap: Option<SnapResult>,
     pub guides: &'a [ConstructionGuide],
     pub guide_preview: Option<ConstructionGuide>,
@@ -847,6 +867,9 @@ impl Viewport {
         }
         if let Some(preview) = scene.preview.as_ref() {
             match preview {
+                ToolPreview::Point { position } => {
+                    self.draw_point_preview(&painter, rect, *position)
+                }
                 ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, *cuboid),
                 ToolPreview::Line { start, end } => {
                     self.draw_line_preview(&painter, rect, *start, *end)
@@ -863,6 +886,16 @@ impl Viewport {
                 }
                 ToolPreview::Transform { edges } => {
                     self.draw_transform_preview(&painter, rect, edges);
+                }
+                ToolPreview::Array {
+                    edges,
+                    copies,
+                    displacement,
+                } => {
+                    for index in 1..=*copies {
+                        let translation = *displacement * index as f64;
+                        self.draw_translated_transform_preview(&painter, rect, edges, translation);
+                    }
                 }
                 ToolPreview::LineOffset {
                     edges,
@@ -886,6 +919,11 @@ impl Viewport {
                 ToolPreview::PushPull { edges, triangles } => {
                     self.draw_push_pull_preview(&painter, rect, edges, triangles);
                 }
+                ToolPreview::Paint {
+                    edges,
+                    triangles,
+                    color,
+                } => self.draw_paint_preview(&painter, rect, edges, triangles, *color),
             }
         }
 
@@ -905,6 +943,24 @@ impl Viewport {
             };
             painter.circle_stroke(position, 6.0, Stroke::new(2.0, Color32::BLACK));
             painter.circle_stroke(position, 4.0, Stroke::new(2.0, color));
+        }
+
+        if let Some(feedback) = scene.feedback.as_ref() {
+            let font = egui::FontId::proportional(12.0);
+            let text_color = Color32::WHITE;
+            let galley = painter.layout_no_wrap(feedback.text.clone(), font, text_color);
+            let desired = feedback.screen_position + Vec2::new(14.0, 14.0);
+            let min_x = rect.left() + 4.0;
+            let min_y = rect.top() + 4.0;
+            let max_x = (rect.right() - galley.size().x - 4.0).max(min_x);
+            let max_y = (rect.bottom() - galley.size().y - 4.0).max(min_y);
+            let position = Pos2::new(desired.x.clamp(min_x, max_x), desired.y.clamp(min_y, max_y));
+            let background = Rect::from_min_size(
+                position - Vec2::new(4.0, 3.0),
+                galley.size() + Vec2::new(8.0, 6.0),
+            );
+            painter.rect_filled(background, 2.0, Color32::from_black_alpha(210));
+            painter.galley(position, galley, text_color);
         }
 
         if scene.active_tool == "Select"
@@ -3349,6 +3405,70 @@ impl Viewport {
         }
     }
 
+    fn draw_point_preview(&self, painter: &egui::Painter, rect: Rect, point: Vec3) {
+        let Some(position) = self.project_if_visible(rect, point) else {
+            return;
+        };
+        let color = Color32::from_rgb(235, 105, 70);
+        painter.circle_filled(position, 4.0, Color32::BLACK);
+        painter.circle_filled(position, 2.5, color);
+        painter.line_segment(
+            [
+                position - Vec2::new(7.0, 0.0),
+                position + Vec2::new(7.0, 0.0),
+            ],
+            Stroke::new(1.0, color),
+        );
+        painter.line_segment(
+            [
+                position - Vec2::new(0.0, 7.0),
+                position + Vec2::new(0.0, 7.0),
+            ],
+            Stroke::new(1.0, color),
+        );
+    }
+
+    fn draw_paint_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        edges: &[[Vec3; 2]],
+        triangles: &[[Vec3; 3]],
+        color: meshcraft_core::document::Rgba8,
+    ) {
+        let color =
+            Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, color.alpha);
+        for triangle in triangles {
+            if triangle
+                .iter()
+                .any(|point| !self.point_in_front_of_camera(*point))
+            {
+                continue;
+            }
+            let points = triangle
+                .iter()
+                .map(|point| self.world_to_screen(rect, *point))
+                .collect();
+            painter.add(Shape::convex_polygon(
+                points,
+                color.gamma_multiply(0.68),
+                Stroke::new(1.0, color),
+            ));
+        }
+        for [start, end] in edges {
+            if !self.point_in_front_of_camera(*start) || !self.point_in_front_of_camera(*end) {
+                continue;
+            }
+            painter.line_segment(
+                [
+                    self.world_to_screen(rect, *start),
+                    self.world_to_screen(rect, *end),
+                ],
+                Stroke::new(3.0, color),
+            );
+        }
+    }
+
     fn draw_line_preview(&self, painter: &egui::Painter, rect: Rect, start: Vec3, end: Vec3) {
         if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
             return;
@@ -3363,15 +3483,27 @@ impl Viewport {
     }
 
     fn draw_transform_preview(&self, painter: &egui::Painter, rect: Rect, edges: &[[Vec3; 2]]) {
+        self.draw_translated_transform_preview(painter, rect, edges, Vec3::ZERO);
+    }
+
+    fn draw_translated_transform_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        edges: &[[Vec3; 2]],
+        translation: Vec3,
+    ) {
         let color = Color32::from_rgb(235, 105, 70);
         for [start, end] in edges {
-            if !self.point_in_front_of_camera(*start) || !self.point_in_front_of_camera(*end) {
+            let start = *start + translation;
+            let end = *end + translation;
+            if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
                 continue;
             }
             painter.line_segment(
                 [
-                    self.world_to_screen(rect, *start),
-                    self.world_to_screen(rect, *end),
+                    self.world_to_screen(rect, start),
+                    self.world_to_screen(rect, end),
                 ],
                 Stroke::new(1.8, color),
             );
@@ -3917,6 +4049,7 @@ mod tests {
                         display_policy: &SelectionDisplayPolicy::default(),
                         active_tool: "Select",
                         preview: None,
+                        feedback: None,
                         snap: None,
                         guides: &[],
                         guide_preview: None,
@@ -3958,6 +4091,7 @@ mod tests {
                             display_policy: &SelectionDisplayPolicy::default(),
                             active_tool: "Select",
                             preview: None,
+                            feedback: None,
                             snap: None,
                             guides: &[],
                             guide_preview: None,
@@ -4361,6 +4495,7 @@ mod tests {
                             display_policy: &SelectionDisplayPolicy::default(),
                             active_tool: "Select",
                             preview: None,
+                            feedback: None,
                             snap: None,
                             guides: &[],
                             guide_preview: None,
@@ -5292,6 +5427,7 @@ mod tests {
                             display_policy: &SelectionDisplayPolicy::default(),
                             active_tool: "Select",
                             preview: None,
+                            feedback: None,
                             snap: None,
                             guides: &[],
                             guide_preview: None,
