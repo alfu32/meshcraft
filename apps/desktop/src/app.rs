@@ -578,6 +578,8 @@ enum ShellAction {
     SetToolbarVisibility(&'static str, bool),
     TogglePanels,
     ToggleGrid,
+    ToggleGuides,
+    ClearGuides,
     OpenPanel(&'static str),
     OpenPanelGroup(&'static [&'static str]),
     Unsupported,
@@ -892,6 +894,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::ToggleGrid,
             ),
             (
+                "view.guides.toggle",
+                "View> Toggle Construction Guides",
+                "View",
+                "construction guide visibility show hide display",
+                None,
+                ShellAction::ToggleGuides,
+            ),
+            (
+                "view.guides.clear",
+                "View> Clear Construction Guides",
+                "View",
+                "construction guide remove delete clear all",
+                None,
+                ShellAction::ClearGuides,
+            ),
+            (
                 "view.workspace.reset_layout",
                 "View> Reset Workspace Layout",
                 "View",
@@ -1149,6 +1167,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
+        | ShellAction::ToggleGuides
+        | ShellAction::ClearGuides
         | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
@@ -1184,6 +1204,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ),
         ShellAction::TogglePanels => CommandStateQuery::PreferenceEnabled("panels".to_owned()),
         ShellAction::ToggleGrid => CommandStateQuery::PreferenceEnabled("grid".to_owned()),
+        ShellAction::ToggleGuides => CommandStateQuery::PreferenceEnabled("guides".to_owned()),
         ShellAction::TogglePanelSection(panel) => {
             CommandStateQuery::PreferenceEnabled(format!("panel:{panel}"))
         }
@@ -1234,6 +1255,8 @@ fn register_shell_command(
         | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
+        | ShellAction::ToggleGuides
+        | ShellAction::ClearGuides
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_)
         | ShellAction::UpdateUiPreferences
@@ -1293,6 +1316,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("auto_collapse_toolbars", CommandValueType::Boolean),
             ("toolbar_icon_size", CommandValueType::Integer),
             ("show_permanent_grid", CommandValueType::Boolean),
+            ("show_construction_guides", CommandValueType::Boolean),
             ("grid_normal_axis", CommandValueType::String),
             ("grid_extent", CommandValueType::Integer),
             ("normal_grid_width", CommandValueType::Number),
@@ -1373,6 +1397,7 @@ struct Preferences {
     ui_text_scale: f32,
     toolbar_icon_size: u32,
     show_permanent_grid: bool,
+    show_construction_guides: bool,
     #[serde(deserialize_with = "deserialize_grid_normal_axis")]
     grid_normal_axis: GridNormalAxis,
     grid_extent: u32,
@@ -1416,6 +1441,7 @@ impl Default for Preferences {
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
             show_permanent_grid: true,
+            show_construction_guides: true,
             grid_normal_axis: GridNormalAxis::Y,
             grid_extent: 20,
             normal_grid_width: 1.0,
@@ -2973,6 +2999,20 @@ impl MeshcraftApp {
                     "Permanent grid hidden.".to_owned()
                 };
             }
+            ShellAction::ToggleGuides => {
+                self.preferences.show_construction_guides =
+                    !self.preferences.show_construction_guides;
+                self.status = if self.preferences.show_construction_guides {
+                    "Construction guides shown.".to_owned()
+                } else {
+                    "Construction guides hidden.".to_owned()
+                };
+            }
+            ShellAction::ClearGuides => {
+                let count = self.guides.len();
+                self.guides.clear();
+                self.status = format!("Cleared {count} construction guide(s).");
+            }
             ShellAction::OpenPanel(panel) => self.open_panels(&[panel]),
             ShellAction::OpenPanelGroup(panels) => self.open_panels(panels),
             ShellAction::Unsupported => {
@@ -3075,6 +3115,10 @@ impl MeshcraftApp {
                 &mut preferences.auto_collapse_toolbars,
             ),
             ("show_permanent_grid", &mut preferences.show_permanent_grid),
+            (
+                "show_construction_guides",
+                &mut preferences.show_construction_guides,
+            ),
             (
                 "toolbar_flow_top_down",
                 &mut preferences.toolbar_flow_top_down,
@@ -3280,6 +3324,7 @@ impl MeshcraftApp {
                     "toolbars" => self.preferences.toolbars_visible,
                     "panels" => self.preferences.panels_visible,
                     "grid" => self.preferences.show_permanent_grid,
+                    "guides" => self.preferences.show_construction_guides,
                     key if key.starts_with("toolbar:") => {
                         let mut parts = key.split(':');
                         let _ = parts.next();
@@ -4053,6 +4098,11 @@ impl MeshcraftApp {
             self.active_tool.as_str(),
             "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
         ) {
+            let visible_guides = if self.preferences.show_construction_guides {
+                self.guides.as_slice()
+            } else {
+                &[]
+            };
             pointer.and_then(|position| {
                 self.viewport.snap_point_with_guides(
                     predicted_rect,
@@ -4060,11 +4110,16 @@ impl MeshcraftApp {
                     position,
                     snap_radius_points,
                     self.document.model_settings().grid_size,
-                    &self.guides,
+                    visible_guides,
                 )
             })
         } else {
             None
+        };
+        let visible_guides = if self.preferences.show_construction_guides {
+            self.guides.as_slice()
+        } else {
+            &[]
         };
         let preview = self.tool_preview(predicted_rect, pointer, snap);
         let guide_preview = if matches!(self.active_tool.as_str(), "Axis Guide" | "Grid Guide") {
@@ -4089,7 +4144,7 @@ impl MeshcraftApp {
                 active_tool: &self.active_tool,
                 preview,
                 snap,
-                guides: &self.guides,
+                guides: visible_guides,
                 guide_preview,
                 grid: GridStyle {
                     visible: self.preferences.show_permanent_grid,
@@ -4404,6 +4459,10 @@ impl MeshcraftApp {
                 }
             });
         ui.checkbox(&mut preferences.show_permanent_grid, "Show permanent grid");
+        ui.checkbox(
+            &mut preferences.show_construction_guides,
+            "Show construction guides",
+        );
         ui.label("Permanent grid normal");
         egui::ComboBox::from_id_salt("permanent-grid-normal")
             .selected_text(preferences.grid_normal_axis.label())
@@ -4473,6 +4532,10 @@ impl MeshcraftApp {
         payload.values.insert(
             "show_permanent_grid".to_owned(),
             serde_json::json!(preferences.show_permanent_grid),
+        );
+        payload.values.insert(
+            "show_construction_guides".to_owned(),
+            serde_json::json!(preferences.show_construction_guides),
         );
         payload.values.insert(
             "grid_normal_axis".to_owned(),
@@ -5044,7 +5107,9 @@ mod tests {
         SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
         shell_commands, tool_command_id,
     };
-    use crate::viewport::{ConstructionGuideKind, GridNormalAxis, SnapKind, Viewport};
+    use crate::viewport::{
+        ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapKind, Viewport,
+    };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
@@ -5336,7 +5401,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(194, entries.len());
+        assert_eq!(196, entries.len());
         assert_eq!(
             74,
             entries
@@ -5706,6 +5771,43 @@ mod tests {
             assert_eq!("Select", app.active_tool);
             assert_eq!(initial_revision, app.document.revision());
         }
+    }
+
+    #[test]
+    fn guide_visibility_and_clear_commands_control_session_guides_from_the_palette() {
+        let mut app = test_app();
+        let initial_revision = app.document.revision();
+        app.guides.push(
+            ConstructionGuide::at_point(ConstructionGuideKind::Grid, Vec3::ZERO, Vec3::Y)
+                .expect("grid guide basis"),
+        );
+        app.guides.push(
+            ConstructionGuide::at_point(ConstructionGuideKind::Axis, Vec3::X, Vec3::Z)
+                .expect("axis guide basis"),
+        );
+
+        let commands = MeshcraftApp::command_catalog();
+        for id in ["view.guides.toggle", "view.guides.clear"] {
+            let command = commands
+                .iter()
+                .find(|command| command.id.as_str() == id)
+                .expect("guide control is available in the command palette");
+            assert_eq!(CommandKind::SessionMutation, command.kind);
+        }
+        assert_eq!(
+            Some(true),
+            app.query_command_state("view.guides.toggle").checked
+        );
+        app.run_command("view.guides.toggle");
+        assert!(!app.preferences.show_construction_guides);
+        assert_eq!(
+            Some(false),
+            app.query_command_state("view.guides.toggle").checked
+        );
+
+        app.run_command("view.guides.clear");
+        assert!(app.guides.is_empty());
+        assert_eq!(initial_revision, app.document.revision());
     }
 
     #[test]
