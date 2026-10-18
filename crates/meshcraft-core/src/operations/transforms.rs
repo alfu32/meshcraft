@@ -734,6 +734,62 @@ pub fn preview_selection_transform(
         {
             continue;
         }
+        if let SelectedEntity::SemanticHandle { kind, id } = &target.entity {
+            let field = match kind {
+                SelectionKind::Dimension => "dimensions",
+                SelectionKind::Text => "texts",
+                _ => continue,
+            };
+            let resolved = document
+                .resolve_occurrence(&target.occurrence)
+                .ok_or_else(|| "selected annotation occurrence is missing".to_owned())?;
+            if !matches!(
+                geometry_owner(&selection.context, target, resolved.definition.id),
+                GeometryOwner::Definition(_)
+            ) {
+                continue;
+            }
+            let records = resolved
+                .definition
+                .extensions
+                .get(&format!("k3d.{field}"))
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| format!("selected {field} records are missing"))?;
+            let identities = resolved
+                .definition
+                .domain_entity_ids
+                .get(field)
+                .ok_or_else(|| format!("selected {field} identities are missing"))?;
+            if identities.len() != records.len() {
+                return Err(format!(
+                    "selected {field} records and identities do not align"
+                ));
+            }
+            let mut matches = identities
+                .iter()
+                .enumerate()
+                .filter(|(_, identity)| *identity == id);
+            let Some((index, _)) = matches.next() else {
+                return Err(format!("selected {field} identity {id:?} is missing"));
+            };
+            if matches.next().is_some() {
+                return Err(format!("selected {field} identity {id:?} is ambiguous"));
+            }
+            let inverse = resolved
+                .world_transform
+                .inverse(GeometryTolerance::default())
+                .ok_or_else(|| "selected annotation has a singular world transform".to_owned())?;
+            let local_transform = inverse
+                .compose(world_transform)
+                .compose(resolved.world_transform);
+            let transformed = crate::operations::objects::transform_annotation_record(
+                field,
+                &records[index],
+                local_transform,
+            )?;
+            append_preview_annotation(field, &transformed, resolved.world_transform, &mut edges)?;
+            continue;
+        }
         let Some(geometry) = document.effective_geometry(&target.occurrence) else {
             continue;
         };
@@ -782,6 +838,104 @@ pub fn preview_selection_transform(
         );
     }
     Ok(edges)
+}
+
+fn append_preview_annotation(
+    field: &str,
+    record: &serde_json::Value,
+    world: Affine3,
+    output: &mut Vec<[Vec3; 2]>,
+) -> Result<(), String> {
+    let vector = |name: &str| -> Result<Option<Vec3>, String> {
+        let Some(value) = record.get(name) else {
+            return Ok(None);
+        };
+        let point: Vec3 = serde_json::from_value(value.clone())
+            .map_err(|_| format!("preview annotation field {name:?} is not a 3D vector"))?;
+        if !point.is_finite() {
+            return Err(format!("preview annotation field {name:?} is non-finite"));
+        }
+        Ok(Some(point))
+    };
+    let to_world = |point: Vec3| -> Result<Vec3, String> {
+        let point = world.transform_point(point);
+        point
+            .is_finite()
+            .then_some(point)
+            .ok_or_else(|| "preview annotation point is non-finite".to_owned())
+    };
+    match field {
+        "dimensions" => {
+            let (Some(start), Some(end)) = (vector("start")?, vector("end")?) else {
+                return Ok(());
+            };
+            let start = to_world(start)?;
+            let end = to_world(end)?;
+            output.push([start, end]);
+            if let Some(offset) = vector("offset")? {
+                let offset = to_world(offset)?;
+                output.extend([[start, offset], [end, offset]]);
+            }
+        }
+        "texts" => {
+            let Some(position) = vector("position")? else {
+                return Ok(());
+            };
+            let size = record
+                .get("size")
+                .and_then(serde_json::Value::as_f64)
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(0.1);
+            let append_anchor = |output: &mut Vec<[Vec3; 2]>| -> Result<(), String> {
+                let center = to_world(position)?;
+                let extent = size * 0.1;
+                output.extend([
+                    [center - Vec3::X * extent, center + Vec3::X * extent],
+                    [center - Vec3::Y * extent, center + Vec3::Y * extent],
+                ]);
+                Ok(())
+            };
+            let text = record
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let width = size * text.chars().count().max(1) as f64 * 0.6;
+            if !width.is_finite() {
+                return Err("preview text bounds are non-finite".to_owned());
+            }
+            let Some(axis_u) = vector("axisU")? else {
+                append_anchor(output)?;
+                return Ok(());
+            };
+            let Some(normal) = vector("normal")? else {
+                append_anchor(output)?;
+                return Ok(());
+            };
+            let Some(axis_u) = axis_u.try_normalized(GeometryTolerance::default().absolute) else {
+                append_anchor(output)?;
+                return Ok(());
+            };
+            let Some(axis_w) = axis_u
+                .cross(normal)
+                .try_normalized(GeometryTolerance::default().absolute)
+            else {
+                append_anchor(output)?;
+                return Ok(());
+            };
+            let a = position;
+            let b = position + axis_u * width;
+            let c = b + axis_w * size;
+            let d = position + axis_w * size;
+            let [a, b, c, d] = [to_world(a)?, to_world(b)?, to_world(c)?, to_world(d)?];
+            output.extend([[a, b], [b, c], [c, d], [d, a]]);
+        }
+        _ => {
+            return Err(format!(
+                "preview does not support annotation kind {field:?}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn append_preview_geometry(
@@ -1049,7 +1203,7 @@ fn is_identity(transform: Affine3) -> bool {
 // Kept as a small helper so ownership is explicit at the call site when looking up geometry.
 #[cfg(test)]
 mod tests {
-    use super::{paint_selection, transform_selection};
+    use super::{paint_selection, preview_selection_transform, transform_selection};
     use crate::document::{Document, OccurrenceRef, Rgba8};
     use crate::geometry::{Affine3, Vec3};
     use crate::selection::{
@@ -1449,6 +1603,14 @@ mod tests {
             ],
             crate::selection::SelectionMode::Replace,
         );
+
+        let preview = preview_selection_transform(
+            &document,
+            &selection,
+            affine_translation(Vec3::new(2.0, 3.0, 4.0)),
+        )
+        .unwrap();
+        assert!(preview.contains(&[Vec3::new(2.0, 3.0, 4.0), Vec3::new(3.0, 3.0, 4.0),]));
 
         let report = transform_selection(
             &mut document,

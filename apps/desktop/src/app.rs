@@ -5832,7 +5832,7 @@ impl MeshcraftApp {
         ) && !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
         {
             return CommandState::disabled(
-                "select supported object instances or mesh entities first",
+                "select supported objects, mesh entities, dimensions, or text first",
             );
         }
         if id == "file.new" && self.pending_replacement.is_some() {
@@ -5883,7 +5883,9 @@ impl MeshcraftApp {
                         &self.selection,
                     ) =>
             {
-                CommandState::disabled("select supported object instances or mesh entities first")
+                CommandState::disabled(
+                    "select supported objects, mesh entities, dimensions, or text first",
+                )
             }
             CommandStateQuery::SelectionAvailable if self.selection.selected().is_empty() => {
                 CommandState::disabled("select objects or mesh entities first")
@@ -6183,6 +6185,10 @@ impl MeshcraftApp {
                 result
                     .outputs
                     .insert("face_count".to_owned(), report.copied_triangles.into());
+                result.outputs.insert(
+                    "annotation_count".to_owned(),
+                    report.copied_domain_entities.into(),
+                );
                 result
             }
             Err(error) => CommandResult::failed(error),
@@ -14947,6 +14953,71 @@ mod tests {
         assert_eq!(original_face_count + 2, geometry.triangles.len());
         assert!(geometry.triangles.contains_key(&source_face));
         assert!(!app.array_preview);
+    }
+
+    #[test]
+    fn array_command_copies_selected_dimension_and_selects_generated_handles() {
+        let mut app = test_app();
+        let occurrence = meshcraft_core::document::OccurrenceRef::scene_root();
+        let definition_id = meshcraft_core::document::Document::SCENE_ROOT_DEFINITION_ID;
+        let mut snapshot = serde_json::to_value(&app.document).unwrap();
+        snapshot["definitions"]["0"]["extensions"]["k3d.dimensions"] = json!([{
+            "start": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "end": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "offset": {"x": 0.0, "y": 1.0, "z": 0.0}
+        }]);
+        snapshot["definitions"]["0"]["domain_entity_ids"]["dimensions"] = json!(["dimension-1"]);
+        app.document = serde_json::from_value(snapshot).unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: super::SelectionKind::Dimension,
+                id: "dimension-1".to_owned(),
+            },
+        });
+
+        assert!(app.query_command_state("object.array_selection").enabled);
+        app.array_preview = true;
+        app.array_count = 2;
+        app.array_spacing = 3.0;
+        let preview = app
+            .tool_preview(Rect::NOTHING, None, None)
+            .expect("selected dimension should have an array preview");
+        let ToolPreview::Array { edges, copies, .. } = preview else {
+            panic!("array preview should use the fixed-count array visualization");
+        };
+        assert_eq!(2, copies);
+        assert!(!edges.is_empty());
+
+        let mut payload = CommandPayload::default();
+        payload.values.insert("count".to_owned(), json!(2));
+        payload.values.insert("spacing".to_owned(), json!(3.0));
+
+        let result = app.dispatch_command("object.array_selection", &payload);
+
+        assert_eq!(CommandCompletion::Completed, result.result.completion);
+        assert_eq!(2, result.result.outputs["annotation_count"]);
+        assert_eq!(2, app.selection.selected().len());
+        assert!(app.selection.selected().iter().all(|target| {
+            target.occurrence == occurrence
+                && matches!(
+                    target.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: super::SelectionKind::Dimension,
+                        ..
+                    }
+                )
+        }));
+        let definition = app.document.definition(definition_id).unwrap();
+        assert_eq!(
+            3,
+            definition.extensions["k3d.dimensions"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(3, definition.domain_entity_ids["dimensions"].len());
+        assert!(app.document.validate().is_ok());
     }
 
     #[test]

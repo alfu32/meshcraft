@@ -3,7 +3,10 @@
 use crate::document::Document;
 use crate::geometry::{Affine3, GeometryTolerance, Vec3};
 use crate::operations::transforms::{self, TransformReport};
-use crate::selection::{SelectedEntity, SelectionMode, SelectionSession, SelectionTarget};
+use crate::selection::{
+    EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionSession, SelectionTarget,
+};
+use serde_json::Value;
 use std::collections::BTreeSet;
 
 pub const MAX_LINEAR_ARRAY_COPIES: usize = 10_000;
@@ -17,6 +20,7 @@ pub struct LinearArrayReport {
     pub copied_segments: usize,
     pub copied_triangles: usize,
     pub copied_occurrences: usize,
+    pub copied_domain_entities: usize,
     pub selected_results: Vec<SelectionTarget>,
 }
 
@@ -26,27 +30,154 @@ impl LinearArrayReport {
         self.copied_segments += report.copied_segments;
         self.copied_triangles += report.copied_triangles;
         self.copied_occurrences += report.copied_occurrences;
+        self.copied_domain_entities += report.copied_domain_entities;
     }
 }
 
-/// Returns whether the current selection contains existing object occurrences or mesh entities
-/// supported by the shared copy transform. Semantic handles need domain adapters.
+/// Returns whether the current selection contains object, mesh, dimension, or text entities
+/// supported by the shared copy transform.
 pub fn can_linear_array_selection(document: &Document, selection: &SelectionSession) -> bool {
     !selection.selected().is_empty()
         && selection.selected().iter().all(|target| {
-            let Some(geometry) = document.effective_geometry(&target.occurrence) else {
+            if !target_in_selection_context(document, selection, target) {
                 return false;
-            };
+            }
             match target.entity {
                 SelectedEntity::Occurrence => {
                     document.resolve_occurrence(&target.occurrence).is_some()
                 }
-                SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
-                SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
-                SelectedEntity::Triangle(id) => geometry.triangles.contains_key(&id),
-                SelectedEntity::SemanticHandle { .. } => false,
+                SelectedEntity::Vertex(id) => document
+                    .effective_geometry(&target.occurrence)
+                    .is_some_and(|geometry| geometry.vertices.contains_key(&id)),
+                SelectedEntity::Segment(id) => document
+                    .effective_geometry(&target.occurrence)
+                    .is_some_and(|geometry| geometry.segments.contains_key(&id)),
+                SelectedEntity::Triangle(id) => document
+                    .effective_geometry(&target.occurrence)
+                    .is_some_and(|geometry| geometry.triangles.contains_key(&id)),
+                SelectedEntity::SemanticHandle { kind, .. } => {
+                    selected_annotation_record(document, selection, target, kind).is_some()
+                }
             }
         })
+}
+
+fn target_in_selection_context(
+    document: &Document,
+    selection: &SelectionSession,
+    target: &SelectionTarget,
+) -> bool {
+    match &selection.context {
+        EditContext::Document => true,
+        EditContext::Definition(definition) => document
+            .resolve_occurrence(&target.occurrence)
+            .is_some_and(|resolved| resolved.definition.id == *definition),
+        EditContext::Occurrence(occurrence) => target.occurrence.path.starts_with(&occurrence.path),
+    }
+}
+
+fn selected_annotation_record<'a>(
+    document: &'a Document,
+    selection: &SelectionSession,
+    target: &SelectionTarget,
+    kind: SelectionKind,
+) -> Option<(&'static str, &'a Value)> {
+    let field = match kind {
+        SelectionKind::Dimension => "dimensions",
+        SelectionKind::Text => "texts",
+        _ => return None,
+    };
+    let SelectedEntity::SemanticHandle { id, .. } = &target.entity else {
+        return None;
+    };
+    let resolved = document.resolve_occurrence(&target.occurrence)?;
+    let definition_context = match &selection.context {
+        EditContext::Document => target.occurrence.is_scene_root(),
+        EditContext::Definition(definition) => resolved.definition.id == *definition,
+        EditContext::Occurrence(occurrence) => occurrence == &target.occurrence,
+    };
+    if !definition_context {
+        return None;
+    }
+    let definition = resolved.definition;
+    let records = definition
+        .extensions
+        .get(&format!("k3d.{field}"))?
+        .as_array()?;
+    let identities = definition.domain_entity_ids.get(field)?;
+    if records.len() != identities.len() {
+        return None;
+    }
+    let mut matches = identities
+        .iter()
+        .enumerate()
+        .filter(|(_, identity)| *identity == id);
+    let (index, _) = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    let record = &records[index];
+    crate::operations::objects::transform_annotation_record(field, record, Affine3::IDENTITY)
+        .ok()?;
+    Some((field, record))
+}
+
+fn selected_annotation_points(record: &Value, field: &str) -> Option<Vec<Vec3>> {
+    let read = |key: &str| -> Option<Vec3> {
+        let value = record.get(key)?.clone();
+        let point: Vec3 = serde_json::from_value(value).ok()?;
+        point.is_finite().then_some(point)
+    };
+    match field {
+        "dimensions" => {
+            let points = ["start", "end", "offset"]
+                .into_iter()
+                .filter_map(read)
+                .collect::<Vec<_>>();
+            (!points.is_empty()).then_some(points)
+        }
+        "texts" => {
+            let position = read("position")?;
+            let size = record
+                .get("size")
+                .and_then(Value::as_f64)
+                .filter(|size| size.is_finite() && *size > 0.0)
+                .unwrap_or(0.1);
+            let text = record
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let width = size * text.chars().count().max(1) as f64 * 0.6;
+            if !width.is_finite() {
+                return None;
+            }
+            let (Some(axis_u), Some(normal)) = (read("axisU"), read("normal")) else {
+                return Some(vec![position]);
+            };
+            let Some(axis_u) = axis_u.try_normalized(GeometryTolerance::default().absolute) else {
+                return Some(vec![position]);
+            };
+            let Some(axis_w) = axis_u
+                .cross(normal)
+                .try_normalized(GeometryTolerance::default().absolute)
+            else {
+                return Some(vec![position]);
+            };
+            let width_axis = axis_u * width;
+            let height_axis = axis_w * size;
+            let corners = [
+                position,
+                position + width_axis,
+                position + width_axis + height_axis,
+                position + height_axis,
+            ];
+            corners
+                .iter()
+                .all(|point| point.is_finite())
+                .then_some(corners.to_vec())
+        }
+        _ => None,
+    }
 }
 
 /// Measures the selected payload's projected world-space span along a direction.
@@ -82,6 +213,17 @@ pub fn projected_selection_span(
                 include_geometry_points(
                     geometry,
                     resolved.world_transform,
+                    direction,
+                    &mut minimum,
+                    &mut maximum,
+                );
+            }
+        } else if let SelectedEntity::SemanticHandle { kind, .. } = target.entity {
+            let (field, record) = selected_annotation_record(document, selection, target, kind)?;
+            let resolved = document.resolve_occurrence(&target.occurrence)?;
+            for point in selected_annotation_points(record, field)? {
+                include_projected_point(
+                    resolved.world_transform.transform_point(point),
                     direction,
                     &mut minimum,
                     &mut maximum,
@@ -244,7 +386,9 @@ pub fn transformed_array(
         return Err("array transforms must be finite and invertible".to_owned());
     }
     if !can_linear_array_selection(document, selection) {
-        return Err("select supported object instances or mesh entities to array".to_owned());
+        return Err(
+            "select supported objects, mesh entities, dimensions, or text to array".to_owned(),
+        );
     }
 
     let mut candidate = document.clone();
@@ -436,12 +580,54 @@ mod tests {
     };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec3};
-    use crate::selection::{SelectedEntity, SelectionMode, SelectionSession, SelectionTarget};
+    use crate::selection::{
+        EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionSession,
+        SelectionTarget,
+    };
+    use serde_json::json;
 
     fn cube(document: &mut Document, name: &str, origin: Vec3) -> OccurrenceRef {
         document
             .add_cuboid(name, Vec3::new(1.0, 1.0, 1.0), origin)
             .unwrap()
+    }
+
+    fn add_dimension_and_text(
+        document: &mut Document,
+        occurrence: &OccurrenceRef,
+    ) -> (crate::document::DefinitionId, String, String) {
+        let definition_id = document
+            .resolve_occurrence(occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.dimensions".to_owned(),
+            json!([{
+                "start": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "end": {"x": 1.0, "y": 0.0, "z": 0.0},
+                "offset": {"x": 0.0, "y": 1.0, "z": 0.0},
+                "label": "length"
+            }]),
+        );
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            json!([{
+                "position": {"x": 2.0, "y": 0.0, "z": 0.0},
+                "text": "Door",
+                "size": 0.5,
+                "normal": {"x": 0.0, "y": 1.0, "z": 0.0},
+                "axisU": {"x": 1.0, "y": 0.0, "z": 0.0}
+            }]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
+        definition
+            .domain_entity_ids
+            .insert("texts".to_owned(), vec!["text-1".to_owned()]);
+        (definition_id, "dimension-1".to_owned(), "text-1".to_owned())
     }
 
     #[test]
@@ -495,6 +681,100 @@ mod tests {
         assert!(centers.iter().any(|center| center.x > 1.9));
         assert!(centers.iter().any(|center| center.x > 3.9));
         assert!(centers.iter().any(|center| center.x > 5.9));
+    }
+
+    #[test]
+    fn linear_array_copies_selected_dimension_and_text_payloads_with_new_ids() {
+        let mut document = Document::new();
+        let occurrence = cube(&mut document, "annotations", Vec3::ZERO);
+        let (definition_id, dimension_id, text_id) =
+            add_dimension_and_text(&mut document, &occurrence);
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Definition(definition_id));
+        selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Dimension,
+                        id: dimension_id,
+                    },
+                },
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Text,
+                        id: text_id,
+                    },
+                },
+            ],
+            SelectionMode::Replace,
+        );
+
+        assert!(can_linear_array_selection(&document, &selection));
+        assert_eq!(
+            Some(3.2),
+            projected_selection_span(&document, &selection, Vec3::X)
+        );
+        let report = linear_array(&mut document, &mut selection, 2, Vec3::X * 5.0).unwrap();
+
+        assert_eq!(2, report.copies);
+        assert_eq!(4, report.copied_domain_entities);
+        assert_eq!(4, report.selected_results.len());
+        assert!(report.selected_results.iter().all(|target| {
+            target.occurrence == occurrence
+                && matches!(target.entity, SelectedEntity::SemanticHandle { .. })
+        }));
+        let definition = document.definition(definition_id).unwrap();
+        assert_eq!(
+            3,
+            definition.extensions["k3d.dimensions"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            3,
+            definition.extensions["k3d.texts"].as_array().unwrap().len()
+        );
+        assert_eq!(3, definition.domain_entity_ids["dimensions"].len());
+        assert_eq!(3, definition.domain_entity_ids["texts"].len());
+        let text_positions = definition.extensions["k3d.texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| {
+                serde_json::from_value::<Vec3>(record["position"].clone())
+                    .unwrap()
+                    .x
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(vec![2.0, 7.0, 12.0], text_positions);
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn invalid_annotation_identity_is_not_arrayable_and_fails_without_mutation() {
+        let mut document = Document::new();
+        let occurrence = cube(&mut document, "annotations", Vec3::ZERO);
+        let (definition_id, _, _) = add_dimension_and_text(&mut document, &occurrence);
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Definition(definition_id));
+        selection.select(SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Dimension,
+                id: "missing-dimension".to_owned(),
+            },
+        });
+        let before = document.clone();
+        assert!(!can_linear_array_selection(&document, &selection));
+
+        let error = linear_array(&mut document, &mut selection, 2, Vec3::X * 3.0).unwrap_err();
+
+        assert!(error.contains("supported objects"));
+        assert_eq!(before, document);
+        assert!(document.validate().is_ok());
     }
 
     #[test]
