@@ -22,7 +22,7 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 ## Current Activity
 
-T05’s canonical comparator allows at most eight ULPs for floating-point fields while keeping structure and nonnumeric values exact. All 60 pinned fixtures, 77 core/67 desktop/14 IO workspace tests, formatting, plan validation, diff checks, and all-target Clippy pass; one documented empty-root basis repair warning remains. Next: pursue Kotlin reopen parity and remaining DTO coverage.
+T05 emits Kotlin `ObjectPrototypeDto` defaults consistently for imported and fresh prototypes. Workspace tests pass (78 core, 67 desktop, 14 IO), and all 60 canonical fixture round trips pass; formatting, diff checks, plan validation, all-target Clippy, and desktop WASM checks pass. Next: Kotlin reopen parity and remaining T05 DTO/acceptance coverage. Task counts remain 39 Todo, 6 In progress, 6 Done.
 
 ## Task Statuses
 

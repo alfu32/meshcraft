@@ -174,9 +174,7 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
         if definitions.contains_key(&legacy_id) {
             return Err(format!("{path}/id: duplicate prototype ID {legacy_id:?}"));
         }
-        let name = read_string(object, "name", &path)?
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "Object".to_owned());
+        let name = read_string(object, "name", &path)?.unwrap_or_default();
         let kind = parse_definition_kind(object, &path)?;
         let frame = parse_transform(
             object,
@@ -213,6 +211,16 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
+        for (field, default) in [
+            ("gluedToSurface", Value::Bool(false)),
+            ("externalReferenceEnabled", Value::Bool(false)),
+            ("externalReferencePath", Value::String(String::new())),
+        ] {
+            definition
+                .extensions
+                .entry(format!("k3d.{field}"))
+                .or_insert(default);
+        }
         for field in SCHEMA17_DOMAIN_ARRAY_FIELDS.iter().copied().chain([
             "dimensions",
             "texts",
@@ -595,7 +603,18 @@ fn export_empty_definition(id: &str, name: &str) -> Value {
     object.insert("prototypeVertices".to_owned(), Value::Array(Vec::new()));
     object.insert("segments".to_owned(), Value::Array(Vec::new()));
     object.insert("faces".to_owned(), Value::Array(Vec::new()));
+    insert_prototype_dto_defaults(&mut object);
     Value::Object(object)
+}
+
+fn insert_prototype_dto_defaults(object: &mut Map<String, Value>) {
+    for (field, default) in [
+        ("gluedToSurface", Value::Bool(false)),
+        ("externalReferenceEnabled", Value::Bool(false)),
+        ("externalReferencePath", Value::String(String::new())),
+    ] {
+        object.entry(field.to_owned()).or_insert(default);
+    }
 }
 
 fn export_definition(
@@ -698,6 +717,7 @@ fn export_definition(
         &definition.extensions,
         &["__raw_kind", "__raw_prototype_vertices"],
     )?;
+    insert_prototype_dto_defaults(&mut object);
     Ok(Value::Object(object))
 }
 
@@ -2438,6 +2458,55 @@ mod tests {
         );
         assert_eq!(0, root_instance["overrideDimensions"][0]["offset"]["x"]);
         assert_eq!(0.1, root_instance["overrideTexts"][0]["size"]);
+    }
+
+    #[test]
+    fn sparse_prototype_uses_legacy_dto_defaults_and_preserves_flags() {
+        for expected_name in [None, Some(""), Some("  ")] {
+            let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+            let prototype_id = source["prototypes"][0]["id"].as_str().unwrap().to_owned();
+            let prototype = source["prototypes"][0].as_object_mut().unwrap();
+            prototype.remove("gluedToSurface");
+            prototype.remove("externalReferenceEnabled");
+            prototype.remove("externalReferencePath");
+            if let Some(name) = expected_name {
+                prototype.insert("name".to_owned(), Value::String(name.to_owned()));
+            } else {
+                prototype.remove("name");
+            }
+
+            let imported = import_current_value(&source).unwrap();
+            let exported = export_current_value(&imported).unwrap();
+            let prototype = exported["prototypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|prototype| prototype["id"] == prototype_id)
+                .unwrap();
+
+            assert_eq!(expected_name.unwrap_or_default(), prototype["name"]);
+            assert_eq!(false, prototype["gluedToSurface"]);
+            assert_eq!(false, prototype["externalReferenceEnabled"]);
+            assert_eq!("", prototype["externalReferencePath"]);
+        }
+
+        let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+        source["prototypes"][0]["gluedToSurface"] = Value::Bool(true);
+        source["prototypes"][0]["externalReferenceEnabled"] = Value::Bool(true);
+        source["prototypes"][0]["externalReferencePath"] =
+            Value::String("assets/chair.octd".to_owned());
+        let prototype_id = source["prototypes"][0]["id"].as_str().unwrap().to_owned();
+        let imported = import_current_value(&source).unwrap();
+        let exported = export_current_value(&imported).unwrap();
+        let prototype = exported["prototypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|prototype| prototype["id"] == prototype_id)
+            .unwrap();
+        assert_eq!(true, prototype["gluedToSurface"]);
+        assert_eq!(true, prototype["externalReferenceEnabled"]);
+        assert_eq!("assets/chair.octd", prototype["externalReferencePath"]);
     }
 
     #[test]
