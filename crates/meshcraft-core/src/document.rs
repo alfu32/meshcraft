@@ -1215,6 +1215,70 @@ impl Document {
         sources: &[TriangleId],
         replacements: Vec<TriangleReplacement>,
     ) -> Result<TopologyRemap, String> {
+        let mut staged = self.clone();
+        let mut geometry = staged
+            .definitions
+            .get(&definition_id)
+            .ok_or_else(|| format!("missing definition {}", definition_id.0))?
+            .geometry
+            .clone();
+        let remap = staged.replace_triangles_in_bundle(&mut geometry, sources, replacements)?;
+        staged
+            .definitions
+            .get_mut(&definition_id)
+            .expect("definition checked before geometry replacement")
+            .geometry = geometry;
+        staged.revision = staged.revision.saturating_add(1);
+        *self = staged;
+        Ok(remap)
+    }
+
+    /// Atomically replaces selected faces in occurrence-local geometry and remaps their identities.
+    pub fn replace_selected_occurrence_triangles(
+        &mut self,
+        occurrence: &OccurrenceRef,
+        sources: &[TriangleId],
+        replacements: Vec<TriangleReplacement>,
+    ) -> Result<TopologyRemap, String> {
+        let mut staged = self.clone();
+        let mut edits = staged
+            .occurrence_edits(occurrence)
+            .cloned()
+            .ok_or_else(|| "selected occurrence has no local geometry edits".to_owned())?;
+        let mut geometry = edits
+            .geometry_replacement
+            .take()
+            .ok_or_else(|| "selected occurrence has no replacement geometry".to_owned())?;
+        let remap = staged.replace_triangles_in_bundle(&mut geometry, sources, replacements)?;
+        let bundle_id_conflicts = staged
+            .definitions
+            .values()
+            .any(|definition| definition.geometry.id == geometry.id)
+            || staged.occurrence_edits.iter().any(|(other, edits)| {
+                other != occurrence
+                    && edits
+                        .geometry_replacement
+                        .as_ref()
+                        .is_some_and(|other_geometry| other_geometry.id == geometry.id)
+            });
+        if bundle_id_conflicts {
+            geometry.id = GeometryBundleId(staged.allocate_id());
+        }
+        edits.geometry_replacement = Some(geometry);
+        if !staged.set_occurrence_edits(occurrence.clone(), edits) {
+            return Err("could not store the replaced occurrence geometry".to_owned());
+        }
+        staged.validate()?;
+        *self = staged;
+        Ok(remap)
+    }
+
+    fn replace_triangles_in_bundle(
+        &mut self,
+        geometry: &mut GeometryBundle,
+        sources: &[TriangleId],
+        replacements: Vec<TriangleReplacement>,
+    ) -> Result<TopologyRemap, String> {
         if sources.is_empty() {
             return Err("face replacement needs at least one selected source face".to_owned());
         }
@@ -1228,14 +1292,6 @@ impl Document {
         {
             return Err("replacement face references an unselected source ID".to_owned());
         }
-
-        let mut staged = self.clone();
-        let mut geometry = staged
-            .definitions
-            .get(&definition_id)
-            .ok_or_else(|| format!("missing definition {}", definition_id.0))?
-            .geometry
-            .clone();
         let mut source_triangles = BTreeMap::new();
         for source in &source_set {
             let triangle = geometry
@@ -1295,7 +1351,7 @@ impl Document {
                 let (id, position) = if let Some((_, id, position)) = matching {
                     (id, position)
                 } else {
-                    let id = VertexId(staged.allocate_id());
+                    let id = VertexId(self.allocate_id());
                     geometry.vertices.insert(
                         id,
                         Vertex {
@@ -1319,7 +1375,7 @@ impl Document {
             }
             let source_triangle = &source_triangles[&replacement.source];
             let inherit = inherited_metadata.insert(replacement.source);
-            let id = TriangleId(staged.allocate_id());
+            let id = TriangleId(self.allocate_id());
             geometry.triangles.insert(
                 id,
                 Triangle {
@@ -1346,13 +1402,6 @@ impl Document {
         }
 
         geometry.validate()?;
-        staged
-            .definitions
-            .get_mut(&definition_id)
-            .expect("definition checked before geometry replacement")
-            .geometry = geometry;
-        staged.revision = staged.revision.saturating_add(1);
-        *self = staged;
         Ok(remap)
     }
 
@@ -2942,6 +2991,7 @@ mod tests {
         RawGeometryTriangle, RawGeometryVertex, RawVertexRef, Rgba8, SegmentId, TopologyRemap,
         Triangle, TriangleId, TriangleReplacement, Vertex, VertexId, VertexRef,
     };
+    use crate::document::derived::DerivedIndexCache;
     use crate::geometry::{Affine3, Vec3};
     use std::collections::BTreeMap;
 
@@ -3051,6 +3101,93 @@ mod tests {
                     outputs,
                     vec![TriangleReplacement {
                         source: outputs[0],
+                        vertices: [Vec3::ZERO, Vec3::X, Vec3::X * 2.0],
+                        color: Rgba8::WHITE,
+                    }],
+                )
+                .is_err()
+        );
+        assert_eq!(before_failure, document);
+    }
+
+    #[test]
+    fn occurrence_triangle_replacement_changes_only_the_local_geometry() {
+        let mut document = Document::new();
+        let definition = document.add_definition("face", DefinitionKind::Mesh);
+        document.definitions.get_mut(&definition).unwrap().geometry = triangle_bundle(200, 0.0);
+        let entry = document
+            .add_layout_entry(document.root_layout(), definition, Affine3::IDENTITY)
+            .unwrap();
+        let occurrence = OccurrenceRef::root(entry);
+        let source = TriangleId(304);
+        assert!(document.set_occurrence_edits(
+            occurrence.clone(),
+            InstanceEdits {
+                geometry_replacement: Some(triangle_bundle(300, 20.0)),
+                ..InstanceEdits::default()
+            }
+        ));
+        let before_revision = document.revision();
+        let remap = document
+            .replace_selected_occurrence_triangles(
+                &occurrence,
+                &[source],
+                vec![
+                    TriangleReplacement {
+                        source,
+                        vertices: [
+                            Vec3::new(20.0, 0.0, 0.0),
+                            Vec3::new(20.5, 0.0, 0.0),
+                            Vec3::new(20.0, 0.5, 0.0),
+                        ],
+                        color: Rgba8::WHITE,
+                    },
+                    TriangleReplacement {
+                        source,
+                        vertices: [
+                            Vec3::new(20.5, 0.0, 0.0),
+                            Vec3::new(21.0, 0.0, 0.0),
+                            Vec3::new(20.0, 1.0, 0.0),
+                        ],
+                        color: Rgba8::WHITE,
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(before_revision + 1, document.revision());
+        assert_eq!(2, remap.triangles[&source].len());
+        assert!(
+            document
+                .definition(definition)
+                .unwrap()
+                .geometry
+                .triangles
+                .contains_key(&TriangleId(204))
+        );
+        let local = document.effective_geometry(&occurrence).unwrap();
+        assert!(!local.triangles.contains_key(&source));
+        assert_ne!(
+            document.definition(definition).unwrap().geometry.id,
+            local.id
+        );
+        assert!(
+            remap.triangles[&source]
+                .iter()
+                .all(|id| local.triangles.contains_key(id))
+        );
+        assert!(document.validate().is_ok());
+        let mut derived = DerivedIndexCache::default();
+        assert!(derived.index(&document).is_ok());
+
+        let before_failure = document.clone();
+        assert!(
+            document
+                .replace_selected_occurrence_triangles(
+                    &occurrence,
+                    &remap.triangles[&source],
+                    vec![TriangleReplacement {
+                        source: remap.triangles[&source][0],
                         vertices: [Vec3::ZERO, Vec3::X, Vec3::X * 2.0],
                         color: Rgba8::WHITE,
                     }],

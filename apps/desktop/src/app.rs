@@ -2617,14 +2617,9 @@ impl MeshcraftApp {
         let Some(resolved) = self.document.resolve_occurrence(&occurrence) else {
             return CommandResult::failed("The selected geometry graph is no longer available.");
         };
-        if resolved
+        let has_instance_geometry = resolved
             .edits
-            .is_some_and(|edits| edits.geometry_replacement.is_some())
-        {
-            return CommandResult::failed(
-                "Cutting instance-local replacement geometry is not supported yet.",
-            );
-        }
+            .is_some_and(|edits| edits.geometry_replacement.is_some());
         let Some(inverse) = resolved
             .world_transform
             .inverse(GeometryTolerance::default())
@@ -2713,7 +2708,15 @@ impl MeshcraftApp {
             CutTool::Cutout => "Cutout",
         };
         let remap = match self.commit_document_edit(label, |document| {
-            document.replace_selected_triangles(definition, &changed_source_ids, replacements)
+            if has_instance_geometry {
+                document.replace_selected_occurrence_triangles(
+                    &occurrence,
+                    &changed_source_ids,
+                    replacements,
+                )
+            } else {
+                document.replace_selected_triangles(definition, &changed_source_ids, replacements)
+            }
         }) {
             Ok(remap) => remap,
             Err(error) => return CommandResult::failed(error),
@@ -9025,7 +9028,7 @@ mod tests {
     use meshcraft_core::commands::{
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
-    use meshcraft_core::document::{DefinitionKind, Document, OccurrenceRef, Rgba8};
+    use meshcraft_core::document::{DefinitionKind, Document, InstanceEdits, OccurrenceRef, Rgba8};
     use meshcraft_core::geometry::{Affine3, Vec3};
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
@@ -12232,6 +12235,106 @@ mod tests {
                 .selected()
                 .iter()
                 .all(|target| target.occurrence == occurrence)
+        );
+        assert!(app.document.validate().is_ok());
+    }
+
+    #[test]
+    fn cut_command_replaces_instance_local_geometry_without_changing_its_prototype() {
+        let mut app = test_app();
+        let definition = app
+            .document
+            .add_definition("instance-local face", DefinitionKind::Mesh);
+        let color = Rgba8::new(100, 130, 160, 255);
+        let (_, faces) = app
+            .document
+            .append_colored_indexed_mesh_to_definition(
+                definition,
+                vec![
+                    Vec3::ZERO,
+                    Vec3::X * 2.0,
+                    Vec3::new(2.0, 0.0, 2.0),
+                    Vec3::Z * 2.0,
+                ],
+                vec![],
+                vec![([0, 1, 2], color), ([0, 2, 3], color)],
+            )
+            .unwrap();
+        let loop_points = [
+            Vec3::new(0.5, 0.0, 0.5),
+            Vec3::new(1.5, 0.0, 0.5),
+            Vec3::new(1.5, 0.0, 1.5),
+            Vec3::new(0.5, 0.0, 1.5),
+        ];
+        let edges = (0..loop_points.len())
+            .map(|index| {
+                app.document
+                    .append_line_segment_to_definition(
+                        definition,
+                        loop_points[index],
+                        loop_points[(index + 1) % loop_points.len()],
+                    )
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let entry = app
+            .document
+            .add_layout_entry(
+                app.document.root_layout(),
+                definition,
+                Affine3::from_translation(Vec3::new(12.0, 5.0, -7.0)),
+            )
+            .unwrap();
+        let occurrence = OccurrenceRef::root(entry);
+        let prototype = app
+            .document
+            .definition(definition)
+            .unwrap()
+            .geometry
+            .clone();
+        assert!(app.document.set_occurrence_edits(
+            occurrence.clone(),
+            InstanceEdits {
+                geometry_replacement: Some(prototype.clone()),
+                ..InstanceEdits::default()
+            }
+        ));
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        let mut selected = faces
+            .iter()
+            .copied()
+            .map(|face| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(face),
+            })
+            .collect::<Vec<_>>();
+        selected.extend(edges.into_iter().map(|edge| SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Segment(edge),
+        }));
+        app.selection.apply(selected, SelectionMode::Replace);
+
+        let dispatch = app.dispatch_command("tool.builtin.cut_holes_2", &CommandPayload::default());
+
+        assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+        assert_eq!(
+            prototype,
+            app.document.definition(definition).unwrap().geometry
+        );
+        let local = app.document.effective_geometry(&occurrence).unwrap();
+        assert!(local.triangles.len() > faces.len());
+        assert!(
+            local
+                .triangles
+                .values()
+                .all(|triangle| triangle.color == color)
+        );
+        assert_eq!(1, app.history.entries().len());
+        app.run_command("edit.undo");
+        assert_eq!(
+            prototype,
+            *app.document.effective_geometry(&occurrence).unwrap()
         );
         assert!(app.document.validate().is_ok());
     }
