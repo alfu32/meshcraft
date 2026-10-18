@@ -1904,6 +1904,9 @@ impl MeshcraftApp {
         match action {
             ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => {
                 self.active_tool = tool.to_owned();
+                if tool == "Orbit" {
+                    self.viewport.set_perspective_view();
+                }
                 if self.preferences.auto_collapse_toolbars {
                     self.preferences.toolbars_visible = false;
                 }
@@ -2056,7 +2059,7 @@ impl MeshcraftApp {
             }
             ShellAction::ResetCamera => {
                 self.viewport.reset_camera();
-                self.status = "Camera reset to the default isometric view.".to_owned();
+                self.status = "Camera reset to the default perspective view.".to_owned();
             }
             ShellAction::TogglePanelSection(panel) => self.toggle_panel_section(panel),
             ShellAction::ToggleToolbars => {
@@ -4103,6 +4106,8 @@ mod tests {
         assert_eq!(None, app.viewport.orthographic_view());
         app.run_command("view.camera.orthographic");
         assert_eq!(Some(OrthoView::Top), app.viewport.orthographic_view());
+        app.run_command("view.camera.orbit");
+        assert_eq!(None, app.viewport.orthographic_view());
     }
 
     #[test]

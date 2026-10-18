@@ -8,6 +8,9 @@ const ISO_X: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const DEFAULT_ELEVATION: f64 = 0.615_479_708_670_387_4;
 const MIN_ELEVATION: f64 = 0.261_799_387_799_149_4;
 const MAX_ELEVATION: f64 = 1.308_996_938_995_747_2;
+const DEFAULT_PERSPECTIVE_DISTANCE: f64 = 10.392_304_845_413_264;
+const PERSPECTIVE_FOV_RADIANS: f64 = 67.0_f64.to_radians();
+const NEAR_PLANE: f64 = 0.05;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CuboidPreview {
@@ -60,12 +63,12 @@ impl OrthoView {
         match self {
             Self::Top => (
                 Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 0.0, -1.0),
                 Vec3::new(0.0, 1.0, 0.0),
             ),
             Self::Bottom => (
                 Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, 0.0, 1.0),
                 Vec3::new(0.0, -1.0, 0.0),
             ),
             Self::Left => (
@@ -122,6 +125,8 @@ pub struct Viewport {
     pan: Vec2,
     yaw: f64,
     elevation: f64,
+    target: Vec3,
+    distance: f64,
     orthographic: Option<OrthoView>,
     camera_drag: Option<egui::PointerButton>,
     frame_pending: bool,
@@ -135,6 +140,8 @@ impl Default for Viewport {
             pan: Vec2::ZERO,
             yaw: 0.0,
             elevation: DEFAULT_ELEVATION,
+            target: Vec3::ZERO,
+            distance: DEFAULT_PERSPECTIVE_DISTANCE,
             orthographic: None,
             camera_drag: None,
             frame_pending: false,
@@ -193,6 +200,7 @@ impl Viewport {
             });
             if button_down {
                 self.drag_camera(
+                    rect,
                     button,
                     shift_held,
                     pointer_delta,
@@ -239,22 +247,12 @@ impl Viewport {
                 (position.x - rect.center().x - self.pan.x) / self.zoom,
                 -(position.y - rect.center().y - self.pan.y) / self.zoom,
             );
-            let world = right * f64::from(screen.x) + up * f64::from(screen.y);
+            let world = self.target + right * f64::from(screen.x) + up * f64::from(screen.y);
             return Some(Vec3::new(world.x, 0.0, world.z));
         }
-        let screen_x = f64::from((position.x - rect.center().x - self.pan.x) / self.zoom);
-        let screen_y = f64::from((position.y - rect.center().y - self.pan.y) / self.zoom);
-        let rotated_x_minus_z = screen_x / ISO_X;
-        let rotated_x_plus_z = screen_y / (ISO_X * self.elevation.sin());
-        let rotated_x = (rotated_x_minus_z + rotated_x_plus_z) * 0.5;
-        let rotated_z = (rotated_x_plus_z - rotated_x_minus_z) * 0.5;
-        let cosine = self.yaw.cos();
-        let sine = self.yaw.sin();
-        Some(Vec3::new(
-            cosine * rotated_x - sine * rotated_z,
-            0.0,
-            sine * rotated_x + cosine * rotated_z,
-        ))
+        let (origin, direction) = self.ray_from_screen(rect, position)?;
+        let parameter = -origin.y / direction.y;
+        (parameter.is_finite() && parameter >= 0.0).then(|| origin + direction * parameter)
     }
 
     pub fn request_frame(&mut self) {
@@ -266,6 +264,8 @@ impl Viewport {
         self.pan = Vec2::ZERO;
         self.yaw = 0.0;
         self.elevation = DEFAULT_ELEVATION;
+        self.target = Vec3::ZERO;
+        self.distance = DEFAULT_PERSPECTIVE_DISTANCE;
         self.orthographic = None;
         self.camera_drag = None;
         self.frame_pending = false;
@@ -273,6 +273,12 @@ impl Viewport {
 
     pub fn set_orthographic_view(&mut self, view: OrthoView) {
         self.orthographic = Some(view);
+        self.camera_drag = None;
+        self.frame_pending = true;
+    }
+
+    pub fn set_perspective_view(&mut self) {
+        self.orthographic = None;
         self.camera_drag = None;
         self.frame_pending = true;
     }
@@ -289,6 +295,7 @@ impl Viewport {
 
     fn drag_camera(
         &mut self,
+        rect: Rect,
         button: egui::PointerButton,
         shift_held: bool,
         delta: Vec2,
@@ -303,7 +310,11 @@ impl Viewport {
         if button == egui::PointerButton::Middle
             || (button == egui::PointerButton::Secondary && shift_held)
         {
-            self.pan += delta;
+            if self.orthographic.is_some() {
+                self.pan += delta;
+            } else {
+                self.pan_perspective(rect, delta);
+            }
         } else if button == egui::PointerButton::Secondary
             || (button == egui::PointerButton::Primary && orbit_tool_active)
         {
@@ -318,33 +329,74 @@ impl Viewport {
             self.pan = position - rect.center() - anchor * self.zoom;
             return;
         }
-        let Some(ground_anchor) = self.screen_to_ground(rect, position) else {
+        let anchor = self.screen_to_ground(rect, position).or_else(|| {
+            let (origin, direction) = self.ray_from_screen(rect, position)?;
+            self.ray_plane_intersection(origin, direction, self.target, -self.camera_direction())
+        });
+        let Some(anchor) = anchor else {
             return;
         };
-        self.zoom = (self.zoom * (scroll * 0.001).exp()).clamp(5.0, 160.0);
-        self.pan = position - rect.center() - self.projected_offset(ground_anchor) * self.zoom;
+        self.distance = (self.distance * (-f64::from(scroll) * 0.001).exp()).clamp(1.0, 1000.0);
+        self.pan = position - rect.center() - self.projected_offset(rect, anchor);
+    }
+
+    fn pan_perspective(&mut self, rect: Rect, delta: Vec2) {
+        let (right, up, _) = self.camera_axes();
+        let scale = self.distance / self.focal_length(rect.height());
+        self.target += right * (-f64::from(delta.x) * scale);
+        self.target += up * (f64::from(delta.y) * scale);
     }
 
     fn frame_document(&mut self, rect: Rect, document: &Document) {
         let Ok(occurrences) = document.occurrence_refs() else {
             return;
         };
-        let mut bounds: Option<[f64; 4]> = None;
+        let mut points = Vec::new();
         for occurrence in occurrences {
             let Some(world_bounds) = self.derived.world_bounds(document, &occurrence) else {
                 continue;
             };
-            for point in bounds_corners(world_bounds) {
-                let (projected_x, projected_y) = self.projected_position(point);
-                match &mut bounds {
-                    Some([min_x, min_y, max_x, max_y]) => {
-                        *min_x = min_x.min(projected_x);
-                        *min_y = min_y.min(projected_y);
-                        *max_x = max_x.max(projected_x);
-                        *max_y = max_y.max(projected_y);
-                    }
-                    None => bounds = Some([projected_x, projected_y, projected_x, projected_y]),
+            points.extend(bounds_corners(world_bounds));
+        }
+        let Some(first) = points.first().copied() else {
+            return;
+        };
+        let (world_min, world_max) = points.iter().fold((first, first), |(min, max), point| {
+            (
+                Vec3::new(min.x.min(point.x), min.y.min(point.y), min.z.min(point.z)),
+                Vec3::new(max.x.max(point.x), max.y.max(point.y), max.z.max(point.z)),
+            )
+        });
+        self.target = (world_min + world_max) * 0.5;
+        if self.orthographic.is_none() {
+            self.pan = Vec2::ZERO;
+            let (right, up, eye) = self.camera_axes();
+            let available = rect.size() - Vec2::splat(72.0);
+            let focal = self.focal_length(rect.height());
+            let half_width = f64::from(available.x.max(1.0)) * 0.5;
+            let half_height = f64::from(available.y.max(1.0)) * 0.5;
+            let required_distance = points.iter().fold(1.0_f64, |required, point| {
+                let relative = *point - self.target;
+                let depth_offset = eye.dot(relative);
+                let horizontal = depth_offset + focal * right.dot(relative).abs() / half_width;
+                let vertical = depth_offset + focal * up.dot(relative).abs() / half_height;
+                required.max(horizontal).max(vertical)
+            });
+            self.distance = (required_distance * 1.08).clamp(1.0, 1.0e12);
+            return;
+        }
+
+        let mut bounds: Option<[f64; 4]> = None;
+        for point in points {
+            let (projected_x, projected_y) = self.projected_position(point);
+            match &mut bounds {
+                Some([min_x, min_y, max_x, max_y]) => {
+                    *min_x = min_x.min(projected_x);
+                    *min_y = min_y.min(projected_y);
+                    *max_x = max_x.max(projected_x);
+                    *max_y = max_y.max(projected_y);
                 }
+                None => bounds = Some([projected_x, projected_y, projected_x, projected_y]),
             }
         }
         let Some([min_x, min_y, max_x, max_y]) = bounds else {
@@ -362,27 +414,89 @@ impl Viewport {
     }
 
     pub fn world_to_screen(&self, rect: Rect, point: Vec3) -> Pos2 {
-        rect.center() + self.pan + self.projected_offset(point) * self.zoom
+        rect.center() + self.pan + self.projected_offset(rect, point)
+    }
+
+    fn project_if_visible(&self, rect: Rect, point: Vec3) -> Option<Pos2> {
+        self.point_in_front_of_camera(point)
+            .then(|| self.world_to_screen(rect, point))
+    }
+
+    fn point_in_front_of_camera(&self, point: Vec3) -> bool {
+        self.orthographic.is_some()
+            || self.distance - self.camera_direction().dot(point - self.target) > NEAR_PLANE
     }
 
     fn projected_position(&self, point: Vec3) -> (f64, f64) {
         if let Some(view) = self.orthographic {
             let (right, up, _) = view.screen_axes();
-            return (right.dot(point), -up.dot(point));
+            let relative = point - self.target;
+            return (right.dot(relative), -up.dot(relative));
         }
-        let cosine = self.yaw.cos();
-        let sine = self.yaw.sin();
-        let rotated_x = cosine * point.x + sine * point.z;
-        let rotated_z = -sine * point.x + cosine * point.z;
-        let projected_x = (rotated_x - rotated_z) * ISO_X;
-        let projected_y =
-            (rotated_x + rotated_z) * ISO_X * self.elevation.sin() - point.y * self.elevation.cos();
-        (projected_x, projected_y)
+        let (right, up, _) = self.camera_axes();
+        let relative = point - self.target;
+        (right.dot(relative), -up.dot(relative))
     }
 
-    fn projected_offset(&self, point: Vec3) -> Vec2 {
-        let (x, y) = self.projected_position(point);
-        Vec2::new(x as f32, y as f32)
+    fn projected_offset(&self, rect: Rect, point: Vec3) -> Vec2 {
+        if self.orthographic.is_some() {
+            let (x, y) = self.projected_position(point);
+            return Vec2::new(x as f32, y as f32) * self.zoom;
+        }
+        let (right, up, eye) = self.camera_axes();
+        let relative = point - self.target;
+        let depth = (self.distance - eye.dot(relative)).max(NEAR_PLANE);
+        let focal = self.focal_length(rect.height());
+        Vec2::new(
+            (focal * right.dot(relative) / depth) as f32,
+            (-focal * up.dot(relative) / depth) as f32,
+        )
+    }
+
+    fn focal_length(&self, viewport_height: f32) -> f64 {
+        f64::from(viewport_height.max(1.0)) * 0.5 / (PERSPECTIVE_FOV_RADIANS * 0.5).tan()
+    }
+
+    fn camera_axes(&self) -> (Vec3, Vec3, Vec3) {
+        let eye = self.camera_direction();
+        let forward = -eye;
+        let right = forward
+            .cross(Vec3::Y)
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::X);
+        let up = right
+            .cross(forward)
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::Y);
+        (right, up, eye)
+    }
+
+    fn ray_from_screen(&self, rect: Rect, position: Pos2) -> Option<(Vec3, Vec3)> {
+        if self.orthographic.is_some() {
+            return None;
+        }
+        let (right, up, eye) = self.camera_axes();
+        let focal = self.focal_length(rect.height());
+        let pixel = position - rect.center() - self.pan;
+        let direction =
+            (-eye + right * (f64::from(pixel.x) / focal) + up * (-f64::from(pixel.y) / focal))
+                .try_normalized(1.0e-12)?;
+        Some((self.target + eye * self.distance, direction))
+    }
+
+    fn ray_plane_intersection(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        plane_point: Vec3,
+        plane_normal: Vec3,
+    ) -> Option<Vec3> {
+        let denominator = plane_normal.dot(direction);
+        if !denominator.is_finite() || denominator.abs() <= 1.0e-12 {
+            return None;
+        }
+        let distance = plane_normal.dot(plane_point - origin) / denominator;
+        (distance.is_finite() && distance >= 0.0).then(|| origin + direction * distance)
     }
 
     fn camera_direction(&self) -> Vec3 {
@@ -418,7 +532,14 @@ impl Viewport {
             let delta = position - base_screen;
             return Some(f64::from(delta.dot(vertical) / length_squared));
         }
-        Some(f64::from((base_screen.y - position.y) / self.zoom) / self.elevation.cos())
+        let (_, up, eye) = self.camera_axes();
+        let relative = base_center - self.target;
+        let depth = self.distance - eye.dot(relative);
+        let up_offset = up.dot(relative);
+        let screen_up = -f64::from(position.y - rect.center().y - self.pan.y)
+            / self.focal_length(rect.height());
+        let denominator = up.y + screen_up * eye.y;
+        (denominator.abs() > 1.0e-12).then(|| (screen_up * depth - up_offset) / denominator)
     }
 
     pub fn pick(
@@ -431,7 +552,13 @@ impl Viewport {
         let mut nearest: Option<(f32, f64, OccurrenceRef)> = None;
         for occurrence in occurrences {
             if let Some(bounds) = self.derived.world_bounds(document, &occurrence) {
-                let points = bounds_corners(bounds).map(|point| self.world_to_screen(rect, point));
+                let points = bounds_corners(bounds)
+                    .into_iter()
+                    .filter_map(|point| self.project_if_visible(rect, point))
+                    .collect::<Vec<_>>();
+                if points.is_empty() {
+                    continue;
+                }
                 let (min_x, max_x) = points
                     .iter()
                     .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
@@ -461,6 +588,12 @@ impl Viewport {
                 };
                 let world_points =
                     [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                if world_points
+                    .iter()
+                    .any(|point| !self.point_in_front_of_camera(*point))
+                {
+                    continue;
+                }
                 let [a, b, c] = world_points.map(|point| self.world_to_screen(rect, point));
                 if point_in_triangle(position, a, b, c) {
                     let depth = world_points
@@ -484,6 +617,9 @@ impl Viewport {
                 };
                 let start = resolved.world_transform.transform_point(start_local);
                 let end = resolved.world_transform.transform_point(end_local);
+                if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
+                    continue;
+                }
                 let a = self.world_to_screen(rect, start);
                 let b = self.world_to_screen(rect, end);
                 let distance = distance_to_segment_squared(position, a, b);
@@ -514,11 +650,13 @@ impl Viewport {
         for step in -extent..=extent {
             let coordinate = f64::from(step) * style.spacing;
             let parallel_z_a =
-                self.world_to_screen(rect, Vec3::new(coordinate, 0.0, -world_extent));
-            let parallel_z_b = self.world_to_screen(rect, Vec3::new(coordinate, 0.0, world_extent));
+                self.project_if_visible(rect, Vec3::new(coordinate, 0.0, -world_extent));
+            let parallel_z_b =
+                self.project_if_visible(rect, Vec3::new(coordinate, 0.0, world_extent));
             let parallel_x_a =
-                self.world_to_screen(rect, Vec3::new(-world_extent, 0.0, coordinate));
-            let parallel_x_b = self.world_to_screen(rect, Vec3::new(world_extent, 0.0, coordinate));
+                self.project_if_visible(rect, Vec3::new(-world_extent, 0.0, coordinate));
+            let parallel_x_b =
+                self.project_if_visible(rect, Vec3::new(world_extent, 0.0, coordinate));
             let color = if coordinate == 0.0 {
                 Color32::from_rgb(129, 171, 127)
             } else {
@@ -529,25 +667,32 @@ impl Viewport {
             } else {
                 style.normal_width
             };
-            painter.line_segment([parallel_z_a, parallel_z_b], Stroke::new(width, color));
-            painter.line_segment([parallel_x_a, parallel_x_b], Stroke::new(width, color));
+            if let (Some(a), Some(b)) = (parallel_z_a, parallel_z_b) {
+                painter.line_segment([a, b], Stroke::new(width, color));
+            }
+            if let (Some(a), Some(b)) = (parallel_x_a, parallel_x_b) {
+                painter.line_segment([a, b], Stroke::new(width, color));
+            }
         }
-        let origin = self.world_to_screen(rect, Vec3::ZERO);
-        let x_axis = self.world_to_screen(rect, Vec3::new(world_extent, 0.0, 0.0));
-        let z_axis = self.world_to_screen(rect, Vec3::new(0.0, 0.0, world_extent));
-        let y_axis = self.world_to_screen(rect, Vec3::new(0.0, world_extent, 0.0));
-        painter.line_segment(
-            [origin, x_axis],
-            Stroke::new(style.thick_width, Color32::from_rgb(202, 105, 105)),
-        );
-        painter.line_segment(
-            [origin, z_axis],
-            Stroke::new(style.thick_width, Color32::from_rgb(100, 160, 115)),
-        );
-        painter.line_segment(
-            [origin, y_axis],
-            Stroke::new(style.thick_width, Color32::from_rgb(100, 130, 190)),
-        );
+        let origin = self.project_if_visible(rect, Vec3::ZERO);
+        for (axis, color) in [
+            (
+                Vec3::new(world_extent, 0.0, 0.0),
+                Color32::from_rgb(202, 105, 105),
+            ),
+            (
+                Vec3::new(0.0, 0.0, world_extent),
+                Color32::from_rgb(100, 160, 115),
+            ),
+            (
+                Vec3::new(0.0, world_extent, 0.0),
+                Color32::from_rgb(100, 130, 190),
+            ),
+        ] {
+            if let (Some(origin), Some(end)) = (origin, self.project_if_visible(rect, axis)) {
+                painter.line_segment([origin, end], Stroke::new(style.thick_width, color));
+            }
+        }
     }
 
     fn draw_document(
@@ -582,6 +727,12 @@ impl Viewport {
                 };
                 let world_points =
                     [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                if world_points
+                    .iter()
+                    .any(|point| !self.point_in_front_of_camera(*point))
+                {
+                    continue;
+                }
                 let points = world_points.map(|point| self.world_to_screen(rect, point));
                 let facing = (world_points[1] - world_points[0])
                     .cross(world_points[2] - world_points[0])
@@ -617,6 +768,9 @@ impl Viewport {
                 };
                 let start = resolved.world_transform.transform_point(start_local);
                 let end = resolved.world_transform.transform_point(end_local);
+                if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
+                    continue;
+                }
                 let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
                 let edge_color = if selected {
                     Color32::from_rgb(244, 166, 77)
@@ -647,6 +801,12 @@ impl Viewport {
 
     fn draw_cuboid_preview(&self, painter: &egui::Painter, rect: Rect, cuboid: CuboidPreview) {
         let corners = cuboid_corners(cuboid.origin, cuboid.dimensions);
+        if corners
+            .iter()
+            .any(|point| !self.point_in_front_of_camera(*point))
+        {
+            return;
+        }
         for [a, b] in cuboid_edges() {
             painter.line_segment(
                 [
@@ -659,6 +819,9 @@ impl Viewport {
     }
 
     fn draw_line_preview(&self, painter: &egui::Painter, rect: Rect, start: Vec3, end: Vec3) {
+        if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
+            return;
+        }
         painter.line_segment(
             [
                 self.world_to_screen(rect, start),
@@ -675,6 +838,9 @@ impl Viewport {
         first: Vec3,
         opposite: Vec3,
     ) {
+        if !self.point_in_front_of_camera(first) || !self.point_in_front_of_camera(opposite) {
+            return;
+        }
         let points = [
             Vec3::new(first.x, 0.0, first.z),
             Vec3::new(first.x, 0.0, opposite.z),
@@ -777,7 +943,8 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_ELEVATION, MAX_ELEVATION, MIN_ELEVATION, OrthoView, Viewport, point_in_triangle,
+        DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE, MAX_ELEVATION, MIN_ELEVATION, OrthoView,
+        Viewport, cuboid_corners, point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -836,6 +1003,8 @@ mod tests {
         assert_eq!(Vec2::ZERO, viewport.pan);
         assert_eq!(0.0, viewport.yaw);
         assert_eq!(DEFAULT_ELEVATION, viewport.elevation);
+        assert_eq!(Vec3::ZERO, viewport.target);
+        assert_eq!(DEFAULT_PERSPECTIVE_DISTANCE, viewport.distance);
         assert_eq!(None, viewport.orthographic_view());
         assert!(!viewport.frame_pending);
     }
@@ -847,13 +1016,13 @@ mod tests {
             (
                 OrthoView::Top,
                 Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(0.0, 0.0, -1.0),
                 Vec3::new(0.0, 1.0, 0.0),
             ),
             (
                 OrthoView::Bottom,
                 Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, -1.0),
+                Vec3::new(0.0, 0.0, 1.0),
                 Vec3::new(0.0, -1.0, 0.0),
             ),
             (
@@ -905,6 +1074,7 @@ mod tests {
         for view in [OrthoView::Top, OrthoView::Bottom] {
             let mut viewport = Viewport::default();
             viewport.set_orthographic_view(view);
+            viewport.target = Vec3::new(4.0, 2.0, -6.0);
             viewport.pan = Vec2::new(13.0, -21.0);
             let ground = Vec3::new(-7.25, 0.0, 11.5);
             let projected = viewport.world_to_screen(rect, ground);
@@ -925,22 +1095,36 @@ mod tests {
 
     #[test]
     fn right_drag_orbits_and_shift_right_drag_pans() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
         let mut viewport = Viewport::default();
         let drag = Vec2::new(20.0, -10.0);
-        viewport.drag_camera(eframe::egui::PointerButton::Secondary, false, drag, false);
+        viewport.drag_camera(
+            rect,
+            eframe::egui::PointerButton::Secondary,
+            false,
+            drag,
+            false,
+        );
         assert_eq!(0.16, viewport.yaw);
         assert!((viewport.elevation - (DEFAULT_ELEVATION - 0.08)).abs() < 1.0e-12);
         assert_eq!(Vec2::ZERO, viewport.pan);
 
         let orientation = (viewport.yaw, viewport.elevation);
+        let (right, up, _) = viewport.camera_axes();
+        let scale = viewport.distance / viewport.focal_length(rect.height());
+        let delta = Vec2::new(-4.0, 8.0);
+        let expected_target =
+            right * (-f64::from(delta.x) * scale) + up * (f64::from(delta.y) * scale);
         viewport.drag_camera(
+            rect,
             eframe::egui::PointerButton::Secondary,
             true,
-            Vec2::new(-4.0, 8.0),
+            delta,
             false,
         );
         assert_eq!(orientation, (viewport.yaw, viewport.elevation));
-        assert_eq!(Vec2::new(-4.0, 8.0), viewport.pan);
+        assert!(viewport.target.distance(expected_target) < 1.0e-10);
+        assert_eq!(Vec2::ZERO, viewport.pan);
     }
 
     #[test]
@@ -1011,11 +1195,12 @@ mod tests {
             ],
         );
         assert_eq!(orientation, (viewport.yaw, viewport.elevation));
-        assert_eq!(Vec2::new(20.0, 10.0), viewport.pan);
+        assert!(viewport.target.distance(Vec3::ZERO) > 0.0);
+        assert_eq!(Vec2::ZERO, viewport.pan);
     }
 
     #[test]
-    fn isometric_projection_and_ground_picking_round_trip_across_orbits() {
+    fn perspective_projection_and_ground_picking_round_trip_across_orbits() {
         let rect = Rect::from_min_size(Pos2::new(100.0, 80.0), Vec2::new(900.0, 600.0));
         let mut viewport = Viewport {
             pan: Vec2::new(22.0, -17.0),
@@ -1025,11 +1210,49 @@ mod tests {
             for elevation in [MIN_ELEVATION, DEFAULT_ELEVATION, MAX_ELEVATION] {
                 viewport.yaw = yaw;
                 viewport.elevation = elevation;
-                let ground = Vec3::new(-7.25, 0.0, 11.5);
+                let ground = Vec3::new(-2.25, 0.0, 3.5);
                 let projected = viewport.world_to_screen(rect, ground);
                 let recovered = viewport.screen_to_ground(rect, projected).unwrap();
                 assert!(recovered.distance(ground) < 1.0e-5);
             }
+        }
+    }
+
+    #[test]
+    fn perspective_projection_scales_with_camera_depth() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0));
+        let viewport = Viewport::default();
+        let (right, _, eye) = viewport.camera_axes();
+        let target_screen = viewport.world_to_screen(rect, viewport.target);
+        let near_screen = viewport.world_to_screen(rect, viewport.target + right);
+        let farther_screen = viewport.world_to_screen(rect, viewport.target + right - eye * 10.0);
+        let near_offset = (near_screen.x - target_screen.x).abs();
+        let far_offset = (farther_screen.x - target_screen.x).abs();
+        assert!(near_offset > far_offset);
+        let expected_ratio = ((viewport.distance + 10.0) / viewport.distance) as f32;
+        assert!((near_offset / far_offset - expected_ratio).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn perspective_frame_centers_and_fits_geometry_at_large_world_offsets() {
+        let rect = Rect::from_min_size(Pos2::new(30.0, 20.0), Vec2::new(1000.0, 700.0));
+        let mut document = meshcraft_core::document::Document::new();
+        document
+            .add_cuboid(
+                "far-box",
+                Vec3::new(8.0, 6.0, 4.0),
+                Vec3::new(100.0, -2.0, -50.0),
+            )
+            .unwrap();
+        let mut viewport = Viewport::default();
+
+        viewport.frame_document(rect, &document);
+
+        assert!(viewport.target.distance(Vec3::new(104.0, 1.0, -48.0)) < 1.0e-10);
+        for corner in cuboid_corners(Vec3::new(100.0, -2.0, -50.0), Vec3::new(8.0, 6.0, 4.0)) {
+            let screen = viewport.world_to_screen(rect, corner);
+            assert!(screen.x >= rect.left() + 35.0 && screen.x <= rect.right() - 35.0);
+            assert!(screen.y >= rect.top() + 35.0 && screen.y <= rect.bottom() - 35.0);
         }
     }
 
@@ -1046,7 +1269,7 @@ mod tests {
 
         viewport.zoom_at(rect, pointer, 450.0);
 
-        assert!(viewport.zoom > 28.0);
+        assert!(viewport.distance < DEFAULT_PERSPECTIVE_DISTANCE);
         assert!(
             viewport
                 .screen_to_ground(rect, pointer)
