@@ -1,20 +1,22 @@
-//! Ordered point input for the legacy planar and volumetric translation arrays.
+//! Ordered point input for legacy linear, planar and volumetric arrays.
 
 use crate::geometry::Vec3;
 use crate::operations::copy::{
-    MAX_MULTIPLE_ARRAY_PREVIEW_COPIES, planar_translation_offsets_limited,
+    MAX_MULTIPLE_ARRAY_PREVIEW_COPIES, copy_multiple_offsets, planar_translation_offsets_limited,
     volumetric_translation_offsets_limited,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TranslationArrayKind {
+pub enum ArrayToolKind {
+    CopyMultiple,
     Planar,
     Volumetric,
 }
 
-impl TranslationArrayKind {
+impl ArrayToolKind {
     pub fn from_label(label: &str) -> Option<Self> {
         match label {
+            "Copy Multiple" => Some(Self::CopyMultiple),
             "Planar Translate Multiple" => Some(Self::Planar),
             "Volumetric Translate Multiple" => Some(Self::Volumetric),
             _ => None,
@@ -23,6 +25,7 @@ impl TranslationArrayKind {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::CopyMultiple => "Copy Multiple",
             Self::Planar => "Planar Translate Multiple",
             Self::Volumetric => "Volumetric Translate Multiple",
         }
@@ -30,6 +33,7 @@ impl TranslationArrayKind {
 
     fn offsets(self, origin: Vec3, measure: Vec3, extent: Vec3, limit: usize) -> (Vec<Vec3>, bool) {
         match self {
+            Self::CopyMultiple => copy_multiple_offsets(origin, measure, extent, limit),
             Self::Planar => planar_translation_offsets_limited(origin, measure, extent, limit),
             Self::Volumetric => {
                 volumetric_translation_offsets_limited(origin, measure, extent, limit)
@@ -39,20 +43,20 @@ impl TranslationArrayKind {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum TranslationArrayPick {
+pub enum ArrayToolPick {
     NeedMeasure,
     NeedExtent,
     Complete { offsets: Vec<Vec3>, capped: bool },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct TranslationArrayToolState {
-    kind: Option<TranslationArrayKind>,
+pub struct ArrayToolState {
+    kind: Option<ArrayToolKind>,
     points: Vec<Vec3>,
 }
 
-impl TranslationArrayToolState {
-    pub fn activate(&mut self, kind: Option<TranslationArrayKind>) {
+impl ArrayToolState {
+    pub fn activate(&mut self, kind: Option<ArrayToolKind>) {
         self.kind = kind;
         self.points.clear();
     }
@@ -61,7 +65,7 @@ impl TranslationArrayToolState {
         self.activate(None);
     }
 
-    pub fn kind(&self) -> Option<TranslationArrayKind> {
+    pub fn kind(&self) -> Option<ArrayToolKind> {
         self.kind
     }
 
@@ -77,21 +81,21 @@ impl TranslationArrayToolState {
         self.kind.is_some()
     }
 
-    pub fn pick(&mut self, point: Vec3) -> Result<TranslationArrayPick, &'static str> {
+    pub fn pick(&mut self, point: Vec3) -> Result<ArrayToolPick, &'static str> {
         if !point.is_finite() {
             return Err("array points must be finite");
         }
         let Some(kind) = self.kind else {
-            return Err("no translation array tool is active");
+            return Err("no array tool is active");
         };
         match self.points.len() {
             0 => {
                 self.points.push(point);
-                Ok(TranslationArrayPick::NeedMeasure)
+                Ok(ArrayToolPick::NeedMeasure)
             }
             1 => {
                 self.points.push(point);
-                Ok(TranslationArrayPick::NeedExtent)
+                Ok(ArrayToolPick::NeedExtent)
             }
             _ => {
                 let origin = self.points[0];
@@ -103,7 +107,7 @@ impl TranslationArrayToolState {
                     crate::operations::copy::MAX_MULTIPLE_ARRAY_COPIES,
                 );
                 self.points.clear();
-                Ok(TranslationArrayPick::Complete { offsets, capped })
+                Ok(ArrayToolPick::Complete { offsets, capped })
             }
         }
     }
@@ -124,23 +128,20 @@ impl TranslationArrayToolState {
 
 #[cfg(test)]
 mod tests {
-    use super::{TranslationArrayKind, TranslationArrayPick, TranslationArrayToolState};
+    use super::{ArrayToolKind, ArrayToolPick, ArrayToolState};
     use crate::geometry::Vec3;
 
     #[test]
     fn planar_tool_advances_three_picks_and_reports_generated_offsets() {
-        let mut state = TranslationArrayToolState::default();
-        state.activate(Some(TranslationArrayKind::Planar));
+        let mut state = ArrayToolState::default();
+        state.activate(Some(ArrayToolKind::Planar));
 
+        assert_eq!(ArrayToolPick::NeedMeasure, state.pick(Vec3::ZERO).unwrap());
         assert_eq!(
-            TranslationArrayPick::NeedMeasure,
-            state.pick(Vec3::ZERO).unwrap()
-        );
-        assert_eq!(
-            TranslationArrayPick::NeedExtent,
+            ArrayToolPick::NeedExtent,
             state.pick(Vec3::new(2.0, 8.0, 3.0)).unwrap()
         );
-        let TranslationArrayPick::Complete { offsets, capped } =
+        let ArrayToolPick::Complete { offsets, capped } =
             state.pick(Vec3::new(4.0, 0.0, 6.0)).unwrap()
         else {
             panic!("third pick completes the array")
@@ -154,8 +155,8 @@ mod tests {
 
     #[test]
     fn volumetric_preview_uses_current_pointer_before_commit() {
-        let mut state = TranslationArrayToolState::default();
-        state.activate(Some(TranslationArrayKind::Volumetric));
+        let mut state = ArrayToolState::default();
+        state.activate(Some(ArrayToolKind::Volumetric));
         state.pick(Vec3::ZERO).unwrap();
         state.pick(Vec3::new(1.0, 2.0, 3.0)).unwrap();
 
@@ -168,9 +169,22 @@ mod tests {
     }
 
     #[test]
+    fn copy_multiple_tool_previews_copies_that_fit_along_the_measured_vector() {
+        let mut state = ArrayToolState::default();
+        state.activate(Some(ArrayToolKind::CopyMultiple));
+        state.pick(Vec3::ZERO).unwrap();
+        state.pick(Vec3::X * 2.0).unwrap();
+
+        let (preview, capped) = state.preview_offsets(Vec3::new(5.5, 0.0, 3.0)).unwrap();
+
+        assert!(!capped);
+        assert_eq!(vec![Vec3::X * 2.0, Vec3::X * 4.0], preview);
+    }
+
+    #[test]
     fn cancel_clears_picks_and_deactivates_tool() {
-        let mut state = TranslationArrayToolState::default();
-        state.activate(Some(TranslationArrayKind::Planar));
+        let mut state = ArrayToolState::default();
+        state.activate(Some(ArrayToolKind::Planar));
         state.pick(Vec3::ZERO).unwrap();
         state.cancel();
 
@@ -180,8 +194,8 @@ mod tests {
 
     #[test]
     fn backspace_removes_only_the_latest_array_input() {
-        let mut state = TranslationArrayToolState::default();
-        state.activate(Some(TranslationArrayKind::Planar));
+        let mut state = ArrayToolState::default();
+        state.activate(Some(ArrayToolKind::Planar));
         state.pick(Vec3::ZERO).unwrap();
         state.pick(Vec3::X).unwrap();
 

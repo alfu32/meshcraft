@@ -167,6 +167,40 @@ pub fn volumetric_translation_offsets_limited(
     grid_translation_offsets(origin, measure, extent, [true, true, true], limit)
 }
 
+/// Builds fixed-vector copy offsets that fit between the reference and projected span points.
+pub fn copy_multiple_offsets(
+    origin: Vec3,
+    measure: Vec3,
+    extent: Vec3,
+    limit: usize,
+) -> (Vec<Vec3>, bool) {
+    if !origin.is_finite() || !measure.is_finite() || !extent.is_finite() {
+        return (Vec::new(), false);
+    }
+    let step = measure - origin;
+    let step_length = step.length();
+    if !step_length.is_finite() || step_length <= GeometryTolerance::default().absolute {
+        return (Vec::new(), false);
+    }
+    let direction = step / step_length;
+    let projected_span = (extent - origin).dot(direction);
+    if !projected_span.is_finite() || projected_span < step_length {
+        return (Vec::new(), false);
+    }
+    let count = (projected_span / step_length).floor();
+    if count.is_nan() || count < 1.0 {
+        return (Vec::new(), false);
+    }
+    let capped = !count.is_finite() || count > limit as f64;
+    let copies = if count.is_finite() {
+        count.min(limit as f64) as usize
+    } else {
+        limit
+    };
+    let offsets = (1..=copies).map(|index| step * index as f64).collect();
+    (offsets, capped)
+}
+
 fn grid_translation_offsets(
     origin: Vec3,
     measure: Vec3,
@@ -225,8 +259,8 @@ fn axis_copy_count(step: f64, span: f64, limit: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_linear_array_selection, linear_array, planar_translation_offsets, translated_array,
-        volumetric_translation_offsets,
+        can_linear_array_selection, copy_multiple_offsets, linear_array,
+        planar_translation_offsets, translated_array, volumetric_translation_offsets,
     };
     use crate::document::{Document, OccurrenceRef};
     use crate::geometry::Vec3;
@@ -395,6 +429,20 @@ mod tests {
         assert_eq!(super::MAX_MULTIPLE_ARRAY_COPIES, offsets.len());
         assert!(capped);
         assert!(!offsets.contains(&Vec3::ZERO));
+    }
+
+    #[test]
+    fn copy_multiple_counts_projected_span_without_overshooting() {
+        let (offsets, capped) = copy_multiple_offsets(
+            Vec3::ZERO,
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(5.5, 0.0, 3.0),
+            2_048,
+        );
+
+        assert!(!capped);
+        assert_eq!(2, offsets.len());
+        assert_eq!(vec![Vec3::X * 2.0, Vec3::X * 4.0], offsets);
     }
 
     #[test]

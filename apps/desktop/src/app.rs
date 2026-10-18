@@ -34,7 +34,7 @@ use meshcraft_core::selection::{
 use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
-    arrays::{TranslationArrayKind, TranslationArrayPick, TranslationArrayToolState},
+    arrays::{ArrayToolKind, ArrayToolPick, ArrayToolState},
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
         FACE_OUTLINE_MERGE_TOLERANCE, LINE_OFFSET_MERGE_TOLERANCE, LineOffsetPick,
@@ -1367,6 +1367,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "stretch_scale" => ShellAction::SelectToolAlias("Stretch Scale"),
                 "rotate_stretch" => ShellAction::SelectToolAlias("Rotate Stretch"),
                 "paint" => ShellAction::SelectToolAlias("Paint"),
+                "copy_multiple" => ShellAction::SelectToolAlias("Copy Multiple"),
                 "planar_translate_multiple" => {
                     ShellAction::SelectToolAlias("Planar Translate Multiple")
                 }
@@ -1993,7 +1994,7 @@ pub struct MeshcraftApp {
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
     object_place_tool_state: ObjectPlaceToolState,
-    translation_array_tool_state: TranslationArrayToolState,
+    array_tool_state: ArrayToolState,
     current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
@@ -2145,7 +2146,7 @@ impl MeshcraftApp {
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: ObjectPlaceToolState::default(),
-            translation_array_tool_state: TranslationArrayToolState::default(),
+            array_tool_state: ArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -4450,8 +4451,8 @@ impl MeshcraftApp {
     fn activate_tool(&mut self, tool: &str) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
-        self.translation_array_tool_state
-            .activate(TranslationArrayKind::from_label(tool));
+        self.array_tool_state
+            .activate(ArrayToolKind::from_label(tool));
         self.array_preview = false;
         self.clear_push_pull_transient();
         self.active_tool = tool.to_owned();
@@ -4541,6 +4542,7 @@ impl MeshcraftApp {
             }
             "Paint" => "Paint: click an edge or face, or apply the current color to a selection."
                 .to_owned(),
+            "Copy Multiple" => "Copy Multiple: pick reference point (U), size point (V), then span point (D). Copies advance along U→V and stop before passing D.".to_owned(),
             "Planar Translate Multiple" => "Planar Translate Multiple: pick origin (O), planar XZ step (A), then extent (B). Copies fill the measured XZ grid; the source cell is omitted.".to_owned(),
             "Volumetric Translate Multiple" => "Volumetric Translate Multiple: pick origin (O), XYZ step (A), then extent (B). Copies fill the measured volume; the source cell is omitted.".to_owned(),
             _ => format!("{tool} tool selected."),
@@ -4643,13 +4645,13 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::UndoToolPoint => {
-                if self.translation_array_tool_state.active() {
-                    if !self.translation_array_tool_state.backspace() {
+                if self.array_tool_state.active() {
+                    if !self.array_tool_state.backspace() {
                         return CommandResult::failed(
                             "there is no translation array point to undo",
                         );
                     }
-                    self.status = "Removed the last translation array point.".to_owned();
+                    self.status = "Removed the last array tool point.".to_owned();
                     return CommandResult::completed();
                 }
                 if self.transform_tool_state.active().is_some() {
@@ -5554,8 +5556,8 @@ impl MeshcraftApp {
         let polyline_undo_ready = path_tool_active
             && (self.polyline_tool_state.arc_control().is_some()
                 || !self.polyline_tool_state.points().is_empty());
-        let array_undo_ready = self.translation_array_tool_state.active()
-            && !self.translation_array_tool_state.points().is_empty();
+        let array_undo_ready =
+            self.array_tool_state.active() && !self.array_tool_state.points().is_empty();
         if id == "tool.distance"
             && !line_distance_ready
             && !transform_input_ready
@@ -5688,7 +5690,9 @@ impl MeshcraftApp {
         }
         if matches!(
             id,
-            "tool.builtin.planar_translate_multiple" | "tool.builtin.volumetric_translate_multiple"
+            "tool.builtin.copy_multiple"
+                | "tool.builtin.planar_translate_multiple"
+                | "tool.builtin.volumetric_translate_multiple"
         ) && !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
         {
             return CommandState::disabled(
@@ -6038,7 +6042,7 @@ impl MeshcraftApp {
     fn cancel_active_tool(&mut self) {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
-        self.translation_array_tool_state.cancel();
+        self.array_tool_state.cancel();
         self.array_preview = false;
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
@@ -6326,34 +6330,45 @@ impl MeshcraftApp {
             return;
         }
 
-        if self.translation_array_tool_state.active() {
+        if self.array_tool_state.active() {
             let Some(point) = construction_point else {
                 self.status =
-                    "Translation array needs a point in the active construction view.".to_owned();
+                    "Array tool needs a point in the active construction view.".to_owned();
                 return;
             };
-            match self.translation_array_tool_state.pick(point) {
-                Ok(TranslationArrayPick::NeedMeasure) => {
-                    self.status = format!("{}: pick the translation step (A).", self.active_tool);
+            match self.array_tool_state.pick(point) {
+                Ok(ArrayToolPick::NeedMeasure) => {
+                    self.status = match self.array_tool_state.kind() {
+                        Some(ArrayToolKind::CopyMultiple) => {
+                            "Copy Multiple: pick the size point (V).".to_owned()
+                        }
+                        _ => format!("{}: pick the translation step (A).", self.active_tool),
+                    };
                 }
-                Ok(TranslationArrayPick::NeedExtent) => {
-                    self.status = format!("{}: pick the extent point (B).", self.active_tool);
+                Ok(ArrayToolPick::NeedExtent) => {
+                    self.status = match self.array_tool_state.kind() {
+                        Some(ArrayToolKind::CopyMultiple) => {
+                            "Copy Multiple: pick the span point (D).".to_owned()
+                        }
+                        _ => format!("{}: pick the extent point (B).", self.active_tool),
+                    };
                 }
-                Ok(TranslationArrayPick::Complete { offsets, capped }) if offsets.is_empty() => {
+                Ok(ArrayToolPick::Complete { offsets, capped }) if offsets.is_empty() => {
                     self.status = if capped {
                         "Array produced no copies before reaching the copy limit.".to_owned()
                     } else {
                         "Array: no copies fit inside the measured extent.".to_owned()
                     };
                 }
-                Ok(TranslationArrayPick::Complete { offsets, capped }) => {
+                Ok(ArrayToolPick::Complete { offsets, capped }) => {
                     let mut next_selection = self.selection.clone();
-                    match self.commit_document_edit("Translation array", |document| {
+                    let history_label = format!("{} array", self.active_tool);
+                    match self.commit_document_edit(&history_label, |document| {
                         modeling_copy::translated_array(document, &mut next_selection, &offsets)
                     }) {
                         Ok(report) => {
                             self.selection = next_selection;
-                            self.translation_array_tool_state.cancel();
+                            self.array_tool_state.cancel();
                             self.active_tool = "Select".to_owned();
                             self.status = if capped {
                                 format!(
@@ -7096,12 +7111,12 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
-        if self.translation_array_tool_state.active() {
+        if self.array_tool_state.active() {
             let point = snap.map(|result| result.point).or_else(|| {
                 pointer
                     .and_then(|position| self.viewport.screen_to_construction_plane(rect, position))
             });
-            let (offsets, capped) = self.translation_array_tool_state.preview_offsets(point?)?;
+            let (offsets, capped) = self.array_tool_state.preview_offsets(point?)?;
             if offsets.is_empty()
                 || !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
             {
@@ -9961,7 +9976,7 @@ mod tests {
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: super::ObjectPlaceToolState::default(),
-            translation_array_tool_state: super::TranslationArrayToolState::default(),
+            array_tool_state: super::ArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -9970,7 +9985,7 @@ mod tests {
         }
     }
 
-    fn pick_translation_array_point(app: &mut MeshcraftApp, point: Vec3) {
+    fn pick_array_tool_point(app: &mut MeshcraftApp, point: Vec3) {
         app.handle_viewport_click_at_point_with_selection(
             Rect::NOTHING,
             Pos2::ZERO,
@@ -14601,8 +14616,8 @@ mod tests {
                 .enabled
         );
         app.activate_tool("Planar Translate Multiple");
-        pick_translation_array_point(&mut app, Vec3::ZERO);
-        pick_translation_array_point(&mut app, Vec3::new(2.0, 5.0, 2.0));
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::new(2.0, 5.0, 2.0));
 
         let preview = app
             .tool_preview(
@@ -14625,7 +14640,7 @@ mod tests {
         assert_eq!(8, offsets.len());
         assert!(!capped);
 
-        pick_translation_array_point(&mut app, Vec3::new(4.0, 0.0, 4.0));
+        pick_array_tool_point(&mut app, Vec3::new(4.0, 0.0, 4.0));
 
         assert_eq!("Select", app.active_tool);
         assert!(app.status.contains("8 array copies"));
@@ -14634,6 +14649,66 @@ mod tests {
         assert_eq!(20, geometry.triangles.len());
         assert!(geometry.triangles.contains_key(&source_face));
         assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
+    fn copy_multiple_runs_three_pick_preview_and_commit_from_selected_faces() {
+        let mut app = test_app();
+        assert!(
+            !app.query_command_state("tool.builtin.copy_multiple")
+                .enabled
+        );
+        let occurrence = app
+            .document
+            .add_cuboid("source", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let source_face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(source_face),
+        });
+        assert!(
+            app.query_command_state("tool.builtin.copy_multiple")
+                .enabled
+        );
+
+        app.run_command("tool.builtin.copy_multiple");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        assert!(app.status.contains("size point (V)"));
+        pick_array_tool_point(&mut app, Vec3::X * 2.0);
+        assert!(app.status.contains("span point (D)"));
+        let preview = app
+            .tool_preview(
+                Rect::NOTHING,
+                None,
+                Some(SnapResult {
+                    point: Vec3::new(5.5, 0.0, 3.0),
+                    normal: Vec3::Y,
+                    kind: SnapKind::Grid,
+                    screen_distance: 0.0,
+                }),
+            )
+            .expect("Copy Multiple previews the measured copies before commit");
+        let ToolPreview::ArrayOffsets { offsets, .. } = preview else {
+            panic!("Copy Multiple previews each selected copy offset")
+        };
+        assert_eq!(vec![Vec3::X * 2.0, Vec3::X * 4.0], offsets);
+
+        pick_array_tool_point(&mut app, Vec3::new(5.5, 0.0, 3.0));
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.status.contains("2 array copies"));
+        assert_eq!(2, app.selection.selected().len());
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(14, geometry.triangles.len());
+        assert!(geometry.triangles.contains_key(&source_face));
     }
 
     #[test]
@@ -14648,9 +14723,9 @@ mod tests {
             entity: SelectedEntity::Occurrence,
         });
         app.activate_tool("Volumetric Translate Multiple");
-        pick_translation_array_point(&mut app, Vec3::ZERO);
-        pick_translation_array_point(&mut app, Vec3::new(2.0, 2.0, 0.0));
-        pick_translation_array_point(&mut app, Vec3::new(4.0, 4.0, 0.0));
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::new(2.0, 2.0, 0.0));
+        pick_array_tool_point(&mut app, Vec3::new(4.0, 4.0, 0.0));
 
         assert_eq!(8, app.selection.selected().len());
         assert!(app.selection.selected().iter().all(|target| {
@@ -14673,13 +14748,13 @@ mod tests {
             entity: SelectedEntity::Occurrence,
         });
         app.activate_tool("Planar Translate Multiple");
-        pick_translation_array_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::ZERO);
 
         app.handle_escape();
 
         assert_eq!("Select", app.active_tool);
         assert!(app.selection.selected().is_empty());
-        assert!(!app.translation_array_tool_state.active());
+        assert!(!app.array_tool_state.active());
     }
 
     #[test]
