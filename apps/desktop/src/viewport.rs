@@ -2,6 +2,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -254,8 +255,44 @@ pub struct GridStyle {
     pub visible: bool,
     pub spacing: f64,
     pub extent: u32,
+    pub normal_axis: GridNormalAxis,
     pub normal_width: f32,
     pub thick_width: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridNormalAxis {
+    X,
+    #[default]
+    Y,
+    Z,
+}
+
+impl GridNormalAxis {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+            Self::Z => "z",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::X => "X (right)",
+            Self::Y => "Y (up, default)",
+            Self::Z => "Z (back)",
+        }
+    }
+
+    fn vector(self) -> Vec3 {
+        match self {
+            Self::X => Vec3::X,
+            Self::Y => Vec3::Y,
+            Self::Z => Vec3::Z,
+        }
+    }
 }
 
 pub struct ViewportScene<'a> {
@@ -281,6 +318,7 @@ pub struct Viewport {
     near_plane: f64,
     far_plane: f64,
     orthographic: Option<OrthoView>,
+    grid_normal_axis: GridNormalAxis,
     walkthrough: Option<WalkthroughCamera>,
     walkthrough_tuning: WalkthroughTuning,
     camera_drag: Option<egui::PointerButton>,
@@ -301,6 +339,7 @@ impl Default for Viewport {
             near_plane: DEFAULT_NEAR_PLANE,
             far_plane: DEFAULT_FAR_PLANE,
             orthographic: None,
+            grid_normal_axis: GridNormalAxis::default(),
             walkthrough: None,
             walkthrough_tuning: WalkthroughTuning::default(),
             camera_drag: None,
@@ -311,6 +350,10 @@ impl Default for Viewport {
 }
 
 impl Viewport {
+    pub fn set_grid_normal_axis(&mut self, axis: GridNormalAxis) {
+        self.grid_normal_axis = axis;
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, scene: &ViewportScene<'_>) -> ViewportInput {
         let (response, painter) = ui.allocate_painter(scene.size, Sense::click_and_drag());
         let rect = response.rect;
@@ -507,7 +550,13 @@ impl Viewport {
             let target_on_plane = self.target - normal * normal.dot(self.target);
             return Some(target_on_plane + right * f64::from(screen.x) + up * f64::from(screen.y));
         }
-        self.screen_to_ground(rect, position)
+        let (origin, direction) = self.ray_from_screen(rect, position)?;
+        self.ray_plane_intersection(
+            origin,
+            direction,
+            Vec3::ZERO,
+            self.grid_normal_axis.vector(),
+        )
     }
 
     /// Snaps a logical-pixel pointer to visible model geometry or the active construction grid.
@@ -883,8 +932,10 @@ impl Viewport {
     }
 
     fn construction_plane_normal(&self) -> Vec3 {
-        self.orthographic
-            .map_or(Vec3::Y, |view| view.screen_axes().2)
+        self.orthographic.map_or_else(
+            || self.grid_normal_axis.vector(),
+            |view| view.screen_axes().2,
+        )
     }
 
     fn grid_basis_at(&self, point: Vec3, normal: Vec3) -> Option<(Vec3, Vec3, Vec3)> {
@@ -1643,35 +1694,69 @@ impl Viewport {
     }
 
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect, style: GridStyle) {
-        if !style.visible {
+        if !style.visible || !style.spacing.is_finite() || style.spacing <= 0.0 {
             return;
         }
-        let extent = style.extent.min(256) as i32;
+        let extent = style.extent.min(1000) as i32;
         let world_extent = f64::from(extent) * style.spacing;
+        let (axis_u, axis_v) = match style.normal_axis {
+            GridNormalAxis::X => (Vec3::new(0.0, 0.0, -1.0), Vec3::Y),
+            GridNormalAxis::Y => (Vec3::new(-1.0, 0.0, 0.0), Vec3::Z),
+            GridNormalAxis::Z => (Vec3::X, Vec3::Y),
+        };
+        let projected_origin = self.project_if_visible(rect, Vec3::ZERO);
+        let step_u = self.project_if_visible(rect, axis_u * style.spacing);
+        let step_v = self.project_if_visible(rect, axis_v * style.spacing);
+        let pixels_per_step = projected_origin
+            .zip(step_u)
+            .map(|(origin, step)| origin.distance(step))
+            .into_iter()
+            .chain(
+                projected_origin
+                    .zip(step_v)
+                    .map(|(origin, step)| origin.distance(step)),
+            )
+            .fold(f32::INFINITY, f32::min);
+        let stride = if pixels_per_step.is_finite() && pixels_per_step < 8.0 {
+            (8.0 / pixels_per_step.max(0.25)).ceil().clamp(1.0, 1000.0) as i32
+        } else {
+            1
+        };
         for step in -extent..=extent {
+            if step % stride != 0 && step.abs() % 5 != 0 {
+                continue;
+            }
             let coordinate = f64::from(step) * style.spacing;
-            let parallel_z_a =
-                self.project_if_visible(rect, Vec3::new(coordinate, 0.0, -world_extent));
-            let parallel_z_b =
-                self.project_if_visible(rect, Vec3::new(coordinate, 0.0, world_extent));
-            let parallel_x_a =
-                self.project_if_visible(rect, Vec3::new(-world_extent, 0.0, coordinate));
-            let parallel_x_b =
-                self.project_if_visible(rect, Vec3::new(world_extent, 0.0, coordinate));
-            let color = if coordinate == 0.0 {
+            let color = if step == 0 {
                 Color32::from_rgb(129, 171, 127)
+            } else if step.abs() % 10 == 0 {
+                Color32::from_rgb(145, 171, 187)
+            } else if step.abs() % 5 == 0 {
+                Color32::from_rgb(158, 179, 193)
             } else {
                 Color32::from_rgb(169, 186, 199)
             };
-            let width = if coordinate == 0.0 {
+            let width = if step == 0 {
                 style.thick_width
+            } else if step.abs() % 5 == 0 {
+                style.normal_width.max(1.25)
             } else {
                 style.normal_width
             };
-            if let (Some(a), Some(b)) = (parallel_z_a, parallel_z_b) {
+            let parallel_v_start = Vec3::ZERO + axis_u * coordinate - axis_v * world_extent;
+            let parallel_v_end = Vec3::ZERO + axis_u * coordinate + axis_v * world_extent;
+            let parallel_u_start = Vec3::ZERO + axis_v * coordinate - axis_u * world_extent;
+            let parallel_u_end = Vec3::ZERO + axis_v * coordinate + axis_u * world_extent;
+            if let (Some(a), Some(b)) = (
+                self.project_if_visible(rect, parallel_v_start),
+                self.project_if_visible(rect, parallel_v_end),
+            ) {
                 painter.line_segment([a, b], Stroke::new(width, color));
             }
-            if let (Some(a), Some(b)) = (parallel_x_a, parallel_x_b) {
+            if let (Some(a), Some(b)) = (
+                self.project_if_visible(rect, parallel_u_start),
+                self.project_if_visible(rect, parallel_u_end),
+            ) {
                 painter.line_segment([a, b], Stroke::new(width, color));
             }
         }
@@ -1708,8 +1793,8 @@ impl Viewport {
         if !spacing.is_finite() || spacing <= 0.0 {
             return;
         }
-        let extent = f64::from(style.extent.min(256)) * spacing;
-        let steps = style.extent.min(256) as i32;
+        let extent = 10.0 * spacing;
+        let steps = 10_i32;
         for guide in guides {
             match guide.kind {
                 ConstructionGuideKind::Grid => {
@@ -2116,8 +2201,9 @@ fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec
 mod tests {
     use super::{
         ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
-        MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, Viewport, WalkthroughCamera,
-        WalkthroughTuning, cuboid_corners, height_in_triangle_xz, point_in_triangle,
+        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, Viewport,
+        WalkthroughCamera, WalkthroughTuning, cuboid_corners, height_in_triangle_xz,
+        point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -2151,6 +2237,7 @@ mod tests {
                             visible: false,
                             spacing: 1.0,
                             extent: 20,
+                            normal_axis: super::GridNormalAxis::Y,
                             normal_width: 1.0,
                             thick_width: 3.0,
                         },
@@ -2522,6 +2609,25 @@ mod tests {
                     < 1.0e-4
             );
         }
+    }
+
+    #[test]
+    fn perspective_construction_plane_uses_configured_grid_normal() {
+        let rect = Rect::from_min_size(Pos2::new(45.0, 28.0), Vec2::new(840.0, 620.0));
+        let mut viewport = Viewport::default();
+        viewport.set_grid_normal_axis(GridNormalAxis::Z);
+        let pointer = rect.center() + Vec2::new(24.0, -18.0);
+        let point = viewport
+            .screen_to_construction_plane(rect, pointer)
+            .expect("perspective pointer intersects the selected construction plane");
+        assert!(point.z.abs() < 1.0e-9);
+
+        let empty = meshcraft_core::document::Document::new();
+        let snapped = viewport
+            .snap_point(rect, &empty, pointer, 32.0, 1.0)
+            .expect("virtual construction grid provides a snap");
+        assert_eq!(GridNormalAxis::Z.vector(), snapped.normal);
+        assert!(snapped.point.z.abs() < 1.0e-9);
     }
 
     #[test]
@@ -2958,6 +3064,7 @@ mod tests {
                                 visible: false,
                                 spacing: 1.0,
                                 extent: 20,
+                                normal_axis: super::GridNormalAxis::Y,
                                 normal_width: 1.0,
                                 thick_width: 3.0,
                             },

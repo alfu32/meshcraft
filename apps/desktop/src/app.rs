@@ -1,7 +1,7 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
-    ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridStyle, OrthoView, SnapResult,
-    ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
+    ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
+    SnapResult, ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -1293,6 +1293,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("auto_collapse_toolbars", CommandValueType::Boolean),
             ("toolbar_icon_size", CommandValueType::Integer),
             ("show_permanent_grid", CommandValueType::Boolean),
+            ("grid_normal_axis", CommandValueType::String),
             ("grid_extent", CommandValueType::Integer),
             ("normal_grid_width", CommandValueType::Number),
             ("thick_grid_width", CommandValueType::Number),
@@ -1372,6 +1373,8 @@ struct Preferences {
     ui_text_scale: f32,
     toolbar_icon_size: u32,
     show_permanent_grid: bool,
+    #[serde(deserialize_with = "deserialize_grid_normal_axis")]
+    grid_normal_axis: GridNormalAxis,
     grid_extent: u32,
     normal_grid_width: f32,
     thick_grid_width: f32,
@@ -1382,6 +1385,19 @@ struct Preferences {
     walk_height_adjust_speed: f32,
     panels_visible: bool,
     panel_open: BTreeMap<String, bool>,
+}
+
+fn deserialize_grid_normal_axis<'de, D>(deserializer: D) -> Result<GridNormalAxis, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(match value.as_str() {
+        "x" | "x_right" => GridNormalAxis::X,
+        "z" | "z_back" => GridNormalAxis::Z,
+        "y" | "y_up" => GridNormalAxis::Y,
+        _ => GridNormalAxis::Y,
+    })
 }
 
 impl Default for Preferences {
@@ -1400,6 +1416,7 @@ impl Default for Preferences {
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
             show_permanent_grid: true,
+            grid_normal_axis: GridNormalAxis::Y,
             grid_extent: 20,
             normal_grid_width: 1.0,
             thick_grid_width: 3.0,
@@ -3071,6 +3088,18 @@ impl MeshcraftApp {
                 }
             }
         }
+        if let Some(value) = payload.values.get("grid_normal_axis") {
+            preferences.grid_normal_axis = match value.as_str() {
+                Some("x") => GridNormalAxis::X,
+                Some("y") => GridNormalAxis::Y,
+                Some("z") => GridNormalAxis::Z,
+                _ => {
+                    return CommandResult::failed(
+                        "grid_normal_axis must be one of `x`, `y`, or `z`",
+                    );
+                }
+            };
+        }
         if payload.values.contains_key("toolbar_icon_size") {
             let size = match payload_u32(payload, "toolbar_icon_size", 0) {
                 Ok(size) if [24, 32, 40, 48].contains(&size) => size,
@@ -3083,8 +3112,8 @@ impl MeshcraftApp {
         }
         if payload.values.contains_key("grid_extent") {
             preferences.grid_extent = match payload_u32(payload, "grid_extent", 1) {
-                Ok(extent) if (1..=256).contains(&extent) => extent,
-                Ok(_) => return CommandResult::failed("grid_extent must be between 1 and 256"),
+                Ok(extent) if (1..=1000).contains(&extent) => extent,
+                Ok(_) => return CommandResult::failed("grid_extent must be between 1 and 1000"),
                 Err(error) => return CommandResult::failed(error),
             };
         }
@@ -4005,6 +4034,8 @@ impl MeshcraftApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
+        self.viewport
+            .set_grid_normal_axis(self.preferences.grid_normal_axis);
         self.viewport.set_walkthrough_tuning(WalkthroughTuning {
             move_speed: f64::from(self.preferences.walk_move_speed),
             jump_velocity: f64::from(self.preferences.walk_jump_velocity),
@@ -4064,6 +4095,7 @@ impl MeshcraftApp {
                     visible: self.preferences.show_permanent_grid,
                     spacing: self.document.model_settings().grid_size,
                     extent: self.preferences.grid_extent,
+                    normal_axis: self.preferences.grid_normal_axis,
                     normal_width: self.preferences.normal_grid_width,
                     thick_width: self.preferences.thick_grid_width,
                 },
@@ -4372,8 +4404,16 @@ impl MeshcraftApp {
                 }
             });
         ui.checkbox(&mut preferences.show_permanent_grid, "Show permanent grid");
+        ui.label("Permanent grid normal");
+        egui::ComboBox::from_id_salt("permanent-grid-normal")
+            .selected_text(preferences.grid_normal_axis.label())
+            .show_ui(ui, |ui| {
+                for axis in [GridNormalAxis::Y, GridNormalAxis::X, GridNormalAxis::Z] {
+                    ui.selectable_value(&mut preferences.grid_normal_axis, axis, axis.label());
+                }
+            });
         ui.label("Permanent grid extent (steps from origin)");
-        ui.add(egui::DragValue::new(&mut preferences.grid_extent).range(1..=256));
+        ui.add(egui::DragValue::new(&mut preferences.grid_extent).range(1..=1000));
         ui.label("Normal line width");
         ui.add(egui::Slider::new(&mut preferences.normal_grid_width, 0.25..=4.0).suffix(" px"));
         ui.label("Thick line width");
@@ -4433,6 +4473,10 @@ impl MeshcraftApp {
         payload.values.insert(
             "show_permanent_grid".to_owned(),
             serde_json::json!(preferences.show_permanent_grid),
+        );
+        payload.values.insert(
+            "grid_normal_axis".to_owned(),
+            serde_json::json!(preferences.grid_normal_axis.id()),
         );
         payload.values.insert(
             "grid_extent".to_owned(),
@@ -5000,7 +5044,7 @@ mod tests {
         SelectionSession, TransactionHistory, command_matches, registry_has_unique_ids,
         shell_commands, tool_command_id,
     };
-    use crate::viewport::{ConstructionGuideKind, SnapKind, Viewport};
+    use crate::viewport::{ConstructionGuideKind, GridNormalAxis, SnapKind, Viewport};
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
@@ -6297,6 +6341,9 @@ mod tests {
         payload
             .values
             .insert("show_permanent_grid".to_owned(), json!(false));
+        payload
+            .values
+            .insert("grid_normal_axis".to_owned(), json!("z"));
         payload.values.insert("grid_extent".to_owned(), json!(64));
         payload
             .values
@@ -6334,6 +6381,7 @@ mod tests {
         assert!(app.preferences.auto_collapse_toolbars);
         assert_eq!(40, app.preferences.toolbar_icon_size);
         assert!(!app.preferences.show_permanent_grid);
+        assert_eq!(GridNormalAxis::Z, app.preferences.grid_normal_axis);
         assert_eq!(64, app.preferences.grid_extent);
         assert_eq!(1.5, app.preferences.normal_grid_width);
         assert_eq!(4.0, app.preferences.thick_grid_width);
@@ -6348,13 +6396,24 @@ mod tests {
 
         let before = app.preferences.clone();
         let mut invalid = CommandPayload::default();
-        invalid.values.insert("grid_extent".to_owned(), json!(257));
+        invalid.values.insert("grid_extent".to_owned(), json!(1001));
         let rejected = app.dispatch_command("ui.update_preferences", &invalid);
         assert_eq!(
             meshcraft_core::commands::CommandCompletion::Failed,
             rejected.result.completion
         );
         assert_eq!(before.grid_extent, app.preferences.grid_extent);
+
+        let mut invalid_grid_axis = CommandPayload::default();
+        invalid_grid_axis
+            .values
+            .insert("grid_normal_axis".to_owned(), json!("diagonal"));
+        let rejected = app.dispatch_command("ui.update_preferences", &invalid_grid_axis);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected.result.completion
+        );
+        assert_eq!(before.grid_normal_axis, app.preferences.grid_normal_axis);
 
         let mut invalid_tuning = CommandPayload::default();
         invalid_tuning
@@ -6584,6 +6643,7 @@ mod tests {
         assert_eq!(1.0, preferences.ui_text_scale);
         assert_eq!(32, preferences.toolbar_icon_size);
         assert!(preferences.show_permanent_grid);
+        assert_eq!(GridNormalAxis::Y, preferences.grid_normal_axis);
         assert_eq!(20, preferences.grid_extent);
         assert_eq!(1.0, preferences.normal_grid_width);
         assert_eq!(3.0, preferences.thick_grid_width);
@@ -6592,6 +6652,13 @@ mod tests {
         assert_eq!(48.0, preferences.walk_gravity);
         assert_eq!(8.0, preferences.walk_height_adjust_speed);
         assert!(preferences.panels_visible);
+
+        let legacy_axis: Preferences =
+            serde_json::from_str(r#"{"grid_normal_axis":"x_right"}"#).unwrap();
+        assert_eq!(GridNormalAxis::X, legacy_axis.grid_normal_axis);
+        let unknown_axis: Preferences =
+            serde_json::from_str(r#"{"grid_normal_axis":"unknown"}"#).unwrap();
+        assert_eq!(GridNormalAxis::Y, unknown_axis.grid_normal_axis);
     }
 
     #[test]
