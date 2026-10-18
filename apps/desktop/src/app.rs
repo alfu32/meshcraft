@@ -1,9 +1,10 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{CuboidPreview, GridStyle, ToolPreview, Viewport, ViewportScene};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
-use meshcraft_core::document::{Document, OccurrenceRef};
+use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
 use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
+use meshcraft_core::transactions::{SystemHistoryClock, TransactionHistory};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -37,6 +38,8 @@ enum ShellAction {
     CopySelection,
     CreateObject,
     ArraySelection,
+    Undo,
+    Redo,
     NewDocument,
     SetProfile(UiProfile),
     ToggleToolbars,
@@ -79,6 +82,22 @@ const SHELL_COMMANDS: &[ShellCommand] = &[
         keywords: "box primitive create solid",
         icon: None,
         action: ShellAction::AddCuboid,
+    },
+    ShellCommand {
+        id: "edit.undo",
+        name: "Edit> Undo",
+        category: "Edit",
+        keywords: "history revert previous",
+        icon: None,
+        action: ShellAction::Undo,
+    },
+    ShellCommand {
+        id: "edit.redo",
+        name: "Edit> Redo",
+        category: "Edit",
+        keywords: "history repeat restore",
+        icon: None,
+        action: ShellAction::Redo,
     },
     ShellCommand {
         id: "edit.copy_selection",
@@ -244,7 +263,9 @@ pub struct MeshcraftApp {
     command_selection: usize,
     focus_command_search: bool,
     document: Document,
+    history: TransactionHistory<SystemHistoryClock>,
     selection: SelectionSession,
+    object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
@@ -301,7 +322,9 @@ impl MeshcraftApp {
             command_selection: 0,
             focus_command_search: false,
             document,
+            history: TransactionHistory::default(),
             selection: SelectionSession::default(),
+            object_name_edit: None,
             viewport: {
                 let mut viewport = Viewport::default();
                 if frame_document {
@@ -363,6 +386,22 @@ impl MeshcraftApp {
         }
     }
 
+    fn commit_document_edit<T>(
+        &mut self,
+        label: &str,
+        operation: impl FnOnce(&mut Document) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut pending = self.history.begin(&self.document, label);
+        let result = pending
+            .stage(operation)
+            .map_err(|error| error.to_string())?;
+        self.history
+            .commit(&mut self.document, pending)
+            .map_err(|error| error.to_string())?;
+        self.selection.retain_valid(&self.document);
+        Ok(result)
+    }
+
     fn run_command(&mut self, id: &str) {
         let Some(command) = SHELL_COMMANDS.iter().find(|command| command.id == id) else {
             self.status = format!("Unknown command: {id}");
@@ -391,26 +430,57 @@ impl MeshcraftApp {
                 };
             }
             ShellAction::AddCuboid => {
-                if let Some(occurrence) = self.document.add_cuboid(
-                    "cuboid",
-                    Vec3::new(2.0, 2.0, 2.0),
-                    Vec3::new(-1.0, 0.0, -1.0),
-                ) {
-                    self.set_selection([occurrence]);
-                    self.status = "Created a 2 × 2 × 2 cuboid.".to_owned();
+                match self.commit_document_edit("Add cuboid", |document| {
+                    document
+                        .add_cuboid(
+                            "cuboid",
+                            Vec3::new(2.0, 2.0, 2.0),
+                            Vec3::new(-1.0, 0.0, -1.0),
+                        )
+                        .ok_or_else(|| "could not create a cuboid".to_owned())
+                }) {
+                    Ok(occurrence) => {
+                        self.set_selection([occurrence]);
+                        self.status = "Created a 2 × 2 × 2 cuboid.".to_owned();
+                    }
+                    Err(error) => self.status = error,
                 }
             }
             ShellAction::CopySelection => self.copy_selection(),
             ShellAction::CreateObject => self.create_object_from_selection(),
             ShellAction::ArraySelection => self.array_selection(),
+            ShellAction::Undo => match self.history.undo(&mut self.document) {
+                Ok(Some(_)) => {
+                    self.selection.retain_valid(&self.document);
+                    self.status = "Undid the previous document operation.".to_owned();
+                }
+                Ok(None) => self.status = "Nothing to undo.".to_owned(),
+                Err(error) => self.status = error.to_string(),
+            },
+            ShellAction::Redo => match self.history.redo(&mut self.document) {
+                Ok(Some(_)) => {
+                    self.selection.retain_valid(&self.document);
+                    self.status = "Redid the document operation.".to_owned();
+                }
+                Ok(None) => self.status = "Nothing to redo.".to_owned(),
+                Err(error) => self.status = error.to_string(),
+            },
             ShellAction::NewDocument => {
-                self.document = Document::new();
-                self.selection.clear();
-                self.cuboid_first = None;
-                self.cuboid_base = None;
-                self.line_first = None;
-                self.rectangle_first = None;
-                self.status = "New empty document.".to_owned();
+                match self.commit_document_edit("New document", |document| {
+                    *document = Document::new();
+                    Ok(())
+                }) {
+                    Ok(()) => {
+                        self.selection.clear();
+                        self.object_name_edit = None;
+                        self.cuboid_first = None;
+                        self.cuboid_base = None;
+                        self.line_first = None;
+                        self.rectangle_first = None;
+                        self.status = "New empty document.".to_owned();
+                    }
+                    Err(error) => self.status = error,
+                }
             }
             ShellAction::SetProfile(profile) => {
                 self.preferences.profile = profile;
@@ -469,28 +539,35 @@ impl MeshcraftApp {
                 Some(span.map_or((x, x), |(min, max)| (min.min(x), max.max(x))))
             })
             .map_or(1.0, |(min, max)| max - min);
-        let Some(copy) = self
-            .document
-            .copy_root_occurrence(&source, Vec3::new(span_x + 0.5, 0.0, 0.0))
-        else {
-            self.status = "Copy could not create a root object instance.".to_owned();
-            return;
-        };
-        self.set_selection([copy]);
-        self.status = "Copied the selected object; the copy shares its definition.".to_owned();
+        match self.commit_document_edit("Copy object", |document| {
+            document
+                .copy_root_occurrence(&source, Vec3::new(span_x + 0.5, 0.0, 0.0))
+                .ok_or_else(|| "Copy could not create a root object instance.".to_owned())
+        }) {
+            Ok(copy) => {
+                self.set_selection([copy]);
+                self.status =
+                    "Copied the selected object; the copy shares its definition.".to_owned();
+            }
+            Err(error) => self.status = error,
+        }
     }
 
     fn create_object_from_selection(&mut self) {
         let selection = self.selected_occurrences();
-        let Some(object) = self
-            .document
-            .create_object_from_root_occurrences(&selection, "Object")
-        else {
-            self.status = "Create Object requires one or more selected root objects.".to_owned();
-            return;
-        };
-        self.set_selection([object]);
-        self.status = "Created an object definition from the selected geometry.".to_owned();
+        match self.commit_document_edit("Create object", |document| {
+            document
+                .create_object_from_root_occurrences(&selection, "Object")
+                .ok_or_else(|| {
+                    "Create Object requires one or more selected root objects.".to_owned()
+                })
+        }) {
+            Ok(object) => {
+                self.set_selection([object]);
+                self.status = "Created an object definition from the selected geometry.".to_owned();
+            }
+            Err(error) => self.status = error,
+        }
     }
 
     fn array_selection(&mut self) {
@@ -500,16 +577,19 @@ impl MeshcraftApp {
             return;
         }
         let source = selection[0].clone();
-        let Some(copies) = self.document.array_root_occurrence(
-            &source,
-            self.array_count,
-            Vec3::new(self.array_spacing, 0.0, 0.0),
-        ) else {
-            self.status = "Array could not create the requested object instances.".to_owned();
-            return;
-        };
-        self.set_selection(copies);
-        self.status = format!("Created {} array copies.", self.array_count);
+        let count = self.array_count;
+        let spacing = self.array_spacing;
+        match self.commit_document_edit("Array object", |document| {
+            document
+                .array_root_occurrence(&source, count, Vec3::new(spacing, 0.0, 0.0))
+                .ok_or_else(|| "Array could not create the requested object instances.".to_owned())
+        }) {
+            Ok(copies) => {
+                self.set_selection(copies);
+                self.status = format!("Created {} array copies.", self.array_count);
+            }
+            Err(error) => self.status = error,
+        }
     }
 
     fn cancel_active_tool(&mut self) {
@@ -525,13 +605,19 @@ impl MeshcraftApp {
         if self.active_tool == "Line" {
             let point = self.viewport.screen_to_ground(rect, position);
             if let Some(start) = self.line_first {
-                if let Some(occurrence) = self.document.add_line_segment("line", start, point) {
-                    self.set_selection([occurrence]);
-                    self.active_tool = "Select".to_owned();
-                    self.line_first = None;
-                    self.status = format!("Created line {:.2} units long.", start.distance(point));
-                } else {
-                    self.status = "Line endpoints must be distinct finite points.".to_owned();
+                match self.commit_document_edit("Create line", |document| {
+                    document
+                        .add_line_segment("line", start, point)
+                        .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
+                }) {
+                    Ok(occurrence) => {
+                        self.set_selection([occurrence]);
+                        self.active_tool = "Select".to_owned();
+                        self.line_first = None;
+                        self.status =
+                            format!("Created line {:.2} units long.", start.distance(point));
+                    }
+                    Err(error) => self.status = error,
                 }
             } else {
                 self.line_first = Some(point);
@@ -543,20 +629,22 @@ impl MeshcraftApp {
         if self.active_tool == "Rectangle" {
             let point = self.viewport.screen_to_ground(rect, position);
             if let Some(first) = self.rectangle_first {
-                if let Some(occurrence) =
-                    self.document
+                match self.commit_document_edit("Create rectangle", |document| {
+                    document
                         .add_ground_rectangle("rectangle", first, point)
-                {
-                    self.set_selection([occurrence]);
-                    self.active_tool = "Select".to_owned();
-                    self.rectangle_first = None;
-                    self.status = format!(
-                        "Created ground rectangle {:.2} × {:.2}.",
-                        (point.x - first.x).abs(),
-                        (point.z - first.z).abs()
-                    );
-                } else {
-                    self.status = "Rectangle sides must be distinct finite points.".to_owned();
+                        .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
+                }) {
+                    Ok(occurrence) => {
+                        self.set_selection([occurrence]);
+                        self.active_tool = "Select".to_owned();
+                        self.rectangle_first = None;
+                        self.status = format!(
+                            "Created ground rectangle {:.2} × {:.2}.",
+                            (point.x - first.x).abs(),
+                            (point.z - first.z).abs()
+                        );
+                    }
+                    Err(error) => self.status = error,
                 }
             } else {
                 self.rectangle_first = Some(point);
@@ -605,15 +693,22 @@ impl MeshcraftApp {
                 height,
                 (opposite.z - first.z).abs(),
             );
-            if let Some(occurrence) = self.document.add_cuboid("cuboid", dimensions, origin) {
-                self.set_selection([occurrence]);
-                self.active_tool = "Select".to_owned();
-                self.cuboid_first = None;
-                self.cuboid_base = None;
-                self.status = format!(
-                    "Created cuboid {:.2} × {:.2} × {:.2}.",
-                    dimensions.x, dimensions.y, dimensions.z
-                );
+            match self.commit_document_edit("Create cuboid", |document| {
+                document
+                    .add_cuboid("cuboid", dimensions, origin)
+                    .ok_or_else(|| "Cuboid could not be created.".to_owned())
+            }) {
+                Ok(occurrence) => {
+                    self.set_selection([occurrence]);
+                    self.active_tool = "Select".to_owned();
+                    self.cuboid_first = None;
+                    self.cuboid_base = None;
+                    self.status = format!(
+                        "Created cuboid {:.2} × {:.2} × {:.2}.",
+                        dimensions.x, dimensions.y, dimensions.z
+                    );
+                }
+                Err(error) => self.status = error,
             }
             return;
         }
@@ -816,8 +911,18 @@ impl MeshcraftApp {
             }
 
             ui.menu_button("Edit", |ui| {
-                ui.add_enabled(false, egui::Button::new("Undo"));
-                ui.add_enabled(false, egui::Button::new("Redo"));
+                if ui
+                    .add_enabled(self.history.can_undo(), egui::Button::new("Undo"))
+                    .clicked()
+                {
+                    self.run_command("edit.undo");
+                }
+                if ui
+                    .add_enabled(self.history.can_redo(), egui::Button::new("Redo"))
+                    .clicked()
+                {
+                    self.run_command("edit.redo");
+                }
                 ui.add_enabled(false, egui::Button::new("Delete"));
                 ui.add_enabled(false, egui::Button::new("Clear Selection"));
                 ui.separator();
@@ -1079,6 +1184,7 @@ impl MeshcraftApp {
     fn show_object_panel(&mut self, ui: &mut egui::Ui) {
         let selection = self.selected_occurrences();
         let Some(selected) = selection.first() else {
+            self.object_name_edit = None;
             ui.label("No object selected");
             return;
         };
@@ -1088,18 +1194,36 @@ impl MeshcraftApp {
         };
         ui.label(format!("{} selected", selection.len()));
         ui.label("Name");
-        let mut name = resolved.definition.name.clone();
-        if ui
-            .add(egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY))
-            .changed()
+        let definition_id = resolved.definition.id;
+        let original_name = resolved.definition.name.clone();
+        if self
+            .object_name_edit
+            .as_ref()
+            .is_some_and(|(editing_id, _)| *editing_id != definition_id)
         {
-            match self
-                .document
-                .rename_definition(resolved.definition.id, &name)
-            {
-                Ok(_) => {}
-                Err(error) => self.status = error,
-            }
+            self.object_name_edit = None;
+        }
+        let mut name = self
+            .object_name_edit
+            .as_ref()
+            .map(|(_, name)| name.clone())
+            .unwrap_or(original_name.clone());
+        let response = ui.add(egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY));
+        if response.changed() {
+            self.object_name_edit = Some((definition_id, name.clone()));
+        }
+        let enter = response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        if (response.lost_focus() || enter)
+            && let Some((editing_id, edited_name)) = self.object_name_edit.take()
+            && editing_id == definition_id
+            && edited_name != original_name
+            && let Err(error) = self.commit_document_edit("Rename object", |document| {
+                document
+                    .rename_definition(definition_id, &edited_name)
+                    .map(|_| ())
+            })
+        {
+            self.status = error;
         }
     }
 
@@ -1156,13 +1280,12 @@ impl MeshcraftApp {
                 egui::DragValue::new(&mut settings.circle_segments).range(3..=256),
             )
             .changed();
-        if changed {
-            match self.document.update_model_settings(settings) {
-                Ok(_) => {}
-                Err(error) => {
-                    ui.colored_label(Color32::LIGHT_RED, error);
-                }
-            }
+        if changed
+            && let Err(error) = self.commit_document_edit("Change model settings", |document| {
+                document.update_model_settings(settings).map(|_| ())
+            })
+        {
+            ui.colored_label(Color32::LIGHT_RED, error);
         }
     }
 
@@ -1493,8 +1616,8 @@ impl eframe::App for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshcraftApp, Preferences, SHELL_COMMANDS, SelectionSession, command_matches,
-        registry_has_unique_ids, tool_command_id,
+        MeshcraftApp, Preferences, SHELL_COMMANDS, SelectionSession, TransactionHistory,
+        command_matches, registry_has_unique_ids, tool_command_id,
     };
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::document::Document;
@@ -1515,7 +1638,9 @@ mod tests {
             command_selection: 0,
             focus_command_search: false,
             document: Document::new(),
+            history: TransactionHistory::default(),
             selection: SelectionSession::default(),
+            object_name_edit: None,
             viewport: Default::default(),
             cuboid_first: None,
             cuboid_base: None,
@@ -1582,6 +1707,8 @@ mod tests {
     #[test]
     fn modeling_workflow_commands_are_searchable_in_the_palette() {
         for (id, query) in [
+            ("edit.undo", "history revert"),
+            ("edit.redo", "history restore"),
             ("geometry.add_cuboid", "cuboid"),
             ("edit.copy_selection", "duplicate"),
             ("object.create_from_selection", "prototype"),
@@ -1596,6 +1723,24 @@ mod tests {
                 "command {id} misses {query}"
             );
         }
+    }
+
+    #[test]
+    fn add_undo_redo_commands_share_the_document_transaction_history() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert!(app.history.can_undo());
+        assert_eq!(1, app.history.entries().len());
+
+        app.run_command("edit.undo");
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+        assert!(app.history.can_redo());
+
+        app.run_command("edit.redo");
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert!(!app.history.can_redo());
+        assert!(app.selection.selected().is_empty());
     }
 
     #[test]

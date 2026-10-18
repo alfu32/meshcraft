@@ -93,7 +93,7 @@ MacOS native menu integration, if selected, adapts the same action tree and stat
 
 ## Undo/save strategy
 
-Start with explicit transactions and bounded snapshot-backed undo for correctness; avoid premature complex per-primitive inverse commands. Immutable shared storage or affected-store snapshots reduce copying once measured. Each completed tool operation is an intentional history boundary. Continuous previews and intermediate invalid field text are not edits.
+Start with explicit transactions and bounded snapshot-backed undo for correctness; avoid premature complex per-primitive inverse commands. Immutable shared storage or affected-store snapshots reduce copying once measured. Each completed tool operation is an intentional history boundary. Continuous previews and intermediate invalid field text are not edits. Native history includes authored document settings and geometry but excludes editor selection, camera, lighting/shadow controls, and application preferences. It uses one history entry per commit rather than legacy 3.5-second debounce coalescing; the current limits are 20 operations and 64 MiB of serialized snapshot data.
 
 Keep old base64/gzip history entries intact and lazily decode on access. Native transaction entries can use a separate internal representation until a new file format decision is made. Atomic save uses a complete immutable revision and serialized job queue; no raw pointers to the mutable document cross worker boundaries. Load builds a candidate document and publishes only at validation completion.
 

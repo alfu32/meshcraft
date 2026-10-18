@@ -248,7 +248,7 @@
         "Legacy debounce divergence is documented and redo/cap tests pass."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T05",
