@@ -393,6 +393,9 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
         &variants,
     )?;
 
+    document
+        .definitions
+        .remove(&Document::SCENE_ROOT_DEFINITION_ID);
     document.validate()?;
     // Keep a stable signature for the imported root in document metadata.
     document.extensions.insert(
@@ -477,7 +480,9 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
     document.validate()?;
     let mut prototype_ids = BTreeMap::new();
     let mut used_prototype_ids = BTreeSet::new();
-    for definition in document.definitions.values() {
+    for definition in document.definitions.values().filter(|definition| {
+        definition.id != Document::SCENE_ROOT_DEFINITION_ID || !definition.geometry.is_empty()
+    }) {
         let candidate = first_alias(&definition.legacy_aliases, "k3d.prototype");
         let fallback = format!("meshcraft-prototype-{}", definition.id.0);
         prototype_ids.insert(
@@ -489,6 +494,9 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
     let mut prototypes = document
         .definitions
         .values()
+        .filter(|definition| {
+            definition.id != Document::SCENE_ROOT_DEFINITION_ID || !definition.geometry.is_empty()
+        })
         .map(|definition| export_definition(definition, &prototype_ids))
         .collect::<ImportResult<Vec<_>>>()?;
     let root_layout = document
@@ -496,39 +504,84 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
         .get(&document.root_layout)
         .ok_or_else(|| "document root layout is missing".to_owned())?;
     let mut used_instance_ids = BTreeSet::new();
-    let root_instance = match root_layout.entries.as_slice() {
-        [entry] => export_occurrence(
-            document,
-            &OccurrenceRef::root(entry.id),
-            &prototype_ids,
+    let scene_root_geometry = document
+        .scene_root_definition()
+        .is_some_and(|definition| !definition.geometry.is_empty());
+    let root_instance = if scene_root_geometry {
+        let root_definition_id = Document::SCENE_ROOT_DEFINITION_ID;
+        let prototype_id = prototype_ids
+            .get(&root_definition_id)
+            .ok_or_else(|| "scene-root prototype has no legacy ID".to_owned())?;
+        let instance_id = unique_legacy_id(
+            None,
+            "meshcraft-scene-root-instance",
             &mut used_instance_ids,
-        )?,
-        entries => {
-            let wrapper_id =
-                unique_legacy_id(None, "meshcraft-scene-root", &mut used_prototype_ids);
-            prototypes.push(export_empty_definition(&wrapper_id, "Root"));
-            let mut children = Vec::with_capacity(entries.len());
-            for entry in entries {
-                children.push(export_occurrence(
-                    document,
-                    &OccurrenceRef::root(entry.id),
-                    &prototype_ids,
-                    &mut used_instance_ids,
-                )?);
+        );
+        let mut root = Map::new();
+        root.insert("id".to_owned(), Value::String(instance_id));
+        root.insert(
+            "prototypeId".to_owned(),
+            Value::String(prototype_id.clone()),
+        );
+        write_transform(
+            &mut root,
+            Affine3::IDENTITY,
+            "instanceOrigin",
+            ["instanceAxisU", "instanceAxisV", "instanceAxisW"],
+        );
+        root.insert(
+            "children".to_owned(),
+            Value::Array(
+                root_layout
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        export_occurrence(
+                            document,
+                            &OccurrenceRef::root(entry.id),
+                            &prototype_ids,
+                            &mut used_instance_ids,
+                        )
+                    })
+                    .collect::<ImportResult<Vec<_>>>()?,
+            ),
+        );
+        Value::Object(root)
+    } else {
+        match root_layout.entries.as_slice() {
+            [entry] => export_occurrence(
+                document,
+                &OccurrenceRef::root(entry.id),
+                &prototype_ids,
+                &mut used_instance_ids,
+            )?,
+            entries => {
+                let wrapper_id =
+                    unique_legacy_id(None, "meshcraft-scene-root", &mut used_prototype_ids);
+                prototypes.push(export_empty_definition(&wrapper_id, "Root"));
+                let mut children = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    children.push(export_occurrence(
+                        document,
+                        &OccurrenceRef::root(entry.id),
+                        &prototype_ids,
+                        &mut used_instance_ids,
+                    )?);
+                }
+                let root_instance_id =
+                    unique_legacy_id(None, "meshcraft-scene-instance", &mut used_instance_ids);
+                let mut root = Map::new();
+                root.insert("id".to_owned(), Value::String(root_instance_id));
+                root.insert("prototypeId".to_owned(), Value::String(wrapper_id));
+                write_transform(
+                    &mut root,
+                    Affine3::IDENTITY,
+                    "instanceOrigin",
+                    ["instanceAxisU", "instanceAxisV", "instanceAxisW"],
+                );
+                root.insert("children".to_owned(), Value::Array(children));
+                Value::Object(root)
             }
-            let root_instance_id =
-                unique_legacy_id(None, "meshcraft-scene-instance", &mut used_instance_ids);
-            let mut root = Map::new();
-            root.insert("id".to_owned(), Value::String(root_instance_id));
-            root.insert("prototypeId".to_owned(), Value::String(wrapper_id));
-            write_transform(
-                &mut root,
-                Affine3::IDENTITY,
-                "instanceOrigin",
-                ["instanceAxisU", "instanceAxisV", "instanceAxisW"],
-            );
-            root.insert("children".to_owned(), Value::Array(children));
-            Value::Object(root)
         }
     };
 
@@ -811,8 +864,15 @@ fn export_occurrence(
     let edits = resolved.edits;
     let candidate = edits
         .and_then(|edits| edits.legacy_instance_id.as_deref())
-        .or_else(|| first_alias(&resolved.entry.legacy_aliases, "k3d.instance"));
-    let fallback = format!("meshcraft-instance-{}", resolved.entry.id.0);
+        .or_else(|| {
+            resolved
+                .entry
+                .and_then(|entry| first_alias(&entry.legacy_aliases, "k3d.instance"))
+        });
+    let entry = resolved.entry.ok_or_else(|| {
+        "scene root geometry cannot be exported as a placed occurrence".to_owned()
+    })?;
+    let fallback = format!("meshcraft-instance-{}", entry.id.0);
     let id = unique_legacy_id(candidate, &fallback, used_instance_ids);
     let prototype_id = prototype_ids.get(&resolved.definition.id).ok_or_else(|| {
         format!(
@@ -822,7 +882,7 @@ fn export_occurrence(
     })?;
     let transform = edits
         .and_then(|edits| edits.transform)
-        .unwrap_or(resolved.entry.transform);
+        .unwrap_or(entry.transform);
     let mut object = Map::new();
     object.insert("id".to_owned(), Value::String(id));
     object.insert(
@@ -2923,9 +2983,17 @@ mod tests {
                 path: first_child.path.clone(),
             })
             .unwrap();
-        assert!(first_resolved.entry.legacy_aliases.iter().any(|alias| {
-            alias.source == "k3d.instance" && alias.id == "d4c79371-673f-4818-9abf-8a708edf684c"
-        }));
+        assert!(
+            first_resolved
+                .entry
+                .unwrap()
+                .legacy_aliases
+                .iter()
+                .any(|alias| {
+                    alias.source == "k3d.instance"
+                        && alias.id == "d4c79371-673f-4818-9abf-8a708edf684c"
+                })
+        );
     }
 
     #[test]

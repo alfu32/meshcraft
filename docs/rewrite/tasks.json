@@ -633,8 +633,14 @@
         "C13"
       ],
       "targets": [
-        "crates/meshcraft-core/src/tools/",
-        "crates/meshcraft-core/src/operations/drawing.rs"
+        "crates/meshcraft-core/src/tools.rs",
+        "crates/meshcraft-core/src/operations/drawing.rs",
+        "crates/meshcraft-core/src/document.rs",
+        "crates/meshcraft-core/src/document/derived.rs",
+        "crates/meshcraft-core/src/selection.rs",
+        "crates/meshcraft-core/src/legacy.rs",
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/ui/Tool.kt",

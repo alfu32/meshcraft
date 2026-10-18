@@ -172,7 +172,7 @@ impl DerivedIndexCache {
                 .unwrap_or_default();
         }
         document
-            .occurrence_refs()
+            .scene_geometry_refs()
             .unwrap_or_default()
             .into_iter()
             .filter(|occurrence| {
@@ -223,7 +223,14 @@ fn build_index(document: &Document) -> Result<DerivedDocumentIndex, String> {
     };
 
     for definition in document.definitions() {
-        insert_geometry_index(&mut index, &definition.geometry)?;
+        if !definition.geometry.is_empty() {
+            insert_geometry_index(&mut index, &definition.geometry)?;
+        }
+    }
+    if let Some(root) = document.scene_root_definition()
+        && !root.geometry.is_empty()
+    {
+        insert_geometry_index(&mut index, &root.geometry)?;
     }
     for edits in document.occurrence_edits.values() {
         if let Some(geometry) = &edits.geometry_replacement {
@@ -231,7 +238,7 @@ fn build_index(document: &Document) -> Result<DerivedDocumentIndex, String> {
         }
     }
 
-    for occurrence in document.occurrence_refs()? {
+    for occurrence in document.scene_geometry_refs()? {
         let resolved = document
             .resolve_occurrence(&occurrence)
             .ok_or_else(|| format!("cannot resolve occurrence {:?}", occurrence.path))?;

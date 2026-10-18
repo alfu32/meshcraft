@@ -334,6 +334,53 @@ impl SelectionSession {
         true
     }
 
+    /// Replaces selected segment IDs with every segment produced by a topology edit.
+    pub fn remap_segments(
+        &mut self,
+        document: &Document,
+        definition: DefinitionId,
+        remap: &BTreeMap<SegmentId, Vec<SegmentId>>,
+    ) -> usize {
+        if remap.is_empty() {
+            return 0;
+        }
+        let mut replacement = self.selected.clone();
+        let mut changed = 0;
+        let targets = self
+            .selected
+            .iter()
+            .filter_map(|target| {
+                let resolved = document.resolve_occurrence(&target.occurrence)?;
+                if resolved.definition.id != definition
+                    || resolved
+                        .edits
+                        .is_some_and(|edits| edits.geometry_replacement.is_some())
+                {
+                    return None;
+                }
+                let SelectedEntity::Segment(id) = target.entity else {
+                    return None;
+                };
+                remap
+                    .get(&id)
+                    .map(|segments| (target.clone(), segments.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (source, segments) in targets {
+            replacement.remove(&source);
+            changed += 1;
+            replacement.extend(segments.into_iter().map(|id| SelectionTarget {
+                occurrence: source.occurrence.clone(),
+                entity: SelectedEntity::Segment(id),
+            }));
+        }
+        if changed > 0 {
+            self.selected = replacement;
+            self.bump_revision();
+        }
+        changed
+    }
+
     /// Drops stale paths and entity IDs after a document edit without changing authored data.
     pub fn retain_valid(&mut self, document: &Document) -> bool {
         let context_valid = match &self.context {
@@ -460,7 +507,7 @@ mod tests {
         SelectionMode, SelectionSession, SelectionTarget, SemanticHandle, SemanticHandleProvider,
         dispatch_semantic_handle,
     };
-    use crate::document::{DefinitionKind, Document};
+    use crate::document::{DefinitionKind, Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec2, Vec3};
 
     #[test]
@@ -754,6 +801,80 @@ mod tests {
         assert!(document.set_occurrence_edits(occurrence.clone(), empty));
         assert!(session.retain_valid(&document));
         assert!(session.selected().is_empty());
+    }
+
+    #[test]
+    fn topology_remap_updates_selections_for_every_shared_definition_instance() {
+        let mut document = Document::new();
+        let definition = document.add_definition("shared lines", DefinitionKind::Mesh);
+        let first_entry = document
+            .add_layout_entry(document.root_layout(), definition, Affine3::IDENTITY)
+            .unwrap();
+        let second_entry = document
+            .add_layout_entry(
+                document.root_layout(),
+                definition,
+                Affine3::from_translation(Vec3::new(4.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let first = OccurrenceRef::root(first_entry);
+        let second = OccurrenceRef::root(second_entry);
+        let initial = document
+            .append_line_segment_to_definition_with_remap(
+                definition,
+                Vec3::ZERO,
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let original = initial.affected_segments[0];
+        let mut selection = SelectionSession::default();
+        selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: first.clone(),
+                    entity: SelectedEntity::Segment(original),
+                },
+                SelectionTarget {
+                    occurrence: second.clone(),
+                    entity: SelectedEntity::Segment(original),
+                },
+            ],
+            SelectionMode::Replace,
+        );
+
+        let crossing = document
+            .append_line_segment_to_definition_with_remap(
+                definition,
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(1.0, 1.0, 0.0),
+            )
+            .unwrap();
+        assert_eq!(2, crossing.remap.segment_targets(original).len());
+        assert_eq!(
+            2,
+            selection.remap_segments(&document, definition, &crossing.remap.segments)
+        );
+        assert_eq!(4, selection.summary().edges);
+        for occurrence in [first, second] {
+            let valid_segments = document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .segments
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            let selected_segments = selection
+                .selected()
+                .iter()
+                .filter(|target| target.occurrence == occurrence)
+                .filter_map(|target| match target.entity {
+                    SelectedEntity::Segment(id) => Some(id),
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(2, selected_segments.len());
+            assert!(selected_segments.is_subset(&valid_segments));
+        }
     }
 
     #[test]

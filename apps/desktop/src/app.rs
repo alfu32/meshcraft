@@ -13,10 +13,12 @@ use meshcraft_core::commands::{
 };
 use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
+use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::selection::{
     EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
     SelectionMode, SelectionSession, SelectionTarget,
 };
+use meshcraft_core::tools::{DrawingTool, DrawingToolState, ToolEffect, ToolEvent};
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
@@ -550,6 +552,7 @@ impl UiProfile {
 enum ShellAction {
     SelectTool(&'static str),
     SelectToolAlias(&'static str),
+    FocusToolDistance,
     PlaceGuide(ConstructionGuideKind),
     RemoveGuide,
     AddCuboid,
@@ -829,6 +832,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::SelectTool("Line"),
             ),
             (
+                "tool.distance",
+                "Tool> Distance Input",
+                "Tools",
+                "line construction line numeric length distance operator",
+                Some("distance"),
+                ShellAction::FocusToolDistance,
+            ),
+            (
                 "tool.rectangle",
                 "Tool> Rectangle",
                 "Tools",
@@ -1089,6 +1100,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             let action = match *tool_id {
                 "select" => ShellAction::SelectToolAlias("Select"),
                 "line" => ShellAction::SelectToolAlias("Line"),
+                "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 _ => ShellAction::Unsupported,
             };
@@ -1199,6 +1211,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
         | ShellAction::SetToolbarVisibility(_, _)
+        | ShellAction::FocusToolDistance
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
         | ShellAction::ToggleGuides
@@ -1299,6 +1312,7 @@ fn register_shell_command(
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
         | ShellAction::SetCameraPose
+        | ShellAction::FocusToolDistance
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
@@ -1532,7 +1546,7 @@ pub struct MeshcraftApp {
     guides: Vec<ConstructionGuide>,
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
-    line_first: Option<Vec3>,
+    drawing_tool: DrawingToolState,
     rectangle_first: Option<Vec3>,
     array_count: usize,
     array_spacing: f64,
@@ -1666,7 +1680,7 @@ impl MeshcraftApp {
             guides: Vec::new(),
             cuboid_first: None,
             cuboid_base: None,
-            line_first: None,
+            drawing_tool: DrawingToolState::default(),
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -1736,34 +1750,104 @@ impl MeshcraftApp {
         Some((occurrence.clone(), resolved.definition.id, inverse))
     }
 
+    fn line_geometry_context(
+        &self,
+    ) -> (LineOwner, OccurrenceRef, meshcraft_core::geometry::Affine3) {
+        let identity = meshcraft_core::geometry::Affine3::IDENTITY;
+        match &self.selection.context {
+            EditContext::Occurrence(occurrence) => {
+                if let Some(resolved) = self.document.resolve_occurrence(occurrence) {
+                    let inverse = resolved
+                        .world_transform
+                        .inverse(meshcraft_core::geometry::GeometryTolerance::default())
+                        .unwrap_or(identity);
+                    return (
+                        LineOwner::Definition(resolved.definition.id),
+                        occurrence.clone(),
+                        inverse,
+                    );
+                }
+            }
+            EditContext::Definition(definition) => {
+                if *definition == Document::SCENE_ROOT_DEFINITION_ID {
+                    return (LineOwner::SceneRoot, OccurrenceRef::scene_root(), identity);
+                }
+                if let Some(occurrence) = self
+                    .document
+                    .occurrence_refs()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|occurrence| {
+                        self.document
+                            .resolve_occurrence(occurrence)
+                            .is_some_and(|resolved| resolved.definition.id == *definition)
+                    })
+                {
+                    let inverse = self
+                        .document
+                        .resolve_occurrence(&occurrence)
+                        .and_then(|resolved| {
+                            resolved
+                                .world_transform
+                                .inverse(meshcraft_core::geometry::GeometryTolerance::default())
+                        })
+                        .unwrap_or(identity);
+                    return (LineOwner::Definition(*definition), occurrence, inverse);
+                }
+            }
+            EditContext::Document => {}
+        }
+
+        let root_entries = self
+            .document
+            .occurrence_refs()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|occurrence| occurrence.path.len() == 1)
+            .collect::<Vec<_>>();
+        if root_entries.len() == 1
+            && let Some(occurrence) = root_entries.first()
+            && let Some(resolved) = self.document.resolve_occurrence(occurrence)
+            && resolved.definition.name == "Root"
+        {
+            let inverse = resolved
+                .world_transform
+                .inverse(meshcraft_core::geometry::GeometryTolerance::default())
+                .unwrap_or(identity);
+            return (
+                LineOwner::Definition(resolved.definition.id),
+                occurrence.clone(),
+                inverse,
+            );
+        }
+        (LineOwner::SceneRoot, OccurrenceRef::scene_root(), identity)
+    }
+
     fn create_line_in_active_context(
         &mut self,
         start: Vec3,
         end: Vec3,
-    ) -> Result<SelectionTarget, String> {
-        if let Some((occurrence, definition, inverse)) = self.active_occurrence_edit_transform() {
-            let start = inverse.transform_point(start);
-            let end = inverse.transform_point(end);
-            let segment = self.commit_document_edit("Create line", |document| {
-                document
-                    .append_line_segment_to_definition(definition, start, end)
-                    .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
-            })?;
-            Ok(SelectionTarget {
-                occurrence,
+    ) -> Result<Vec<SelectionTarget>, String> {
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let start = inverse.transform_point(start);
+        let end = inverse.transform_point(end);
+        let insertion = self.commit_document_edit("Create line", |document| {
+            drawing::insert_line(document, owner, start, end)
+        })?;
+        let definition = match owner {
+            LineOwner::SceneRoot => Document::SCENE_ROOT_DEFINITION_ID,
+            LineOwner::Definition(definition) => definition,
+        };
+        self.selection
+            .remap_segments(&self.document, definition, &insertion.remap.segments);
+        Ok(insertion
+            .affected_segments
+            .into_iter()
+            .map(|segment| SelectionTarget {
+                occurrence: occurrence.clone(),
                 entity: SelectedEntity::Segment(segment),
             })
-        } else {
-            let occurrence = self.commit_document_edit("Create line", |document| {
-                document
-                    .add_line_segment("line", start, end)
-                    .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
-            })?;
-            Ok(SelectionTarget {
-                occurrence,
-                entity: SelectedEntity::Occurrence,
-            })
-        }
+            .collect())
     }
 
     fn create_rectangle_in_active_context(
@@ -2520,7 +2604,8 @@ impl MeshcraftApp {
         self.guides.clear();
         self.cuboid_first = None;
         self.cuboid_base = None;
-        self.line_first = None;
+        self.drawing_tool
+            .handle(ToolEvent::Activate(DrawingTool::Select));
         self.rectangle_first = None;
         self.viewport.reset_camera();
         let restored_camera = meshcraft_core::legacy::legacy_camera_state(&self.document)
@@ -2653,7 +2738,8 @@ impl MeshcraftApp {
         self.object_name_edit = None;
         self.cuboid_first = None;
         self.cuboid_base = None;
-        self.line_first = None;
+        self.drawing_tool
+            .handle(ToolEvent::Activate(DrawingTool::Select));
         self.rectangle_first = None;
         self.guides.clear();
         self.status = "New empty document.".to_owned();
@@ -2711,7 +2797,11 @@ impl MeshcraftApp {
                 }
                 self.cuboid_first = None;
                 self.cuboid_base = None;
-                self.line_first = None;
+                self.drawing_tool.handle(ToolEvent::Activate(match tool {
+                    "Line" => DrawingTool::Line,
+                    "Construction Line" => DrawingTool::ConstructionLine,
+                    _ => DrawingTool::Select,
+                }));
                 self.rectangle_first = None;
                 self.status = match tool {
                     "Cuboid" => {
@@ -2719,12 +2809,22 @@ impl MeshcraftApp {
                     }
                     "Line" => "Line: click a start and end point in the active construction plane."
                         .to_owned(),
+                    "Construction Line" => "Construction Line: click two points; the tool stays active for another segment.".to_owned(),
                     "Rectangle" => {
                         "Rectangle: click two opposite corners in the active construction plane."
                             .to_owned()
                     }
                     _ => format!("{tool} tool selected."),
                 };
+            }
+            ShellAction::FocusToolDistance => {
+                if self.drawing_tool.anchor().is_none() {
+                    self.status =
+                        "Choose a Line start point before entering a distance.".to_owned();
+                } else {
+                    self.drawing_tool.handle(ToolEvent::FocusDistance);
+                    self.status = "Distance input: type a value, move the pointer for direction, then press Enter.".to_owned();
+                }
             }
             ShellAction::PlaceGuide(kind) => {
                 self.active_tool = match kind {
@@ -2734,7 +2834,8 @@ impl MeshcraftApp {
                 .to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
-                self.line_first = None;
+                self.drawing_tool
+                    .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.rectangle_first = None;
                 self.status = match kind {
                     ConstructionGuideKind::Axis => {
@@ -2750,7 +2851,8 @@ impl MeshcraftApp {
                 self.active_tool = "Remove Guide".to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
-                self.line_first = None;
+                self.drawing_tool
+                    .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.rectangle_first = None;
                 self.status = "Remove Guide: click a visible construction guide.".to_owned();
             }
@@ -2852,7 +2954,8 @@ impl MeshcraftApp {
                 self.active_tool = "Select".to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
-                self.line_first = None;
+                self.drawing_tool
+                    .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.rectangle_first = None;
                 self.guides.clear();
                 self.viewport.reset_camera();
@@ -3607,9 +3710,71 @@ impl MeshcraftApp {
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
         self.cuboid_base = None;
-        self.line_first = None;
+        self.drawing_tool.handle(ToolEvent::Escape);
         self.rectangle_first = None;
         self.status = "Current tool operation canceled.".to_owned();
+    }
+
+    fn handle_drawing_tool_effect(&mut self, effect: ToolEffect, snap: Option<SnapResult>) {
+        match effect {
+            ToolEffect::None => {}
+            ToolEffect::AnchorPlaced(_) => {
+                self.status = match self.active_tool.as_str() {
+                    "Line" => {
+                        "Line: choose the next point; type a distance to constrain it.".to_owned()
+                    }
+                    "Construction Line" => {
+                        "Construction Line: choose the second point or type a distance.".to_owned()
+                    }
+                    _ => self.status.clone(),
+                };
+            }
+            ToolEffect::CommitSegment {
+                start,
+                end,
+                chain_continues,
+            } => match self.create_line_in_active_context(start, end) {
+                Ok(targets) => {
+                    self.selection.apply(targets, SelectionMode::Replace);
+                    let snap_note = snap.map_or(String::new(), |snap| {
+                        format!(" · {} snap", snap.kind.label())
+                    });
+                    self.status = if chain_continues {
+                        format!(
+                            "Created line segment {:.2} units long; choose the next point or press Enter.{snap_note}",
+                            start.distance(end)
+                        )
+                    } else {
+                        format!(
+                            "Created construction line {:.2} units long; choose another start point.{snap_note}",
+                            start.distance(end)
+                        )
+                    };
+                }
+                Err(error) => self.status = error,
+            },
+            ToolEffect::FinishChain => {
+                self.status = "Line chain finished; the Line tool remains active.".to_owned();
+            }
+            ToolEffect::Cancel => {
+                self.active_tool = "Select".to_owned();
+                self.status = "Current tool operation canceled.".to_owned();
+            }
+            ToolEffect::InvalidInput => {
+                self.status = "Enter a finite, nonzero distance and choose a direction.".to_owned();
+            }
+        }
+    }
+
+    fn sync_drawing_tool_state(&mut self) {
+        let expected = match self.active_tool.as_str() {
+            "Line" => DrawingTool::Line,
+            "Construction Line" => DrawingTool::ConstructionLine,
+            _ => DrawingTool::Select,
+        };
+        if self.drawing_tool.active() != expected {
+            self.drawing_tool.handle(ToolEvent::Activate(expected));
+        }
     }
 
     #[cfg(test)]
@@ -3760,33 +3925,15 @@ impl MeshcraftApp {
             return;
         }
 
-        if self.active_tool == "Line" {
+        if matches!(self.active_tool.as_str(), "Line" | "Construction Line") {
+            self.sync_drawing_tool_state();
             let point = construction_point;
             let Some(point) = point else {
                 self.status = "The current view has no construction-plane intersection.".to_owned();
                 return;
             };
-            if let Some(start) = self.line_first {
-                match self.create_line_in_active_context(start, point) {
-                    Ok(target) => {
-                        self.selection.apply([target], SelectionMode::Replace);
-                        self.active_tool = "Select".to_owned();
-                        self.line_first = None;
-                        self.status = format!(
-                            "Created line {:.2} units long{}.",
-                            start.distance(point),
-                            snap.map_or(String::new(), |snap| format!(
-                                " · {} snap",
-                                snap.kind.label()
-                            ))
-                        );
-                    }
-                    Err(error) => self.status = error,
-                }
-            } else {
-                self.line_first = Some(point);
-                self.status = "Line: choose the end point.".to_owned();
-            }
+            let effect = self.drawing_tool.handle(ToolEvent::Pick(point));
+            self.handle_drawing_tool_effect(effect, snap);
             return;
         }
 
@@ -4206,14 +4353,13 @@ impl MeshcraftApp {
                     ),
                 }))
             }
-            "Line" => {
-                let start = self.line_first?;
-                Some(ToolPreview::Line {
-                    start,
-                    end: snap
-                        .map(|snap| snap.point)
-                        .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?,
-                })
+            "Line" | "Construction Line" => {
+                let point = snap
+                    .map(|snap| snap.point)
+                    .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+                let preview = self.drawing_tool.preview(point);
+                let [start, end] = preview.segment?;
+                Some(ToolPreview::Line { start, end })
             }
             "Rectangle" => {
                 let first = self.rectangle_first?;
@@ -4265,10 +4411,17 @@ impl MeshcraftApp {
             _ => None,
         };
         let icon_name = command.descriptor.presentation.icon_key.as_deref();
-        let fallback_label = tool
-            .and_then(|tool| tool.chars().next())
-            .or_else(|| command.descriptor.label.chars().next())
-            .unwrap_or('?');
+        let fallback_label = match tool {
+            Some("Construction Line") => "CL".to_owned(),
+            Some(tool) => tool.chars().next().unwrap_or('?').to_string(),
+            None => command
+                .descriptor
+                .label
+                .chars()
+                .next()
+                .unwrap_or('?')
+                .to_string(),
+        };
         let state = self.query_command_state(command.descriptor.id.as_str());
         let selected = state
             .checked
@@ -4628,6 +4781,7 @@ impl MeshcraftApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
+        self.sync_drawing_tool_state();
         self.viewport
             .set_grid_normal_axis(self.preferences.grid_normal_axis);
         self.viewport.set_walkthrough_tuning(WalkthroughTuning {
@@ -4644,6 +4798,16 @@ impl MeshcraftApp {
         let snap = pointer.and_then(|position| {
             self.snap_at_viewport_position(predicted_rect, position, ui.ctx().pixels_per_point())
         });
+        if matches!(self.active_tool.as_str(), "Line" | "Construction Line")
+            && let Some(point) = pointer.and_then(|position| {
+                snap.map(|snap| snap.point).or_else(|| {
+                    self.viewport
+                        .screen_to_construction_plane(predicted_rect, position)
+                })
+            })
+        {
+            self.drawing_tool.handle(ToolEvent::PointerMoved(point));
+        }
         let visible_guides = if self.preferences.show_construction_guides {
             self.guides.as_slice()
         } else {
@@ -4704,6 +4868,25 @@ impl MeshcraftApp {
         if let Some(gesture) = input.selection_gesture {
             self.handle_selection_gesture(input.rect, gesture);
         }
+        if self.drawing_tool.anchor().is_some()
+            && self.drawing_tool.distance_focused()
+            && matches!(self.active_tool.as_str(), "Line" | "Construction Line")
+        {
+            let position = input.rect.left_top() + egui::vec2(18.0, 54.0);
+            let text = if self.drawing_tool.numeric_input().is_empty() {
+                "Distance: type a value".to_owned()
+            } else {
+                format!("Distance: {}", self.drawing_tool.numeric_input())
+            };
+            egui::Area::new(egui::Id::unique("drawing-distance-input"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(position)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(text);
+                    });
+                });
+        }
     }
 
     fn handle_selection_gesture(&mut self, rect: egui::Rect, gesture: SelectionGesture) {
@@ -4752,7 +4935,7 @@ impl MeshcraftApp {
     ) -> Option<SnapResult> {
         if !matches!(
             self.active_tool.as_str(),
-            "Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
+            "Line" | "Construction Line" | "Rectangle" | "Axis Guide" | "Grid Guide"
         ) || !pixels_per_point.is_finite()
             || pixels_per_point <= 0.0
         {
@@ -5382,6 +5565,28 @@ impl MeshcraftApp {
             && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && !popup_open;
+        if shortcuts_allowed && matches!(self.active_tool.as_str(), "Line" | "Construction Line") {
+            let typed = ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Text(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            });
+            if !typed.is_empty() {
+                self.drawing_tool.handle(ToolEvent::Text(&typed));
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
+                self.drawing_tool.handle(ToolEvent::Backspace);
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                let effect = self.drawing_tool.handle(ToolEvent::Enter);
+                self.handle_drawing_tool_effect(effect, None);
+            }
+        }
         let open_project_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::O));
         if open_project_shortcut {
@@ -5635,7 +5840,9 @@ fn tool_command_id(tool: &str) -> &'static str {
     shell_commands()
         .entries()
         .find_map(|command| match &command.handler {
-            ShellAction::SelectTool(name) if *name == tool => Some(command.descriptor.id.as_str()),
+            ShellAction::SelectTool(name) | ShellAction::SelectToolAlias(name) if *name == tool => {
+                Some(command.descriptor.id.as_str())
+            }
             _ => None,
         })
         .unwrap_or("tool.select")
@@ -5766,10 +5973,10 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, EditContext, MeshcraftApp, OrthoView, Preferences, ReplacementDecision,
-        SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionSession,
-        TransactionHistory, UiProfile, command_matches, registry_has_unique_ids, shell_commands,
-        tool_command_id,
+        CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, Preferences,
+        ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
+        SelectionSession, TransactionHistory, UiProfile, command_matches, registry_has_unique_ids,
+        shell_commands, tool_command_id,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
@@ -5783,7 +5990,7 @@ mod tests {
     use meshcraft_core::commands::{
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
-    use meshcraft_core::document::Document;
+    use meshcraft_core::document::{Document, OccurrenceRef};
     use meshcraft_core::geometry::Vec3;
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
@@ -5945,7 +6152,7 @@ mod tests {
             guides: Vec::new(),
             cuboid_first: None,
             cuboid_base: None,
-            line_first: None,
+            drawing_tool: DrawingToolState::default(),
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -6025,15 +6232,15 @@ mod tests {
         request_app.handle_world_pointer_request(request_rect, start, 1.0);
         request_app.handle_world_pointer_request(request_rect, end, 1.0);
 
-        assert_eq!("Select", gui_app.active_tool);
-        assert_eq!("Select", request_app.active_tool);
+        assert_eq!("Line", gui_app.active_tool);
+        assert_eq!("Line", request_app.active_tool);
         let gui_line = gui_app
             .document
-            .effective_geometry(&gui_app.selected_occurrences()[0])
+            .effective_geometry(&OccurrenceRef::scene_root())
             .unwrap();
         let requested_line = request_app
             .document
-            .effective_geometry(&request_app.selected_occurrences()[0])
+            .effective_geometry(&OccurrenceRef::scene_root())
             .unwrap();
         let mut gui_points = gui_line
             .vertices
@@ -6048,6 +6255,8 @@ mod tests {
         gui_points.sort_by(|left, right| left.x.total_cmp(&right.x));
         requested_points.sort_by(|left, right| left.x.total_cmp(&right.x));
         assert_eq!(2, gui_points.len());
+        assert_eq!(1, gui_line.segments.len());
+        assert_eq!(1, requested_line.segments.len());
         assert!(
             gui_points
                 .iter()
@@ -6098,7 +6307,7 @@ mod tests {
 
         click_workspace_position(&mut app, &context, quit_item);
         assert!(app.quit_requested);
-        assert_eq!(None, app.line_first);
+        assert_eq!(None, app.drawing_tool.anchor());
         assert_eq!(revision, app.document.revision());
     }
 
@@ -6126,7 +6335,7 @@ mod tests {
         );
 
         assert_eq!("Line", app.active_tool);
-        assert_eq!(None, app.line_first);
+        assert_eq!(None, app.drawing_tool.anchor());
         assert_eq!(revision, app.document.revision());
     }
 
@@ -6227,7 +6436,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(199, entries.len());
+        assert_eq!(200, entries.len());
         assert_eq!(
             74,
             entries
@@ -6399,7 +6608,14 @@ mod tests {
 
     #[test]
     fn every_visible_tool_has_a_registry_command() {
-        for tool in ["Select", "Cuboid", "Line", "Rectangle", "Orbit"] {
+        for tool in [
+            "Select",
+            "Cuboid",
+            "Line",
+            "Construction Line",
+            "Rectangle",
+            "Orbit",
+        ] {
             let id = tool_command_id(tool);
             assert!(shell_commands().get(id).is_some());
         }
@@ -6779,7 +6995,7 @@ mod tests {
     }
 
     #[test]
-    fn line_tool_commits_scene_snaps_as_one_undoable_edit() {
+    fn line_tool_commits_each_scene_segment_as_an_undoable_edit() {
         let mut app = test_app();
         let source = app
             .document
@@ -6810,19 +7026,123 @@ mod tests {
         app.handle_viewport_click(rect, start_screen, Some(start_snap));
         app.handle_viewport_click(rect, end_screen, Some(end_snap));
 
-        assert_eq!("Select", app.active_tool);
+        assert_eq!("Line", app.active_tool);
         assert_eq!(1, app.history.entries().len());
         assert!(app.status.contains("Grid snap"));
-        let created = app.selected_occurrences().pop().unwrap();
-        assert_ne!(source, created);
-        let geometry = app.document.effective_geometry(&created).unwrap();
+        assert_ne!(
+            source,
+            app.selection.selected().iter().next().unwrap().occurrence
+        );
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
         let positions = geometry
             .vertices
             .values()
             .map(|vertex| vertex.position)
             .collect::<Vec<_>>();
-        assert!(positions.contains(&start_snap.point));
-        assert!(positions.contains(&end_snap.point));
+        assert!(
+            positions
+                .iter()
+                .any(|point| point.distance(start_snap.point) < 1.0e-9)
+        );
+        assert!(
+            positions
+                .iter()
+                .any(|point| point.distance(end_snap.point) < 1.0e-9)
+        );
+    }
+
+    #[test]
+    fn construction_line_commits_discrete_pairs_to_scene_root() {
+        let mut app = test_app();
+        app.run_command("tool.builtin.construction_line");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        let pick = |app: &mut MeshcraftApp, point: Vec3| {
+            let position = app.viewport.world_to_screen(rect, point);
+            app.handle_viewport_click_at_point(rect, position, None, Some(point));
+        };
+
+        let first_start = Vec3::new(-8.0, 0.0, 0.0);
+        let first_end = Vec3::new(-6.0, 0.0, 1.0);
+        pick(&mut app, first_start);
+        pick(&mut app, first_end);
+        assert_eq!("Construction Line", app.active_tool);
+        assert_eq!(None, app.drawing_tool.anchor());
+        assert_eq!(1, app.history.entries().len());
+
+        let second_start = Vec3::new(6.0, 0.0, 0.0);
+        let second_end = Vec3::new(8.0, 0.0, 1.0);
+        pick(&mut app, second_start);
+        pick(&mut app, second_end);
+        assert_eq!("Construction Line", app.active_tool);
+        assert_eq!(2, app.history.entries().len());
+
+        // Cancelling a pending pair leaves each committed pair intact.
+        pick(&mut app, Vec3::new(10.0, 0.0, 0.0));
+        app.cancel_active_tool();
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(2, app.history.entries().len());
+        assert_eq!(1, app.selection.summary().edges);
+        assert_eq!(0, app.document.occurrence_refs().unwrap().len());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(2, geometry.segments.len());
+    }
+
+    #[test]
+    fn typed_distance_commits_the_previewed_scene_line_length() {
+        let mut app = test_app();
+        app.run_command("tool.line");
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+
+        let rect = app.viewport_rect;
+        let start = Vec3::new(2.0, 0.0, 0.0);
+        let pointer = Vec3::new(2.0, 0.0, 6.0);
+        let start_screen = app.viewport.world_to_screen(rect, start);
+        let pointer_screen = app.viewport.world_to_screen(rect, pointer);
+        assert!(rect.contains(start_screen) && rect.contains(pointer_screen));
+        click_workspace_position(&mut app, &context, start_screen);
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::PointerMoved(pointer_screen)],
+        );
+        app.run_command("tool.distance");
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![
+                Event::PointerMoved(pointer_screen),
+                Event::Text("2.5".to_owned()),
+                Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+
+        assert_eq!(1, app.history.entries().len());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(1, geometry.segments.len());
+        let segment = geometry.segments.values().next().unwrap();
+        let endpoints = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference).unwrap());
+        assert!(endpoints.iter().any(|point| point.distance(start) < 1.0e-6));
+        assert!((endpoints[0].distance(endpoints[1]) - 2.5).abs() < 1.0e-6);
+        assert_eq!("Line", app.active_tool);
     }
 
     #[test]
@@ -7752,9 +8072,11 @@ mod tests {
         app.selection
             .set_context(EditContext::Occurrence(occurrence.clone()));
 
-        let target = app
+        let targets = app
             .create_line_in_active_context(Vec3::new(10.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 0.0))
             .unwrap();
+        assert_eq!(1, targets.len());
+        let target = targets[0].clone();
         app.selection
             .apply([target.clone()], super::SelectionMode::Replace);
 

@@ -49,6 +49,13 @@ pub struct TopologyRemap {
     pub triangles: BTreeMap<TriangleId, Vec<TriangleId>>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LineInsertion {
+    /// Segments overlapping any part of the newly drawn line, including reused collinear edges.
+    pub affected_segments: Vec<SegmentId>,
+    pub remap: TopologyRemap,
+}
+
 impl TopologyRemap {
     pub fn vertex_targets(&self, id: VertexId) -> Cow<'_, [VertexId]> {
         match self.vertices.get(&id) {
@@ -79,6 +86,15 @@ pub struct OccurrenceRef {
 }
 
 impl OccurrenceRef {
+    /// Refers to authored geometry in the document's scene root.
+    pub fn scene_root() -> Self {
+        Self { path: Vec::new() }
+    }
+
+    pub fn is_scene_root(&self) -> bool {
+        self.path.is_empty()
+    }
+
     pub fn root(entry: LayoutEntryId) -> Self {
         Self { path: vec![entry] }
     }
@@ -427,6 +443,7 @@ pub struct Document {
 
 impl Document {
     pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+    pub const SCENE_ROOT_DEFINITION_ID: DefinitionId = DefinitionId(0);
 
     pub fn new() -> Self {
         let root_layout = ChildLayoutId(1);
@@ -439,11 +456,29 @@ impl Document {
                 extensions: BTreeMap::new(),
             },
         );
+        let mut definitions = BTreeMap::new();
+        definitions.insert(
+            Self::SCENE_ROOT_DEFINITION_ID,
+            Definition {
+                id: Self::SCENE_ROOT_DEFINITION_ID,
+                name: "Root".to_owned(),
+                kind: DefinitionKind::Mesh,
+                frame: Affine3::IDENTITY,
+                geometry: GeometryBundle {
+                    id: GeometryBundleId(0),
+                    ..GeometryBundle::default()
+                },
+                default_child_layout: Some(root_layout),
+                domain_data: BTreeMap::new(),
+                extensions: BTreeMap::new(),
+                legacy_aliases: Vec::new(),
+            },
+        );
         Self {
             schema_version: Self::CURRENT_SCHEMA_VERSION,
             revision: 0,
             root_layout,
-            definitions: BTreeMap::new(),
+            definitions,
             child_layouts,
             occurrence_edits: BTreeMap::new(),
             model_settings: ModelSettings::default(),
@@ -454,6 +489,30 @@ impl Document {
 
     pub fn root_layout(&self) -> ChildLayoutId {
         self.root_layout
+    }
+
+    pub fn scene_root_definition(&self) -> Option<&Definition> {
+        self.definitions.get(&Self::SCENE_ROOT_DEFINITION_ID)
+    }
+
+    /// Adds the empty root graph to older normalized snapshots that predate scene-root geometry.
+    pub fn ensure_scene_root(&mut self) -> DefinitionId {
+        let id = Self::SCENE_ROOT_DEFINITION_ID;
+        self.definitions.entry(id).or_insert_with(|| Definition {
+            id,
+            name: "Root".to_owned(),
+            kind: DefinitionKind::Mesh,
+            frame: Affine3::IDENTITY,
+            geometry: GeometryBundle {
+                id: GeometryBundleId(0),
+                ..GeometryBundle::default()
+            },
+            default_child_layout: Some(self.root_layout),
+            domain_data: BTreeMap::new(),
+            extensions: BTreeMap::new(),
+            legacy_aliases: Vec::new(),
+        });
+        id
     }
 
     /// Monotonic authored-state revision used to invalidate non-persistent caches.
@@ -470,7 +529,9 @@ impl Document {
     }
 
     pub fn definitions(&self) -> impl Iterator<Item = &Definition> {
-        self.definitions.values()
+        self.definitions
+            .values()
+            .filter(|definition| definition.id != Self::SCENE_ROOT_DEFINITION_ID)
     }
 
     pub fn child_layout(&self, id: ChildLayoutId) -> Option<&ChildLayout> {
@@ -836,41 +897,43 @@ impl Document {
         start: Vec3,
         end: Vec3,
     ) -> Option<SegmentId> {
+        self.append_line_segment_to_definition_with_remap(definition_id, start, end)?
+            .affected_segments
+            .first()
+            .copied()
+    }
+
+    pub fn append_line_segment_to_definition_with_remap(
+        &mut self,
+        definition_id: DefinitionId,
+        start: Vec3,
+        end: Vec3,
+    ) -> Option<LineInsertion> {
         if !start.is_finite() || !end.is_finite() {
             return None;
         }
-        let scale = start.length().max(end.length());
-        if start.distance(end) <= crate::geometry::GeometryTolerance::default().linear_at(scale) {
-            return None;
-        }
-        let raw_reference = |vertex| RawVertexRef {
-            vertex,
-            position_offset: Vec3::ZERO,
-        };
-        let geometry = self
-            .build_geometry_bundle_raw(
-                vec![
-                    RawGeometryVertex {
-                        position: start,
-                        legacy_aliases: Vec::new(),
-                    },
-                    RawGeometryVertex {
-                        position: end,
-                        legacy_aliases: Vec::new(),
-                    },
-                ],
-                vec![RawGeometrySegment {
-                    endpoints: [raw_reference(0), raw_reference(1)],
-                    color: Rgba8::WHITE,
-                    legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
-                }],
-                Vec::new(),
-            )
-            .ok()?;
-        let segment = *geometry.segments.keys().next()?;
-        self.append_geometry_to_definition(definition_id, geometry)
-            .then_some(segment)
+        let geometry = self.definitions.get(&definition_id)?.geometry.clone();
+        let (replacement, insertion) =
+            insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
+        let definition = self.definitions.get_mut(&definition_id)?;
+        definition.geometry = replacement;
+        self.revision = self.revision.saturating_add(1);
+        Some(insertion)
+    }
+
+    /// Inserts a line directly into the document's scene-root geometry graph.
+    pub fn append_line_segment_to_scene_root(
+        &mut self,
+        start: Vec3,
+        end: Vec3,
+    ) -> Option<LineInsertion> {
+        let definition_id = self.ensure_scene_root();
+        let geometry = self.definitions.get(&definition_id)?.geometry.clone();
+        let (replacement, insertion) =
+            insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
+        self.definitions.get_mut(&definition_id)?.geometry = replacement;
+        self.revision = self.revision.saturating_add(1);
+        Some(insertion)
     }
 
     /// Appends rectangle edges and faces to an existing object definition.
@@ -1562,6 +1625,16 @@ impl Document {
         &'a self,
         occurrence: &OccurrenceRef,
     ) -> Option<ResolvedOccurrence<'a>> {
+        if occurrence.path.is_empty() {
+            let definition = self.scene_root_definition()?;
+            return Some(ResolvedOccurrence {
+                occurrence: occurrence.clone(),
+                entry: None,
+                definition,
+                edits: None,
+                world_transform: Affine3::IDENTITY,
+            });
+        }
         let (first, rest) = occurrence.path.split_first()?;
         let mut current_layout = self.root_layout;
         let mut world = Affine3::IDENTITY;
@@ -1583,7 +1656,7 @@ impl Document {
             world = world.compose(instance_frame).compose(definition.frame);
             resolved = Some(ResolvedOccurrence {
                 occurrence: path,
-                entry,
+                entry: Some(entry),
                 definition,
                 edits,
                 world_transform: world,
@@ -1665,6 +1738,16 @@ impl Document {
             &mut output,
         )?;
         Ok(output)
+    }
+
+    /// Realized geometry owners, including the document root graph before placed objects.
+    pub fn scene_geometry_refs(&self) -> Result<Vec<OccurrenceRef>, String> {
+        let mut occurrences = Vec::new();
+        if self.scene_root_definition().is_some() {
+            occurrences.push(OccurrenceRef::scene_root());
+        }
+        occurrences.extend(self.occurrence_refs()?);
+        Ok(occurrences)
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -1849,9 +1932,369 @@ impl Default for Document {
     }
 }
 
+#[derive(Clone)]
+struct LinePiece {
+    start: Vec3,
+    end: Vec3,
+    source: Option<SegmentId>,
+    color: Rgba8,
+    legacy_aliases: Vec<LegacyAlias>,
+    extensions: BTreeMap<String, Value>,
+    from_new_line: bool,
+    break_start: bool,
+    break_end: bool,
+}
+
+struct LineCluster {
+    axis: Vec3,
+    offset: Vec3,
+    pieces: Vec<LinePiece>,
+}
+
+/// Inserts a line, splitting same-graph intersections and merging collinear touching intervals.
+/// Triangle topology is deliberately unchanged; face cutting is an explicit operation.
+fn insert_line_geometry(
+    source: &GeometryBundle,
+    start: Vec3,
+    end: Vec3,
+    next_id: &mut u64,
+) -> Option<(GeometryBundle, LineInsertion)> {
+    if !start.is_finite() || !end.is_finite() {
+        return None;
+    }
+    let model_scale = start.length().max(end.length()).max(
+        source
+            .vertices
+            .values()
+            .map(|vertex| vertex.position.length())
+            .fold(0.0, f64::max),
+    );
+    let epsilon = crate::geometry::LEGACY_LINE_STORE_EPSILON
+        .max(crate::geometry::GeometryTolerance::default().linear_at(model_scale));
+    if start.distance(end) <= epsilon {
+        return None;
+    }
+
+    let mut pieces = Vec::with_capacity(source.segments.len() * 2 + 1);
+    for segment in source.segments.values() {
+        let [Some(a), Some(b)] = segment
+            .endpoints
+            .map(|reference| source.vertex_position(reference))
+        else {
+            return None;
+        };
+        let mut cuts = vec![(0.0, false), (1.0, false)];
+        for hit in segment_pair_hits(start, end, a, b, epsilon) {
+            if hit.3 {
+                cuts.push((hit.1, true));
+            }
+        }
+        sort_dedup_cuts(&mut cuts, epsilon / a.distance(b));
+        for pair in cuts.windows(2) {
+            if pair[1].0 - pair[0].0 <= epsilon / a.distance(b) {
+                continue;
+            }
+            pieces.push(LinePiece {
+                start: a + (b - a) * pair[0].0,
+                end: a + (b - a) * pair[1].0,
+                source: Some(segment.id),
+                color: segment.color,
+                legacy_aliases: if pair[0].0 == 0.0 {
+                    segment.legacy_aliases.clone()
+                } else {
+                    Vec::new()
+                },
+                extensions: segment.extensions.clone(),
+                from_new_line: false,
+                break_start: pair[0].1,
+                break_end: pair[1].1,
+            });
+        }
+    }
+
+    let mut new_cuts = vec![(0.0, false), (1.0, false)];
+    for segment in source.segments.values() {
+        let [Some(a), Some(b)] = segment
+            .endpoints
+            .map(|reference| source.vertex_position(reference))
+        else {
+            return None;
+        };
+        for hit in segment_pair_hits(start, end, a, b, epsilon) {
+            if hit.3 {
+                new_cuts.push((hit.0, true));
+            }
+        }
+    }
+    let new_length = start.distance(end);
+    sort_dedup_cuts(&mut new_cuts, epsilon / new_length);
+    for pair in new_cuts.windows(2) {
+        if pair[1].0 - pair[0].0 <= epsilon / new_length {
+            continue;
+        }
+        pieces.push(LinePiece {
+            start: start + (end - start) * pair[0].0,
+            end: start + (end - start) * pair[1].0,
+            source: None,
+            color: Rgba8::WHITE,
+            legacy_aliases: Vec::new(),
+            extensions: BTreeMap::new(),
+            from_new_line: true,
+            break_start: pair[0].1,
+            break_end: pair[1].1,
+        });
+    }
+
+    let mut clusters = Vec::<LineCluster>::new();
+    for piece in pieces {
+        let direction = piece.end - piece.start;
+        let Some(mut axis) = direction.try_normalized(epsilon) else {
+            continue;
+        };
+        if axis.x < -epsilon
+            || (axis.x.abs() <= epsilon && axis.y < -epsilon)
+            || (axis.x.abs() <= epsilon && axis.y.abs() <= epsilon && axis.z < 0.0)
+        {
+            axis = -axis;
+        }
+        let offset = piece.start - axis * piece.start.dot(axis);
+        let cluster = clusters.iter_mut().find(|cluster| {
+            cluster.axis.cross(axis).length() <= 1.0e-9
+                && (cluster.offset - offset).length() <= epsilon
+        });
+        if let Some(cluster) = cluster {
+            cluster.pieces.push(piece);
+        } else {
+            clusters.push(LineCluster {
+                axis,
+                offset,
+                pieces: vec![piece],
+            });
+        }
+    }
+
+    let mut output = GeometryBundle {
+        id: source.id,
+        vertices: source.vertices.clone(),
+        segments: BTreeMap::new(),
+        triangles: source.triangles.clone(),
+        extensions: source.extensions.clone(),
+    };
+    let mut touched = Vec::new();
+    let mut insertion_remap = TopologyRemap::default();
+    for cluster in clusters {
+        let mut intervals = cluster
+            .pieces
+            .into_iter()
+            .map(|piece| {
+                let a = piece.start.dot(cluster.axis);
+                let b = piece.end.dot(cluster.axis);
+                let (low, high, break_low, break_high) = if a <= b {
+                    (a, b, piece.break_start, piece.break_end)
+                } else {
+                    (b, a, piece.break_end, piece.break_start)
+                };
+                (low, high, break_low, break_high, piece)
+            })
+            .collect::<Vec<_>>();
+        intervals.sort_by(|left, right| {
+            left.0
+                .total_cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+        });
+        let mut merged = Vec::<(f64, f64, bool, Vec<LinePiece>)>::new();
+        for (low, high, break_low, break_high, piece) in intervals {
+            if let Some((_, current_high, current_break_high, current_pieces)) = merged.last_mut()
+                && (low < *current_high - epsilon
+                    || (low <= *current_high + epsilon && !*current_break_high && !break_low))
+            {
+                if high > *current_high {
+                    *current_high = high;
+                    *current_break_high = break_high;
+                }
+                current_pieces.push(piece);
+            } else {
+                merged.push((low, high, break_high, vec![piece]));
+            }
+        }
+        for (low, high, _break_high, members) in merged {
+            let mut existing_ids = members
+                .iter()
+                .filter_map(|piece| piece.source)
+                .collect::<Vec<_>>();
+            existing_ids.sort_unstable();
+            existing_ids.dedup();
+            let retained_id = existing_ids
+                .iter()
+                .copied()
+                .find(|id| !output.segments.contains_key(id));
+            let id = retained_id.unwrap_or_else(|| allocate_id(next_id, SegmentId));
+            let color_source = members
+                .iter()
+                .find(|piece| piece.source.is_some())
+                .or_else(|| members.first())?;
+            let aliases = members
+                .iter()
+                .find(|piece| !piece.legacy_aliases.is_empty())
+                .map_or_else(Vec::new, |piece| piece.legacy_aliases.clone());
+            let start_position = cluster.offset + cluster.axis * low;
+            let end_position = cluster.offset + cluster.axis * high;
+            let start_id = vertex_for_line_point(&mut output, start_position, epsilon, next_id);
+            let end_id = vertex_for_line_point(&mut output, end_position, epsilon, next_id);
+            output.segments.insert(
+                id,
+                Segment {
+                    id,
+                    endpoints: [VertexRef::new(start_id), VertexRef::new(end_id)],
+                    color: color_source.color,
+                    legacy_aliases: aliases,
+                    extensions: color_source.extensions.clone(),
+                },
+            );
+            for old_id in &existing_ids {
+                insertion_remap
+                    .segments
+                    .entry(*old_id)
+                    .or_default()
+                    .push(id);
+            }
+            if members.iter().any(|piece| piece.from_new_line) {
+                touched.push(id);
+            }
+        }
+    }
+    if output.validate().is_err() {
+        return None;
+    }
+    touched.sort_unstable();
+    touched.dedup();
+    for targets in insertion_remap.segments.values_mut() {
+        targets.sort_unstable();
+        targets.dedup();
+    }
+    insertion_remap
+        .segments
+        .retain(|source, targets| targets.as_slice() != [*source]);
+    (!touched.is_empty()).then_some((
+        output,
+        LineInsertion {
+            affected_segments: touched,
+            remap: insertion_remap,
+        },
+    ))
+}
+
+fn allocate_id<T>(next_id: &mut u64, wrap: impl FnOnce(u64) -> T) -> T {
+    let id = *next_id;
+    *next_id = next_id.saturating_add(1);
+    wrap(id)
+}
+
+fn sort_dedup_cuts(cuts: &mut Vec<(f64, bool)>, parameter_epsilon: f64) {
+    cuts.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let mut deduplicated = Vec::<(f64, bool)>::with_capacity(cuts.len());
+    for (parameter, split) in cuts.drain(..) {
+        if let Some((previous, previous_split)) = deduplicated.last_mut()
+            && (parameter - *previous).abs() <= parameter_epsilon
+        {
+            *previous = (*previous + parameter) * 0.5;
+            *previous_split |= split;
+        } else {
+            deduplicated.push((parameter, split));
+        }
+    }
+    *cuts = deduplicated;
+}
+
+fn vertex_for_line_point(
+    geometry: &mut GeometryBundle,
+    point: Vec3,
+    epsilon: f64,
+    next_id: &mut u64,
+) -> VertexId {
+    if let Some(vertex) = geometry
+        .vertices
+        .values()
+        .filter(|vertex| vertex.position.distance(point) <= epsilon)
+        .min_by_key(|vertex| vertex.id)
+    {
+        return vertex.id;
+    }
+    let id = allocate_id(next_id, VertexId);
+    geometry.vertices.insert(
+        id,
+        Vertex {
+            id,
+            position: point,
+            legacy_aliases: Vec::new(),
+        },
+    );
+    id
+}
+
+/// Returns closest-point parameters and their midpoint when two 3D segments meet within tolerance.
+fn segment_pair_hits(
+    first_start: Vec3,
+    first_end: Vec3,
+    second_start: Vec3,
+    second_end: Vec3,
+    epsilon: f64,
+) -> Vec<(f64, f64, Vec3, bool)> {
+    let u = first_end - first_start;
+    let v = second_end - second_start;
+    let w = first_start - second_start;
+    let a = u.dot(u);
+    let b = u.dot(v);
+    let c = v.dot(v);
+    let d = u.dot(w);
+    let e = v.dot(w);
+    if a <= epsilon * epsilon || c <= epsilon * epsilon {
+        return Vec::new();
+    }
+    let denominator = a * c - b * b;
+    if denominator.abs() <= f64::EPSILON * a * c * 8.0 {
+        if w.cross(u).length() / a.sqrt() > epsilon {
+            return Vec::new();
+        }
+        let axis = u / a.sqrt();
+        let second_low = (second_start - first_start).dot(axis);
+        let second_high = (second_end - first_start).dot(axis);
+        let low = 0.0_f64.max(second_low.min(second_high));
+        let high = a.sqrt().min(second_low.max(second_high));
+        if high < low - epsilon {
+            return Vec::new();
+        }
+        let mut hits = Vec::<(f64, f64, Vec3, bool)>::new();
+        for distance in [low, high] {
+            let point = first_start + axis * distance.clamp(0.0, a.sqrt());
+            let first_parameter = (distance / a.sqrt()).clamp(0.0, 1.0);
+            let second_parameter = ((point - second_start).dot(v) / c).clamp(0.0, 1.0);
+            if hits
+                .iter()
+                .all(|(t, _, _, _): &(f64, f64, Vec3, bool)| (*t - first_parameter).abs() > 1.0e-12)
+            {
+                hits.push((first_parameter, second_parameter, point, false));
+            }
+        }
+        return hits;
+    }
+    let first_parameter = ((b * e - c * d) / denominator).clamp(0.0, 1.0);
+    let second_parameter = ((a * e - b * d) / denominator).clamp(0.0, 1.0);
+    let first_point = first_start + u * first_parameter;
+    let second_point = second_start + v * second_parameter;
+    (first_point.distance(second_point) <= epsilon)
+        .then_some(vec![(
+            first_parameter,
+            second_parameter,
+            (first_point + second_point) * 0.5,
+            true,
+        )])
+        .unwrap_or_default()
+}
+
 pub struct ResolvedOccurrence<'a> {
     pub occurrence: OccurrenceRef,
-    pub entry: &'a LayoutEntry,
+    pub entry: Option<&'a LayoutEntry>,
     pub definition: &'a Definition,
     pub edits: Option<&'a InstanceEdits>,
     pub world_transform: Affine3,
@@ -2480,6 +2923,133 @@ mod tests {
         assert_eq!(root_count, document.occurrence_refs().unwrap().len());
         assert_eq!(initial_revision + 2, document.revision());
         assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn scene_root_lines_are_entities_and_split_crossings_without_cutting_faces() {
+        let mut document = Document::new();
+        let first = document
+            .append_line_segment_to_scene_root(Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(1, first.affected_segments.len());
+        assert!(first.remap.segments.is_empty());
+        let original = first.affected_segments[0];
+
+        let crossing = document
+            .append_line_segment_to_scene_root(Vec3::new(0.0, -2.0, 0.0), Vec3::new(0.0, 2.0, 0.0))
+            .unwrap();
+        let root = OccurrenceRef::scene_root();
+        let geometry = document.effective_geometry(&root).unwrap();
+        assert_eq!(4, geometry.segments.len());
+        assert!(geometry.triangles.is_empty());
+        assert_eq!(2, crossing.affected_segments.len());
+        assert_eq!(2, crossing.remap.segment_targets(original).len());
+
+        let intersection_vertex_ids = geometry
+            .vertices
+            .values()
+            .filter(|vertex| vertex.position == Vec3::ZERO)
+            .map(|vertex| vertex.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(1, intersection_vertex_ids.len());
+        let intersection_vertex = *intersection_vertex_ids.first().unwrap();
+        assert_eq!(
+            4,
+            geometry
+                .segments
+                .values()
+                .filter(|segment| segment
+                    .endpoints
+                    .iter()
+                    .any(|endpoint| endpoint.id == intersection_vertex))
+                .count()
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn line_insertion_consolidates_collinear_overlap_and_splits_endpoint_on_edge() {
+        let mut document = Document::new();
+        document
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let overlap = document
+            .append_line_segment_to_scene_root(Vec3::new(1.0, 0.0, 0.0), Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        let root = OccurrenceRef::scene_root();
+        let geometry = document.effective_geometry(&root).unwrap();
+        assert_eq!(1, geometry.segments.len());
+        let segment = geometry.segments.values().next().unwrap();
+        let points = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference).unwrap());
+        assert!(points.contains(&Vec3::ZERO));
+        assert!(points.contains(&Vec3::new(3.0, 0.0, 0.0)));
+        assert_eq!(1, overlap.affected_segments.len());
+
+        let tee = document
+            .append_line_segment_to_scene_root(Vec3::new(1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 1.0))
+            .unwrap();
+        assert_eq!(
+            3,
+            document.effective_geometry(&root).unwrap().segments.len()
+        );
+        assert_eq!(1, tee.affected_segments.len());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn ordinary_line_on_face_keeps_triangle_topology_and_near_misses_stay_separate() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("face host", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let definition = document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let original_triangles = document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .len();
+        document
+            .append_line_segment_to_definition(
+                definition,
+                Vec3::new(0.2, 2.0, 0.2),
+                Vec3::new(1.8, 2.0, 1.8),
+            )
+            .unwrap();
+        assert_eq!(
+            original_triangles,
+            document
+                .effective_geometry(&occurrence)
+                .unwrap()
+                .triangles
+                .len()
+        );
+
+        let mut near_miss = Document::new();
+        near_miss
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X)
+            .unwrap();
+        near_miss
+            .append_line_segment_to_scene_root(Vec3::new(1.01, 0.0, 0.0), Vec3::new(1.01, 0.0, 1.0))
+            .unwrap();
+        let root = OccurrenceRef::scene_root();
+        assert_eq!(
+            2,
+            near_miss.effective_geometry(&root).unwrap().segments.len()
+        );
+        let revision = near_miss.revision();
+        assert!(
+            near_miss
+                .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::ZERO)
+                .is_none()
+        );
+        assert_eq!(revision, near_miss.revision());
+        assert!(near_miss.validate().is_ok());
     }
 
     #[test]

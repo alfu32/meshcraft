@@ -247,6 +247,9 @@ impl SnapScope<'_> {
         match self {
             Self::Document => true,
             Self::Occurrence(scope) => occurrence.path.starts_with(&scope.path),
+            Self::Definition(definition_id) if occurrence.is_scene_root() => {
+                definition_id == Document::SCENE_ROOT_DEFINITION_ID
+            }
             Self::Definition(definition_id) => (1..=occurrence.path.len()).any(|length| {
                 let prefix = OccurrenceRef {
                     path: occurrence.path[..length].to_vec(),
@@ -862,7 +865,7 @@ impl Viewport {
         let nearest_surface_depth = if visibility.faces_visible && !visibility.faces_wireframe {
             ray.and_then(|(ray_origin, ray_direction)| {
                 let mut nearest = None;
-                for occurrence in document.occurrence_refs().ok()? {
+                for occurrence in document.scene_geometry_refs().ok()? {
                     if !scope.contains(document, &occurrence)
                         || !self.occurrence_bounds_near_pointer(
                             rect,
@@ -906,7 +909,7 @@ impl Viewport {
         };
 
         if let (Some((ray_origin, _ray_direction)), Ok(occurrences)) =
-            (ray, document.occurrence_refs())
+            (ray, document.scene_geometry_refs())
         {
             for occurrence in occurrences {
                 if !scope.contains(document, &occurrence) {
@@ -1632,7 +1635,7 @@ impl Viewport {
     fn walk_support_height(&mut self, document: &Document, x: f64, z: f64, current_y: f64) -> f64 {
         let ray_y = current_y + 0.25;
         let mut best_y = None::<f64>;
-        let Ok(occurrences) = document.occurrence_refs() else {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
             return 0.0;
         };
         for occurrence in occurrences {
@@ -1806,7 +1809,7 @@ impl Viewport {
 
     fn frame_document(&mut self, rect: Rect, document: &Document) {
         self.leave_walkthrough();
-        let Ok(occurrences) = document.occurrence_refs() else {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
             return;
         };
         let mut points = Vec::new();
@@ -2061,7 +2064,7 @@ impl Viewport {
         policy: &SelectionDisplayPolicy,
         preferred_kind: Option<SelectionKind>,
     ) -> Option<SelectionTarget> {
-        let occurrences = document.occurrence_refs().ok()?;
+        let occurrences = document.scene_geometry_refs().ok()?;
         let mut occluding_face_depth = None::<f64>;
         if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe {
             for occurrence in &occurrences {
@@ -2134,7 +2137,8 @@ impl Viewport {
                 {
                     // A precise edge or face can extend beyond a loose derived bound.
                     // Continue testing it below, but omit the occurrence candidate.
-                } else if policy.can_select(SelectionKind::Object)
+                } else if !occurrence.is_scene_root()
+                    && policy.can_select(SelectionKind::Object)
                     && preferred_kind.is_none_or(|kind| kind == SelectionKind::Object)
                     && (preferred_kind == Some(SelectionKind::Object)
                         || !geometry.triangles.is_empty()
@@ -2276,7 +2280,7 @@ impl Viewport {
         if region.width() <= f32::EPSILON || region.height() <= f32::EPSILON {
             return Vec::new();
         }
-        let Ok(occurrences) = document.occurrence_refs() else {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
             return Vec::new();
         };
         let mut selected = BTreeSet::new();
@@ -2290,7 +2294,8 @@ impl Viewport {
             let Some(geometry) = document.effective_geometry(&occurrence) else {
                 continue;
             };
-            if policy.can_select(SelectionKind::Object)
+            if !occurrence.is_scene_root()
+                && policy.can_select(SelectionKind::Object)
                 && let Some(bounds) = self.derived.world_bounds(document, &occurrence)
             {
                 let points = bounds_corners(bounds)
@@ -2455,7 +2460,7 @@ impl Viewport {
                 first.z.max(second.z),
             ),
         };
-        let Ok(occurrences) = document.occurrence_refs() else {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
             return Vec::new();
         };
         let mut selected = BTreeSet::new();
@@ -2469,7 +2474,8 @@ impl Viewport {
             let Some(geometry) = document.effective_geometry(&occurrence) else {
                 continue;
             };
-            if policy.can_select(SelectionKind::Object)
+            if !occurrence.is_scene_root()
+                && policy.can_select(SelectionKind::Object)
                 && self
                     .derived
                     .world_bounds(document, &occurrence)
@@ -2814,14 +2820,16 @@ impl Viewport {
         scope: SnapScope<'_>,
         policy: &SelectionDisplayPolicy,
     ) {
-        let Ok(occurrences) = document.occurrence_refs() else {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
             return;
         };
         let mut faces = Vec::new();
         let mut segments = Vec::new();
         let view_direction = self.camera_direction();
         for occurrence in occurrences {
-            if !scope.contains(document, &occurrence) || !policy.can_draw(SelectionKind::Object) {
+            if !scope.contains(document, &occurrence)
+                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
