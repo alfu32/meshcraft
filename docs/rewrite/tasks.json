@@ -341,7 +341,7 @@
         "Dispatch versus completion and mutation versus tool activation are distinct in tests."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T07",

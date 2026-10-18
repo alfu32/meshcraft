@@ -3550,6 +3550,10 @@ impl MeshcraftApp {
             _ => None,
         };
         let icon_name = command.descriptor.presentation.icon_key.as_deref();
+        let fallback_label = tool
+            .and_then(|tool| tool.chars().next())
+            .or_else(|| command.descriptor.label.chars().next())
+            .unwrap_or('?');
         let state = self.query_command_state(command.descriptor.id.as_str());
         let selected = state
             .checked
@@ -3562,15 +3566,7 @@ impl MeshcraftApp {
         ) {
             (Some(icon), true) => egui::Button::image(icon),
             (Some(icon), false) => egui::Button::image_and_text(icon, &command.descriptor.label),
-            (None, true) => egui::Button::new(
-                command
-                    .descriptor
-                    .label
-                    .chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_string(),
-            ),
+            (None, true) => egui::Button::new(fallback_label.to_string()),
             (None, false) => egui::Button::new(&command.descriptor.label),
         }
         .selected(selected);
@@ -5050,6 +5046,74 @@ mod tests {
         output
     }
 
+    fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {
+        fn collect(
+            shape: &egui::epaint::Shape,
+            text: &str,
+            centers: &mut Vec<Pos2>,
+            labels: &mut Vec<String>,
+        ) {
+            match shape {
+                egui::epaint::Shape::Text(text_shape) => {
+                    let label = text_shape.galley.job.text.clone();
+                    labels.push(label.clone());
+                    if label == text {
+                        centers.push(text_shape.visual_bounding_rect().center());
+                    }
+                }
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, text, centers, labels);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut centers = Vec::new();
+        let mut labels = Vec::new();
+        for clipped in &output.shapes {
+            collect(&clipped.shape, text, &mut centers, &mut labels);
+        }
+        centers
+            .into_iter()
+            .filter(|position| position.y <= max_y)
+            .max_by(|left, right| left.x.total_cmp(&right.x))
+            .unwrap_or_else(|| {
+                panic!("could not find `{text}` in the top {max_y}px row; labels: {labels:?}")
+            })
+    }
+
+    fn click_workspace_position(
+        app: &mut MeshcraftApp,
+        context: &egui::Context,
+        position: Pos2,
+    ) -> egui::FullOutput {
+        run_workspace_frame(
+            app,
+            context,
+            vec![
+                Event::PointerMoved(position),
+                Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        run_workspace_frame(
+            app,
+            context,
+            vec![Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::default(),
+            }],
+        )
+    }
+
     fn open_palette(app: &mut MeshcraftApp, context: &egui::Context) {
         run_workspace_frame(app, context, {
             let modifiers = Modifiers {
@@ -5295,13 +5359,24 @@ mod tests {
 
     #[test]
     fn cuboid_tool_activation_is_shared_by_menu_toolbar_palette_and_structured_dispatch() {
+        let context = egui::Context::default();
         let mut menu_path = test_app();
-        menu_path.run_command("tool.cuboid");
+        let menu_bar = run_workspace_frame(&mut menu_path, &context, vec![]);
+        let tools_menu = text_center_in_row(&menu_bar, "Tools", 48.0);
+        click_workspace_position(&mut menu_path, &context, tools_menu);
+        let open_menu = run_workspace_frame(&mut menu_path, &context, vec![]);
+        let cuboid_item = text_center_in_row(&open_menu, "Cuboid", 500.0);
+        click_workspace_position(&mut menu_path, &context, cuboid_item);
+        assert_eq!("Cuboid", menu_path.active_tool);
 
         let toolbar_command_ids = super::legacy_toolbar_command_ids("construction_points");
         assert!(toolbar_command_ids.iter().any(|id| id == "tool.cuboid"));
         let mut toolbar_path = test_app();
-        toolbar_path.run_command("tool.cuboid");
+        toolbar_path.preferences.profile = super::UiProfile::Buttons;
+        let toolbar = run_workspace_frame(&mut toolbar_path, &context, vec![]);
+        let cuboid_button = text_center_in_row(&toolbar, "C", 48.0);
+        click_workspace_position(&mut toolbar_path, &context, cuboid_button);
+        assert_eq!("Cuboid", toolbar_path.active_tool);
 
         let mut structured_path = test_app();
         let structured =
@@ -5310,7 +5385,6 @@ mod tests {
         assert_eq!(CommandCompletion::Completed, structured.result.completion);
 
         let mut palette_path = test_app();
-        let context = egui::Context::default();
         open_palette(&mut palette_path, &context);
         palette_path.command_search = "tool.cuboid".to_owned();
         assert!(

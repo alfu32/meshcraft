@@ -7,14 +7,13 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status | Tasks |
 | --- | ---: |
 | Todo | 39 |
-| In progress | 6 |
-| Done | 6 |
+| In progress | 5 |
+| Done | 7 |
 | **Total** | **51** |
 
 ## Currently in Progress
 
 - **T05 — Implement sparse legacy DTO reading and model/history containers**
-- **T06 — Create command registry and host-effect dispatch**
 - **T07 — Build desktop window and basic viewport**
 - **T09 — Implement desktop document service and safe storage**
 - **T10 — Port orbit, orthographic and walkthrough cameras**
@@ -22,7 +21,7 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 ## Current Activity
 
-T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active document stays intact until a choice; replacement follows a successful save only when no newer edits remain, and a save failure or newer edit restores the decision prompt. Tests cover cancel, discard, save continuation, and edits during save. `cargo test --workspace` passes: 78 core, 76 desktop, 14 IO, and 5 CLI tests. T05’s read-only schema-17 round-trip probe passes all 60 pinned fixtures, including the 1,281-placement interface tutorial; one documented zero-basis repair is reported. T06 has a keyboard-palette regression comparing Cuboid tool state and undo behavior with registered menu/toolbar IDs and structured dispatch; actual widget-click equivalence remains open. T10 now tests perspective picking and all six orthographic construction planes across compact, panel-offset, and wide viewport rectangles. Autosave and recovery remain open. The 194-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, plus disabled deferred rendering commands. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking remain recorded in the modeling spec for upcoming tool tasks. T07 has validated `--size`, `--windowed`, `--maximized`, `--help`, and `--version` launch options while preserving maximized startup and positional project paths. Task counts remain 39 Todo, 6 In progress, 6 Done.
+T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active document stays intact until a choice; replacement follows a successful save only when no newer edits remain, and a save failure or newer edit restores the decision prompt. Tests cover cancel, discard, save continuation, and edits during save. `cargo test --workspace` passes: 78 core, 76 desktop, 14 IO, and 5 CLI tests. T05’s read-only schema-17 round-trip probe passes all 60 pinned fixtures, including the 1,281-placement interface tutorial; one documented zero-basis repair is reported. T06 is complete: a regression clicks the Cuboid Tools-menu item and toolbar button, invokes it through Ctrl+Shift+P and structured dispatch, then compares document, tool, selection, revision, and undo state. T10 tests perspective picking and all six orthographic construction planes across compact, panel-offset, and wide viewport rectangles. Autosave and recovery remain open. The 194-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, plus disabled deferred rendering commands. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking remain recorded in the modeling spec for upcoming tool tasks. T07 has validated `--size`, `--windowed`, `--maximized`, `--help`, and `--version` launch options while preserving maximized startup and positional project paths. Task counts remain 39 Todo, 5 In progress, 7 Done.
 
 ## Task Statuses
 
@@ -34,7 +33,7 @@ T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active docu
 | T03 | Build canonical document stores, IDs and revisioned derived data | Done |
 | T04 | Implement transactions and bounded undo | Done |
 | T05 | Implement sparse legacy DTO reading and model/history containers | In progress |
-| T06 | Create command registry and host-effect dispatch | In progress |
+| T06 | Create command registry and host-effect dispatch | Done |
 | T07 | Build desktop window and basic viewport | In progress |
 | T08 | Implement shared desktop menus, button and hybrid workspaces | Todo |
 | T09 | Implement desktop document service and safe storage | In progress |
