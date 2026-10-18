@@ -1157,6 +1157,14 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
             "lineSpacing": 1.25,
             "glyphSourcePath": "embedded:alphabet"
         }),
+        "hotspotPositions" => serde_json::json!({
+            "id": "",
+            "position": {"x": 0, "y": 0, "z": 0}
+        }),
+        "hotspotSegmentAttachments" | "hotspotTriangleAttachments" => serde_json::json!({
+            "id": "",
+            "refs": []
+        }),
         "architectureWalls" => serde_json::json!({
             "id": "",
             "name": "",
@@ -1290,6 +1298,34 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
                 if let Some(triangles) = hotspot.get_mut("attachedTriangles") {
                     *triangles = normalize_sparse_dto_array(triangles, &triangle_defaults);
                 }
+            }
+        }
+    }
+    let attachment_kind = match field {
+        "hotspotSegmentAttachments" => Some("segment"),
+        "hotspotTriangleAttachments" => Some("triangle"),
+        _ => None,
+    };
+    if let Some(attachment_kind) = attachment_kind
+        && let Some(dtos) = dtos.as_array_mut()
+    {
+        let ref_defaults = if attachment_kind == "segment" {
+            serde_json::json!({
+                "id": "",
+                "a": {"x": 0, "y": 0, "z": 0},
+                "b": {"x": 0, "y": 0, "z": 0}
+            })
+        } else {
+            serde_json::json!({
+                "id": "",
+                "a": {"x": 0, "y": 0, "z": 0},
+                "b": {"x": 0, "y": 0, "z": 0},
+                "c": {"x": 0, "y": 0, "z": 0}
+            })
+        };
+        for dto in dtos {
+            if let Some(refs) = dto.as_object_mut().and_then(|dto| dto.get_mut("refs")) {
+                *refs = normalize_sparse_dto_array(refs, &ref_defaults);
             }
         }
     }
@@ -1496,7 +1532,7 @@ fn parse_instance(
     if let Some(raw_positions) = object.get("hotspotPositions") {
         preserved_fields.insert(
             "k3d.__raw_hotspot_positions".to_owned(),
-            raw_positions.clone(),
+            normalize_sparse_component_dtos("hotspotPositions", raw_positions),
         );
     }
 
@@ -1556,6 +1592,14 @@ fn parse_instance(
         &mut preserved_fields,
         "k3d.",
     );
+    for field in ["hotspotSegmentAttachments", "hotspotTriangleAttachments"] {
+        if let Some(value) = object.get(field) {
+            preserved_fields.insert(
+                format!("k3d.{field}"),
+                normalize_sparse_component_dtos(field, value),
+            );
+        }
+    }
     let mut instance = LegacyInstance {
         id,
         prototype_id,
@@ -2128,6 +2172,15 @@ mod tests {
         }]);
         source["prototypes"][0]["dimensions"] = serde_json::json!([{}]);
         source["prototypes"][0]["texts"] = serde_json::json!([{"text": "label"}]);
+        source["rootInstance"]["hotspotPositions"] = serde_json::json!([{"id": "position"}]);
+        source["rootInstance"]["hotspotSegmentAttachments"] = serde_json::json!([{
+            "id": "segment-attachments",
+            "refs": [{"id": "segment-ref"}]
+        }]);
+        source["rootInstance"]["hotspotTriangleAttachments"] = serde_json::json!([{
+            "id": "triangle-attachments",
+            "refs": [{"id": "triangle-ref"}]
+        }]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
@@ -2220,6 +2273,17 @@ mod tests {
         assert_eq!(0.1, text["tracking"]);
         assert_eq!(1.25, text["lineSpacing"]);
         assert_eq!("embedded:alphabet", text["glyphSourcePath"]);
+
+        let root_instance = &exported["rootInstance"];
+        assert_eq!(0.0, root_instance["hotspotPositions"][0]["position"]["z"]);
+        assert_eq!(
+            0,
+            root_instance["hotspotSegmentAttachments"][0]["refs"][0]["a"]["x"]
+        );
+        assert_eq!(
+            0,
+            root_instance["hotspotTriangleAttachments"][0]["refs"][0]["c"]["z"]
+        );
     }
 
     #[test]
