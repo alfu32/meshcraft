@@ -7,9 +7,9 @@ Updated 2026-10-19 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status      |  Tasks |
 |-------------|-------:|
 | Todo        |     26 |
-| In progress |      8 |
+| In progress |     10 |
 | Done        |     21 |
-| **Total**   | **55** |
+| **Total**   | **57** |
 
 ## Currently in Progress
 
@@ -21,6 +21,8 @@ Updated 2026-10-19 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T21 — Port every copy and array state machine**
 - **T22 — Port hole/cutout algorithms and robust replacement**
 - **T39 — Complete real-time lighting, shadows and view capture**
+- **T55 — Add a persistent recent project list (#10)**
+- **T56 — Make Cuboid a two-point primitive (#11)**
 
 ## Current Activity
 
@@ -37,6 +39,8 @@ T39 is in progress: the viewport distinguishes darker, slightly bluer back faces
 Validation: `cargo test --workspace --quiet` passes (214 core, 204 desktop, 15 IO and 5 CLI tests); Clippy, the wasm desktop lib check, formatting, diff whitespace, and `verify_plan.py` also pass. T16 tests cover mixed mesh/dimension/text grouping, payload preservation, shared-definition visibility, dimension/text Move and Copy, copied-handle selection, atomic rejection of inherited instance-level transforms, safe rejection of mesh-only explode, transformed annotation preservation/selection during desktop explode, embedded vector glyph conversion, and atomic rejection of unavailable/unsupported domains. T21 covers mesh-face, mixed-target, nested sibling, mixed nested object/face copies across parent-layout forks, and dimension/text copies with IDs, projected span and preview; projected-span Copy Multiple; signed planar/volumetric grids; fixed-step rotational/helicoidal/Helical Array transforms; distinct Rotate 2 three-point copy/transform; selection-span equalized arrays and helical pitch; snapped staged picks; per-transform preview; source preservation; generated-result selection; point undo; Escape cancellation; and invalid-input atomicity. T23 has 13 core sweep/revolve tests and six desktop workflow tests for planar/spatial profiles, Ribbon settings, previews, typed angles, active-instance coordinates, selection and undo. T25 coverage includes closed oriented manifold volume, negative axis direction, invalid dimensions, resolution clamps, four command previews/commits, active-instance local coordinates, selection, undo and Escape. T51 coverage includes staged geometry previews and measurements, Paint targets, Array parameter updates and committed-copy parity, snapping, numeric input, entered definitions and cancellation. T52 coverage checks every legacy tool's toolbar menu path, common direct aliases, disabled capabilities, submenu activation and command metadata compatibility. Push/Pull coverage verifies signed extrusion geometry, colors, holes, manifoldness/volume, active-definition insertion, selected results and undo. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. T22 also covers bent finite open paths, chord/dangling distinctions, nested/concave loops, translation-independent tolerance, prototype isolation for instance-local replacement geometry, derived index consistency, color, selection and undo. Delete Selection coverage includes actual viewport-picked face deletion through command and Delete key, menu/toolbar/palette registration, nested instance deletion, shared-instance isolation, vertex cascade, undo/redo and atomic rejection of unsupported handles. T54 coverage verifies the slanted-surface cursor basis, both guide kinds at the cursor, a staged Line pick retained across guide commands, safe no-cursor failure, G shortcut placement, and selector fallback. T39 covers coincident-position triangulation winding and shadow/tint regressions. Current task counts: 26 Todo, 8 In Progress, 21 Done.
 
 T54 is complete for [issues #8 and #9](https://github.com/alfu32/meshcraft/issues/8): the viewport draws an oriented red/green/blue cursor at the latest snapped point, with blue along the surface normal and red horizontal on slanted faces. Guide commands and G/T place at that cursor while retaining active tools and accepted picks; missing cursor input fails safely, and selector click-to-place remains as a fallback. The localhost legacy-app MCP was unavailable for a fresh screenshot; see the [T54 handoff](docs/rewrite/handoffs/T54.md).
+
+T55 is in progress for [issue #10](https://github.com/alfu32/meshcraft/issues/10): persist up to ten recently opened projects and expose them in File and the command palette. T56 is in progress for [issue #11](https://github.com/alfu32/meshcraft/issues/11): move Cuboid into Primitives and construct it from two opposite 3D corners. C37 and C38 define the user-flow and regression checks.
 
 ## Task Statuses
 
@@ -97,3 +101,5 @@ T54 is complete for [issues #8 and #9](https://github.com/alfu32/meshcraft/issue
 | T52 | Organize Tools menu into toolbar groups and favorites (#3)               | Done        |
 | T53 | Delete selected mesh entities and object instances (#4)                  | Done        |
 | T54 | Persistent oriented cursor and context-safe guide placement (#8, #9)     | Done        |
+| T55 | Persistent recent project list, File menu and palette access (#10)       | In progress |
+| T56 | Two-opposite-corner Cuboid primitive in Primitives (#11)                 | In progress |

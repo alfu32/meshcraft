@@ -126,6 +126,12 @@ Source: `K/tools/{ObjectCutTool,VolumeBooleanTool,MeshIntersectionMath}.kt`. Acc
 
 Source: `K/tools/PrimitiveTools.kt`. Acceptance: C19.
 
+### D10 Cuboid primitive
+
+Cuboid is a primitive creation tool. Pick two opposite 3D corners; all coordinates use the shared snapping rules and their component-wise bounds define the cuboid origin and dimensions. Preview and commit use the same two points in the active scene graph, with normal validation, feedback, selection, undo and cancellation.
+
+Source: desktop Cuboid tool and cuboid mesh construction. Acceptance: C38; feedback stages also use C34.
+
 ### T10 Mechanical tools
 
 **Observed.** `MECH_SCREW`, `MECH_CIRCULAR_HOLE`, `MECH_ROUND_WASHER`, `MECH_COG_WHEEL`. These are built-in modeling tools, distinct from the deferred external Groovy plugin system. Screw consumes selected line profiles and picked center/height; washer/hole/cog have their own contour, numeric, subdivision and output logic. Do not invent standard thread or involute-gear engineering guarantees from names.

@@ -47,6 +47,8 @@ Source: `K/ui/SketchUiOverlay.kt`, callback wiring `K/Main.kt:1038`, settings cl
 
 **Observed + new profile preference.** Persist application workspace profile, panel/toolbar layout/visibility, UI scale/line widths, grid presentation and navigation tuning separately from model settings. Reset-layout must recover panels placed outside a changed monitor configuration. Status shows active tool, cursor screen/world coordinates, snap label, numeric input, operation messages, load/save progress and edit context.
 
+Keep a persistent recent-project list of at most ten paths. Successful opens move the project to the front and remove an older duplicate; failed or cancelled loads do not add an entry. Expose entries under File and through the command palette, using the normal load/replacement flow.
+
 Preview overlays show selections, hover, guides, measurement labels, tool geometry and handles in distinct readable styles. Model captures can omit UI while retaining appropriate world overlays. Preference changes must not mutate model geometry or create arbitrary geometry undo entries. Menus and panels stay synchronized with actual state after undo/load/context changes.
 
 Source: `K/ui/{StatusModel,SketchUiOverlay}.kt`, feedback classes, runtime prefs in `K/Main.kt`. Acceptance: C17, C23.

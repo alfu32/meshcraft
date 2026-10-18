@@ -151,3 +151,11 @@ Select and delete an object instance, a nested instance, and selected vertices, 
 ## C36 — Oriented cursor and context-safe guide placement (#8, #9)
 
 In perspective and orthographic views, verify the cursor follows the current snapped or free construction point and shows a readable red horizontal tangent, green remaining tangent, and blue surface normal on level and slanted faces. Grid and axis guides use the same basis. Invoke either guide command and G/T while another multi-pick tool has accepted points; the guide is placed at the cursor while the active tool, accepted points, preview, and document history remain unchanged. With no cursor point, the command must report the missing point without interrupting an in-progress tool. Verify the selector's existing one-click guide fallback when no tool is in progress.
+
+## C37 — Recent project list (#10)
+
+Open more than ten distinct projects and verify the persisted list retains only the ten most recently opened, newest first. Reopen a listed project through the File menu and the command palette; both use the normal dirty-document replacement prompt and project loader. Reopening moves an existing path to the front without duplication. Cancelled, invalid and failed loads do not enter the list. Save/restart and verify preference persistence; stale paths remain visible and report the usual load error.
+
+## C38 — Two-point Cuboid primitive (#11)
+
+Activate Cuboid from Primitives and the command palette. Pick opposite corners in either order, including corners with different X, Y and Z coordinates. Verify a snapped box preview after the first point, final bounds/dimensions and colors against the same two points, active-definition insertion, selection, one-step undo/redo, Escape and degenerate-input rejection. No third height pick is required.

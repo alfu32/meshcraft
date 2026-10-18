@@ -2635,6 +2635,90 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T55",
+      "title": "Add a persistent recent project list (#10)",
+      "phase": "desktop",
+      "dependencies": [
+        "T09",
+        "T17"
+      ],
+      "requirements": [
+        "U02",
+        "U04"
+      ],
+      "acceptance": [
+        "C17",
+        "C37"
+      ],
+      "targets": [
+        "apps/desktop/src/app.rs",
+        "docs/rewrite/spec/interface.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ModelPersistence.kt"
+      ],
+      "source_symbols": [
+        "beginAsyncModelLoad",
+        "loadModel",
+        "saveModel"
+      ],
+      "slices": [
+        "Persist a bounded, de-duplicated list of up to ten successfully opened project paths in application preferences; failed and cancelled loads do not update it.",
+        "Expose recent projects in the File menu and provide a command-palette route that lets the user choose an entry; reuse the normal load/replacement flow.",
+        "Cover ordering, duplicate promotion, the ten-entry cap, persistence, stale paths, failure/cancel behavior, and menu/palette parity under C37."
+      ],
+      "done": [
+        "The latest ten successfully opened projects persist newest-first across application restarts, with duplicates moved to the front.",
+        "Recent projects open through the same safe loader from both File and the command palette; failed/cancelled loads leave the list unchanged."
+      ],
+      "tool_ids": [],
+      "status": "in_progress"
+    },
+    {
+      "id": "T56",
+      "title": "Make Cuboid a two-point primitive (#11)",
+      "phase": "desktop",
+      "dependencies": [
+        "T13",
+        "T25",
+        "T51"
+      ],
+      "requirements": [
+        "D10",
+        "U02",
+        "U05"
+      ],
+      "acceptance": [
+        "C34",
+        "C38"
+      ],
+      "targets": [
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/viewport.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/PrimitiveTools.kt"
+      ],
+      "source_symbols": [
+        "SpherePrimitiveTool",
+        "CylinderPrimitiveTool",
+        "ConePrimitiveTool",
+        "PillPrimitiveTool"
+      ],
+      "slices": [
+        "Move Cuboid from the construction toolbar group into Primitives and retain shared menu, palette, button, and structured-command activation.",
+        "Replace the ground-rectangle-plus-height workflow with two snapped opposite 3D corners, a matching preview, and a closed cuboid committed to the active scene graph.",
+        "Cover both pick orders, non-ground corners, preview/commit bounds and feedback parity, degeneracy, active definitions, selection, undo/redo and Escape under C38."
+      ],
+      "done": [
+        "Cuboid is discoverable under Primitives and requires exactly two opposite-corner picks in three dimensions.",
+        "Preview and committed geometry share the same snapped bounds, active-graph owner, selection and undo behavior."
+      ],
+      "tool_ids": [],
+      "status": "in_progress"
     }
   ]
 }
