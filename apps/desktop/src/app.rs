@@ -9842,6 +9842,16 @@ fn write_project_file(
     document: &Document,
     history: Option<&OpaqueLegacyHistory>,
 ) -> Result<(), String> {
+    write_project_file_with_replace(path, document, history, |from, to| fs::rename(from, to))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_project_file_with_replace(
+    path: &Path,
+    document: &Document,
+    history: Option<&OpaqueLegacyHistory>,
+    replace_file: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
     let bytes = write_project(document, history).map_err(|error| error.to_string())?;
     if bytes.len() as u64 > MAX_PROJECT_BYTES {
         return Err(format!(
@@ -9897,7 +9907,7 @@ fn write_project_file(
         let _ = fs::remove_file(&temporary_path);
         return Err(format!("could not write temporary project file: {error}"));
     }
-    if let Err(error) = fs::rename(&temporary_path, path) {
+    if let Err(error) = replace_file(&temporary_path, path) {
         let _ = fs::remove_file(&temporary_path);
         return Err(format!("could not replace {}: {error}", path.display()));
     }
@@ -17129,6 +17139,34 @@ mod tests {
         );
         assert!(untitled.pending_project_save.is_none());
         assert!(untitled.document_is_dirty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn failed_atomic_replace_keeps_the_previous_project_and_cleans_temporary_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "meshcraft-atomic-replace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("design.octd");
+        let original = std::fs::read(project_fixture_path()).unwrap();
+        std::fs::write(&path, &original).unwrap();
+
+        let error =
+            super::write_project_file_with_replace(&path, &Document::new(), None, |_, _| {
+                Err(std::io::Error::other("injected replacement failure"))
+            })
+            .unwrap_err();
+
+        assert!(error.contains("injected replacement failure"));
+        assert_eq!(original, std::fs::read(&path).unwrap());
+        assert_eq!(1, std::fs::read_dir(&directory).unwrap().count());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
