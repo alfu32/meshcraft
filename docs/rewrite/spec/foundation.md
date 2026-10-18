@@ -136,11 +136,15 @@ Source: `K/input/GuideManager.kt`, `K/tools/GuidePlacementTool.kt`, grid functio
 
 Selection spans edges, faces, objects, voxels, dimensions, text, hotspots, architecture/HVAC elements and control handles as supported by each tool. Visibility/lock/wireframe state affects display and picking, with separate per-type controls. Hidden/locked entities must obey characterized rules across click/window/volume. Keep volume selection distinct from a view frustum window. Expose counts and context paths consistently to UI and automation.
 
+**User-confirmed rule.** Modeling operators must work on every supported selected entity type, not only object instances.
+
 Source: `K/tools/SelectTool.kt`, selection/display callbacks in `K/Main.kt`. Acceptance: C11, C12, C15.
 
 ### I07 Tool lifecycle, numeric input, and operators
 
 **Observed.** Tools expose enter/exit/cancel, pointer move/down/up, key down/up, text input, anchor, measurement and preview geometry. Tool switches clear transient numeric/anchor/copy state. Esc generally cancels and returns to Select; Enter/Backspace have tool-specific semantics. Copy mode is tool-dependent and Ctrl can toggle it. Floating operator buttons expose finish/cancel/undo-point/copy/distance and object-close actions.
+
+**User-confirmed rule.** Preserve distinct pick sequences: two points for line/circle/rectangle/dimension/move/stretch/extrude, three for three-point tools, four points (origin plus three vectors) for 3D rotation, and unbounded picks for path tools. Validate each ordered sequence independently.
 
 Rust uses explicit tool state machines; shared input plumbing must not flatten distinct tool workflows. Validate numeric values before commit; preview and commit must agree. Preserve tool-cycle shortcuts `L`, `D`, `O`, `M` with actual ordering from the current input handler, including hotspot placement mode outside ToolId. Numeric popup and plain typed-number paths call the same tool operation. Exact suffix/unit parsing beyond observed floats is deferred intent.
 

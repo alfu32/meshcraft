@@ -2,7 +2,7 @@
 
 ### U01 Button workspace
 
-**Observed.** Current UI has twelve movable floating toolbars: Point Construction, Entity Construction, Modification, Modification 2, Architecture, HVAC, Primitives, Mech, Voxel, Actions, Camera, Rendering. In-tool operators provide contextual actions. Labels, icons, active state, delayed hints, adjustable icon/line sizes, docking/collapse behavior and persisted layout are part of workflow intent.
+**Observed.** The pinned source defines twelve movable floating toolbars: Point Construction, Entity Construction, Modification, Modification 2, Architecture, HVAC, Primitives, Mech, Voxel, Actions, Camera, and Rendering. The supplied running-app captures show thirteen labeled groups because In-tool Operators is presented as its own group there. Preserve the source/app distinction when comparing screenshots: the contextual operator group is shown separately in the live reference. Labels, icons, active state, delayed hints, adjustable icon/line sizes, docking/collapse behavior and persisted layout are part of workflow intent.
 
 Preserve access to the same modeling operations in a button-oriented workspace. Hidden toolbars must remain recoverable through View/Window and the palette. Avoid copying the existing 7,468-line UI class; render toolbar definitions from command/tool metadata. Main toolbar categories may be reorganized if every legacy operation remains discoverable and mappings are documented.
 

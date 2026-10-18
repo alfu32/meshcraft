@@ -22,7 +22,7 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 ## Current Activity
 
-T05 emits Kotlin `ObjectPrototypeDto` defaults consistently for imported and fresh prototypes. Workspace tests pass (78 core, 67 desktop, 14 IO), and all 60 canonical fixture round trips pass; formatting, diff checks, plan validation, all-target Clippy, and desktop WASM checks pass. Next: Kotlin reopen parity and remaining T05 DTO/acceptance coverage. Task counts remain 39 Todo, 6 In progress, 6 Done.
+T06 models all 13 visible Octodraw toolbar groups, including In-tool Operators, with 26 persisted show/hide commands and pinned icon aliases for all 74 built-in tools. The atlas parser handles the final-column boundary. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking are recorded in the modeling spec for upcoming tool tasks. Rendering now matches the screenshot’s RT/GI/Stop/Save controls; all four commands are in the palette and marked deferred until rendering support lands. The desktop registry has 192 commands. Task counts remain 39 Todo, 6 In progress, 6 Done.
 
 ## Task Statuses
 

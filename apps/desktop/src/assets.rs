@@ -50,13 +50,20 @@ fn parse_icon_regions(mapping: &'static str) -> BTreeMap<&'static str, IconRegio
             let y0 = fields[6].trim().parse::<u32>().ok()?;
             let y1 = fields[7].trim().parse::<u32>().ok()?;
             if name.is_empty()
+                || x0 >= ICON_ATLAS_SIZE
+                || y0 >= ICON_ATLAS_SIZE
                 || x1 < x0
                 || y1 < y0
-                || x1 >= ICON_ATLAS_SIZE
-                || y1 >= ICON_ATLAS_SIZE
+                || x1 > ICON_ATLAS_SIZE
+                || y1 > ICON_ATLAS_SIZE
             {
                 return None;
             }
+
+            // The legacy CSV marks the final tile edge as 320, one past the
+            // last pixel in the 320 px atlas. Clamp that edge to pixel 319.
+            let x1 = x1.min(ICON_ATLAS_SIZE - 1);
+            let y1 = y1.min(ICON_ATLAS_SIZE - 1);
 
             Some((
                 name,
@@ -82,6 +89,8 @@ mod tests {
             "select",
             "construction_line",
             "rectangle",
+            "cylinder",
+            "revolve",
             "camera_rotating_operation",
         ] {
             let region = regions

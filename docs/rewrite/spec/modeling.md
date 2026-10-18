@@ -2,6 +2,14 @@
 
 Together with guide, selection and object-placement requirements in `foundation.md`, these sections account for all 74 built-in ToolIds. `PLUGIN` is the remaining adapter ID and is deferred. Hotspot placement is a separate action/mode. Tool specifics must be characterized with the named source class; shared family descriptions do not authorize erasing distinct state machines. All commits use the document/command/undo contracts in `foundation.md`.
 
+### User-confirmed modeling foundations
+
+These migration constraints were confirmed by the user on 2026-10-18. Treat them as behavior to preserve and validate; they are not a claim that every workflow is already implemented. Modeling is selection-driven: select supported lines, faces, meshes, objects, or other entities, activate the operator, then provide its required picks. Do not make supported operations object-only.
+
+The scene graph is hierarchical. Construction writes directly into the active graph, normally the root; entering an object instance by double-click or Edit Object switches to its shared definition, where edits update its instances. Definitions may contain nested instances. The original two-toolbar workflow separated Planar Construction from Modification; Modification included move/copy, 3D rotate and rotate-copy, scale, stretch, and vertical extrusion. Planar Construction included lines, construction polylines, meshed double lines, closed-polyline meshes, rectangles, circles, and hotspots. A common 3D workflow starts from a planar mesh and extrudes it.
+
+Keep pick sequences explicit: two points for line/circle/rectangle/dimension/move/stretch/extrude, three for three-point tools, four points (origin plus three vectors) for 3D rotation, and unbounded picks for path tools. Linear, planar, and spatial spreads remain distinct selection-based array commands; rotational and helical arrays are separate advanced commands. Hotspots bind an operation graph to attached geometry and keep their operation set distinct from ordinary selection tools.
+
 ### D01 Line and construction line
 
 **Observed.** `LINE`, `CONSTRUCTION_LINE`. Line chains successive picked points; construction line creates a single segment draft but emits the same ordinary segment entity type. Enter finishes/resets according to the active tool. Added lines split intersecting same-context segments and consolidate collinear overlaps/contiguities. The inspected current path does not invoke `cutBySegmentInPlane` or infer a new face from closing a line loop. Those are older documented intentions; adding them is a separately reviewed enhancement. Do not auto-cut other contexts or automatically cut during arbitrary transforms.
@@ -66,7 +74,7 @@ Source: corresponding tool files and helpers in `K/tools/MultipleCopyTools.kt`/`
 
 **Observed.** `COPY_MULTIPLE`, `PLANAR_TRANSLATE_MULTIPLE`, `VOLUMETRIC_TRANSLATE_MULTIPLE`, `PLANAR_ROTATE_MULTIPLE`, `HELICOIDAL_ROTATE_MULTIPLE`, `ROTATE_2`, `ROTATIONAL_ARRAY`, `HELICAL_ARRAY`, `ROTATIONAL_ARRAY_EQUALIZED`, `HELICAL_ARRAY_EQUALIZED`.
 
-These have distinct reference-pick/count/extent/angle/height workflows. Fixed-step multiplication and equalized distribution are distinct; helical variants add axial movement. `ROTATE_2` must retain its source semantics rather than becoming an alias of Rotate. Arrays copy mixed payloads supported by the source (raw geometry, instances, annotations, voxels as applicable); determine each supported payload explicitly.
+These act on the supported selection and have distinct reference-pick/count/extent/angle/height workflows. Linear, planar, and spatial spread remain separate commands; fixed-step multiplication and equalized distribution are distinct, and helical variants add axial movement. `ROTATE_2` must retain its source semantics rather than becoming an alias of Rotate. Arrays copy mixed payloads supported by the source (raw geometry, instances, annotations, voxels as applicable); determine each supported payload explicitly.
 
 T21 must record each tool's ordered states, numeric meaning, copy count policy, endpoint inclusion, selected result and invalid-count behavior before implementation. Reuse transform/payload and preview helpers, not a generic UI that loses distinctions. Large previews need bounded cost. Test negative angles, nonzero height, one/zero counts, full revolution, and rotated local axes.
 

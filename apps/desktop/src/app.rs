@@ -151,20 +151,213 @@ const LEGACY_BUILTIN_TOOLS: &[(&str, &str)] = &[
 ];
 const LEGACY_TOOLBARS: &[(&str, &str)] = &[
     ("builtin_toolbar_construction_points", "Point Construction"),
+    ("builtin_toolbar_actions", "Actions"),
+    ("builtin_toolbar_modification", "Modification"),
     (
         "builtin_toolbar_construction_entities",
         "Entity Construction",
     ),
-    ("builtin_toolbar_modification", "Modification"),
-    ("builtin_toolbar_modification_2", "Modification 2"),
-    ("builtin_toolbar_architecture", "Architecture"),
-    ("builtin_toolbar_hvac", "HVAC"),
-    ("builtin_toolbar_primitives", "Primitives"),
-    ("builtin_toolbar_mech", "Mech"),
-    ("builtin_toolbar_voxel", "Voxel"),
-    ("builtin_toolbar_actions", "Actions"),
-    ("builtin_toolbar_camera", "Camera"),
     ("builtin_toolbar_rendering", "Rendering"),
+    ("builtin_toolbar_architecture", "Architecture"),
+    ("builtin_toolbar_camera", "Camera"),
+    ("builtin_toolbar_modification_2", "Modification 2"),
+    ("builtin_toolbar_mech", "Mech"),
+    ("builtin_toolbar_primitives", "Primitives"),
+    ("builtin_toolbar_voxel", "Voxel"),
+    ("builtin_toolbar_in_tool_operators", "In-tool Operators"),
+    ("builtin_toolbar_hvac", "HVAC"),
+];
+const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
+    (
+        "construction_points",
+        &[
+            "axial_grid",
+            "planar_grid",
+            "line",
+            "construction_line",
+            "polyline",
+            "double_line",
+            "ribbon_3d",
+            "rectangle",
+            "surface_rectangle",
+            "face_outline",
+            "polyline_mesh",
+            "object_cut",
+            "solid_union",
+            "solid_intersection",
+            "solid_subtraction",
+            "mesh",
+            "quad",
+            "circle",
+        ],
+    ),
+    (
+        "construction_entities",
+        &[
+            "linear_dimension",
+            "text",
+            "vector_text",
+            "line_offset",
+            "cut_out_3",
+            "push_pull",
+            "extrude_swipe",
+            "extrude_swipe_3d",
+            "plane_section",
+            "mesh_intersection",
+            "cut_with_plane",
+            "revolve",
+            "mesh_regularize",
+            "surface_remesh",
+        ],
+    ),
+    (
+        "modification",
+        &[
+            "select",
+            "move",
+            "rotate",
+            "scale",
+            "stretch",
+            "stretch_scale",
+            "random_offset",
+            "random_surface_array",
+            "rotate_stretch",
+            "copy_multiple",
+            "planar_translate_multiple",
+            "volumetric_translate_multiple",
+            "planar_rotate_multiple",
+            "helicoidal_rotate_multiple",
+            "paint",
+        ],
+    ),
+    (
+        "modification_2",
+        &[
+            "rotate_2",
+            "rotational_array",
+            "helical_array",
+            "rotational_array_equalized",
+            "helical_array_equalized",
+        ],
+    ),
+    ("voxel", &["voxel", "voxel_volume", "voxel_frame"]),
+    (
+        "architecture",
+        &[
+            "arch_wall",
+            "arch_slab",
+            "arch_stair",
+            "arch_add_hole",
+            "arch_window_frame",
+            "arch_door_frame",
+        ],
+    ),
+    ("hvac", &["hvac_plumbing", "hvac_ventilation"]),
+    (
+        "primitives",
+        &[
+            "primitive_sphere",
+            "primitive_cylinder",
+            "primitive_cone",
+            "primitive_pill",
+        ],
+    ),
+    (
+        "mech",
+        &[
+            "mech_screw",
+            "mech_circular_hole",
+            "mech_round_washer",
+            "mech_cog_wheel",
+        ],
+    ),
+];
+const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
+    (
+        "actions",
+        &[
+            "file.open",
+            "file.save_as",
+            "edit.undo",
+            "edit.redo",
+            "edit.copy_selection",
+            "edit.delete_selection",
+            "object.create_from_selection",
+            "object.array_selection",
+        ],
+    ),
+    (
+        "camera",
+        &[
+            "view.camera.reset",
+            "view.frame_document",
+            "view.camera.walkthrough",
+            "view.camera.orthographic",
+            "view.ortho.top",
+            "view.orbit",
+        ],
+    ),
+    (
+        "rendering",
+        &[
+            "render.raytrace",
+            "render.global_illumination",
+            "render.stop",
+            "render.save",
+        ],
+    ),
+];
+const LEGACY_TOOL_ICON_KEYS: &[(&str, &str)] = &[
+    ("axial_grid", "grid_helper_axial"),
+    ("planar_grid", "grid_helper_planar"),
+    ("ribbon_3d", "double_line"),
+    ("arch_add_hole", "arch_hole"),
+    ("arch_window_frame", "arch_window"),
+    ("arch_door_frame", "arch_door"),
+    ("primitive_sphere", "sphere"),
+    ("primitive_cylinder", "cylinder"),
+    ("primitive_cone", "cone"),
+    ("primitive_pill", "pill"),
+    ("mech_screw", "mech_screw_surface"),
+    ("mech_circular_hole", "mech_round_hole"),
+    ("mech_round_washer", "mech_washer_round"),
+    ("object_cut", "mesh_intersection"),
+    ("solid_intersection", "solid_intersect"),
+    ("solid_subtraction", "solid_subtract"),
+    ("cut_holes", "cleanup"),
+    ("cut_holes_2", "cleanup"),
+    ("line_offset", "offset"),
+    ("cut_out_3", "cleanup"),
+    ("extrude_swipe", "swipe_surface"),
+    ("extrude_swipe_3d", "swipe_surface"),
+    ("cut_with_plane", "plane_section"),
+    ("surface_rectangle", "surface_rect"),
+    ("linear_dimension", "dimension"),
+    ("vector_text", "vectorial-text"),
+    ("rotate_2", "rotate"),
+    ("random_offset", "fuzzy_offset"),
+    ("random_surface_array", "fuzzy_cover"),
+    ("rotate_stretch", "stretch-rotate"),
+    ("copy_multiple", "multiple-copy-translate"),
+    (
+        "planar_translate_multiple",
+        "multiple-copy-translate-planar",
+    ),
+    (
+        "volumetric_translate_multiple",
+        "multiple-copy-translate-volumetric",
+    ),
+    ("planar_rotate_multiple", "multiple-copy-planar-rotate"),
+    (
+        "helicoidal_rotate_multiple",
+        "multiple-copy-helicoidal-rotate",
+    ),
+    ("rotational_array", "multiple-copy-planar-rotate"),
+    ("helical_array", "multiple-copy-helicoidal-rotate"),
+    ("rotational_array_equalized", "multiple-copy-planar-rotate"),
+    ("helical_array_equalized", "multiple-copy-helicoidal-rotate"),
+    ("surface_remesh", "mesh_regularize"),
+    ("object_place", "select"),
 ];
 const LEGACY_COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
     (
@@ -300,6 +493,34 @@ const LEGACY_COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
         "reset scene capture screenshot perspective",
         Some("edit"),
     ),
+    (
+        "render.raytrace",
+        "Rendering> RT",
+        "Rendering",
+        "raytrace real-time rendering start",
+        Some("rendering_raytrace"),
+    ),
+    (
+        "render.global_illumination",
+        "Rendering> GI",
+        "Rendering",
+        "global illumination path tracing rendering start",
+        Some("rendering_global_illumination"),
+    ),
+    (
+        "render.stop",
+        "Rendering> Stop",
+        "Rendering",
+        "stop cancel rendering",
+        None,
+    ),
+    (
+        "render.save",
+        "Rendering> Save",
+        "Rendering",
+        "save rendered image output",
+        None,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -351,6 +572,7 @@ enum ShellAction {
     SetCameraPose,
     TogglePanelSection(&'static str),
     ToggleToolbars,
+    SetToolbarVisibility(&'static str, bool),
     TogglePanels,
     ToggleGrid,
     OpenPanel(&'static str),
@@ -771,6 +993,10 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             let id = format!("tool.builtin.{tool_id}");
             let name = format!("Tool> {label}");
             let keywords = format!("{} tool", label.to_lowercase());
+            let icon = LEGACY_TOOL_ICON_KEYS
+                .iter()
+                .find(|(id, _)| id == tool_id)
+                .map_or(*tool_id, |(_, icon)| *icon);
             let action = match *tool_id {
                 "select" => ShellAction::SelectToolAlias("Select"),
                 "line" => ShellAction::SelectToolAlias("Line"),
@@ -783,7 +1009,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 &name,
                 "Tools",
                 &keywords,
-                Some("tool"),
+                Some(icon),
                 action,
             );
         }
@@ -830,6 +1056,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 let id = format!("view.toolbar.{stem}.{verb}");
                 let name = format!("View> Toolbars> {title} {label}");
                 let keywords = format!("toolbar {verb} {}", label.to_lowercase());
+                let action =
+                    ShellAction::SetToolbarVisibility(toolbar_visibility_key(stem), verb == "show");
                 register_shell_command(
                     &mut registry,
                     &id,
@@ -837,7 +1065,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                     "View",
                     &keywords,
                     Some("view"),
-                    ShellAction::Unsupported,
+                    action,
                 );
             }
         }
@@ -873,6 +1101,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ClearSelection
         | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
+        | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
@@ -898,6 +1127,9 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
             CommandStateQuery::ActiveProfile(profile.label().to_owned())
         }
         ShellAction::ToggleToolbars => CommandStateQuery::PreferenceEnabled("toolbars".to_owned()),
+        ShellAction::SetToolbarVisibility(stem, shown) => CommandStateQuery::PreferenceEnabled(
+            format!("toolbar:{stem}:{}", if shown { "shown" } else { "hidden" }),
+        ),
         ShellAction::TogglePanels => CommandStateQuery::PreferenceEnabled("panels".to_owned()),
         ShellAction::ToggleGrid => CommandStateQuery::PreferenceEnabled("grid".to_owned()),
         ShellAction::TogglePanelSection(panel) => {
@@ -943,6 +1175,7 @@ fn register_shell_command(
         | ShellAction::SetOrthographicView(_)
         | ShellAction::SetWalkthroughView
         | ShellAction::ToggleToolbars
+        | ShellAction::SetToolbarVisibility(_, _)
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
@@ -1007,6 +1240,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("thick_grid_width", CommandValueType::Number),
             ("toolbar_flow_top_down", CommandValueType::Boolean),
             ("toolbars_visible", CommandValueType::Boolean),
+            ("toolbar_visibility", CommandValueType::Object),
             ("walk_move_speed", CommandValueType::Number),
             ("walk_jump_velocity", CommandValueType::Number),
             ("walk_gravity", CommandValueType::Number),
@@ -1033,11 +1267,49 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         .collect()
 }
 
+fn toolbar_visibility_key(stem: &str) -> &'static str {
+    LEGACY_TOOLBARS
+        .iter()
+        .find_map(|(id, _)| {
+            id.strip_prefix("builtin_toolbar_")
+                .filter(|candidate| *candidate == stem)
+        })
+        .expect("toolbar stems come from the legacy toolbar catalog")
+}
+
+fn legacy_toolbar_command_ids(stem: &str) -> Vec<String> {
+    let mut ids = LEGACY_TOOLBAR_TOOL_IDS
+        .iter()
+        .find(|(toolbar, _)| *toolbar == stem)
+        .map(|(_, tool_ids)| {
+            tool_ids
+                .iter()
+                .map(|tool_id| format!("tool.builtin.{tool_id}"))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    ids.extend(
+        LEGACY_TOOLBAR_COMMAND_IDS
+            .iter()
+            .find(|(toolbar, _)| *toolbar == stem)
+            .into_iter()
+            .flat_map(|(_, command_ids)| command_ids.iter().map(|id| (*id).to_owned())),
+    );
+    if stem == "construction_points" {
+        ids.insert(0, "tool.cuboid".to_owned());
+    }
+    if stem == "voxel" {
+        ids.push("edit.voxelize_faces".to_owned());
+    }
+    ids
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 struct Preferences {
     profile: UiProfile,
     toolbars_visible: bool,
+    toolbar_visibility: BTreeMap<String, bool>,
     auto_collapse_toolbars: bool,
     ui_text_scale: f32,
     toolbar_icon_size: u32,
@@ -1059,6 +1331,13 @@ impl Default for Preferences {
         Self {
             profile: UiProfile::DesktopMenus,
             toolbars_visible: true,
+            toolbar_visibility: LEGACY_TOOLBARS
+                .iter()
+                .filter_map(|(id, _)| {
+                    id.strip_prefix("builtin_toolbar_")
+                        .map(|stem| (stem.to_owned(), true))
+                })
+                .collect(),
             auto_collapse_toolbars: false,
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
@@ -2390,6 +2669,20 @@ impl MeshcraftApp {
                     "Hybrid toolbars hidden.".to_owned()
                 };
             }
+            ShellAction::SetToolbarVisibility(stem, shown) => {
+                self.preferences
+                    .toolbar_visibility
+                    .insert(stem.to_owned(), shown);
+                let label = LEGACY_TOOLBARS
+                    .iter()
+                    .find(|(id, _)| id.strip_prefix("builtin_toolbar_") == Some(stem))
+                    .map(|(_, label)| *label)
+                    .unwrap_or(stem);
+                self.status = format!(
+                    "{label} toolbar {}.",
+                    if shown { "shown" } else { "hidden" }
+                );
+            }
             ShellAction::TogglePanels => {
                 self.preferences.panels_visible = !self.preferences.panels_visible;
                 self.status = if self.preferences.panels_visible {
@@ -2538,6 +2831,27 @@ impl MeshcraftApp {
                 Err(error) => return CommandResult::failed(error),
             };
         }
+        if let Some(visibility) = payload.values.get("toolbar_visibility") {
+            let Some(visibility) = visibility.as_object() else {
+                return CommandResult::failed("toolbar_visibility must be an object of booleans");
+            };
+            for (stem, value) in visibility {
+                if !LEGACY_TOOLBARS
+                    .iter()
+                    .any(|(id, _)| id.strip_prefix("builtin_toolbar_") == Some(stem.as_str()))
+                {
+                    return CommandResult::failed(format!(
+                        "toolbar_visibility contains unknown toolbar {stem:?}"
+                    ));
+                }
+                let Some(shown) = value.as_bool() else {
+                    return CommandResult::failed(format!(
+                        "toolbar_visibility.{stem} must be a boolean"
+                    ));
+                };
+                preferences.toolbar_visibility.insert(stem.clone(), shown);
+            }
+        }
         self.preferences = preferences;
         self.status = "UI preferences updated.".to_owned();
         CommandResult::completed()
@@ -2674,6 +2988,19 @@ impl MeshcraftApp {
                     "toolbars" => self.preferences.toolbars_visible,
                     "panels" => self.preferences.panels_visible,
                     "grid" => self.preferences.show_permanent_grid,
+                    key if key.starts_with("toolbar:") => {
+                        let mut parts = key.split(':');
+                        let _ = parts.next();
+                        let stem = parts.next().unwrap_or_default();
+                        let desired = parts.next().unwrap_or_default();
+                        let shown = self
+                            .preferences
+                            .toolbar_visibility
+                            .get(stem)
+                            .copied()
+                            .unwrap_or(true);
+                        if desired == "hidden" { !shown } else { shown }
+                    }
                     key if key.starts_with("panel:") => self
                         .preferences
                         .panel_open
@@ -2993,12 +3320,17 @@ impl MeshcraftApp {
         size: f32,
         icon_only: bool,
     ) -> bool {
-        let ShellAction::SelectTool(tool) = command.handler else {
-            return false;
+        let tool = match command.handler {
+            ShellAction::SelectTool(tool) | ShellAction::SelectToolAlias(tool) => Some(tool),
+            _ => None,
         };
         let icon_name = command.descriptor.presentation.icon_key.as_deref();
-        let selected = self.active_tool == tool;
-        let icon_size = (size * 0.55).max(12.0);
+        let state = self.query_command_state(command.descriptor.id.as_str());
+        let selected = state
+            .checked
+            .or_else(|| tool.map(|tool| self.active_tool == tool))
+            .unwrap_or(false);
+        let icon_size = (size * 0.8).max(12.0);
         let button = match (
             self.icon_image(icon_name, Vec2::splat(icon_size)),
             icon_only,
@@ -3022,7 +3354,18 @@ impl MeshcraftApp {
         } else {
             Vec2::new(ui.available_width(), size)
         };
-        ui.add_sized(button_size, button).clicked()
+        let response = ui
+            .add_enabled_ui(state.enabled, |ui| ui.add_sized(button_size, button))
+            .inner;
+        if !state.enabled {
+            response.clone().on_disabled_hover_text(
+                state
+                    .disabled_reason
+                    .as_deref()
+                    .unwrap_or("Unavailable in this build"),
+            );
+        }
+        response.on_hover_text(&command.descriptor.label).clicked()
     }
 
     fn show_command_palette(&mut self, ctx: &egui::Context) {
@@ -3272,34 +3615,78 @@ impl MeshcraftApp {
 
     fn show_tool_panel(&mut self, ui: &mut egui::Ui, height: f32) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(148.0);
+            ui.set_width(312.0);
             ui.set_min_height(height);
-            ui.heading("Tools");
-            ui.label("Modeling tools");
-            ui.separator();
+            ui.heading("Toolbars");
             let size = self.preferences.toolbar_icon_size as f32;
-            for command in shell_commands().entries().filter(|command| {
-                command.descriptor.presentation.toolbar_group.as_deref() == Some("Tools")
-            }) {
-                if self.show_tool_button(ui, command, size, false) {
-                    self.run_command(command.descriptor.id.as_str());
-                }
-            }
-            ui.add_space(12.0);
-            for command in shell_commands().entries().filter(|command| {
-                command.descriptor.presentation.toolbar_group.as_deref() == Some("Modeling")
-            }) {
-                let state = self.query_command_state(command.descriptor.id.as_str());
-                let response =
-                    ui.add_enabled(state.enabled, egui::Button::new(&command.descriptor.label));
-                if !state.enabled {
-                    response.clone().on_disabled_hover_text(
-                        state.disabled_reason.as_deref().unwrap_or("Unavailable"),
-                    );
-                }
-                if response.clicked() {
-                    self.run_command(command.descriptor.id.as_str());
-                }
+            let mut selected_command = None;
+            egui::ScrollArea::vertical()
+                .id_salt("legacy-toolbar-list")
+                .show(ui, |ui| {
+                    for (toolbar_id, label) in LEGACY_TOOLBARS {
+                        let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
+                            continue;
+                        };
+                        let shown = self
+                            .preferences
+                            .toolbar_visibility
+                            .get(stem)
+                            .copied()
+                            .unwrap_or(true);
+                        let mut next_shown = shown;
+                        if ui.checkbox(&mut next_shown, *label).changed() {
+                            let verb = if next_shown { "show" } else { "hide" };
+                            self.run_command(&format!("view.toolbar.{stem}.{verb}"));
+                        }
+                        if shown {
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                if stem == "in_tool_operators" {
+                                    ui.weak(format!("Active tool: {}", self.active_tool));
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    for id in legacy_toolbar_command_ids(stem) {
+                                        if let Some(command) = shell_commands().get(&id) {
+                                            let clicked = if stem == "rendering" {
+                                                let state = self.query_command_state(
+                                                    command.descriptor.id.as_str(),
+                                                );
+                                                let response = ui
+                                                    .add_enabled_ui(state.enabled, |ui| {
+                                                        ui.add_sized(
+                                                            [size * 1.7, size],
+                                                            egui::Button::new(
+                                                                &command.descriptor.label,
+                                                            ),
+                                                        )
+                                                    })
+                                                    .inner;
+                                                if !state.enabled {
+                                                    response.clone().on_disabled_hover_text(
+                                                        state
+                                                            .disabled_reason
+                                                            .as_deref()
+                                                            .unwrap_or("Unavailable in this build"),
+                                                    );
+                                                }
+                                                response
+                                                    .on_hover_text(&command.descriptor.label)
+                                                    .clicked()
+                                            } else {
+                                                self.show_tool_button(ui, command, size, true)
+                                            };
+                                            if clicked {
+                                                selected_command = Some(id);
+                                            }
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                        ui.add_space(3.0);
+                    }
+                });
+            if let Some(id) = selected_command {
+                self.run_command(&id);
             }
         });
     }
@@ -3659,6 +4046,23 @@ impl MeshcraftApp {
                 preferences.toolbar_flow_top_down = true;
             }
         });
+        ui.collapsing("Visible toolbars", |ui| {
+            for (toolbar_id, label) in LEGACY_TOOLBARS {
+                let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
+                    continue;
+                };
+                let mut shown = preferences
+                    .toolbar_visibility
+                    .get(stem)
+                    .copied()
+                    .unwrap_or(true);
+                if ui.checkbox(&mut shown, *label).changed() {
+                    preferences
+                        .toolbar_visibility
+                        .insert(stem.to_owned(), shown);
+                }
+            }
+        });
         ui.weak("Toolbar layout and grid display are saved as application preferences.");
         if preferences != self.preferences {
             self.dispatch_ui_preferences(&preferences);
@@ -3702,6 +4106,10 @@ impl MeshcraftApp {
         payload.values.insert(
             "toolbars_visible".to_owned(),
             serde_json::json!(preferences.toolbars_visible),
+        );
+        payload.values.insert(
+            "toolbar_visibility".to_owned(),
+            serde_json::to_value(&preferences.toolbar_visibility).unwrap_or_default(),
         );
         payload.values.insert(
             "walk_move_speed".to_owned(),
@@ -3941,16 +4349,16 @@ impl MeshcraftApp {
         ui.separator();
         let content_height = (ui.available_height() - 48.0).max(160.0);
         let content_width = ui.available_width();
-        let show_tools = content_width >= 820.0;
+        let show_tools = toolbar_visible && content_width >= 980.0;
         let show_inspector = self.preferences.panels_visible && content_width >= 650.0;
         let side_width =
-            if show_tools { 166.0 } else { 0.0 } + if show_inspector { 420.0 } else { 0.0 };
+            if show_tools { 324.0 } else { 0.0 } + if show_inspector { 420.0 } else { 0.0 };
         let viewport_width = (content_width - side_width - 16.0).max(120.0);
 
         ui.horizontal(|ui| {
             if show_tools {
                 ui.allocate_ui_with_layout(
-                    Vec2::new(166.0, content_height),
+                    Vec2::new(324.0, content_height),
                     Layout::top_down(Align::Min),
                     |ui| self.show_tool_panel(ui, content_height),
                 );
@@ -4425,7 +4833,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(186, entries.len());
+        assert_eq!(192, entries.len());
         assert_eq!(
             74,
             entries
@@ -4441,7 +4849,7 @@ mod tests {
                 .count()
         );
         assert_eq!(
-            24,
+            26,
             entries
                 .iter()
                 .filter(|command| command.descriptor.id.as_str().starts_with("view.toolbar."))
@@ -4464,6 +4872,89 @@ mod tests {
                 && command.descriptor.capability
                     == meshcraft_core::commands::CommandCapability::Deferred
         }));
+    }
+
+    #[test]
+    fn legacy_toolbar_visibility_commands_update_and_persist_preferences() {
+        let mut app = test_app();
+        let document_revision = app.document.revision();
+
+        for (toolbar_id, _) in super::LEGACY_TOOLBARS {
+            let stem = toolbar_id.strip_prefix("builtin_toolbar_").unwrap();
+            let show_id = format!("view.toolbar.{stem}.show");
+            let hide_id = format!("view.toolbar.{stem}.hide");
+            for id in [&show_id, &hide_id] {
+                let command = shell_commands().get(id).expect("toolbar command exists");
+                assert_eq!(CommandCapability::Desktop, command.descriptor.capability);
+                assert_eq!(CommandKind::SessionMutation, command.descriptor.kind);
+            }
+
+            app.run_command(&hide_id);
+            assert_eq!(Some(&false), app.preferences.toolbar_visibility.get(stem));
+            assert_eq!(Some(true), app.query_command_state(&hide_id).checked);
+            assert_eq!(Some(false), app.query_command_state(&show_id).checked);
+
+            app.run_command(&show_id);
+            assert_eq!(Some(&true), app.preferences.toolbar_visibility.get(stem));
+            assert_eq!(Some(true), app.query_command_state(&show_id).checked);
+            assert_eq!(Some(false), app.query_command_state(&hide_id).checked);
+        }
+
+        assert_eq!(document_revision, app.document.revision());
+        assert!(!app.document_is_dirty());
+
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "toolbar_visibility".to_owned(),
+            json!({"actions": false, "camera": true}),
+        );
+        assert!(
+            app.dispatch_command("ui.update_preferences", &payload)
+                .accepted
+        );
+        assert_eq!(
+            Some(&false),
+            app.preferences.toolbar_visibility.get("actions")
+        );
+        assert_eq!(
+            Some(&true),
+            app.preferences.toolbar_visibility.get("camera")
+        );
+
+        let serialized = serde_json::to_string(&app.preferences).unwrap();
+        let restored: Preferences = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(app.preferences, restored);
+    }
+
+    #[test]
+    fn legacy_toolbar_buttons_use_known_legacy_icon_regions_and_commands() {
+        let regions = crate::assets::icon_regions();
+        for command in shell_commands()
+            .entries()
+            .filter(|command| command.descriptor.id.as_str().starts_with("tool.builtin."))
+        {
+            let icon = command
+                .descriptor
+                .presentation
+                .icon_key
+                .as_deref()
+                .unwrap_or_else(|| panic!("{} has no icon", command.descriptor.id));
+            assert!(
+                regions.contains_key(icon),
+                "{} references missing icon {icon}",
+                command.descriptor.id
+            );
+        }
+
+        for (toolbar_id, _) in super::LEGACY_TOOLBARS {
+            let stem = toolbar_id.strip_prefix("builtin_toolbar_").unwrap();
+            for id in super::legacy_toolbar_command_ids(stem) {
+                assert!(
+                    shell_commands().get(&id).is_some(),
+                    "missing toolbar command {id}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -5268,13 +5759,22 @@ mod tests {
     #[test]
     fn deferred_commands_are_discoverable_but_report_their_unsupported_state() {
         let mut app = test_app();
-        assert!(shell_commands().get("view.plugin_manager").is_some());
-        assert!(!app.query_command_state("view.plugin_manager").enabled);
-        assert!(
-            app.query_command_state("view.plugin_manager")
-                .disabled_reason
-                .is_some_and(|reason| reason.contains("not implemented"))
-        );
+        for id in [
+            "view.plugin_manager",
+            "render.raytrace",
+            "render.global_illumination",
+            "render.stop",
+            "render.save",
+        ] {
+            assert!(shell_commands().get(id).is_some(), "missing {id}");
+            assert!(!app.query_command_state(id).enabled, "enabled {id}");
+            assert!(
+                app.query_command_state(id)
+                    .disabled_reason
+                    .is_some_and(|reason| reason.contains("not implemented")),
+                "missing deferred reason for {id}"
+            );
+        }
         app.run_command("view.plugin_manager");
         assert!(app.status.contains("not implemented"));
     }

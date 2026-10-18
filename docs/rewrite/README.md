@@ -38,7 +38,7 @@ Implementation has started with a provisional `meshcraft-core` model, an isometr
 
 - 169 tracked application/runtime source files, 73,751 lines in the census scope; 559 reachable commits.
 - 75 `ToolId` declarations: 74 built-in tools and one plugin adapter ID. Hotspot placement is a separate action/mode, not an additional `ToolId`. The complete declaration list is indexed.
-- 32 literal palette registrations, 6 orthographic view IDs, generated built-in tool commands, and 24 show/hide commands for 12 toolbars. Availability depends on runtime capabilities; counts are not a promise of a fixed live catalog.
+- 32 literal palette registrations, 6 orthographic view IDs, generated built-in tool commands, and 26 show/hide commands for 13 toolbars, including In-tool Operators. Availability depends on runtime capabilities; counts are not a promise of a fixed live catalog.
 - 32 persistence DTO classes, model schema constant 17, JSON and gzip, legacy flat/group loaders, persisted undo, xrefs, prototype/instance overrides.
 - 60 tracked model/glyph fixtures outside generated `web/build`. Every sampled/censused top-level model omits `version`; default omission is a real compatibility concern. An absent field does not identify a historical schema version.
 - Local HTTP automation with six MCP tool declarations and five resources; desktop console/plugins are JVM/Groovy based.
