@@ -1,8 +1,8 @@
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
-    SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview, Viewport, ViewportScene,
-    WalkthroughTuning,
+    SelectionGesture, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolPreview, Viewport,
+    ViewportClick, ViewportScene, WalkthroughTuning,
 };
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
@@ -13,7 +13,10 @@ use meshcraft_core::commands::{
 };
 use meshcraft_core::document::{DefinitionId, Document, LayoutEntryId, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
-use meshcraft_core::selection::{EditContext, SelectedEntity, SelectionSession, SelectionTarget};
+use meshcraft_core::selection::{
+    EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
+    SelectionMode, SelectionSession, SelectionTarget,
+};
 use meshcraft_core::transactions::{
     HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
 };
@@ -553,6 +556,8 @@ enum ShellAction {
     CopySelection,
     DeleteSelection,
     ClearSelection,
+    EnterEditContext,
+    ExitEditContext,
     ResetSceneForCapture,
     SnapshotDocument,
     SetSelection,
@@ -734,6 +739,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "deselect unselect selection",
                 None,
                 ShellAction::ClearSelection,
+            ),
+            (
+                "selection.exit_context",
+                "Selection> Exit Object Edit",
+                "Selection",
+                "close object instance editing return to parent context",
+                None,
+                ShellAction::ExitEditContext,
+            ),
+            (
+                "selection.edit_object",
+                "Selection> Edit Selected Object",
+                "Selection",
+                "enter instance prototype edit in place double click object",
+                None,
+                ShellAction::EnterEditContext,
             ),
             (
                 "object.create_from_selection",
@@ -1173,6 +1194,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ResetCamera
         | ShellAction::SetCameraPose
         | ShellAction::ClearSelection
+        | ShellAction::EnterEditContext
+        | ShellAction::ExitEditContext
         | ShellAction::TogglePanelSection(_)
         | ShellAction::ToggleToolbars
         | ShellAction::SetToolbarVisibility(_, _)
@@ -1502,6 +1525,8 @@ pub struct MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pending_project_save: Option<PendingProjectSave>,
     selection: SelectionSession,
+    selection_display_policy: SelectionDisplayPolicy,
+    selection_click_tracker: SelectionClickTracker,
     object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
     guides: Vec<ConstructionGuide>,
@@ -1511,6 +1536,7 @@ pub struct MeshcraftApp {
     rectangle_first: Option<Vec3>,
     array_count: usize,
     array_spacing: f64,
+    pending_selection_volume: Option<Vec3>,
 }
 
 impl MeshcraftApp {
@@ -1633,6 +1659,8 @@ impl MeshcraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             pending_project_save: None,
             selection: SelectionSession::default(),
+            selection_display_policy: SelectionDisplayPolicy::default(),
+            selection_click_tracker: SelectionClickTracker::default(),
             object_name_edit: None,
             viewport,
             guides: Vec::new(),
@@ -1642,6 +1670,7 @@ impl MeshcraftApp {
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
+            pending_selection_volume: None,
         }
     }
 
@@ -1681,12 +1710,96 @@ impl MeshcraftApp {
     }
 
     fn set_selection(&mut self, occurrences: impl IntoIterator<Item = OccurrenceRef>) {
-        self.selection.clear();
-        for occurrence in occurrences {
-            self.selection.select(SelectionTarget {
+        self.selection.apply(
+            occurrences.into_iter().map(|occurrence| SelectionTarget {
                 occurrence,
                 entity: SelectedEntity::Occurrence,
-            });
+            }),
+            SelectionMode::Replace,
+        );
+    }
+
+    fn active_occurrence_edit_transform(
+        &self,
+    ) -> Option<(
+        OccurrenceRef,
+        DefinitionId,
+        meshcraft_core::geometry::Affine3,
+    )> {
+        let EditContext::Occurrence(occurrence) = &self.selection.context else {
+            return None;
+        };
+        let resolved = self.document.resolve_occurrence(occurrence)?;
+        let inverse = resolved
+            .world_transform
+            .inverse(meshcraft_core::geometry::GeometryTolerance::default())?;
+        Some((occurrence.clone(), resolved.definition.id, inverse))
+    }
+
+    fn create_line_in_active_context(
+        &mut self,
+        start: Vec3,
+        end: Vec3,
+    ) -> Result<SelectionTarget, String> {
+        if let Some((occurrence, definition, inverse)) = self.active_occurrence_edit_transform() {
+            let start = inverse.transform_point(start);
+            let end = inverse.transform_point(end);
+            let segment = self.commit_document_edit("Create line", |document| {
+                document
+                    .append_line_segment_to_definition(definition, start, end)
+                    .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
+            })?;
+            Ok(SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::Segment(segment),
+            })
+        } else {
+            let occurrence = self.commit_document_edit("Create line", |document| {
+                document
+                    .add_line_segment("line", start, end)
+                    .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
+            })?;
+            Ok(SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::Occurrence,
+            })
+        }
+    }
+
+    fn create_rectangle_in_active_context(
+        &mut self,
+        corners: [Vec3; 4],
+    ) -> Result<Vec<SelectionTarget>, String> {
+        if let Some((occurrence, definition, inverse)) = self.active_occurrence_edit_transform() {
+            let corners = corners.map(|point| inverse.transform_point(point));
+            let (segments, triangles) =
+                self.commit_document_edit("Create rectangle", |document| {
+                    document
+                        .append_planar_rectangle_to_definition(definition, corners)
+                        .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
+                })?;
+            let mut targets = segments
+                .into_iter()
+                .map(|id| SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Segment(id),
+                })
+                .collect::<Vec<_>>();
+            targets.extend(triangles.into_iter().map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            }));
+            Ok(targets)
+        } else {
+            let occurrence = self.commit_document_edit("Create rectangle", |document| {
+                document
+                    .add_planar_rectangle("rectangle", corners)
+                    .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
+            })?;
+            Ok(vec![SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::Occurrence,
+            }])
         }
     }
 
@@ -2699,6 +2812,33 @@ impl MeshcraftApp {
                 self.status = "Selection cleared.".to_owned();
                 return CommandResult::completed();
             }
+            ShellAction::EnterEditContext => {
+                let selected = self.selected_occurrences();
+                if selected.len() != 1 {
+                    return CommandResult::failed("select one object instance to edit it");
+                }
+                let occurrence = selected
+                    .into_iter()
+                    .next()
+                    .expect("one selection was checked");
+                if !self
+                    .selection
+                    .set_context(EditContext::Occurrence(occurrence.clone()))
+                {
+                    return CommandResult::failed("that object instance is already active");
+                }
+                self.selection_click_tracker.reset();
+                self.status = format!("Editing object instance at path {:?}.", occurrence.path);
+                return CommandResult::completed();
+            }
+            ShellAction::ExitEditContext => {
+                if !self.selection.set_context(EditContext::Document) {
+                    return CommandResult::failed("the document context is already active");
+                }
+                self.selection_click_tracker.reset();
+                self.status = "Exited object editing; document context is active.".to_owned();
+                return CommandResult::completed();
+            }
             ShellAction::ResetSceneForCapture => {
                 match self.commit_document_edit("Reset scene for capture", |document| {
                     *document = Document::new();
@@ -3250,6 +3390,15 @@ impl MeshcraftApp {
                 }
             }
         }
+        if id == "selection.exit_context" && self.selection.context == EditContext::Document {
+            return CommandState::disabled("the document context is already active");
+        }
+        if id == "selection.edit_object" {
+            let selected = self.selected_occurrences();
+            if selected.len() != 1 || self.document.resolve_occurrence(&selected[0]).is_none() {
+                return CommandState::disabled("select one object instance to edit it");
+            }
+        }
         if id == "file.new" && self.pending_replacement.is_some() {
             return CommandState::disabled("a document replacement is awaiting a decision");
         }
@@ -3463,6 +3612,7 @@ impl MeshcraftApp {
         self.status = "Current tool operation canceled.".to_owned();
     }
 
+    #[cfg(test)]
     fn handle_viewport_click(
         &mut self,
         rect: egui::Rect,
@@ -3473,6 +3623,41 @@ impl MeshcraftApp {
             .map(|snap| snap.point)
             .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
         self.handle_viewport_click_at_point(rect, position, snap, construction_point);
+    }
+
+    fn handle_viewport_click_input(
+        &mut self,
+        rect: egui::Rect,
+        click: ViewportClick,
+        snap: Option<SnapResult>,
+    ) {
+        let pixels_per_point = click.pixels_per_point;
+        let click_count = if self.active_tool != "Select" {
+            self.selection_click_tracker.reset();
+            1
+        } else if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+            self.selection_click_tracker.record(
+                click.time_millis,
+                meshcraft_core::geometry::Vec2::new(
+                    f64::from(click.position.x * pixels_per_point),
+                    f64::from(click.position.y * pixels_per_point),
+                ),
+            )
+        } else {
+            1
+        };
+        let construction_point = snap.map(|snap| snap.point).or_else(|| {
+            self.viewport
+                .screen_to_construction_plane(rect, click.position)
+        });
+        self.handle_viewport_click_at_point_with_selection(
+            rect,
+            click.position,
+            snap,
+            construction_point,
+            click.modifiers,
+            click_count,
+        );
     }
 
     /// Routes a world-space construction point through the active tool's shared click path.
@@ -3508,6 +3693,25 @@ impl MeshcraftApp {
         position: egui::Pos2,
         snap: Option<SnapResult>,
         construction_point: Option<Vec3>,
+    ) {
+        self.handle_viewport_click_at_point_with_selection(
+            rect,
+            position,
+            snap,
+            construction_point,
+            egui::Modifiers::default(),
+            1,
+        );
+    }
+
+    fn handle_viewport_click_at_point_with_selection(
+        &mut self,
+        rect: egui::Rect,
+        position: egui::Pos2,
+        snap: Option<SnapResult>,
+        construction_point: Option<Vec3>,
+        modifiers: egui::Modifiers,
+        click_count: u8,
     ) {
         if self.active_tool == "Remove Guide" {
             let guides = if self.preferences.show_construction_guides {
@@ -3563,13 +3767,9 @@ impl MeshcraftApp {
                 return;
             };
             if let Some(start) = self.line_first {
-                match self.commit_document_edit("Create line", |document| {
-                    document
-                        .add_line_segment("line", start, point)
-                        .ok_or_else(|| "Line endpoints must be distinct finite points.".to_owned())
-                }) {
-                    Ok(occurrence) => {
-                        self.set_selection([occurrence]);
+                match self.create_line_in_active_context(start, point) {
+                    Ok(target) => {
+                        self.selection.apply([target], SelectionMode::Replace);
                         self.active_tool = "Select".to_owned();
                         self.line_first = None;
                         self.status = format!(
@@ -3598,13 +3798,9 @@ impl MeshcraftApp {
             };
             if let Some(first) = self.rectangle_first {
                 let corners = self.viewport.construction_rectangle_corners(first, point);
-                match self.commit_document_edit("Create rectangle", |document| {
-                    document
-                        .add_planar_rectangle("rectangle", corners)
-                        .ok_or_else(|| "Rectangle sides must be distinct finite points.".to_owned())
-                }) {
-                    Ok(occurrence) => {
-                        self.set_selection([occurrence]);
+                match self.create_rectangle_in_active_context(corners) {
+                    Ok(targets) => {
+                        self.selection.apply(targets, SelectionMode::Replace);
                         self.active_tool = "Select".to_owned();
                         self.rectangle_first = None;
                         self.status = format!(
@@ -3691,18 +3887,295 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Select" {
-            let selection: Vec<OccurrenceRef> = self
-                .viewport
-                .pick(rect, &self.document, position)
-                .into_iter()
-                .collect();
-            self.set_selection(selection);
-            self.status = if self.selection.selected().is_empty() {
+            if modifiers.alt {
+                self.selection_click_tracker.reset();
+                self.status = "Alt-drag to select a screen window.".to_owned();
+                return;
+            }
+            if let Some(first) = self.pending_selection_volume.take() {
+                let Some(second) = construction_point else {
+                    self.pending_selection_volume = Some(first);
+                    self.status = "Volume select needs a second world-space corner.".to_owned();
+                    return;
+                };
+                let scope = match &self.selection.context {
+                    EditContext::Document => SnapScope::Document,
+                    EditContext::Definition(definition) => SnapScope::Definition(*definition),
+                    EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+                };
+                let targets = self.viewport.select_world_volume(
+                    &self.document,
+                    first,
+                    second,
+                    scope,
+                    &self.selection_display_policy,
+                );
+                let mode = if modifiers.ctrl || modifiers.mac_cmd {
+                    SelectionMode::Remove
+                } else if modifiers.shift {
+                    SelectionMode::Add
+                } else {
+                    SelectionMode::Replace
+                };
+                self.selection.apply(targets, mode);
+                self.selection_click_tracker.reset();
+                let summary = self.selection.summary();
+                self.status = format!(
+                    "Volume selection: {} object(s), {} face(s), {} edge(s), {} vertex/vertices.",
+                    summary.objects, summary.faces, summary.edges, summary.vertices
+                );
+                return;
+            }
+            let scope = match &self.selection.context {
+                EditContext::Document => SnapScope::Document,
+                EditContext::Definition(definition) => SnapScope::Definition(*definition),
+                EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+            };
+            let target = self.viewport.pick_selection_target(
+                rect,
+                &self.document,
+                position,
+                scope,
+                &self.selection_display_policy,
+            );
+            if target.is_none()
+                && let Some(point) = construction_point
+            {
+                self.pending_selection_volume = Some(point);
+                self.selection_click_tracker.reset();
+                self.status = "Volume select: pick the second world-space corner.".to_owned();
+                return;
+            }
+            if click_count >= 3
+                && let Some(target) = target.as_ref()
+            {
+                let connected = self.connected_selection_component(target);
+                self.selection.apply(connected, SelectionMode::Replace);
+                self.status = format!(
+                    "{} Connected entity/entities selected.",
+                    self.selection.summary().total()
+                );
+                return;
+            }
+            if click_count == 2
+                && !modifiers.shift
+                && !modifiers.ctrl
+                && !modifiers.mac_cmd
+                && let Some(target) = target.as_ref()
+            {
+                if let Some(group) = self.editable_group_ancestor(target) {
+                    self.selection
+                        .set_context(EditContext::Occurrence(group.clone()));
+                    self.selection_click_tracker.reset();
+                    self.status = format!("Editing object instance at path {:?}.", group.path);
+                    return;
+                }
+                match &target.entity {
+                    SelectedEntity::Occurrence => {
+                        self.selection
+                            .set_context(EditContext::Occurrence(target.occurrence.clone()));
+                        self.selection_click_tracker.reset();
+                        self.status = format!(
+                            "Editing object instance at path {:?}.",
+                            target.occurrence.path
+                        );
+                        return;
+                    }
+                    SelectedEntity::Triangle(_) => {
+                        let coplanar = self.coplanar_face_component(target);
+                        self.selection.apply(coplanar, SelectionMode::Replace);
+                        self.status = format!(
+                            "{} Coplanar face(s) selected.",
+                            self.selection.summary().faces
+                        );
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            let mode = if modifiers.ctrl || modifiers.mac_cmd {
+                SelectionMode::Remove
+            } else if modifiers.shift {
+                SelectionMode::Add
+            } else {
+                SelectionMode::Replace
+            };
+            self.selection.apply(target, mode);
+            let summary = self.selection.summary();
+            self.status = if summary.total() == 0 {
                 "Selection cleared.".to_owned()
             } else {
-                "Object selected.".to_owned()
+                format!(
+                    "Selected {} object(s), {} face(s), {} edge(s), {} vertex/vertices.",
+                    summary.objects, summary.faces, summary.edges, summary.vertices
+                )
             };
         }
+    }
+
+    fn editable_group_ancestor(&self, target: &SelectionTarget) -> Option<OccurrenceRef> {
+        for length in (1..=target.occurrence.path.len()).rev() {
+            let occurrence = OccurrenceRef {
+                path: target.occurrence.path[..length].to_vec(),
+            };
+            if self
+                .document
+                .resolve_occurrence(&occurrence)
+                .is_some_and(|resolved| resolved.definition.default_child_layout.is_some())
+            {
+                return Some(occurrence);
+            }
+        }
+        None
+    }
+
+    fn coplanar_face_component(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
+        let SelectedEntity::Triangle(start_id) = &target.entity else {
+            return vec![target.clone()];
+        };
+        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+            return vec![target.clone()];
+        };
+        let triangle_data = |triangle: &meshcraft_core::document::Triangle| {
+            let [Some(a), Some(b), Some(c)] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                return None;
+            };
+            let normal = (b - a).cross(c - a).try_normalized(1.0e-12)?;
+            Some((triangle.vertices.map(|vertex| vertex.id), a, normal))
+        };
+        let Some(start_triangle) = geometry.triangles.get(start_id) else {
+            return vec![target.clone()];
+        };
+        let Some((start_vertices, start_point, start_normal)) = triangle_data(start_triangle)
+        else {
+            return vec![target.clone()];
+        };
+        let mut component = BTreeSet::from([*start_id]);
+        loop {
+            let current = component.iter().copied().collect::<Vec<_>>();
+            let mut changed = false;
+            for triangle in geometry.triangles.values() {
+                if component.contains(&triangle.id) {
+                    continue;
+                }
+                let Some((vertices, point, normal)) = triangle_data(triangle) else {
+                    continue;
+                };
+                if normal.dot(start_normal).abs() < 1.0 - 1.0e-8
+                    || (point - start_point).dot(start_normal).abs() > 1.0e-7
+                {
+                    continue;
+                }
+                let shares_edge = current.iter().any(|id| {
+                    geometry.triangles.get(id).is_some_and(|adjacent| {
+                        let adjacent_vertices = adjacent.vertices.map(|vertex| vertex.id);
+                        vertices
+                            .iter()
+                            .filter(|vertex| adjacent_vertices.contains(vertex))
+                            .count()
+                            >= 2
+                    })
+                });
+                if shares_edge {
+                    changed |= component.insert(triangle.id);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        if start_vertices
+            .iter()
+            .all(|vertex| !geometry.vertices.contains_key(vertex))
+        {
+            return vec![target.clone()];
+        }
+        component
+            .into_iter()
+            .map(|id| SelectionTarget {
+                occurrence: target.occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            })
+            .collect()
+    }
+
+    fn connected_selection_component(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
+        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+            return vec![target.clone()];
+        };
+        let mut vertices = BTreeSet::new();
+        match &target.entity {
+            SelectedEntity::Occurrence => return vec![target.clone()],
+            SelectedEntity::SemanticHandle { .. } => return vec![target.clone()],
+            SelectedEntity::Vertex(id) => {
+                vertices.insert(*id);
+            }
+            SelectedEntity::Segment(id) => {
+                if let Some(segment) = geometry.segments.get(id) {
+                    vertices.extend(segment.endpoints.map(|vertex| vertex.id));
+                }
+            }
+            SelectedEntity::Triangle(id) => {
+                if let Some(triangle) = geometry.triangles.get(id) {
+                    vertices.extend(triangle.vertices.map(|vertex| vertex.id));
+                }
+            }
+        }
+        if vertices.is_empty() {
+            return vec![target.clone()];
+        }
+        let mut segments = BTreeSet::new();
+        let mut triangles = BTreeSet::new();
+        loop {
+            let mut changed = false;
+            for segment in geometry.segments.values() {
+                if segment
+                    .endpoints
+                    .iter()
+                    .any(|vertex| vertices.contains(&vertex.id))
+                {
+                    changed |= segments.insert(segment.id);
+                    let before = vertices.len();
+                    vertices.extend(segment.endpoints.map(|vertex| vertex.id));
+                    changed |= vertices.len() != before;
+                }
+            }
+            for triangle in geometry.triangles.values() {
+                if triangle
+                    .vertices
+                    .iter()
+                    .any(|vertex| vertices.contains(&vertex.id))
+                {
+                    changed |= triangles.insert(triangle.id);
+                    let before = vertices.len();
+                    vertices.extend(triangle.vertices.map(|vertex| vertex.id));
+                    changed |= vertices.len() != before;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut targets = vertices
+            .into_iter()
+            .filter(|id| geometry.vertices.contains_key(id))
+            .map(|id| SelectionTarget {
+                occurrence: target.occurrence.clone(),
+                entity: SelectedEntity::Vertex(id),
+            })
+            .collect::<Vec<_>>();
+        targets.extend(segments.into_iter().map(|id| SelectionTarget {
+            occurrence: target.occurrence.clone(),
+            entity: SelectedEntity::Segment(id),
+        }));
+        targets.extend(triangles.into_iter().map(|id| SelectionTarget {
+            occurrence: target.occurrence.clone(),
+            entity: SelectedEntity::Triangle(id),
+        }));
+        targets
     }
 
     fn tool_preview(
@@ -4189,13 +4662,25 @@ impl MeshcraftApp {
         } else {
             None
         };
-        let selection = self.selected_occurrences();
+        let selection = self
+            .selection
+            .selected()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
         let input = self.viewport.show(
             ui,
             &ViewportScene {
                 size,
                 document: &self.document,
                 selection: &selection,
+                scope,
+                display_policy: &self.selection_display_policy,
                 active_tool: &self.active_tool,
                 preview,
                 snap,
@@ -4213,9 +4698,50 @@ impl MeshcraftApp {
         );
         self.viewport_rect = input.rect;
         self.pointer_in_viewport = input.pointer_local;
-        if let Some(position) = input.click {
-            self.handle_viewport_click(input.rect, position, snap);
+        if let Some(click) = input.click {
+            self.handle_viewport_click_input(input.rect, click, snap);
         }
+        if let Some(gesture) = input.selection_gesture {
+            self.handle_selection_gesture(input.rect, gesture);
+        }
+    }
+
+    fn handle_selection_gesture(&mut self, rect: egui::Rect, gesture: SelectionGesture) {
+        if !gesture.pixels_per_point.is_finite() || gesture.pixels_per_point <= 0.0 {
+            return;
+        }
+        let region = egui::Rect::from_two_pos(gesture.start, gesture.end);
+        let crossing = gesture.end.x < gesture.start.x && !gesture.modifiers.alt;
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
+        let targets = self.viewport.select_screen_region(
+            rect,
+            &self.document,
+            region,
+            scope,
+            &self.selection_display_policy,
+            crossing,
+        );
+        let mode = if gesture.modifiers.ctrl || gesture.modifiers.mac_cmd {
+            SelectionMode::Remove
+        } else if gesture.modifiers.shift {
+            SelectionMode::Add
+        } else {
+            SelectionMode::Replace
+        };
+        self.selection.apply(targets, mode);
+        let summary = self.selection.summary();
+        self.status = format!(
+            "{} selection: {} object(s), {} face(s), {} edge(s), {} vertex/vertices.",
+            if crossing { "Crossing" } else { "Window" },
+            summary.objects,
+            summary.faces,
+            summary.edges,
+            summary.vertices,
+        );
     }
 
     fn snap_at_viewport_position(
@@ -4252,7 +4778,14 @@ impl MeshcraftApp {
                 grid_spacing: self.document.model_settings().grid_size,
                 guides: visible_guides,
                 scope,
-                visibility: SnapVisibility::default(),
+                visibility: SnapVisibility {
+                    edges_visible: self.selection_display_policy.can_draw(SelectionKind::Edge),
+                    faces_visible: self.selection_display_policy.can_draw(SelectionKind::Face),
+                    faces_wireframe: self
+                        .selection_display_policy
+                        .state(SelectionKind::Face)
+                        .wireframe,
+                },
             },
         )
     }
@@ -4298,49 +4831,78 @@ impl MeshcraftApp {
 
     fn show_selection_panel(&mut self, ui: &mut egui::Ui) {
         let root_objects = self.top_level_occurrences();
-        let mut all_edges = 0;
-        let mut all_faces = 0;
+        let mut totals = BTreeMap::new();
         for occurrence in self.document.occurrence_refs().unwrap_or_default() {
             if let Some(geometry) = self.document.effective_geometry(&occurrence) {
-                all_edges += geometry.segments.len();
-                all_faces += geometry.triangles.len();
+                *totals.entry(SelectionKind::Vertex).or_insert(0) += geometry.vertices.len();
+                *totals.entry(SelectionKind::Edge).or_insert(0) += geometry.segments.len();
+                *totals.entry(SelectionKind::Face).or_insert(0) += geometry.triangles.len();
             }
         }
-        let selection = self.selected_occurrences();
-        let (selected_edges, selected_faces) = selection.iter().fold((0, 0), |sum, item| {
-            self.document
-                .effective_geometry(item)
-                .map_or(sum, |geometry| {
-                    (
-                        sum.0 + geometry.segments.len(),
-                        sum.1 + geometry.triangles.len(),
-                    )
-                })
-        });
+        *totals.entry(SelectionKind::Object).or_insert(0) = root_objects.len();
+        let summary = self.selection.summary();
         ui.horizontal(|ui| {
             ui.weak("Type");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.weak("Total   Selected");
-            });
+            ui.add_space(36.0);
+            ui.weak("T");
+            ui.weak("S");
+            ui.weak("D");
+            ui.weak("M");
+            ui.weak("W");
         });
-        for (label, total, selected) in [
-            ("Edges", all_edges, selected_edges),
-            ("Faces", all_faces, selected_faces),
-            ("Voxels", 0, 0),
-            ("Hotspots", 0, 0),
-            ("Objects", root_objects.len(), selection.len()),
-            ("Dimensions", 0, 0),
-            ("Texts", 0, 0),
-            ("Walls", 0, 0),
-            ("Slabs", 0, 0),
-            ("Stairs", 0, 0),
-            ("Frames", 0, 0),
+        for (kind, label) in [
+            (SelectionKind::Vertex, "Vertices"),
+            (SelectionKind::Edge, "Edges"),
+            (SelectionKind::Face, "Faces"),
+            (SelectionKind::Voxel, "Voxels"),
+            (SelectionKind::Hotspot, "Hotspots"),
+            (SelectionKind::Object, "Objects"),
+            (SelectionKind::Dimension, "Dimensions"),
+            (SelectionKind::Text, "Texts"),
+            (SelectionKind::Wall, "Walls"),
+            (SelectionKind::Slab, "Slabs"),
+            (SelectionKind::Stair, "Stairs"),
+            (SelectionKind::Frame, "Frames"),
+            (SelectionKind::Hvac, "HVAC"),
         ] {
+            let mut state = self.selection_display_policy.state(kind);
+            let mut visible = state.visible;
+            let mut unlocked = state.unlocked;
+            let mut wireframe = state.wireframe;
+            let total = totals.get(&kind).copied().unwrap_or(0);
+            let selected = summary.count(kind);
             ui.horizontal(|ui| {
-                ui.label(label);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.monospace(format!("{total:>6}   {selected:>4}"));
-                });
+                ui.add_sized([85.0, 18.0], egui::Label::new(label));
+                ui.add_sized([30.0, 18.0], egui::Label::new(total.to_string()));
+                ui.add_sized([30.0, 18.0], egui::Label::new(selected.to_string()));
+                if ui.checkbox(&mut visible, "").changed() {
+                    self.selection_display_policy.set_visible(kind, visible);
+                    state = self.selection_display_policy.state(kind);
+                    unlocked = state.unlocked;
+                }
+                if ui
+                    .add_enabled(visible, egui::Checkbox::new(&mut unlocked, ""))
+                    .changed()
+                {
+                    self.selection_display_policy.set_unlocked(kind, unlocked);
+                }
+                let wireframe_supported = matches!(
+                    kind,
+                    SelectionKind::Face
+                        | SelectionKind::Voxel
+                        | SelectionKind::Wall
+                        | SelectionKind::Slab
+                        | SelectionKind::Stair
+                        | SelectionKind::Frame
+                        | SelectionKind::Hvac
+                );
+                if wireframe_supported {
+                    if ui.checkbox(&mut wireframe, "").changed() {
+                        self.selection_display_policy.set_wireframe(kind, wireframe);
+                    }
+                } else {
+                    ui.add_sized([18.0, 18.0], egui::Label::new("—"));
+                }
             });
         }
     }
@@ -4407,7 +4969,11 @@ impl MeshcraftApp {
                         occurrence: occurrence.clone(),
                         entity: SelectedEntity::Occurrence,
                     });
-                    if ui.selectable_label(selected, label).clicked() {
+                    let response = ui.selectable_label(selected, label);
+                    if response.double_clicked() {
+                        self.set_selection([occurrence.clone()]);
+                        self.run_command("selection.edit_object");
+                    } else if response.clicked() {
                         self.set_selection([occurrence.clone()]);
                     }
                 }
@@ -4901,6 +5467,11 @@ impl MeshcraftApp {
             && self.active_tool != "Select"
         {
             self.cancel_active_tool();
+        } else if shortcuts_allowed
+            && ui.input(|input| input.key_pressed(egui::Key::Escape))
+            && self.selection.context != EditContext::Document
+        {
+            self.run_command("selection.exit_context");
         }
 
         let menus_visible = self.preferences.profile != UiProfile::Buttons;
@@ -5195,12 +5766,14 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, MeshcraftApp, OrthoView, Preferences, ReplacementDecision,
-        SelectionSession, TransactionHistory, UiProfile, command_matches, registry_has_unique_ids,
-        shell_commands, tool_command_id,
+        CommandPayload, EditContext, MeshcraftApp, OrthoView, Preferences, ReplacementDecision,
+        SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionSession,
+        TransactionHistory, UiProfile, command_matches, registry_has_unique_ids, shell_commands,
+        tool_command_id,
     };
     use crate::viewport::{
-        ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapKind, Viewport,
+        ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SelectionGesture, SnapKind,
+        SnapScope, Viewport, ViewportClick,
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -5365,6 +5938,8 @@ mod tests {
             pending_project_load: None,
             pending_project_save: None,
             selection: SelectionSession::default(),
+            selection_display_policy: SelectionDisplayPolicy::default(),
+            selection_click_tracker: SelectionClickTracker::default(),
             object_name_edit: None,
             viewport: Default::default(),
             guides: Vec::new(),
@@ -5374,6 +5949,7 @@ mod tests {
             rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
+            pending_selection_volume: None,
         }
     }
 
@@ -5651,7 +6227,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(197, entries.len());
+        assert_eq!(199, entries.len());
         assert_eq!(
             74,
             entries
@@ -6996,6 +7572,223 @@ mod tests {
     }
 
     #[test]
+    fn desktop_double_click_expands_coplanar_faces_and_triple_click_selects_connected_geometry() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_planar_rectangle(
+                "plane",
+                [
+                    Vec3::new(-2.0, 0.0, -2.0),
+                    Vec3::new(2.0, 0.0, -2.0),
+                    Vec3::new(2.0, 0.0, 2.0),
+                    Vec3::new(-2.0, 0.0, 2.0),
+                ],
+            )
+            .unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let position = app.viewport.world_to_screen(rect, Vec3::new(0.7, 0.0, 0.4));
+        for time_millis in [100, 200] {
+            app.handle_viewport_click_input(
+                rect,
+                ViewportClick {
+                    position,
+                    modifiers: egui::Modifiers::default(),
+                    time_millis,
+                    pixels_per_point: 1.0,
+                },
+                None,
+            );
+        }
+        assert_eq!(2, app.selection.summary().faces);
+        assert_eq!(0, app.selection.summary().vertices);
+
+        app.handle_viewport_click_input(
+            rect,
+            ViewportClick {
+                position,
+                modifiers: egui::Modifiers::default(),
+                time_millis: 300,
+                pixels_per_point: 1.0,
+            },
+            None,
+        );
+        let summary = app.selection.summary();
+        assert_eq!(4, summary.vertices);
+        assert_eq!(4, summary.edges);
+        assert_eq!(2, summary.faces);
+        assert_eq!(
+            occurrence,
+            app.selection.selected().first().unwrap().occurrence
+        );
+    }
+
+    #[test]
+    fn viewport_click_modifiers_add_and_remove_typed_entity_targets() {
+        let mut app = test_app();
+        app.document
+            .add_line_segment("line", Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let position = app.viewport.world_to_screen(rect, Vec3::ZERO);
+        for (time_millis, modifiers) in [
+            (100, egui::Modifiers::default()),
+            (
+                600,
+                egui::Modifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                1_100,
+                egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            app.handle_viewport_click_input(
+                rect,
+                ViewportClick {
+                    position,
+                    modifiers,
+                    time_millis,
+                    pixels_per_point: 1.0,
+                },
+                None,
+            );
+            match time_millis {
+                100 | 600 => assert_eq!(1, app.selection.summary().edges),
+                1_100 => assert_eq!(0, app.selection.summary().total()),
+                _ => unreachable!(),
+            }
+        }
+        assert!(app.status.starts_with("Selection cleared"));
+    }
+
+    #[test]
+    fn double_click_on_group_geometry_enters_its_object_instance() {
+        let mut app = test_app();
+        let child_root = app
+            .document
+            .add_cuboid("child", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let group = app
+            .document
+            .create_object_from_root_occurrences(&[child_root], "group")
+            .unwrap();
+        let child = app
+            .document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|occurrence| {
+                occurrence.path.starts_with(&group.path) && occurrence.path.len() > group.path.len()
+            })
+            .unwrap();
+        let child_transform = app
+            .document
+            .resolve_occurrence(&child)
+            .unwrap()
+            .world_transform;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let world_face_point = child_transform.transform_point(Vec3::new(1.0, 1.0, 1.0));
+        let position = app.viewport.world_to_screen(rect, world_face_point);
+        for time_millis in [500, 600] {
+            app.handle_viewport_click_input(
+                rect,
+                ViewportClick {
+                    position,
+                    modifiers: egui::Modifiers::default(),
+                    time_millis,
+                    pixels_per_point: 1.0,
+                },
+                None,
+            );
+        }
+        assert_eq!(EditContext::Occurrence(group), app.selection.context);
+        assert!(app.status.starts_with("Editing object instance"));
+    }
+
+    #[test]
+    fn command_palette_can_enter_and_exit_object_editing_context() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("editable", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        app.set_selection([occurrence.clone()]);
+        assert!(app.query_command_state("selection.edit_object").enabled);
+        let entered = app.dispatch_command("selection.edit_object", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, entered.result.completion);
+        assert_eq!(EditContext::Occurrence(occurrence), app.selection.context);
+        assert!(app.query_command_state("selection.exit_context").enabled);
+
+        let exited = app.dispatch_command("selection.exit_context", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Completed, exited.result.completion);
+        assert_eq!(EditContext::Document, app.selection.context);
+        assert!(!app.query_command_state("selection.exit_context").enabled);
+    }
+
+    #[test]
+    fn construction_in_an_entered_instance_appends_to_its_definition_in_local_space() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid(
+                "translated",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&occurrence)
+            .unwrap()
+            .definition
+            .id;
+        let root_count = app.document.occurrence_refs().unwrap().len();
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+
+        let target = app
+            .create_line_in_active_context(Vec3::new(10.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 0.0))
+            .unwrap();
+        app.selection
+            .apply([target.clone()], super::SelectionMode::Replace);
+
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        let super::SelectedEntity::Segment(segment_id) = target.entity else {
+            panic!("in-place line selection is an edge target");
+        };
+        let segment = &geometry.segments[&segment_id];
+        let world_points = segment.endpoints.map(|reference| {
+            let local = geometry.vertex_position(reference).unwrap();
+            app.document
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .world_transform
+                .transform_point(local)
+        });
+        assert_eq!(
+            [Vec3::new(10.0, 4.0, 0.0), Vec3::new(12.0, 4.0, 0.0)],
+            world_points
+        );
+        assert_eq!(13, geometry.segments.len());
+        assert_eq!(root_count, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(
+            definition,
+            app.document
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .definition
+                .id
+        );
+        assert_eq!(1, app.selection.summary().edges);
+    }
+
+    #[test]
     fn panel_and_grid_visibility_have_palette_commands() {
         for (id, query) in [
             ("view.panels.toggle", "inspector"),
@@ -7006,6 +7799,142 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing command {id}"));
             assert!(command_matches(&command.descriptor, query));
         }
+    }
+
+    #[test]
+    fn empty_space_click_starts_a_world_volume_and_second_corner_finishes_it() {
+        let mut app = test_app();
+        let cube = app
+            .document
+            .add_cuboid("volume target", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        // Pick two blank projected points that bracket the cube. The perspective
+        // projection can place a construction-plane point over the visible model,
+        // so find valid screen positions instead of assuming world-space corners
+        // are visually blank.
+        let mut candidates = Vec::new();
+        for x_step in -8..=16 {
+            for z_step in -8..=16 {
+                let point = Vec3::new(f64::from(x_step) * 0.25, 0.0, f64::from(z_step) * 0.25);
+                let position = app.viewport.world_to_screen(rect, point);
+                if rect.contains(position)
+                    && app
+                        .viewport
+                        .pick_selection_target(
+                            rect,
+                            &app.document,
+                            position,
+                            SnapScope::Document,
+                            &app.selection_display_policy,
+                        )
+                        .is_none()
+                {
+                    candidates.push((point, position));
+                }
+            }
+        }
+        let (_, first_screen, _, second_screen) = candidates
+            .iter()
+            .find_map(|(first, first_screen)| {
+                candidates
+                    .iter()
+                    .find(|(second, _)| {
+                        first.x.min(second.x) <= 0.0
+                            && first.x.max(second.x) >= 2.0
+                            && first.z.min(second.z) <= 0.0
+                            && first.z.max(second.z) >= 2.0
+                    })
+                    .map(|(second, second_screen)| (*first, *first_screen, *second, *second_screen))
+            })
+            .expect("blank screen points should bracket the test cube");
+
+        app.handle_viewport_click_input(
+            rect,
+            ViewportClick {
+                position: first_screen,
+                modifiers: egui::Modifiers::default(),
+                time_millis: 100,
+                pixels_per_point: 1.0,
+            },
+            None,
+        );
+        assert!(app.pending_selection_volume.is_some());
+
+        app.handle_viewport_click_input(
+            rect,
+            ViewportClick {
+                position: second_screen,
+                modifiers: egui::Modifiers::default(),
+                time_millis: 500,
+                pixels_per_point: 1.0,
+            },
+            None,
+        );
+        assert!(app.pending_selection_volume.is_none());
+        assert!(app.selection.selected().iter().any(|target| {
+            target.occurrence == cube && target.entity == SelectedEntity::Occurrence
+        }));
+        assert!(app.status.starts_with("Volume selection"));
+    }
+
+    #[test]
+    fn screen_selection_gesture_maps_direction_and_alt_to_window_or_crossing() {
+        let mut app = test_app();
+        app.viewport.set_orthographic_view(OrthoView::Top);
+        let line = app
+            .document
+            .add_line_segment(
+                "gesture line",
+                Vec3::new(-3.0, 0.0, 0.0),
+                Vec3::new(3.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let center = app.viewport.world_to_screen(rect, Vec3::ZERO);
+        let left = center + Vec2::new(-6.0, -6.0);
+        let right = center + Vec2::new(6.0, 6.0);
+
+        app.handle_selection_gesture(
+            rect,
+            SelectionGesture {
+                start: left,
+                end: right,
+                modifiers: Modifiers::default(),
+                pixels_per_point: 1.0,
+            },
+        );
+        assert!(app.selection.selected().is_empty());
+        assert!(app.status.starts_with("Window selection"));
+
+        app.handle_selection_gesture(
+            rect,
+            SelectionGesture {
+                start: right,
+                end: left,
+                modifiers: Modifiers::default(),
+                pixels_per_point: 1.0,
+            },
+        );
+        assert!(app.selection.selected().iter().any(|target| {
+            target.occurrence == line && matches!(target.entity, SelectedEntity::Segment(_))
+        }));
+        assert!(app.status.starts_with("Crossing selection"));
+
+        app.handle_selection_gesture(
+            rect,
+            SelectionGesture {
+                start: right,
+                end: left,
+                modifiers: Modifiers {
+                    alt: true,
+                    ..Default::default()
+                },
+                pixels_per_point: 1.0,
+            },
+        );
+        assert!(app.selection.selected().is_empty());
+        assert!(app.status.starts_with("Window selection"));
     }
 
     #[test]

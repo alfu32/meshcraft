@@ -2,6 +2,9 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
+use meshcraft_core::selection::{
+    SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionTarget,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -147,8 +150,25 @@ impl OrthoView {
 #[derive(Clone, Copy, Debug)]
 pub struct ViewportInput {
     pub rect: Rect,
-    pub click: Option<Pos2>,
+    pub click: Option<ViewportClick>,
+    pub selection_gesture: Option<SelectionGesture>,
     pub pointer_local: Option<Vec2>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ViewportClick {
+    pub position: Pos2,
+    pub modifiers: egui::Modifiers,
+    pub time_millis: u64,
+    pub pixels_per_point: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SelectionGesture {
+    pub start: Pos2,
+    pub end: Pos2,
+    pub modifiers: egui::Modifiers,
+    pub pixels_per_point: f32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -402,7 +422,9 @@ impl GridNormalAxis {
 pub struct ViewportScene<'a> {
     pub size: Vec2,
     pub document: &'a Document,
-    pub selection: &'a [OccurrenceRef],
+    pub selection: &'a [SelectionTarget],
+    pub scope: SnapScope<'a>,
+    pub display_policy: &'a SelectionDisplayPolicy,
     pub active_tool: &'a str,
     pub preview: Option<ToolPreview>,
     pub snap: Option<SnapResult>,
@@ -575,7 +597,14 @@ impl Viewport {
 
         self.update_adaptive_grid(scene.snap, scene.grid, scene.guides);
         self.draw_grid(&painter, rect, scene.grid);
-        self.draw_document(&painter, rect, scene.document, scene.selection);
+        self.draw_document(
+            &painter,
+            rect,
+            scene.document,
+            scene.selection,
+            scene.scope,
+            scene.display_policy,
+        );
         self.draw_guides(&painter, rect, scene.guides, scene.grid, false);
         if let Some(cloud) = self.adaptive_grid_cloud {
             self.draw_adaptive_grid_cloud(&painter, rect, cloud, scene.grid.spacing);
@@ -620,13 +649,41 @@ impl Viewport {
         }
 
         let pointer = pointer_position.filter(|_| pointer_over_viewport);
-        let click = (scene.active_tool != "Orbit"
-            && response.clicked_by(egui::PointerButton::Primary))
-        .then(|| response.interact_pointer_pos())
-        .flatten();
+        let click =
+            if scene.active_tool != "Orbit" && response.clicked_by(egui::PointerButton::Primary) {
+                response.interact_pointer_pos().map(|position| {
+                    let (modifiers, time) = ui.input(|input| (input.modifiers, input.time));
+                    ViewportClick {
+                        position,
+                        modifiers,
+                        time_millis: (time.max(0.0) * 1000.0).min(u64::MAX as f64) as u64,
+                        pixels_per_point: ui.ctx().pixels_per_point(),
+                    }
+                })
+            } else {
+                None
+            };
+        let selection_gesture = if scene.active_tool == "Select"
+            && response.drag_stopped_by(egui::PointerButton::Primary)
+        {
+            let origin = ui.input(|input| input.pointer.press_origin());
+            let end = ui.input(|input| input.pointer.interact_pos());
+            origin.zip(end).map(|(start, end)| {
+                let modifiers = ui.input(|input| input.modifiers);
+                SelectionGesture {
+                    start,
+                    end,
+                    modifiers,
+                    pixels_per_point: ui.ctx().pixels_per_point(),
+                }
+            })
+        } else {
+            None
+        };
         ViewportInput {
             rect,
             click,
+            selection_gesture,
             pointer_local: pointer.map(|position| position - rect.min),
         }
     }
@@ -1967,15 +2024,91 @@ impl Viewport {
         (denominator.abs() > 1.0e-12).then(|| (screen_up * depth - up_offset) / denominator)
     }
 
+    #[cfg(test)]
     pub fn pick(
         &mut self,
         rect: Rect,
         document: &Document,
         position: Pos2,
     ) -> Option<OccurrenceRef> {
+        self.pick_selection_target(
+            rect,
+            document,
+            position,
+            SnapScope::Document,
+            &SelectionDisplayPolicy::default(),
+        )
+        .map(|target| target.occurrence)
+    }
+
+    pub fn pick_selection_target(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+    ) -> Option<SelectionTarget> {
+        self.pick_selection_target_for_kind(rect, document, position, scope, policy, None)
+    }
+
+    pub fn pick_selection_target_for_kind(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        position: Pos2,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+        preferred_kind: Option<SelectionKind>,
+    ) -> Option<SelectionTarget> {
         let occurrences = document.occurrence_refs().ok()?;
-        let mut nearest: Option<(f32, f64, OccurrenceRef)> = None;
+        let mut occluding_face_depth = None::<f64>;
+        if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe {
+            for occurrence in &occurrences {
+                if !scope.contains(document, occurrence) {
+                    continue;
+                }
+                let (Some(resolved), Some(geometry)) = (
+                    document.resolve_occurrence(occurrence),
+                    document.effective_geometry(occurrence),
+                ) else {
+                    continue;
+                };
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let world =
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                    if world
+                        .iter()
+                        .any(|point| !self.point_in_front_of_camera(*point))
+                    {
+                        continue;
+                    }
+                    let [a, b, c] = world.map(|point| self.world_to_screen(rect, point));
+                    if point_in_triangle(position, a, b, c) {
+                        let depth = world
+                            .iter()
+                            .map(|point| self.view_depth(*point))
+                            .sum::<f64>()
+                            / 3.0;
+                        occluding_face_depth =
+                            Some(occluding_face_depth.map_or(depth, |current| current.max(depth)));
+                    }
+                }
+            }
+        }
+        let mut nearest: Option<(f32, f64, SelectionTarget)> = None;
         for occurrence in occurrences {
+            if !scope.contains(document, &occurrence) {
+                continue;
+            }
+            let resolved = document.resolve_occurrence(&occurrence)?;
+            let geometry = document.effective_geometry(&occurrence)?;
             if let Some(bounds) = self.derived.world_bounds(document, &occurrence) {
                 let points = bounds_corners(bounds)
                     .into_iter()
@@ -1994,76 +2127,411 @@ impl Viewport {
                     .fold((f32::INFINITY, f32::NEG_INFINITY), |range, point| {
                         (range.0.min(point.y), range.1.max(point.y))
                     });
-                if position.x < min_x - 5.0
-                    || position.x > max_x + 5.0
-                    || position.y < min_y - 5.0
-                    || position.y > max_y + 5.0
+                if position.x < min_x
+                    || position.x > max_x
+                    || position.y < min_y
+                    || position.y > max_y
                 {
-                    continue;
+                    // A precise edge or face can extend beyond a loose derived bound.
+                    // Continue testing it below, but omit the occurrence candidate.
+                } else if policy.can_select(SelectionKind::Object)
+                    && preferred_kind.is_none_or(|kind| kind == SelectionKind::Object)
+                    && (preferred_kind == Some(SelectionKind::Object)
+                        || !geometry.triangles.is_empty()
+                        || geometry.segments.is_empty())
+                {
+                    let center = Vec3::new(
+                        (bounds.min.x + bounds.max.x) * 0.5,
+                        (bounds.min.y + bounds.max.y) * 0.5,
+                        (bounds.min.z + bounds.max.z) * 0.5,
+                    );
+                    consider_selection_hit(
+                        &mut nearest,
+                        if preferred_kind == Some(SelectionKind::Object) {
+                            0.0
+                        } else {
+                            18.0
+                        },
+                        self.view_depth(center),
+                        SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Occurrence,
+                        },
+                    );
                 }
             }
-            let resolved = document.resolve_occurrence(&occurrence)?;
-            let geometry = document.effective_geometry(&occurrence)?;
-            for triangle in geometry.triangles.values() {
-                let [Some(a), Some(b), Some(c)] = triangle
-                    .vertices
-                    .map(|reference| geometry.vertex_position(reference))
-                else {
-                    continue;
-                };
-                let world_points =
-                    [a, b, c].map(|point| resolved.world_transform.transform_point(point));
-                if world_points
-                    .iter()
-                    .any(|point| !self.point_in_front_of_camera(*point))
-                {
-                    continue;
-                }
-                let [a, b, c] = world_points.map(|point| self.world_to_screen(rect, point));
-                if point_in_triangle(position, a, b, c) {
-                    let depth = world_points
-                        .iter()
-                        .map(|point| self.view_depth(*point))
-                        .sum::<f64>()
-                        / 3.0;
-                    if nearest.as_ref().is_none_or(|(distance, current_depth, _)| {
-                        0.0 < *distance || (0.0 == *distance && depth > *current_depth)
-                    }) {
-                        nearest = Some((0.0, depth, occurrence.clone()));
+            if preferred_kind.is_none_or(|kind| kind == SelectionKind::Vertex)
+                && policy.can_select(SelectionKind::Vertex)
+            {
+                for (vertex_id, vertex) in &geometry.vertices {
+                    let world = resolved.world_transform.transform_point(vertex.position);
+                    let Some(screen) = self.project_if_visible(rect, world) else {
+                        continue;
+                    };
+                    let distance = screen.distance(position);
+                    if distance <= 5.0
+                        && !occluding_face_depth
+                            .is_some_and(|face_depth| self.view_depth(world) < face_depth - 1.0e-4)
+                    {
+                        consider_selection_hit(
+                            &mut nearest,
+                            distance,
+                            self.view_depth(world),
+                            SelectionTarget {
+                                occurrence: occurrence.clone(),
+                                entity: SelectedEntity::Vertex(*vertex_id),
+                            },
+                        );
                     }
                 }
             }
-            for segment in geometry.segments.values() {
-                let (Some(start_local), Some(end_local)) = (
-                    geometry.vertex_position(segment.endpoints[0]),
-                    geometry.vertex_position(segment.endpoints[1]),
-                ) else {
-                    continue;
-                };
-                let start = resolved.world_transform.transform_point(start_local);
-                let end = resolved.world_transform.transform_point(end_local);
-                if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
-                    continue;
+            if preferred_kind.is_none_or(|kind| kind == SelectionKind::Face)
+                && policy.can_select(SelectionKind::Face)
+                && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let world_points =
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                    if world_points
+                        .iter()
+                        .any(|point| !self.point_in_front_of_camera(*point))
+                    {
+                        continue;
+                    }
+                    let [a, b, c] = world_points.map(|point| self.world_to_screen(rect, point));
+                    if point_in_triangle(position, a, b, c) {
+                        let depth = world_points
+                            .iter()
+                            .map(|point| self.view_depth(*point))
+                            .sum::<f64>()
+                            / 3.0;
+                        consider_selection_hit(
+                            &mut nearest,
+                            12.0,
+                            depth,
+                            SelectionTarget {
+                                occurrence: occurrence.clone(),
+                                entity: SelectedEntity::Triangle(triangle.id),
+                            },
+                        );
+                    }
                 }
-                let a = self.world_to_screen(rect, start);
-                let b = self.world_to_screen(rect, end);
-                let distance = distance_to_segment_squared(position, a, b);
-                if distance > 25.0 {
-                    continue;
-                }
-                let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
-                if nearest
-                    .as_ref()
-                    .is_none_or(|(current_distance, current_depth, _)| {
-                        distance < *current_distance
-                            || (distance == *current_distance && depth > *current_depth)
-                    })
-                {
-                    nearest = Some((distance, depth, occurrence.clone()));
+            }
+            if preferred_kind.is_none_or(|kind| kind == SelectionKind::Edge)
+                && policy.can_select(SelectionKind::Edge)
+            {
+                for segment in geometry.segments.values() {
+                    let (Some(start_local), Some(end_local)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let start = resolved.world_transform.transform_point(start_local);
+                    let end = resolved.world_transform.transform_point(end_local);
+                    let (Some(a), Some(b)) = (
+                        self.project_if_visible(rect, start),
+                        self.project_if_visible(rect, end),
+                    ) else {
+                        continue;
+                    };
+                    let distance = distance_to_segment_squared(position, a, b).sqrt();
+                    if distance > 5.0 {
+                        continue;
+                    }
+                    let depth = self.view_depth((start + end) * 0.5);
+                    if occluding_face_depth.is_some_and(|face_depth| depth < face_depth - 1.0e-4) {
+                        continue;
+                    }
+                    consider_selection_hit(
+                        &mut nearest,
+                        6.0 + distance,
+                        depth,
+                        SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Segment(segment.id),
+                        },
+                    );
                 }
             }
         }
-        nearest.map(|(_, _, occurrence)| occurrence)
+        nearest.map(|(_, _, target)| target)
+    }
+
+    pub fn select_screen_region(
+        &mut self,
+        rect: Rect,
+        document: &Document,
+        region: Rect,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+        crossing: bool,
+    ) -> Vec<SelectionTarget> {
+        if region.width() <= f32::EPSILON || region.height() <= f32::EPSILON {
+            return Vec::new();
+        }
+        let Ok(occurrences) = document.occurrence_refs() else {
+            return Vec::new();
+        };
+        let mut selected = BTreeSet::new();
+        for occurrence in occurrences {
+            if !scope.contains(document, &occurrence) {
+                continue;
+            }
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            if policy.can_select(SelectionKind::Object)
+                && let Some(bounds) = self.derived.world_bounds(document, &occurrence)
+            {
+                let points = bounds_corners(bounds)
+                    .into_iter()
+                    .filter_map(|point| self.project_if_visible(rect, point))
+                    .collect::<Vec<_>>();
+                if !points.is_empty() {
+                    let projected_bounds = Rect::from_min_max(
+                        Pos2::new(
+                            points
+                                .iter()
+                                .map(|point| point.x)
+                                .fold(f32::INFINITY, f32::min),
+                            points
+                                .iter()
+                                .map(|point| point.y)
+                                .fold(f32::INFINITY, f32::min),
+                        ),
+                        Pos2::new(
+                            points
+                                .iter()
+                                .map(|point| point.x)
+                                .fold(f32::NEG_INFINITY, f32::max),
+                            points
+                                .iter()
+                                .map(|point| point.y)
+                                .fold(f32::NEG_INFINITY, f32::max),
+                        ),
+                    );
+                    let contained = points.iter().all(|point| region.contains(*point));
+                    if (crossing && region.intersects(projected_bounds)) || (!crossing && contained)
+                    {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Occurrence,
+                        });
+                    }
+                }
+            }
+            if policy.can_select(SelectionKind::Vertex) {
+                for (vertex_id, vertex) in &geometry.vertices {
+                    let world = resolved.world_transform.transform_point(vertex.position);
+                    let Some(screen) = self.project_if_visible(rect, world) else {
+                        continue;
+                    };
+                    if region.contains(screen) {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Vertex(*vertex_id),
+                        });
+                    }
+                }
+            }
+            if policy.can_select(SelectionKind::Edge) {
+                for segment in geometry.segments.values() {
+                    let (Some(start), Some(end)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let (Some(a), Some(b)) = (
+                        self.project_if_visible(
+                            rect,
+                            resolved.world_transform.transform_point(start),
+                        ),
+                        self.project_if_visible(
+                            rect,
+                            resolved.world_transform.transform_point(end),
+                        ),
+                    ) else {
+                        continue;
+                    };
+                    let hit = if crossing {
+                        region.contains(a)
+                            || region.contains(b)
+                            || segment_intersects_rect(a, b, region)
+                    } else {
+                        region.contains(a) && region.contains(b)
+                    };
+                    if hit {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Segment(segment.id),
+                        });
+                    }
+                }
+            }
+            if policy.can_select(SelectionKind::Face)
+                && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let world_points =
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                    if world_points
+                        .iter()
+                        .any(|point| !self.point_in_front_of_camera(*point))
+                    {
+                        continue;
+                    }
+                    let points = world_points.map(|point| self.world_to_screen(rect, point));
+                    let hit = if crossing {
+                        points.iter().any(|point| region.contains(*point))
+                            || (0..3).any(|index| {
+                                segment_intersects_rect(
+                                    points[index],
+                                    points[(index + 1) % 3],
+                                    region,
+                                )
+                            })
+                            || [
+                                region.left_top(),
+                                region.right_top(),
+                                region.right_bottom(),
+                                region.left_bottom(),
+                            ]
+                            .into_iter()
+                            .any(|corner| {
+                                point_in_triangle(corner, points[0], points[1], points[2])
+                            })
+                    } else {
+                        points.iter().all(|point| region.contains(*point))
+                    };
+                    if hit {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Triangle(triangle.id),
+                        });
+                    }
+                }
+            }
+        }
+        selected.into_iter().collect()
+    }
+
+    pub fn select_world_volume(
+        &mut self,
+        document: &Document,
+        first: Vec3,
+        second: Vec3,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+    ) -> Vec<SelectionTarget> {
+        if !first.is_finite() || !second.is_finite() {
+            return Vec::new();
+        }
+        let volume = meshcraft_core::geometry::Aabb3 {
+            min: Vec3::new(
+                first.x.min(second.x),
+                first.y.min(second.y),
+                first.z.min(second.z),
+            ),
+            max: Vec3::new(
+                first.x.max(second.x),
+                first.y.max(second.y),
+                first.z.max(second.z),
+            ),
+        };
+        let Ok(occurrences) = document.occurrence_refs() else {
+            return Vec::new();
+        };
+        let mut selected = BTreeSet::new();
+        for occurrence in occurrences {
+            if !scope.contains(document, &occurrence) {
+                continue;
+            }
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            if policy.can_select(SelectionKind::Object)
+                && self
+                    .derived
+                    .world_bounds(document, &occurrence)
+                    .is_some_and(|bounds| aabb_intersects(bounds, volume))
+            {
+                selected.insert(SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Occurrence,
+                });
+            }
+            if policy.can_select(SelectionKind::Vertex) {
+                for (id, vertex) in &geometry.vertices {
+                    let point = resolved.world_transform.transform_point(vertex.position);
+                    if point_in_aabb(point, volume) {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Vertex(*id),
+                        });
+                    }
+                }
+            }
+            if policy.can_select(SelectionKind::Edge) {
+                for segment in geometry.segments.values() {
+                    let (Some(start), Some(end)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let start = resolved.world_transform.transform_point(start);
+                    let end = resolved.world_transform.transform_point(end);
+                    if segment_intersects_aabb(start, end, volume) {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Segment(segment.id),
+                        });
+                    }
+                }
+            }
+            if policy.can_select(SelectionKind::Face)
+                && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let triangle_bounds = meshcraft_core::geometry::Aabb3::from_points(
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point)),
+                    );
+                    if triangle_bounds.is_some_and(|bounds| aabb_intersects(bounds, volume)) {
+                        selected.insert(SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Triangle(triangle.id),
+                        });
+                    }
+                }
+            }
+        }
+        selected.into_iter().collect()
     }
 
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect, style: GridStyle) {
@@ -2342,7 +2810,9 @@ impl Viewport {
         painter: &egui::Painter,
         rect: Rect,
         document: &Document,
-        selection: &[OccurrenceRef],
+        selection: &[SelectionTarget],
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
     ) {
         let Ok(occurrences) = document.occurrence_refs() else {
             return;
@@ -2351,13 +2821,18 @@ impl Viewport {
         let mut segments = Vec::new();
         let view_direction = self.camera_direction();
         for occurrence in occurrences {
+            if !scope.contains(document, &occurrence) || !policy.can_draw(SelectionKind::Object) {
+                continue;
+            }
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
             };
             let Some(geometry) = document.effective_geometry(&occurrence) else {
                 continue;
             };
-            let selected = selection.contains(&occurrence);
+            let selected = selection.iter().any(|target| {
+                target.occurrence == occurrence && target.entity == SelectedEntity::Occurrence
+            });
             let mut surface_edges = BTreeSet::new();
             let mut visible_surface_edges = BTreeSet::new();
             for triangle in geometry.triangles.values() {
@@ -2391,8 +2866,23 @@ impl Viewport {
                         visible_surface_edges.insert(edge);
                     }
                 }
-                let color = color32(triangle.color);
-                faces.push((depth, points, color));
+                if policy.can_draw(SelectionKind::Face)
+                    && !policy.state(SelectionKind::Face).wireframe
+                {
+                    let selected_face = selection.iter().any(|target| {
+                        target.occurrence == occurrence
+                            && target.entity == SelectedEntity::Triangle(triangle.id)
+                    });
+                    let color = if selected_face {
+                        Color32::from_rgba_unmultiplied(255, 163, 62, 116)
+                    } else {
+                        color32(triangle.color)
+                    };
+                    faces.push((depth, points, color));
+                }
+            }
+            if !policy.can_draw(SelectionKind::Edge) {
+                continue;
             }
             for segment in geometry.segments.values() {
                 if surface_edges
@@ -2414,7 +2904,11 @@ impl Viewport {
                     continue;
                 }
                 let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
-                let edge_color = if selected {
+                let selected_edge = selection.iter().any(|target| {
+                    target.occurrence == occurrence
+                        && target.entity == SelectedEntity::Segment(segment.id)
+                });
+                let edge_color = if selected || selected_edge {
                     Color32::from_rgb(244, 166, 77)
                 } else if segment.color == Rgba8::WHITE {
                     Color32::from_rgb(62, 66, 72)
@@ -2429,6 +2923,22 @@ impl Viewport {
                     ],
                     edge_color,
                 ));
+            }
+            for target in selection.iter().filter(|target| {
+                target.occurrence == occurrence
+                    && matches!(&target.entity, SelectedEntity::Vertex(_))
+            }) {
+                let SelectedEntity::Vertex(vertex_id) = &target.entity else {
+                    continue;
+                };
+                let Some(vertex) = geometry.vertices.get(vertex_id) else {
+                    continue;
+                };
+                let world = resolved.world_transform.transform_point(vertex.position);
+                if let Some(screen) = self.project_if_visible(rect, world) {
+                    painter.circle_filled(screen, 4.0, Color32::from_rgb(255, 150, 57));
+                    painter.circle_stroke(screen, 4.0, Stroke::new(1.0, Color32::BLACK));
+                }
             }
         }
         faces.sort_by(|left, right| left.0.total_cmp(&right.0));
@@ -2608,6 +3118,112 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
     point.distance_sq(start + direction * t)
 }
 
+fn segment_intersects_rect(start: Pos2, end: Pos2, rect: Rect) -> bool {
+    if rect.contains(start) || rect.contains(end) {
+        return true;
+    }
+    let edges = [
+        (rect.left_top(), rect.right_top()),
+        (rect.right_top(), rect.right_bottom()),
+        (rect.right_bottom(), rect.left_bottom()),
+        (rect.left_bottom(), rect.left_top()),
+    ];
+    edges
+        .into_iter()
+        .any(|(edge_start, edge_end)| segments_intersect(start, end, edge_start, edge_end))
+}
+
+fn segments_intersect(a: Pos2, b: Pos2, c: Pos2, d: Pos2) -> bool {
+    let cross = |first: Vec2, second: Vec2| first.x * second.y - first.y * second.x;
+    let on_segment = |point: Pos2, start: Pos2, end: Pos2| {
+        point.x >= start.x.min(end.x) - 1.0e-4
+            && point.x <= start.x.max(end.x) + 1.0e-4
+            && point.y >= start.y.min(end.y) - 1.0e-4
+            && point.y <= start.y.max(end.y) + 1.0e-4
+    };
+    let ab_c = cross(b - a, c - a);
+    let ab_d = cross(b - a, d - a);
+    let cd_a = cross(d - c, a - c);
+    let cd_b = cross(d - c, b - c);
+    if (ab_c > 1.0e-5 && ab_d < -1.0e-5 || ab_c < -1.0e-5 && ab_d > 1.0e-5)
+        && (cd_a > 1.0e-5 && cd_b < -1.0e-5 || cd_a < -1.0e-5 && cd_b > 1.0e-5)
+    {
+        return true;
+    }
+    (ab_c.abs() <= 1.0e-5 && on_segment(c, a, b))
+        || (ab_d.abs() <= 1.0e-5 && on_segment(d, a, b))
+        || (cd_a.abs() <= 1.0e-5 && on_segment(a, c, d))
+        || (cd_b.abs() <= 1.0e-5 && on_segment(b, c, d))
+}
+
+fn point_in_aabb(point: Vec3, bounds: meshcraft_core::geometry::Aabb3) -> bool {
+    point.x >= bounds.min.x
+        && point.x <= bounds.max.x
+        && point.y >= bounds.min.y
+        && point.y <= bounds.max.y
+        && point.z >= bounds.min.z
+        && point.z <= bounds.max.z
+}
+
+fn aabb_intersects(
+    first: meshcraft_core::geometry::Aabb3,
+    second: meshcraft_core::geometry::Aabb3,
+) -> bool {
+    first.min.x <= second.max.x
+        && first.max.x >= second.min.x
+        && first.min.y <= second.max.y
+        && first.max.y >= second.min.y
+        && first.min.z <= second.max.z
+        && first.max.z >= second.min.z
+}
+
+fn segment_intersects_aabb(
+    start: Vec3,
+    end: Vec3,
+    bounds: meshcraft_core::geometry::Aabb3,
+) -> bool {
+    let direction = end - start;
+    let mut low: f64 = 0.0;
+    let mut high: f64 = 1.0;
+    for (origin, delta, min, max) in [
+        (start.x, direction.x, bounds.min.x, bounds.max.x),
+        (start.y, direction.y, bounds.min.y, bounds.max.y),
+        (start.z, direction.z, bounds.min.z, bounds.max.z),
+    ] {
+        if delta.abs() <= f64::EPSILON {
+            if origin < min || origin > max {
+                return false;
+            }
+            continue;
+        }
+        let first = (min - origin) / delta;
+        let second = (max - origin) / delta;
+        low = low.max(first.min(second));
+        high = high.min(first.max(second));
+        if low > high {
+            return false;
+        }
+    }
+    true
+}
+
+fn consider_selection_hit(
+    nearest: &mut Option<(f32, f64, SelectionTarget)>,
+    distance: f32,
+    depth: f64,
+    target: SelectionTarget,
+) {
+    if nearest
+        .as_ref()
+        .is_none_or(|(current_distance, current_depth, _)| {
+            distance < *current_distance
+                || (distance == *current_distance && depth > *current_depth)
+        })
+    {
+        *nearest = Some((distance, depth, target));
+    }
+}
+
 fn closest_point_on_ray_line(
     ray_origin: Vec3,
     ray_direction: Vec3,
@@ -2669,8 +3285,9 @@ fn closest_point_on_segment(point: Vec3, start: Vec3, end: Vec3) -> Vec3 {
 mod tests {
     use super::{
         ConstructionGuide, ConstructionGuideKind, DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE,
-        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SnapKind, SnapOptions, SnapResult,
-        SnapScope, SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
+        GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SelectedEntity,
+        SelectionDisplayPolicy, SelectionKind, SnapKind, SnapOptions, SnapResult, SnapScope,
+        SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners,
         height_in_triangle_xz, point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
@@ -2696,6 +3313,8 @@ mod tests {
                         size: Vec2::new(800.0, 600.0),
                         document,
                         selection: &[],
+                        scope: super::SnapScope::Document,
+                        display_policy: &SelectionDisplayPolicy::default(),
                         active_tool: "Select",
                         preview: None,
                         snap: None,
@@ -2999,6 +3618,8 @@ mod tests {
                             size: Vec2::new(800.0, 600.0),
                             document: &document,
                             selection: &[],
+                            scope: super::SnapScope::Document,
+                            display_policy: &SelectionDisplayPolicy::default(),
                             active_tool: "Select",
                             preview: None,
                             snap: None,
@@ -3898,6 +4519,8 @@ mod tests {
                             size: viewport_size,
                             document: &document,
                             selection: &[],
+                            scope: super::SnapScope::Document,
+                            display_policy: &SelectionDisplayPolicy::default(),
                             active_tool: "Select",
                             preview: None,
                             snap: None,
@@ -4051,6 +4674,154 @@ mod tests {
     }
 
     #[test]
+    fn semantic_picker_returns_entity_types_and_applies_display_policy() {
+        let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
+        let mut viewport = Viewport::default();
+        let mut document = meshcraft_core::document::Document::new();
+        let occurrence = document
+            .add_cuboid("cube", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let face_point = Vec3::new(0.4, 2.0, 0.6);
+        let pointer = viewport.world_to_screen(rect, face_point);
+        let mut policy = SelectionDisplayPolicy::default();
+
+        let face = viewport
+            .pick_selection_target(rect, &document, pointer, SnapScope::Document, &policy)
+            .unwrap();
+        assert_eq!(occurrence, face.occurrence);
+        assert!(matches!(face.entity, SelectedEntity::Triangle(_)));
+
+        let geometry = document.effective_geometry(&occurrence).unwrap();
+        let resolved = document.resolve_occurrence(&occurrence).unwrap();
+        let vertex_id = *geometry.vertices.keys().next().unwrap();
+        let vertex_point = resolved
+            .world_transform
+            .transform_point(geometry.vertices[&vertex_id].position);
+        let vertex_pointer = viewport.world_to_screen(rect, vertex_point);
+        let vertex = viewport
+            .pick_selection_target(
+                rect,
+                &document,
+                vertex_pointer,
+                SnapScope::Document,
+                &policy,
+            )
+            .unwrap();
+        let SelectedEntity::Vertex(picked_vertex) = vertex.entity else {
+            panic!(
+                "expected a visible vertex candidate, got {:?}",
+                vertex.entity
+            );
+        };
+        assert!(geometry.vertices.contains_key(&picked_vertex));
+        assert!(
+            viewport
+                .world_to_screen(
+                    rect,
+                    resolved
+                        .world_transform
+                        .transform_point(geometry.vertices[&picked_vertex].position),
+                )
+                .distance(vertex_pointer)
+                <= 5.0
+        );
+
+        let (edge_id, edge) = geometry
+            .segments
+            .values()
+            .find_map(|segment| {
+                let start = geometry.vertex_position(segment.endpoints[0])?;
+                let end = geometry.vertex_position(segment.endpoints[1])?;
+                let edge_point = resolved
+                    .world_transform
+                    .transform_point((start + end) * 0.5);
+                let edge_pointer = viewport.world_to_screen(rect, edge_point);
+                viewport
+                    .pick_selection_target(
+                        rect,
+                        &document,
+                        edge_pointer,
+                        SnapScope::Document,
+                        &policy,
+                    )
+                    .filter(|target| target.entity == SelectedEntity::Segment(segment.id))
+                    .map(|target| (segment.id, target))
+            })
+            .expect("the cube has a visible edge that can be picked");
+        assert_eq!(SelectedEntity::Segment(edge_id), edge.entity);
+
+        let object = viewport
+            .pick_selection_target_for_kind(
+                rect,
+                &document,
+                pointer,
+                SnapScope::Document,
+                &policy,
+                Some(SelectionKind::Object),
+            )
+            .unwrap();
+        assert_eq!(SelectedEntity::Occurrence, object.entity);
+
+        policy.set_unlocked(SelectionKind::Face, false);
+        let locked_face = viewport
+            .pick_selection_target(rect, &document, pointer, SnapScope::Document, &policy)
+            .unwrap();
+        assert_eq!(SelectedEntity::Occurrence, locked_face.entity);
+
+        policy.set_visible(SelectionKind::Object, false);
+        assert_eq!(
+            None,
+            viewport.pick_selection_target(rect, &document, pointer, SnapScope::Document, &policy,)
+        );
+    }
+
+    #[test]
+    fn typed_picker_uses_transformed_instance_geometry_and_rejects_occluded_edges() {
+        let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
+        let mut document = meshcraft_core::document::Document::new();
+        let source = document
+            .add_cuboid("source", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let instance = document
+            .copy_root_occurrence(&source, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        document
+            .add_line_segment(
+                "occluded-line",
+                Vec3::new(10.25, 0.0, 1.0),
+                Vec3::new(11.75, 0.0, 1.0),
+            )
+            .unwrap();
+        let mut viewport = Viewport::default();
+        viewport.set_orthographic_view(OrthoView::Top);
+        let pointer = viewport.world_to_screen(rect, Vec3::new(11.0, 2.0, 1.0));
+        let target = viewport
+            .pick_selection_target(
+                rect,
+                &document,
+                pointer,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            instance,
+            target.occurrence,
+            "source={source:?}, target={target:?}, pointer={pointer:?}, source_transform={:?}, instance_transform={:?}",
+            document
+                .resolve_occurrence(&source)
+                .unwrap()
+                .world_transform,
+            document
+                .resolve_occurrence(&instance)
+                .unwrap()
+                .world_transform
+        );
+        assert!(matches!(target.entity, SelectedEntity::Triangle(_)));
+    }
+
+    #[test]
     fn segment_picker_selects_standalone_lines_with_a_small_screen_tolerance() {
         let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
         let mut viewport = Viewport::default();
@@ -4068,6 +4839,109 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn crossing_window_and_world_volume_selection_use_distinct_geometry_tests() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut document = meshcraft_core::document::Document::new();
+        let line = document
+            .add_line_segment(
+                "crossing-line",
+                Vec3::new(-3.0, 0.0, 0.0),
+                Vec3::new(3.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let mut viewport = Viewport::default();
+        let center = viewport.world_to_screen(rect, Vec3::ZERO);
+        let region = Rect::from_center_size(center, Vec2::new(12.0, 12.0));
+        let policy = SelectionDisplayPolicy::default();
+        let window = viewport.select_screen_region(
+            rect,
+            &document,
+            region,
+            SnapScope::Document,
+            &policy,
+            false,
+        );
+        let crossing = viewport.select_screen_region(
+            rect,
+            &document,
+            region,
+            SnapScope::Document,
+            &policy,
+            true,
+        );
+        assert!(!window.iter().any(|target| {
+            target.occurrence == line
+                && target.entity
+                    == SelectedEntity::Segment(
+                        document
+                            .effective_geometry(&line)
+                            .unwrap()
+                            .segments
+                            .keys()
+                            .next()
+                            .copied()
+                            .unwrap(),
+                    )
+        }));
+        assert!(crossing.iter().any(|target| {
+            target.occurrence == line && matches!(target.entity, SelectedEntity::Segment(_))
+        }));
+
+        let mut filtered_policy = SelectionDisplayPolicy::default();
+        filtered_policy.set_visible(SelectionKind::Object, false);
+        filtered_policy.set_visible(SelectionKind::Edge, false);
+        assert!(
+            viewport
+                .select_screen_region(
+                    rect,
+                    &document,
+                    region,
+                    SnapScope::Document,
+                    &filtered_policy,
+                    true,
+                )
+                .is_empty()
+        );
+        assert!(
+            viewport
+                .select_world_volume(
+                    &document,
+                    Vec3::new(-0.25, -0.25, -0.25),
+                    Vec3::new(0.25, 0.25, 0.25),
+                    SnapScope::Document,
+                    &filtered_policy,
+                )
+                .is_empty()
+        );
+
+        let cube = document
+            .add_cuboid(
+                "volume-cube",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let inside = viewport.select_world_volume(
+            &document,
+            Vec3::new(10.5, 0.5, 0.5),
+            Vec3::new(11.5, 1.5, 1.5),
+            SnapScope::Document,
+            &policy,
+        );
+        assert!(inside.iter().any(|target| {
+            target.occurrence == cube && target.entity == SelectedEntity::Occurrence
+        }));
+        let outside = viewport.select_world_volume(
+            &document,
+            Vec3::new(20.0, 20.0, 20.0),
+            Vec3::new(21.0, 21.0, 21.0),
+            SnapScope::Document,
+            &policy,
+        );
+        assert!(outside.is_empty());
     }
 
     #[test]

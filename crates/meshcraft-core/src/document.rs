@@ -829,6 +829,156 @@ impl Document {
         self.add_root_geometry(name, geometry, Affine3::IDENTITY)
     }
 
+    /// Appends a standalone segment to an existing object definition.
+    pub fn append_line_segment_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        start: Vec3,
+        end: Vec3,
+    ) -> Option<SegmentId> {
+        if !start.is_finite() || !end.is_finite() {
+            return None;
+        }
+        let scale = start.length().max(end.length());
+        if start.distance(end) <= crate::geometry::GeometryTolerance::default().linear_at(scale) {
+            return None;
+        }
+        let raw_reference = |vertex| RawVertexRef {
+            vertex,
+            position_offset: Vec3::ZERO,
+        };
+        let geometry = self
+            .build_geometry_bundle_raw(
+                vec![
+                    RawGeometryVertex {
+                        position: start,
+                        legacy_aliases: Vec::new(),
+                    },
+                    RawGeometryVertex {
+                        position: end,
+                        legacy_aliases: Vec::new(),
+                    },
+                ],
+                vec![RawGeometrySegment {
+                    endpoints: [raw_reference(0), raw_reference(1)],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                    extensions: BTreeMap::new(),
+                }],
+                Vec::new(),
+            )
+            .ok()?;
+        let segment = *geometry.segments.keys().next()?;
+        self.append_geometry_to_definition(definition_id, geometry)
+            .then_some(segment)
+    }
+
+    /// Appends rectangle edges and faces to an existing object definition.
+    pub fn append_planar_rectangle_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        corners: [Vec3; 4],
+    ) -> Option<(Vec<SegmentId>, Vec<TriangleId>)> {
+        if corners.iter().any(|point| !point.is_finite()) {
+            return None;
+        }
+        let edge_u = corners[1] - corners[0];
+        let edge_v = corners[3] - corners[0];
+        let scale = corners
+            .iter()
+            .map(|point| point.length())
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(scale);
+        let edge_u_length = edge_u.length();
+        let edge_v_length = edge_v.length();
+        if edge_u_length <= tolerance
+            || edge_v_length <= tolerance
+            || edge_u.cross(edge_v).length() <= tolerance * tolerance
+            || edge_u.dot(edge_v).abs() > tolerance * edge_u_length.max(edge_v_length)
+            || corners[2].distance(corners[0] + edge_u + edge_v) > tolerance * 2.0
+        {
+            return None;
+        }
+        let raw_reference = |vertex| RawVertexRef {
+            vertex,
+            position_offset: Vec3::ZERO,
+        };
+        let vertices = corners
+            .into_iter()
+            .map(|position| RawGeometryVertex {
+                position,
+                legacy_aliases: Vec::new(),
+            })
+            .collect();
+        let segments = [[0, 1], [1, 2], [2, 3], [3, 0]]
+            .into_iter()
+            .map(|[a, b]| RawGeometrySegment {
+                endpoints: [raw_reference(a), raw_reference(b)],
+                color: Rgba8::WHITE,
+                legacy_aliases: Vec::new(),
+                extensions: BTreeMap::new(),
+            })
+            .collect();
+        let triangles = [[0, 1, 2], [0, 2, 3]]
+            .into_iter()
+            .map(|[a, b, c]| RawGeometryTriangle {
+                vertices: [raw_reference(a), raw_reference(b), raw_reference(c)],
+                color: Rgba8::WHITE,
+                legacy_aliases: Vec::new(),
+                extensions: BTreeMap::new(),
+            })
+            .collect();
+        let geometry = self
+            .build_geometry_bundle_raw(vertices, segments, triangles)
+            .ok()?;
+        let segment_ids = geometry.segments.keys().copied().collect();
+        let triangle_ids = geometry.triangles.keys().copied().collect();
+        self.append_geometry_to_definition(definition_id, geometry)
+            .then_some((segment_ids, triangle_ids))
+    }
+
+    fn append_geometry_to_definition(
+        &mut self,
+        definition_id: DefinitionId,
+        mut addition: GeometryBundle,
+    ) -> bool {
+        let Some(definition) = self.definitions.get(&definition_id) else {
+            return false;
+        };
+        if addition.validate().is_err()
+            || addition
+                .vertices
+                .keys()
+                .any(|id| definition.geometry.vertices.contains_key(id))
+            || addition
+                .segments
+                .keys()
+                .any(|id| definition.geometry.segments.contains_key(id))
+            || addition
+                .triangles
+                .keys()
+                .any(|id| definition.geometry.triangles.contains_key(id))
+        {
+            return false;
+        }
+        let Some(definition) = self.definitions.get(&definition_id) else {
+            return false;
+        };
+        let mut merged = definition.geometry.clone();
+        merged.vertices.append(&mut addition.vertices);
+        merged.segments.append(&mut addition.segments);
+        merged.triangles.append(&mut addition.triangles);
+        if merged.validate().is_err() {
+            return false;
+        }
+        self.definitions
+            .get_mut(&definition_id)
+            .expect("definition was checked above")
+            .geometry = merged;
+        self.revision = self.revision.saturating_add(1);
+        true
+    }
+
     /// Adds a filled, two-triangle rectangle on the ground plane using raw topology.
     pub fn add_ground_rectangle(
         &mut self,
@@ -2281,6 +2431,54 @@ mod tests {
                 .map(|reference| geometry.vertex_position(reference).unwrap());
             assert!((b - a).cross(c - a).z > 0.0);
         }
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn appended_planar_geometry_edits_a_definition_without_adding_root_instances() {
+        let mut document = Document::new();
+        let instance = document
+            .add_cuboid("editable", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let definition = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let root_count = document.occurrence_refs().unwrap().len();
+        let initial_revision = document.revision();
+
+        let line = document
+            .append_line_segment_to_definition(
+                definition,
+                Vec3::new(0.0, 3.0, 0.0),
+                Vec3::new(2.0, 3.0, 0.0),
+            )
+            .unwrap();
+        let (segments, triangles) = document
+            .append_planar_rectangle_to_definition(
+                definition,
+                [
+                    Vec3::new(0.0, 4.0, 0.0),
+                    Vec3::new(2.0, 4.0, 0.0),
+                    Vec3::new(2.0, 6.0, 0.0),
+                    Vec3::new(0.0, 6.0, 0.0),
+                ],
+            )
+            .unwrap();
+
+        let geometry = document.effective_geometry(&instance).unwrap();
+        assert!(geometry.segments.contains_key(&line));
+        assert!(segments.iter().all(|id| geometry.segments.contains_key(id)));
+        assert!(
+            triangles
+                .iter()
+                .all(|id| geometry.triangles.contains_key(id))
+        );
+        assert_eq!(17, geometry.segments.len());
+        assert_eq!(14, geometry.triangles.len());
+        assert_eq!(root_count, document.occurrence_refs().unwrap().len());
+        assert_eq!(initial_revision + 2, document.revision());
         assert!(document.validate().is_ok());
     }
 

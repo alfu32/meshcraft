@@ -7,8 +7,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 | Status | Tasks |
 | --- | ---: |
 | Todo | 37 |
-| In progress | 5 |
-| Done | 9 |
+| In progress | 4 |
+| Done | 10 |
 | **Total** | **51** |
 
 ## Currently in Progress
@@ -16,12 +16,11 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 - **T05 — Implement sparse legacy DTO reading and model/history containers**
 - **T07 — Build desktop window and basic viewport**
 - **T09 — Implement desktop document service and safe storage**
-- **T12 — Port mixed selection and semantic picking framework**
 - **T17 — Complete inspectors, settings, preferences and menu coverage**
 
 ## Current Activity
 
-T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active document stays intact until a choice; replacement follows a successful save only when no newer edits remain, and a save failure or newer edit restores the decision prompt. Tests cover cancel, discard, save continuation, and edits during save. `cargo test --workspace` passes: 81 core, 95 desktop library, 14 IO, and 5 CLI tests. T05’s read-only schema-17 round-trip probe passes all 60 pinned fixtures, including the 1,281-placement interface tutorial; one documented zero-basis repair is reported. T06 is complete: a regression clicks the Cuboid Tools-menu item and toolbar button, invokes it through Ctrl+Shift+P and structured dispatch, then compares document, tool, selection, revision, and undo state. T10 is complete: camera projection and picking are exercised across viewport sizes, DPI scales, all six orthographic views, and the actual Desktop Menus and Buttons layouts; walkthrough movement, support, jump tuning, camera persistence, orbit, pan and zoom are covered. T11 is complete: Line, Rectangle, and guide placement snap to transformed geometry, faces, and construction grids with a configured physical-pixel radius, including segment/triangle edge midpoints, nearest points, grid lines, endpoint/face ties, active edit scopes, visibility filters, and occlusion. Palette commands and G/T shortcuts place oriented grid and axis guides as session overlays; palette commands and UI settings toggle guide visibility, clear all guides, and remove the nearest visible guide without modifying authored geometry. World-space pointer requests and GUI clicks at equivalent projected points create the same snapped line. Text-field wheel input stays out of camera zoom, and menu-owned wheel, click, and Escape input no longer changes the camera, active tool, or model underneath. The permanent grid supports X/Y/Z normals, 1–1000 step extents, and adaptive line density; temporary grid clouds follow the snapped surface plane and reanchor without changing authored geometry. T12 now has core replace/add/remove selection operations, per-kind visibility/lock/wireframe state, typed selection summaries, and an injectable legacy-timed multi-click tracker; viewport and semantic selection integration remains in progress. Autosave and recovery remain open. The 197-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, plus disabled deferred rendering commands. Selection-first operations, hierarchical in-place definition editing, planar-first construction, attached hotspots, arrays, and staged point-picking remain recorded in the modeling spec for upcoming tool tasks. T07 has validated `--size`, `--windowed`, `--maximized`, `--help`, and `--version` launch options while preserving maximized startup and positional project paths. Task counts now stand at 37 Todo, 5 In Progress, and 9 Done.
+T12 is complete: mixed typed selection supports replace/add/remove, injected 350 ms multi-click timing, coplanar and connected expansion, instance edit entry, directional screen windows, Alt-forced windows, two-corner world volumes, and shared visibility/lock/wireframe policy. Selection and semantic-handle picking respect transformed instances and occlusion; construction in an entered instance edits its definition in local space. Workspace checks pass: 84 core, 105 desktop library, 14 IO and 5 CLI tests, plus Clippy with warnings denied. The 199-command registry covers all 74 built-in tools, 13 visible toolbar groups, palette and menu actions, and deferred commands. The user-confirmed selection-first operator rule remains a requirement for T15 and later modeling tasks; planar-first construction, nested object definitions, attached hotspots, arrays and staged point-picking are recorded for those tasks. T09’s dirty Open/New decisions, T05’s schema-17 compatibility probe, T06 command-surface checks, T10 camera workflows and T11 snapping/grid/guides remain covered by their completed handoffs. T07 has validated launch sizing and maximized startup. Autosave/recovery and the remaining UI, modeling, domain, rendering and browser tasks remain open. Current task counts: 37 Todo, 4 In Progress, 10 Done.
 
 ## Task Statuses
 
@@ -39,7 +38,7 @@ T09 now asks for Save, Discard, or Cancel before dirty Open/New. The active docu
 | T09 | Implement desktop document service and safe storage | In progress |
 | T10 | Port orbit, orthographic and walkthrough cameras | Done |
 | T11 | Implement snapping, permanent grid and guides | Done |
-| T12 | Port mixed selection and semantic picking framework | In progress |
+| T12 | Port mixed selection and semantic picking framework | Done |
 | T13 | Implement tool protocol and line editing | Todo |
 | T14 | Implement basic planar shape tools | Todo |
 | T15 | Port transforms, stretch variants and painting | Todo |

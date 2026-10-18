@@ -1,7 +1,7 @@
 //! Non-persistent editor selection and edit-context state.
 
 use crate::document::{DefinitionId, Document, OccurrenceRef, SegmentId, TriangleId, VertexId};
-use crate::geometry::Vec2;
+use crate::geometry::{Vec2, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -135,6 +135,7 @@ pub enum SelectedEntity {
     Vertex(VertexId),
     Segment(SegmentId),
     Triangle(TriangleId),
+    SemanticHandle { kind: SelectionKind, id: String },
 }
 
 impl SelectedEntity {
@@ -144,6 +145,7 @@ impl SelectedEntity {
             Self::Vertex(_) => SelectionKind::Vertex,
             Self::Segment(_) => SelectionKind::Edge,
             Self::Triangle(_) => SelectionKind::Face,
+            Self::SemanticHandle { kind, .. } => *kind,
         }
     }
 }
@@ -152,6 +154,78 @@ impl SelectedEntity {
 pub struct SelectionTarget {
     pub occurrence: OccurrenceRef,
     pub entity: SelectedEntity,
+}
+
+/// A domain-provided semantic control resolved to world coordinates for its occurrence.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SemanticHandle {
+    pub occurrence: OccurrenceRef,
+    pub kind: SelectionKind,
+    pub id: String,
+    pub world_position: Vec3,
+}
+
+/// Domains expose controls without coupling the shared selector to domain storage types.
+pub trait SemanticHandleProvider {
+    fn handles(&self, document: &Document, context: &EditContext) -> Vec<SemanticHandle>;
+}
+
+/// Picks the closest visible, unlocked domain handle within the screen radius.
+/// The projector should return `None` for points outside the view or occluded by opaque geometry.
+pub fn dispatch_semantic_handle(
+    providers: &[&dyn SemanticHandleProvider],
+    document: &Document,
+    context: &EditContext,
+    screen_position: Vec2,
+    radius: f64,
+    policy: &SelectionDisplayPolicy,
+    mut project: impl FnMut(Vec3) -> Option<Vec2>,
+) -> Option<SelectionTarget> {
+    if !screen_position.is_finite() || !radius.is_finite() || radius < 0.0 {
+        return None;
+    }
+    let mut nearest: Option<(f64, SelectionTarget)> = None;
+    for provider in providers {
+        for handle in provider.handles(document, context) {
+            if handle.id.is_empty()
+                || !handle.world_position.is_finite()
+                || !policy.can_select(handle.kind)
+            {
+                continue;
+            }
+            let Some(resolved) = document.resolve_occurrence(&handle.occurrence) else {
+                continue;
+            };
+            let context_matches = match context {
+                EditContext::Document => true,
+                EditContext::Definition(definition) => resolved.definition.id == *definition,
+                EditContext::Occurrence(occurrence) => {
+                    handle.occurrence.path.starts_with(&occurrence.path)
+                }
+            };
+            if !context_matches {
+                continue;
+            }
+            let Some(projected) = project(handle.world_position) else {
+                continue;
+            };
+            let distance = (projected - screen_position).length();
+            if distance > radius {
+                continue;
+            }
+            let target = SelectionTarget {
+                occurrence: handle.occurrence,
+                entity: SelectedEntity::SemanticHandle {
+                    kind: handle.kind,
+                    id: handle.id,
+                },
+            };
+            if nearest.as_ref().is_none_or(|(best, _)| distance < *best) {
+                nearest = Some((distance, target));
+            }
+        }
+    }
+    nearest.map(|(_, target)| target)
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -230,11 +304,14 @@ impl SelectionSession {
     pub fn summary(&self) -> SelectionSummary {
         let mut summary = SelectionSummary::default();
         for target in &self.selected {
+            let kind = target.entity.kind();
+            *summary.counts_by_kind.entry(kind).or_default() += 1;
             match target.entity {
                 SelectedEntity::Occurrence => summary.objects += 1,
                 SelectedEntity::Vertex(_) => summary.vertices += 1,
                 SelectedEntity::Segment(_) => summary.edges += 1,
                 SelectedEntity::Triangle(_) => summary.faces += 1,
+                SelectedEntity::SemanticHandle { .. } => {}
             }
         }
         summary
@@ -285,6 +362,7 @@ impl SelectionSession {
                 SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
                 SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
                 SelectedEntity::Triangle(id) => geometry.triangles.contains_key(&id),
+                SelectedEntity::SemanticHandle { .. } => true,
             };
             let context_matches = match &self.context {
                 EditContext::Definition(id) => resolved.definition.id == *id,
@@ -305,17 +383,39 @@ impl SelectionSession {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectionSummary {
     pub vertices: usize,
     pub edges: usize,
     pub faces: usize,
     pub objects: usize,
+    pub counts_by_kind: BTreeMap<SelectionKind, usize>,
 }
 
 impl SelectionSummary {
-    pub fn total(self) -> usize {
-        self.vertices + self.edges + self.faces + self.objects
+    pub fn total(&self) -> usize {
+        self.vertices
+            + self.edges
+            + self.faces
+            + self.objects
+            + self
+                .counts_by_kind
+                .iter()
+                .filter(|(kind, _)| {
+                    !matches!(
+                        kind,
+                        SelectionKind::Vertex
+                            | SelectionKind::Edge
+                            | SelectionKind::Face
+                            | SelectionKind::Object
+                    )
+                })
+                .map(|(_, count)| count)
+                .sum::<usize>()
+    }
+
+    pub fn count(&self, kind: SelectionKind) -> usize {
+        self.counts_by_kind.get(&kind).copied().unwrap_or(0)
     }
 }
 
@@ -357,7 +457,8 @@ impl SelectionClickTracker {
 mod tests {
     use super::{
         EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
-        SelectionMode, SelectionSession, SelectionTarget,
+        SelectionMode, SelectionSession, SelectionTarget, SemanticHandle, SemanticHandleProvider,
+        dispatch_semantic_handle,
     };
     use crate::document::{DefinitionKind, Document};
     use crate::geometry::{Affine3, Vec2, Vec3};
@@ -463,6 +564,150 @@ mod tests {
         assert_eq!(1, tracker.record(1_199, start));
         tracker.reset();
         assert_eq!(1, tracker.record(2_000, start));
+    }
+
+    #[test]
+    fn semantic_handle_dispatch_respects_provider_context_visibility_and_lock() {
+        struct TestProvider {
+            handle: SemanticHandle,
+        }
+
+        impl SemanticHandleProvider for TestProvider {
+            fn handles(&self, _: &Document, _: &EditContext) -> Vec<SemanticHandle> {
+                vec![self.handle.clone()]
+            }
+        }
+
+        let mut document = Document::new();
+        let occurrence = document
+            .add_cuboid("owner", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let provider = TestProvider {
+            handle: SemanticHandle {
+                occurrence: occurrence.clone(),
+                kind: SelectionKind::Hotspot,
+                id: "door-control".to_owned(),
+                world_position: Vec3::new(10.0, 20.0, 0.0),
+            },
+        };
+        let providers: [&dyn SemanticHandleProvider; 1] = [&provider];
+        let project = |point: Vec3| Some(Vec2::new(point.x, point.y));
+        let mut policy = SelectionDisplayPolicy::default();
+        let target = dispatch_semantic_handle(
+            &providers,
+            &document,
+            &EditContext::Document,
+            Vec2::new(11.0, 20.0),
+            2.0,
+            &policy,
+            project,
+        )
+        .unwrap();
+        assert_eq!(occurrence, target.occurrence);
+        assert_eq!(SelectionKind::Hotspot, target.entity.kind());
+
+        policy.set_unlocked(SelectionKind::Hotspot, false);
+        assert!(
+            dispatch_semantic_handle(
+                &providers,
+                &document,
+                &EditContext::Document,
+                Vec2::new(11.0, 20.0),
+                2.0,
+                &policy,
+                project,
+            )
+            .is_none()
+        );
+        policy.set_visible(SelectionKind::Hotspot, false);
+        assert!(
+            dispatch_semantic_handle(
+                &providers,
+                &document,
+                &EditContext::Document,
+                Vec2::new(11.0, 20.0),
+                2.0,
+                &policy,
+                project,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn semantic_handle_contract_supports_instance_scope_and_occlusion() {
+        struct TestProvider {
+            handle: SemanticHandle,
+        }
+
+        impl SemanticHandleProvider for TestProvider {
+            fn handles(&self, _: &Document, _: &EditContext) -> Vec<SemanticHandle> {
+                vec![self.handle.clone()]
+            }
+        }
+
+        let mut document = Document::new();
+        let source = document
+            .add_cuboid("source", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let instance = document
+            .copy_root_occurrence(&source, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let provider = TestProvider {
+            handle: SemanticHandle {
+                occurrence: instance.clone(),
+                kind: SelectionKind::Wall,
+                id: "wall-endpoint".to_owned(),
+                world_position: Vec3::new(10.5, 1.0, 0.0),
+            },
+        };
+        let providers: [&dyn SemanticHandleProvider; 1] = [&provider];
+        let policy = SelectionDisplayPolicy::default();
+        let pointer = Vec2::new(10.5, 1.0);
+        let project = |point: Vec3| Some(Vec2::new(point.x, point.y));
+
+        let target = dispatch_semantic_handle(
+            &providers,
+            &document,
+            &EditContext::Occurrence(instance.clone()),
+            pointer,
+            4.0,
+            &policy,
+            project,
+        )
+        .unwrap();
+        assert_eq!(instance, target.occurrence);
+        assert_eq!(
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Wall,
+                id: "wall-endpoint".to_owned(),
+            },
+            target.entity
+        );
+        assert!(
+            dispatch_semantic_handle(
+                &providers,
+                &document,
+                &EditContext::Occurrence(source),
+                pointer,
+                4.0,
+                &policy,
+                project,
+            )
+            .is_none()
+        );
+        assert!(
+            dispatch_semantic_handle(
+                &providers,
+                &document,
+                &EditContext::Document,
+                pointer,
+                4.0,
+                &policy,
+                |_| None,
+            )
+            .is_none()
+        );
     }
 
     #[test]
