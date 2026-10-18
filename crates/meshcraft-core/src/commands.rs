@@ -122,6 +122,8 @@ pub enum CommandValueType {
 pub struct CommandPresentation {
     pub palette_path: String,
     pub menu_path: Vec<String>,
+    #[serde(default)]
+    pub menu_aliases: Vec<Vec<String>>,
     pub toolbar_group: Option<String>,
     pub icon_key: Option<String>,
     pub tutorial_action_id: Option<String>,
@@ -598,6 +600,7 @@ mod tests {
         command.presentation = CommandPresentation {
             palette_path: "Tool> Rectangle".to_owned(),
             menu_path: vec!["Tools".to_owned(), "Draw".to_owned()],
+            menu_aliases: vec![vec!["Tools".to_owned()]],
             toolbar_group: Some("Point Construction".to_owned()),
             icon_key: Some("rectangle".to_owned()),
             tutorial_action_id: Some("basic.rectangle".to_owned()),

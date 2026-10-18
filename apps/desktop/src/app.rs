@@ -1498,6 +1498,82 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
     }
 }
 
+const TOOLS_MENU_GROUP_ORDER: &[&str] = &[
+    "Point Construction",
+    "Entity Construction",
+    "Modification",
+    "Modification 2",
+    "Architecture",
+    "HVAC",
+    "Primitives",
+    "Mech",
+    "Voxel",
+    "In-tool Operators",
+    "Other Tools",
+];
+
+fn legacy_tool_menu_group(tool_id: &str) -> Option<&'static str> {
+    LEGACY_TOOLBAR_TOOL_IDS
+        .iter()
+        .find(|(_, tool_ids)| tool_ids.contains(&tool_id))
+        .and_then(|(toolbar_stem, _)| {
+            let toolbar_id = format!("builtin_toolbar_{toolbar_stem}");
+            LEGACY_TOOLBARS
+                .iter()
+                .find(|(id, _)| *id == toolbar_id)
+                .map(|(_, label)| *label)
+        })
+}
+
+fn tools_menu_group(command_id: &str) -> Option<&'static str> {
+    if let Some(tool_id) = command_id.strip_prefix("tool.builtin.") {
+        return legacy_tool_menu_group(tool_id).or(Some("Other Tools"));
+    }
+
+    match command_id {
+        "tool.select" | "tool.cycle.modification" => Some("Modification"),
+        "tool.line" | "tool.rectangle" | "tool.cycle.planar_construction" => {
+            Some("Point Construction")
+        }
+        "tool.cycle.annotation" | "tool.cycle.operations" => Some("Entity Construction"),
+        "hotspot.begin_placement" => Some("Point Construction"),
+        "hotspot.cancel_placement"
+        | "tool.distance"
+        | "tool.copy_mode"
+        | "tool.finish"
+        | "tool.undo_point"
+        | "tool.cancel" => Some("In-tool Operators"),
+        "tool.cuboid" => None,
+        _ => Some("Other Tools"),
+    }
+}
+
+fn command_menu_aliases(command_id: &str) -> Vec<Vec<String>> {
+    let in_tools_menu = matches!(
+        command_id,
+        "tool.select"
+            | "tool.line"
+            | "tool.rectangle"
+            | "tool.builtin.circle"
+            | "tool.builtin.push_pull"
+            | "tool.builtin.move"
+            | "tool.builtin.rotate"
+            | "tool.builtin.stretch"
+            | "edit.copy_selection"
+    );
+    if in_tools_menu {
+        vec![vec!["Tools".to_owned()]]
+    } else {
+        Vec::new()
+    }
+}
+
+fn command_menu_paths(command: &CommandDescriptor) -> impl Iterator<Item = &[String]> {
+    std::iter::once(command.presentation.menu_path.as_slice())
+        .chain(command.presentation.menu_aliases.iter().map(Vec::as_slice))
+        .filter(|path| !path.is_empty())
+}
+
 fn register_shell_command(
     registry: &mut CommandRegistry<ShellAction>,
     id: &str,
@@ -1588,7 +1664,21 @@ fn register_shell_command(
     };
     descriptor.presentation = CommandPresentation {
         palette_path: name.to_owned(),
-        menu_path: vec![category.to_owned()],
+        menu_path: if category == "Tools" {
+            if matches!(id, "tool.select" | "tool.line" | "tool.rectangle") {
+                Vec::new()
+            } else if id == "tool.cuboid" {
+                vec![category.to_owned()]
+            } else {
+                vec![
+                    category.to_owned(),
+                    tools_menu_group(id).unwrap_or("Other Tools").to_owned(),
+                ]
+            }
+        } else {
+            vec![category.to_owned()]
+        },
+        menu_aliases: command_menu_aliases(id),
         toolbar_group: match action {
             ShellAction::SelectTool(_) => Some("Tools".to_owned()),
             ShellAction::AddCuboid
@@ -6713,6 +6803,45 @@ impl MeshcraftApp {
         }
     }
 
+    fn show_command_menu_branch(&mut self, ui: &mut egui::Ui, path: &[String]) {
+        let commands = shell_commands()
+            .entries()
+            .filter(|command| command_menu_paths(&command.descriptor).any(|item| item == path))
+            .map(|command| command.descriptor.id.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let mut children = Vec::new();
+        for command in shell_commands().entries() {
+            for menu_path in command_menu_paths(&command.descriptor) {
+                if menu_path.len() > path.len()
+                    && menu_path.starts_with(path)
+                    && !children.contains(&menu_path[path.len()])
+                {
+                    children.push(menu_path[path.len()].clone());
+                }
+            }
+        }
+        if path.len() == 1 && path[0] == "Tools" {
+            children.sort_by_key(|group| {
+                TOOLS_MENU_GROUP_ORDER
+                    .iter()
+                    .position(|candidate| *candidate == group.as_str())
+                    .unwrap_or(usize::MAX)
+            });
+        }
+
+        for id in &commands {
+            self.show_command_menu_item(ui, id);
+        }
+        if !commands.is_empty() && !children.is_empty() {
+            ui.separator();
+        }
+        for child in children {
+            let mut child_path = path.to_vec();
+            child_path.push(child.clone());
+            ui.menu_button(child, |ui| self.show_command_menu_branch(ui, &child_path));
+        }
+    }
+
     fn show_menu_bar(&mut self, ui: &mut egui::Ui) {
         let request_file_menu = std::mem::take(&mut self.open_file_menu);
 
@@ -6768,15 +6897,19 @@ impl MeshcraftApp {
                 "Draw", "Modify", "Objects", "Tools", "Render", "Import", "Export",
             ] {
                 ui.menu_button(menu, |ui| {
-                    let commands = shell_commands()
-                        .entries()
-                        .filter(|command| command.descriptor.category == menu)
-                        .collect::<Vec<_>>();
-                    if commands.is_empty() {
-                        ui.label("No commands are registered in this menu yet.");
-                    }
-                    for command in commands {
-                        self.show_command_menu_item(ui, command.descriptor.id.as_str());
+                    if menu == "Tools" {
+                        self.show_command_menu_branch(ui, &["Tools".to_owned()]);
+                    } else {
+                        let commands = shell_commands()
+                            .entries()
+                            .filter(|command| command.descriptor.category == menu)
+                            .collect::<Vec<_>>();
+                        if commands.is_empty() {
+                            ui.label("No commands are registered in this menu yet.");
+                        }
+                        for command in commands {
+                            self.show_command_menu_item(ui, command.descriptor.id.as_str());
+                        }
                     }
                 });
             }
@@ -9387,9 +9520,138 @@ mod tests {
                 .count()
         );
         assert!(shell_commands().entries().all(|command| {
-            command.descriptor.presentation.menu_path.len() == 1
-                && !command.descriptor.presentation.palette_path.is_empty()
+            !command.descriptor.presentation.menu_path.is_empty()
+                || !command.descriptor.presentation.menu_aliases.is_empty()
         }));
+    }
+
+    #[test]
+    fn tools_menu_metadata_groups_legacy_tools_and_exposes_common_aliases() {
+        for (tool_id, _) in super::LEGACY_BUILTIN_TOOLS {
+            let id = format!("tool.builtin.{tool_id}");
+            let command = shell_commands().get(&id).unwrap();
+            let expected_group = super::legacy_tool_menu_group(tool_id).unwrap_or("Other Tools");
+            assert_eq!(
+                vec!["Tools".to_owned(), expected_group.to_owned()],
+                command.descriptor.presentation.menu_path
+            );
+        }
+
+        for id in [
+            "tool.select",
+            "tool.line",
+            "tool.rectangle",
+            "tool.builtin.circle",
+            "tool.builtin.push_pull",
+            "tool.builtin.move",
+            "tool.builtin.rotate",
+            "tool.builtin.stretch",
+        ] {
+            let command = shell_commands().get(id).unwrap();
+            assert!(
+                command
+                    .descriptor
+                    .presentation
+                    .menu_aliases
+                    .iter()
+                    .any(|path| path == &["Tools"])
+            );
+        }
+        assert!(
+            shell_commands()
+                .get("edit.copy_selection")
+                .unwrap()
+                .descriptor
+                .presentation
+                .menu_aliases
+                .iter()
+                .any(|path| path == &["Tools"])
+        );
+        for id in ["tool.select", "tool.line", "tool.rectangle"] {
+            let command = shell_commands().get(id).unwrap();
+            assert!(command.descriptor.presentation.menu_path.is_empty());
+            assert!(
+                command
+                    .descriptor
+                    .presentation
+                    .menu_aliases
+                    .iter()
+                    .any(|path| path == &["Tools"])
+            );
+        }
+    }
+
+    #[test]
+    fn tools_menu_shows_favorites_and_opens_legacy_toolbar_submenus() {
+        let context = egui::Context::default();
+        let mut direct_app = test_app();
+        let menu_bar = run_workspace_frame(&mut direct_app, &context, Vec::new());
+        let tools = text_center_in_row(&menu_bar, "Tools", 48.0);
+        click_workspace_position(&mut direct_app, &context, tools);
+        let open_tools = run_workspace_frame(&mut direct_app, &context, Vec::new());
+
+        for label in [
+            "Select",
+            "Line",
+            "Rectangle",
+            "Circle",
+            "Push/Pull",
+            "Move",
+            "Copy Selection",
+            "Rotate",
+            "Stretch",
+            "Point Construction",
+            "Entity Construction",
+            "Modification",
+            "Primitives",
+        ] {
+            text_center_in_row(&open_tools, label, 620.0);
+        }
+        let direct_line = text_center_in_row(&open_tools, "Line", 620.0);
+        click_workspace_position(&mut direct_app, &context, direct_line);
+        assert_eq!("Line", direct_app.active_tool);
+
+        let mut grouped_app = test_app();
+        let menu_bar = run_workspace_frame(&mut grouped_app, &context, Vec::new());
+        let tools = text_center_in_row(&menu_bar, "Tools", 48.0);
+        click_workspace_position(&mut grouped_app, &context, tools);
+        let open_tools = run_workspace_frame(&mut grouped_app, &context, Vec::new());
+        let point_construction = text_center_in_row(&open_tools, "Point Construction", 620.0);
+        run_workspace_frame(
+            &mut grouped_app,
+            &context,
+            vec![Event::PointerMoved(point_construction)],
+        );
+        let opened_submenu = run_workspace_frame(&mut grouped_app, &context, Vec::new());
+        text_center_in_row(&opened_submenu, "Axial Grid", 700.0);
+        let grouped_line = text_center_in_row(&opened_submenu, "Line", 700.0);
+        assert!(
+            !grouped_app
+                .query_command_state("tool.builtin.axial_grid")
+                .enabled
+        );
+        click_workspace_position(&mut grouped_app, &context, grouped_line);
+        assert_eq!("Line", grouped_app.active_tool);
+        assert_eq!(direct_app.document, grouped_app.document);
+        assert_eq!(
+            direct_app.selected_occurrences(),
+            grouped_app.selected_occurrences()
+        );
+        assert_eq!(0, grouped_app.history.entries().len());
+    }
+
+    #[test]
+    fn menu_presentation_aliases_are_additive_for_older_command_metadata() {
+        let old_presentation = serde_json::json!({
+            "palette_path": "Edit> Copy",
+            "menu_path": ["Edit"],
+            "toolbar_group": null,
+            "icon_key": null,
+            "tutorial_action_id": null
+        });
+        let parsed: meshcraft_core::commands::CommandPresentation =
+            serde_json::from_value(old_presentation).unwrap();
+        assert!(parsed.menu_aliases.is_empty());
     }
 
     #[test]

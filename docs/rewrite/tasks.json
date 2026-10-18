@@ -2500,6 +2500,47 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T52",
+      "title": "Organize Tools menu into toolbar groups and favorites (#3)",
+      "phase": "desktop",
+      "dependencies": [
+        "T06"
+      ],
+      "requirements": [
+        "U02"
+      ],
+      "acceptance": [
+        "C17",
+        "C23"
+      ],
+      "targets": [
+        "apps/desktop/src/app.rs",
+        "crates/meshcraft-core/src/commands.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt"
+      ],
+      "source_symbols": [
+        "buildStandardToolbars",
+        "CommandPresentation",
+        "show_menu_bar"
+      ],
+      "design_docs": [
+        "docs/rewrite/spec/interface.md"
+      ],
+      "slices": [
+        "Map each built-in tool command to its legacy toolbar submenu from the source-backed toolbar definitions; keep unassigned and contextual commands in clear groups.",
+        "Expose Select, Line, Rectangle, Circle, Push/Pull, Move, Copy, Rotate and Stretch as direct Tools-menu entries while preserving their grouped primary paths and shared command behavior.",
+        "Cover grouped and favorite menu navigation, capability-aware disabled entries, and command parity through menu activation; retain complete palette discovery."
+      ],
+      "done": [
+        "The Tools menu is organized into named toolbar submenus instead of a flat legacy-tool list.",
+        "Frequently used tools and copy remain directly available, and menu aliases dispatch through the same registry commands as grouped entries and the palette."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

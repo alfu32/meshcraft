@@ -8,8 +8,8 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 |-------------|-------:|
 | Todo        |     30 |
 | In progress |      6 |
-| Done        |     16 |
-| **Total**   | **52** |
+| Done        |     17 |
+| **Total**   | **53** |
 
 ## Currently in Progress
 
@@ -24,9 +24,9 @@ Updated 2026-10-18 from [`docs/rewrite/tasks.json`](docs/rewrite/tasks.json). Th
 
 T10 is complete: orbit and restored perspective camera poses clamp at ±89°. T12 is complete: real viewport press/move/release tests apply left-to-right containment and right-to-left crossing selection, confirmed by the user. T13–T15 deliver lines, planar shapes, transforms and RGBA paint. T19 is complete: staged Polyline/Double Line, Mesh, selected Polyline Mesh, Face Outline and selected-edge Line Offset are wired to command actions, previews, active-graph commits and coverage. T20 is complete: selected faces extrude with signed snapped-point or numeric input, colored geometry preview, unit-aware distance/ΔX/ΔY/ΔZ feedback, correctly wound manifold output, active-definition insertion, selected generated results, cancellation and undo. C13/C19 coverage verifies multi-face color retention, holes, both extrusion signs, zero/invalid-input atomicity, manifold edge incidence and prism volume. The general feedback rule from [issue #1](https://github.com/alfu32/meshcraft/issues/1) is now in U05/C34. T51 is complete for [bug #2](https://github.com/alfu32/meshcraft/issues/2): every enabled geometry tool now has stage feedback and preview/commit coverage; Paint and parameterized Array previews are included, with selection the sole exception.
 
-T39 is in progress: the viewport distinguishes darker, slightly bluer back faces and uses a bounded CPU directional depth map for shadows on the ground and other entity faces, including transformed instances. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
+T39 is in progress: the viewport distinguishes darker, slightly bluer back faces and uses a bounded CPU directional depth map for shadows on the ground and other entity faces, including transformed instances. Lighting controls, filtering/quality settings and inclusion-aware view capture remain open. T52 is complete for [bug #3](https://github.com/alfu32/meshcraft/issues/3): built-in tools now live under their source-backed toolbar groups, with common tools and Copy Selection directly available at the Tools menu root. User requirements for planar-first construction, nested object definitions, attached hotspots, distinct array families and staged point-picking remain mapped to their owning tasks.
 
-Validation: `cargo test --workspace --quiet` passes (144 core, 161 desktop, 14 IO and 5 CLI tests); `cargo clippy --workspace --all-targets -- -D warnings`, formatting, `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`, `verify_plan.py` and `git diff --check` pass. T51 coverage includes staged geometry previews and measurements, Paint targets, Array parameter updates and committed-copy parity, snapping, numeric input, entered definitions and cancellation. Push/Pull coverage verifies signed extrusion geometry, colors, holes, manifoldness/volume, active-definition insertion, selected results and undo. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. Current task counts: 30 Todo, 6 In Progress, 16 Done.
+Validation: `cargo test --workspace --quiet` passes (144 core, 164 desktop, 14 IO and 5 CLI tests); `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`, `verify_plan.py` and `git diff --check` pass. T51 coverage includes staged geometry previews and measurements, Paint targets, Array parameter updates and committed-copy parity, snapping, numeric input, entered definitions and cancellation. T52 coverage checks every legacy tool's toolbar menu path, common direct aliases, disabled capabilities, submenu activation and command metadata compatibility. Push/Pull coverage verifies signed extrusion geometry, colors, holes, manifoldness/volume, active-definition insertion, selected results and undo. Camera coverage includes orbit/restored poses at ±89°. Selection coverage exercises actual viewport release in both directions; Line Offset tests cover preview, active-definition commits, winding and invalid-input atomicity. Current task counts: 30 Todo, 6 In Progress, 17 Done.
 
 ## Task Statuses
 
@@ -84,3 +84,4 @@ Validation: `cargo test --workspace --quiet` passes (144 core, 161 desktop, 14 I
 | T49 | Connect the versioned JavaScript plugin SDK to normalized host services  | Todo        |
 | T50 | Deliver JavaScriptCore plugin UX, samples and qualified desktop packages | Todo        |
 | T51 | Fix geometric feedback for enabled tools (#2)                           | Done        |
+| T52 | Organize Tools menu into toolbar groups and favorites (#3)               | Done        |
