@@ -327,6 +327,7 @@ enum ShellAction {
     CopySelection,
     DeleteSelection,
     ClearSelection,
+    ResetSceneForCapture,
     CreateObject,
     ArraySelection,
     UpdateModelSettings,
@@ -760,6 +761,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         for (id, name, category, keywords, icon) in LEGACY_COMMANDS {
             let action = match *id {
                 "edit.group" => ShellAction::CreateObject,
+                "edit.reset_scene_for_capture" => ShellAction::ResetSceneForCapture,
                 "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
                 "view.camera.walkthrough" => ShellAction::SetWalkthroughView,
                 "view.camera.orthographic" => ShellAction::SetOrthographicView(OrthoView::Top),
@@ -820,6 +822,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
+        | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
         | ShellAction::ArraySelection
         | ShellAction::UpdateModelSettings
@@ -2036,6 +2039,31 @@ impl MeshcraftApp {
                 self.status = "Selection cleared.".to_owned();
                 return CommandResult::completed();
             }
+            ShellAction::ResetSceneForCapture => {
+                match self.commit_document_edit("Reset scene for capture", |document| {
+                    *document = Document::new();
+                    Ok(())
+                }) {
+                    Ok(()) => {}
+                    Err(error) => return CommandResult::failed(error),
+                }
+                self.selection.clear();
+                self.object_name_edit = None;
+                self.active_tool = "Select".to_owned();
+                self.cuboid_first = None;
+                self.cuboid_base = None;
+                self.line_first = None;
+                self.rectangle_first = None;
+                self.viewport.reset_camera();
+                let camera_state = serde_json::json!({
+                    "position": {"x": 18.0, "y": 14.0, "z": 18.0},
+                    "target": {"x": 0.0, "y": 0.0, "z": 0.0}
+                });
+                self.viewport.restore_legacy_camera_state(&camera_state);
+                self.preferences.panels_visible = false;
+                self.status = "Scene reset for capture (perspective, Y-up).".to_owned();
+                return CommandResult::completed();
+            }
             ShellAction::CreateObject => return self.create_object_from_selection(),
             ShellAction::ArraySelection => {
                 let count = match payload.values.get("count") {
@@ -2947,6 +2975,7 @@ impl MeshcraftApp {
                 self.show_command_menu_item(ui, "edit.redo");
                 self.show_command_menu_item(ui, "edit.delete_selection");
                 self.show_command_menu_item(ui, "edit.clear_selection");
+                self.show_command_menu_item(ui, "edit.reset_scene_for_capture");
                 ui.separator();
                 self.show_command_menu_item(ui, "edit.copy_selection");
             });
@@ -4212,6 +4241,11 @@ mod tests {
         assert!(shell_commands().get("edit.group").is_some());
         assert!(shell_commands().get("edit.delete_selection").is_some());
         assert!(shell_commands().get("edit.clear_selection").is_some());
+        assert!(
+            shell_commands()
+                .get("edit.reset_scene_for_capture")
+                .is_some()
+        );
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4565,6 +4599,32 @@ mod tests {
         assert_eq!(revision, app.document.revision());
         assert_eq!(can_undo, app.can_undo_document());
         assert!(!app.query_command_state("edit.clear_selection").enabled);
+    }
+
+    #[test]
+    fn reset_scene_for_capture_clears_model_and_restores_the_reference_camera() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        app.active_tool = "Rectangle".to_owned();
+        app.viewport.set_orthographic_view(OrthoView::Front);
+        app.preferences.panels_visible = true;
+
+        let dispatch =
+            app.dispatch_command("edit.reset_scene_for_capture", &CommandPayload::default());
+
+        assert!(dispatch.accepted);
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+        assert!(app.selected_occurrences().is_empty());
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(None, app.viewport.orthographic_view());
+        assert!(!app.viewport.walkthrough_active());
+        assert!(!app.preferences.panels_visible);
+        assert!(app.status.contains("perspective, Y-up"));
+        let camera = app.viewport.legacy_camera_state();
+        for (axis, expected) in [("x", 18.0), ("y", 14.0), ("z", 18.0)] {
+            let actual = camera["position"][axis].as_f64().unwrap();
+            assert!((actual - expected).abs() < 1.0e-9, "{axis}: {actual}");
+        }
     }
 
     #[test]
