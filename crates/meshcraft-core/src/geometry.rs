@@ -11,6 +11,8 @@ pub const LEGACY_FACE_STORE_EPSILON: f64 = 1.0e-4;
 pub const LEGACY_HOTSPOT_KEY_STEP: f64 = 1.0e-3;
 /// `Snapper.epsilon`, used for ray/plane and parameter tie checks.
 pub const LEGACY_SNAP_INTERNAL_EPSILON: f64 = 1.0e-1;
+/// `planeBasisFromNormal` reference-axis branch threshold from the legacy UI.
+pub const LEGACY_PLANE_BASIS_Y_THRESHOLD: f64 = 0.9;
 /// Scale applied when projecting faces to the legacy clipping library.
 pub const LEGACY_FACE_PROJECTION_SCALE: f64 = 10_000.0;
 /// `DraftFaceStore.cutEps2d`, in projected face coordinates.
@@ -659,7 +661,7 @@ pub struct Plane3 {
 
 impl Plane3 {
     pub fn from_normal(origin: Vec3, normal: Vec3, tolerance: GeometryTolerance) -> Option<Self> {
-        if !origin.is_finite() {
+        if !origin.is_finite() || !tolerance.is_valid() {
             return None;
         }
         Some(Self {
@@ -690,7 +692,7 @@ impl Ray3 {
         direction: Vec3,
         tolerance: GeometryTolerance,
     ) -> Option<Self> {
-        if !origin.is_finite() {
+        if !origin.is_finite() || !tolerance.is_valid() {
             return None;
         }
         Some(Self {
@@ -902,11 +904,18 @@ pub fn plane_basis_from_normal(
     normal: Vec3,
     tolerance: GeometryTolerance,
 ) -> Option<(Vec3, Vec3, Vec3)> {
+    if !tolerance.is_valid() {
+        return None;
+    }
     let normal = normal.try_normalized(tolerance.absolute)?;
-    let reference = [Vec3::X, Vec3::Y, Vec3::Z]
-        .into_iter()
-        .min_by(|left, right| left.dot(normal).abs().total_cmp(&right.dot(normal).abs()))?;
-    let u = reference.cross(normal).try_normalized(tolerance.absolute)?;
+    // Keep the legacy basis orientation: use Y except near the Y axis, then X.
+    // Rotating this choice changes every projected polygon coordinate.
+    let reference = if normal.y.abs() < LEGACY_PLANE_BASIS_Y_THRESHOLD {
+        Vec3::Y
+    } else {
+        Vec3::X
+    };
+    let u = normal.cross(reference).try_normalized(tolerance.absolute)?;
     let v = normal.cross(u).try_normalized(tolerance.absolute)?;
     Some((u, v, normal))
 }
@@ -916,7 +925,7 @@ mod tests {
     use super::{
         Affine3, GeometryTolerance, LEGACY_FACE_KEY_QUANTIZATION, LEGACY_HOTSPOT_KEY_QUANTIZATION,
         LEGACY_LINE_KEY_QUANTIZATION, ModelUnitScale, Plane3, QuantizationPolicy,
-        QuantizationTieRule, Segment2, SegmentIntersection2, Triangle3, Vec2, Vec3,
+        QuantizationTieRule, Ray3, Segment2, SegmentIntersection2, Triangle3, Vec2, Vec3,
         plane_basis_from_normal,
     };
 
@@ -1020,6 +1029,39 @@ mod tests {
     }
 
     #[test]
+    fn primitive_constructors_and_queries_reject_nonfinite_inputs() {
+        let tolerance = GeometryTolerance::default();
+        assert!(Plane3::from_normal(Vec3::new(f64::NAN, 0.0, 0.0), Vec3::Z, tolerance).is_none());
+        assert!(
+            Plane3::from_normal(
+                Vec3::ZERO,
+                Vec3::Z,
+                GeometryTolerance {
+                    absolute: 1.0e-9,
+                    relative: f64::INFINITY,
+                }
+            )
+            .is_none()
+        );
+        assert!(
+            Ray3::from_direction(Vec3::ZERO, Vec3::new(f64::INFINITY, 0.0, 0.0), tolerance)
+                .is_none()
+        );
+        assert!(
+            Segment2::new(Vec2::ZERO, Vec2::new(f64::NAN, 1.0))
+                .intersect(Segment2::new(Vec2::ZERO, Vec2::new(1.0, 0.0)), tolerance)
+                .is_none()
+        );
+        assert!(
+            Triangle3::new(Vec3::ZERO, Vec3::X, Vec3::new(f64::NAN, 1.0, 0.0))
+                .area(tolerance)
+                .is_none()
+        );
+        let nonfinite_transform = Affine3::from_translation(Vec3::new(f64::NAN, 0.0, 0.0));
+        assert!(nonfinite_transform.inverse(tolerance).is_none());
+    }
+
+    #[test]
     fn plane_projection_and_basis_are_stable_and_right_handed() {
         let normal = Vec3::new(1.0, 2.0, 3.0);
         let plane = Plane3::from_normal(
@@ -1036,6 +1078,24 @@ mod tests {
         assert!((u.dot(v)).abs() < 1.0e-12);
         assert_vec_near(u.cross(v), n, 1.0e-12);
         assert!(plane_basis_from_normal(Vec3::ZERO, GeometryTolerance::default()).is_none());
+
+        let (z_axis_u, z_axis_v, _) =
+            plane_basis_from_normal(Vec3::Z, GeometryTolerance::default()).unwrap();
+        assert_eq!(z_axis_u, -Vec3::X);
+        assert_eq!(z_axis_v, -Vec3::Y);
+        let (_, y_axis_v, _) =
+            plane_basis_from_normal(Vec3::Y, GeometryTolerance::default()).unwrap();
+        assert_eq!(y_axis_v, -Vec3::X);
+        assert!(
+            plane_basis_from_normal(
+                Vec3::Z,
+                GeometryTolerance {
+                    absolute: 1.0,
+                    relative: f64::NAN,
+                }
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1135,6 +1195,21 @@ mod tests {
             if position.distance(Vec2::new(1.0, 0.0)) < 1.0e-12)
         );
 
+        let endpoint_on_edge = Segment2::new(Vec2::new(0.0, 0.0), Vec2::new(2.0, 0.0))
+            .intersect(
+                Segment2::new(Vec2::new(1.0, 0.0), Vec2::new(1.0, 1.0)),
+                tolerance,
+            )
+            .unwrap();
+        assert!(matches!(
+            endpoint_on_edge,
+            SegmentIntersection2::Point {
+                first_parameter,
+                second_parameter,
+                ..
+            } if (first_parameter - 0.5).abs() < 1.0e-12 && second_parameter == 0.0
+        ));
+
         let overlap = Segment2::new(Vec2::new(0.0, 0.0), Vec2::new(3.0, 0.0))
             .intersect(
                 Segment2::new(Vec2::new(1.0, 0.0), Vec2::new(4.0, 0.0)),
@@ -1148,6 +1223,24 @@ mod tests {
             },
             overlap
         );
+
+        let within_tolerance = Segment2::new(Vec2::new(0.0, 0.0), Vec2::new(2.0, 0.0))
+            .intersect(
+                Segment2::new(Vec2::new(0.0, 0.5e-9), Vec2::new(2.0, 0.5e-9)),
+                tolerance,
+            )
+            .unwrap();
+        assert!(matches!(
+            within_tolerance,
+            SegmentIntersection2::Overlap { .. }
+        ));
+        let outside_tolerance = Segment2::new(Vec2::new(0.0, 0.0), Vec2::new(2.0, 0.0))
+            .intersect(
+                Segment2::new(Vec2::new(0.0, 2.0e-9), Vec2::new(2.0, 2.0e-9)),
+                tolerance,
+            )
+            .unwrap();
+        assert_eq!(outside_tolerance, SegmentIntersection2::Disjoint);
 
         assert_eq!(
             Some(SegmentIntersection2::Disjoint),
