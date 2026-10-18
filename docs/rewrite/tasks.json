@@ -518,7 +518,8 @@
       ],
       "done": [
         "C09 project/unproject/navigation tests pass in both menu and button layouts.",
-        "No camera mode silently uses the wrong projection for picking."
+        "No camera mode silently uses the wrong projection for picking.",
+        "Orbit input and restored perspective poses support pitch from −89° through +89° without reaching the singular camera poles."
       ],
       "tool_ids": [],
       "status": "complete"
@@ -608,7 +609,8 @@
       "done": [
         "C11 passes under transformed/occluded geometry; domain providers have C12 contract tests.",
         "Timing is injectable and window versus volume selection remains distinct.",
-        "A live direction-coded marquee shows left-to-right containment and right-to-left crossing behavior; plain clicks toggle an already selected entity off."
+        "A live direction-coded marquee shows left-to-right containment and right-to-left crossing behavior; plain clicks toggle an already selected entity off.",
+        "A release from an actual viewport drag applies the visible left-to-right containment and right-to-left crossing marquee to scene geometry."
       ],
       "tool_ids": [
         "SELECT"

@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 const DEFAULT_CLOSE_DISTANCE: f64 = 0.15;
 const PATH_EPSILON: f64 = 1.0e-9;
+const MESH_PICK_EPSILON: f64 = 1.0e-9;
 pub const FACE_OUTLINE_MERGE_TOLERANCE: f64 = 1.0e-4;
 pub const POLYLINE_MESH_MERGE_TOLERANCE: f64 = 1.0e-3;
 const MAX_ARC_SAMPLES: usize = 4096;
@@ -39,6 +40,126 @@ pub struct PolylineToolState {
     mode: PolylineSegmentMode,
     points: Vec<Vec3>,
     arc_control: Option<Vec3>,
+}
+
+/// Geometry emitted when the Mesh tool accepts one world-space point.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MeshPickResult {
+    pub segment: Option<[Vec3; 2]>,
+    /// Points are ordered as nearest earlier point, previous pick, current pick.
+    pub triangle: Option<[Vec3; 3]>,
+}
+
+/// Staged point input for the legacy incremental triangle-mesh construction tool.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MeshToolState {
+    active: bool,
+    points: Vec<Vec3>,
+    pointer: Option<Vec3>,
+}
+
+impl MeshToolState {
+    pub fn active(&self) -> bool {
+        self.active
+    }
+
+    pub fn points(&self) -> &[Vec3] {
+        &self.points
+    }
+
+    pub fn activate(&mut self, active: bool) {
+        self.active = active;
+        self.clear_points();
+    }
+
+    /// Accepts a point and returns the connecting segment and optional nearest-neighbor triangle.
+    pub fn pick(&mut self, point: Vec3) -> Result<MeshPickResult, &'static str> {
+        if !self.active {
+            return Err("Mesh tool is not active.");
+        }
+        if !point.is_finite() {
+            return Err("Mesh points must be finite.");
+        }
+        if self
+            .points
+            .last()
+            .is_some_and(|previous| previous.distance(point) <= MESH_PICK_EPSILON)
+        {
+            return Err("Mesh points must be distinct.");
+        }
+
+        let previous = self.points.last().copied();
+        let segment = previous.map(|previous| [previous, point]);
+        self.points.push(point);
+        self.pointer = Some(point);
+
+        let triangle = if self.points.len() >= 3 {
+            let current_index = self.points.len() - 1;
+            let previous_index = current_index - 1;
+            let nearest = self.points[..previous_index]
+                .iter()
+                .copied()
+                .min_by(|left, right| left.distance(point).total_cmp(&right.distance(point)));
+            nearest.and_then(|nearest| {
+                let previous = self.points[previous_index];
+                let area = (previous - nearest).cross(point - nearest).length();
+                (area > MESH_PICK_EPSILON).then_some([nearest, previous, point])
+            })
+        } else {
+            None
+        };
+
+        Ok(MeshPickResult { segment, triangle })
+    }
+
+    pub fn set_pointer(&mut self, point: Option<Vec3>) {
+        self.pointer = point.filter(|point| point.is_finite());
+    }
+
+    /// Clears pending picks after Enter while keeping Mesh active.
+    pub fn finish_chain(&mut self) {
+        self.clear_points();
+    }
+
+    pub fn cancel(&mut self) {
+        self.clear_points();
+        self.active = false;
+    }
+
+    /// Returns staged edges and the current nearest-neighbor triangle preview.
+    pub fn preview(&self) -> Vec<[Vec3; 2]> {
+        if !self.active {
+            return Vec::new();
+        }
+        let mut edges = self
+            .points
+            .windows(2)
+            .map(|pair| [pair[0], pair[1]])
+            .collect::<Vec<_>>();
+        let Some(pointer) = self.pointer else {
+            return edges;
+        };
+        let Some(previous) = self.points.last().copied() else {
+            return edges;
+        };
+        edges.push([previous, pointer]);
+        if self.points.len() >= 2 {
+            let nearest = self.points[..self.points.len() - 1]
+                .iter()
+                .copied()
+                .min_by(|left, right| left.distance(pointer).total_cmp(&right.distance(pointer)));
+            if let Some(nearest) = nearest {
+                edges.push([nearest, previous]);
+                edges.push([nearest, pointer]);
+            }
+        }
+        edges
+    }
+
+    fn clear_points(&mut self) {
+        self.points.clear();
+        self.pointer = None;
+    }
 }
 
 impl PolylineToolState {
@@ -741,13 +862,45 @@ fn arc_samples(
 #[cfg(test)]
 mod tests {
     use super::{
-        FACE_OUTLINE_MERGE_TOLERANCE, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        FACE_OUTLINE_MERGE_TOLERANCE, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
         PolylinePickEffect, PolylineSegmentMode, PolylineToolState, arc_from_center, arc_through,
         build_double_line_mesh, build_double_line_mesh_in_plane, build_double_line_paths,
         build_double_line_paths_in_plane, build_face_outline_mesh, build_polyline_mesh,
         build_polyline_mesh_from_segments,
     };
     use crate::geometry::Vec3;
+
+    #[test]
+    fn mesh_tool_adds_path_edges_and_nearest_neighbor_triangles_then_finishes_chain() {
+        let mut state = MeshToolState::default();
+        state.activate(true);
+        assert_eq!(Ok(Default::default()), state.pick(Vec3::ZERO));
+        assert_eq!(
+            Some([Vec3::ZERO, Vec3::X * 5.0]),
+            state.pick(Vec3::X * 5.0).unwrap().segment
+        );
+        let third = state.pick(Vec3::new(5.0, 0.0, 5.0)).unwrap();
+        assert_eq!(
+            Some([Vec3::ZERO, Vec3::X * 5.0, Vec3::new(5.0, 0.0, 5.0)]),
+            third.triangle
+        );
+
+        let fourth = Vec3::new(4.9, 0.0, 4.9);
+        let fourth_pick = state.pick(fourth).unwrap();
+        assert_eq!(
+            Some([Vec3::X * 5.0, Vec3::new(5.0, 0.0, 5.0), fourth]),
+            fourth_pick.triangle
+        );
+        state.set_pointer(Some(Vec3::new(3.0, 0.0, 3.0)));
+        assert_eq!(6, state.preview().len());
+
+        state.finish_chain();
+        assert!(state.active());
+        assert!(state.points().is_empty());
+        assert_eq!(Ok(Default::default()), state.pick(Vec3::Y));
+        state.cancel();
+        assert!(!state.active());
+    }
 
     #[test]
     fn polyline_modes_stage_points_undo_and_finish_open_paths() {

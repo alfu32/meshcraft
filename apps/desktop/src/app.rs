@@ -27,7 +27,7 @@ use meshcraft_core::tools::{
     ToolEvent,
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
-        FACE_OUTLINE_MERGE_TOLERANCE, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
+        FACE_OUTLINE_MERGE_TOLERANCE, MeshToolState, POLYLINE_MESH_MERGE_TOLERANCE, PolylinePath,
         PolylinePickEffect, PolylineSegmentMode, PolylineToolState,
         build_double_line_mesh_in_plane, build_face_outline_mesh, build_polyline_mesh,
         build_polyline_mesh_from_segments,
@@ -1267,6 +1267,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "double_line" => ShellAction::SelectToolAlias("Double Line"),
                 "face_outline" => ShellAction::FaceOutline,
                 "polyline_mesh" => ShellAction::PolylineMesh,
+                "mesh" => ShellAction::SelectToolAlias("Mesh"),
                 "rectangle" => ShellAction::SelectToolAlias("Rectangle"),
                 "surface_rectangle" => ShellAction::SelectToolAlias("Surface Rect"),
                 "quad" => ShellAction::SelectToolAlias("Quad"),
@@ -1787,6 +1788,7 @@ pub struct MeshcraftApp {
     cuboid_base: Option<(Vec3, Vec3)>,
     drawing_tool: DrawingToolState,
     polyline_tool_state: PolylineToolState,
+    mesh_tool_state: MeshToolState,
     tool_cycle_state: ToolCycleState,
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
@@ -1926,6 +1928,7 @@ impl MeshcraftApp {
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
+            mesh_tool_state: MeshToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -2132,6 +2135,61 @@ impl MeshcraftApp {
             entity: SelectedEntity::Triangle(id),
         }));
         Ok(targets)
+    }
+
+    fn pick_mesh_point(&mut self, point: Vec3, preferred_normal: Option<Vec3>) {
+        let previous_state = self.mesh_tool_state.clone();
+        let pick = match self.mesh_tool_state.pick(point) {
+            Ok(pick) => pick,
+            Err(error) => {
+                self.status = error.to_owned();
+                return;
+            }
+        };
+        let Some([start, end]) = pick.segment else {
+            self.status = "Pick another mesh point to create a connecting edge.".to_owned();
+            return;
+        };
+
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let mut vertices = vec![inverse.transform_point(start), inverse.transform_point(end)];
+        let mut triangles = Vec::new();
+        if let Some(triangle) = pick.triangle {
+            let mut local_triangle = triangle.map(|point| inverse.transform_point(point));
+            if let Some(normal) = preferred_normal
+                .and_then(|normal| inverse.transform_vector(normal).try_normalized(1.0e-12))
+                && (local_triangle[1] - local_triangle[0])
+                    .cross(local_triangle[2] - local_triangle[0])
+                    .dot(normal)
+                    < 0.0
+            {
+                local_triangle.swap(1, 2);
+            }
+            let first = vertices.len();
+            vertices.extend(local_triangle);
+            triangles.push([first, first + 1, first + 2]);
+        }
+
+        match self.commit_local_planar_mesh(
+            owner,
+            occurrence,
+            vertices,
+            vec![[0, 1]],
+            triangles,
+            "Mesh",
+        ) {
+            Ok(_) => {
+                self.status = if pick.triangle.is_some() {
+                    "Mesh point added. Triangle created.".to_owned()
+                } else {
+                    "Mesh point added.".to_owned()
+                };
+            }
+            Err(error) => {
+                self.mesh_tool_state = previous_state;
+                self.status = error;
+            }
+        }
     }
 
     fn outline_selected_faces(&mut self) -> CommandResult {
@@ -3280,6 +3338,7 @@ impl MeshcraftApp {
         self.cuboid_base = None;
         self.polyline_tool_state
             .activate(matches!(tool, "Polyline" | "Double Line"));
+        self.mesh_tool_state.activate(tool == "Mesh");
         self.drawing_tool.handle(ToolEvent::Activate(match tool {
             "Line" => DrawingTool::Line,
             "Construction Line" => DrawingTool::ConstructionLine,
@@ -3300,6 +3359,7 @@ impl MeshcraftApp {
             "Double Line" => {
                 "Double Line: click a center path; A/C/L switch arc modes, Enter finishes the ribbon.".to_owned()
             }
+            "Mesh" => "Mesh: pick points to add connecting edges and nearest-point triangles. Enter starts a new mesh chain; Escape exits.".to_owned(),
             "Construction Line" => {
                 "Construction Line: click two points; the tool stays active for another segment."
                     .to_owned()
@@ -3382,6 +3442,11 @@ impl MeshcraftApp {
                 if self.transform_tool_state.active().is_some() {
                     return self.finish_transform_input();
                 }
+                if self.mesh_tool_state.active() {
+                    self.mesh_tool_state.finish_chain();
+                    self.status = "Mesh chain finished; pick a point to start another.".to_owned();
+                    return CommandResult::completed();
+                }
                 if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
                     return self.finish_polyline(false);
                 }
@@ -3399,6 +3464,9 @@ impl MeshcraftApp {
                     }
                     self.status = "Removed the last transform input or point.".to_owned();
                     return CommandResult::completed();
+                }
+                if self.mesh_tool_state.active() {
+                    return CommandResult::failed("Mesh does not support undoing individual picks");
                 }
                 if matches!(self.active_tool.as_str(), "Polyline" | "Double Line") {
                     if !self.polyline_tool_state.backspace() {
@@ -4195,6 +4263,8 @@ impl MeshcraftApp {
         let path_tool_active = matches!(self.active_tool.as_str(), "Polyline" | "Double Line");
         let polyline_finish_ready =
             path_tool_active && self.polyline_tool_state.points().len() >= 2;
+        let mesh_finish_ready =
+            self.mesh_tool_state.active() && !self.mesh_tool_state.points().is_empty();
         let polyline_undo_ready = path_tool_active
             && (self.polyline_tool_state.arc_control().is_some()
                 || !self.polyline_tool_state.points().is_empty());
@@ -4207,9 +4277,10 @@ impl MeshcraftApp {
             && !line_distance_ready
             && !transform_input_ready
             && !polyline_finish_ready
+            && !mesh_finish_ready
         {
             return CommandState::disabled(
-                "start a Line, Construction Line, Polyline, or Double Line first",
+                "start a Line, Construction Line, Polyline, Double Line, or Mesh chain first",
             );
         }
         if id == "tool.undo_point"
@@ -4653,6 +4724,7 @@ impl MeshcraftApp {
         self.shape_tool_state.activate(None);
         self.transform_tool_state.cancel();
         self.polyline_tool_state.cancel();
+        self.mesh_tool_state.cancel();
         self.status = "Current tool operation canceled.".to_owned();
     }
 
@@ -4952,6 +5024,15 @@ impl MeshcraftApp {
             };
             let effect = self.drawing_tool.handle(ToolEvent::Pick(point));
             self.handle_drawing_tool_effect(effect, snap);
+            return;
+        }
+
+        if self.active_tool == "Mesh" {
+            let Some(point) = construction_point else {
+                self.status = "Mesh needs a point in the active construction view.".to_owned();
+                return;
+            };
+            self.pick_mesh_point(point, snap.map(|result| result.normal));
             return;
         }
 
@@ -5642,6 +5723,12 @@ impl MeshcraftApp {
                 closed: preview.closed,
             });
         }
+        if self.mesh_tool_state.active() {
+            let edges = self.mesh_tool_state.preview();
+            if !edges.is_empty() {
+                return Some(ToolPreview::Transform { edges });
+            }
+        }
         match self.active_tool.as_str() {
             "Cuboid" => {
                 let (first, opposite) = self.cuboid_base?;
@@ -6140,6 +6227,15 @@ impl MeshcraftApp {
             })
         {
             self.drawing_tool.handle(ToolEvent::PointerMoved(point));
+        }
+        if self.mesh_tool_state.active() {
+            let point = pointer.and_then(|position| {
+                snap.map(|snap| snap.point).or_else(|| {
+                    self.viewport
+                        .screen_to_construction_plane(predicted_rect, position)
+                })
+            });
+            self.mesh_tool_state.set_pointer(point);
         }
         let visible_guides = if self.preferences.show_construction_guides {
             self.guides.as_slice()
@@ -7027,6 +7123,12 @@ impl MeshcraftApp {
                 self.status = format!("{tool_name} mode: {mode_name}.");
             }
         }
+        if shortcuts_allowed
+            && self.active_tool == "Mesh"
+            && ui.input(|input| input.key_pressed(egui::Key::Enter))
+        {
+            self.run_command("tool.finish");
+        }
         if shortcuts_allowed && self.transform_tool_state.active().is_some() {
             let typed = ui.input(|input| {
                 input
@@ -7525,8 +7627,8 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, DrawingToolState, EditContext, MeshcraftApp, OrthoView, PolylineToolState,
-        Preferences, ReplacementDecision, SelectedEntity, SelectionClickTracker,
+        CommandPayload, DrawingToolState, EditContext, MeshToolState, MeshcraftApp, OrthoView,
+        PolylineToolState, Preferences, ReplacementDecision, SelectedEntity, SelectionClickTracker,
         SelectionDisplayPolicy, SelectionMode, SelectionSession, SelectionTarget, ShapeToolState,
         ToolCycleState, ToolEvent, TransactionHistory, TransformTool, TransformToolState,
         UiProfile, command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
@@ -7707,6 +7809,7 @@ mod tests {
             cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
+            mesh_tool_state: MeshToolState::default(),
             tool_cycle_state: ToolCycleState::default(),
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
@@ -9279,6 +9382,54 @@ mod tests {
         assert_eq!(4, geometry.triangles.len());
         assert_eq!(1, closed.history.entries().len());
         assert_eq!("Polyline", closed.active_tool);
+    }
+
+    #[test]
+    fn mesh_command_builds_incremental_faces_in_the_active_geometry_graph() {
+        let mut app = test_app();
+        let activation = app.dispatch_command("tool.builtin.mesh", &CommandPayload::default());
+        assert!(activation.accepted, "{}", app.status);
+        assert_eq!("Mesh", app.active_tool);
+        assert!(app.mesh_tool_state.active());
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let picks = [Vec3::ZERO, Vec3::X * 2.0, Vec3::new(2.0, 2.0, 0.0)];
+        for point in picks {
+            let normal = Vec3::Z * -1.0;
+            let snap = SnapResult {
+                point,
+                normal,
+                kind: SnapKind::Face,
+                screen_distance: 0.0,
+            };
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(point));
+        }
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(2, geometry.segments.len());
+        assert_eq!(1, geometry.triangles.len());
+        assert_eq!(2, app.history.entries().len());
+        let face = geometry.triangles.values().next().unwrap();
+        let [Some(a), Some(b), Some(c)] =
+            face.vertices.map(|vertex| geometry.vertex_position(vertex))
+        else {
+            panic!("mesh triangle vertices should resolve");
+        };
+        assert!((b - a).cross(c - a).dot(Vec3::Z * -1.0) > 0.0);
+        assert!(app.query_command_state("tool.finish").enabled);
+
+        app.run_command("tool.finish");
+        assert!(app.mesh_tool_state.active());
+        assert!(app.mesh_tool_state.points().is_empty());
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(Vec3::Y * 3.0));
+        assert_eq!("Mesh", app.active_tool);
+        assert_eq!(1, app.mesh_tool_state.points().len());
+
+        app.handle_escape();
+        assert_eq!("Select", app.active_tool);
+        assert!(!app.mesh_tool_state.active());
     }
 
     #[test]
@@ -11481,6 +11632,117 @@ mod tests {
         );
         assert!(app.selection.selected().is_empty());
         assert!(app.status.starts_with("Window selection"));
+    }
+
+    #[test]
+    fn released_viewport_marquee_selects_scene_objects_in_both_directions() {
+        let mut app = test_app();
+        app.viewport.set_orthographic_view(OrthoView::Top);
+        let object = app
+            .document
+            .add_cuboid(
+                "marquee cube",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(-1.0, 0.0, -1.0),
+            )
+            .unwrap();
+        let context = egui::Context::default();
+        run_workspace_frame(&mut app, &context, Vec::new());
+        let resolved = app.document.resolve_occurrence(&object).unwrap();
+        let geometry = app.document.effective_geometry(&object).unwrap();
+        let projected = geometry
+            .vertices
+            .values()
+            .map(|vertex| {
+                app.viewport.world_to_screen(
+                    app.viewport_rect,
+                    resolved.world_transform.transform_point(vertex.position),
+                )
+            })
+            .collect::<Vec<_>>();
+        let bounds = Rect::from_min_max(
+            Pos2::new(
+                projected
+                    .iter()
+                    .map(|point| point.x)
+                    .fold(f32::INFINITY, f32::min),
+                projected
+                    .iter()
+                    .map(|point| point.y)
+                    .fold(f32::INFINITY, f32::min),
+            ),
+            Pos2::new(
+                projected
+                    .iter()
+                    .map(|point| point.x)
+                    .fold(f32::NEG_INFINITY, f32::max),
+                projected
+                    .iter()
+                    .map(|point| point.y)
+                    .fold(f32::NEG_INFINITY, f32::max),
+            ),
+        );
+
+        let drag = |app: &mut MeshcraftApp, context: &egui::Context, start: Pos2, end: Pos2| {
+            run_workspace_frame(
+                app,
+                context,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::default(),
+                    },
+                ],
+            );
+            run_workspace_frame(app, context, vec![Event::PointerMoved(end)]);
+            run_workspace_frame(
+                app,
+                context,
+                vec![
+                    Event::PointerMoved(end),
+                    Event::PointerButton {
+                        pos: end,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::default(),
+                    },
+                ],
+            );
+        };
+
+        let padding = 8.0;
+        drag(
+            &mut app,
+            &context,
+            bounds.left_top() - Vec2::splat(padding),
+            bounds.right_bottom() + Vec2::splat(padding),
+        );
+        assert!(
+            app.selection.selected().iter().any(|target| {
+                target.occurrence == object && target.entity == SelectedEntity::Occurrence
+            }),
+            "left-to-right release did not select the contained object: {}",
+            app.status
+        );
+
+        app.selection.clear();
+        let middle = bounds.center();
+        drag(
+            &mut app,
+            &context,
+            Pos2::new(bounds.right() + 20.0, bounds.top() - 20.0),
+            middle,
+        );
+        assert!(
+            app.selection.selected().iter().any(|target| {
+                target.occurrence == object && target.entity == SelectedEntity::Occurrence
+            }),
+            "right-to-left release did not select the crossed object: {}",
+            app.status
+        );
     }
 
     #[test]

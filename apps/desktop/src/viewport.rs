@@ -12,8 +12,8 @@ use std::collections::BTreeSet;
 
 const ISO_X: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const DEFAULT_ELEVATION: f64 = 0.615_479_708_670_387_4;
-const MIN_ELEVATION: f64 = 0.261_799_387_799_149_4;
-const MAX_ELEVATION: f64 = 1.308_996_938_995_747_2;
+const MIN_ELEVATION: f64 = -1.553_343_034_274_953_2;
+const MAX_ELEVATION: f64 = 1.553_343_034_274_953_2;
 const DEFAULT_PERSPECTIVE_DISTANCE: f64 = 10.392_304_845_413_264;
 const DEFAULT_FIELD_OF_VIEW: f64 = 67.0;
 const DEFAULT_NEAR_PLANE: f64 = 0.1;
@@ -648,6 +648,7 @@ pub struct Viewport {
     walkthrough: Option<WalkthroughCamera>,
     walkthrough_tuning: WalkthroughTuning,
     camera_drag: Option<egui::PointerButton>,
+    selection_drag_origin: Option<Pos2>,
     frame_pending: bool,
     adaptive_grid_cloud: Option<AdaptiveGridCloud>,
     derived: DerivedIndexCache,
@@ -670,6 +671,7 @@ impl Default for Viewport {
             walkthrough: None,
             walkthrough_tuning: WalkthroughTuning::default(),
             camera_drag: None,
+            selection_drag_origin: None,
             frame_pending: false,
             adaptive_grid_cloud: None,
             derived: DerivedIndexCache::default(),
@@ -691,7 +693,26 @@ impl Viewport {
             self.frame_document(rect, scene.document);
         }
 
-        let pointer_position = ui.input(|input| input.pointer.interact_pos());
+        let (pointer_position, press_origin, primary_pressed, primary_released, modifiers) = ui
+            .input(|input| {
+                (
+                    input.pointer.interact_pos(),
+                    input.pointer.press_origin(),
+                    input.pointer.button_pressed(egui::PointerButton::Primary),
+                    input.pointer.button_released(egui::PointerButton::Primary),
+                    input.modifiers,
+                )
+            });
+        if scene.active_tool == "Select" {
+            if primary_pressed {
+                self.selection_drag_origin = press_origin
+                    .or(pointer_position)
+                    .filter(|position| rect.contains(*position));
+            }
+        } else {
+            self.selection_drag_origin = None;
+        }
+        let drag_origin = self.selection_drag_origin.or(press_origin);
         let pointer_over_viewport = pointer_position.is_some_and(|position| {
             rect.contains(position) && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
         });
@@ -859,13 +880,7 @@ impl Viewport {
             && (response.dragged_by(egui::PointerButton::Primary)
                 || response.drag_stopped_by(egui::PointerButton::Primary))
         {
-            let (origin, end, modifiers) = ui.input(|input| {
-                (
-                    input.pointer.press_origin(),
-                    input.pointer.interact_pos(),
-                    input.modifiers,
-                )
-            });
+            let (origin, end) = (drag_origin, pointer_position);
             if let Some((origin, end)) = origin.zip(end) {
                 let region = Rect::from_two_pos(origin, end);
                 if region.width() >= 2.0 || region.height() >= 2.0 {
@@ -920,18 +935,20 @@ impl Viewport {
         let selection_gesture = if scene.active_tool == "Select"
             && response.drag_stopped_by(egui::PointerButton::Primary)
         {
-            let origin = ui.input(|input| input.pointer.press_origin());
-            let end = ui.input(|input| input.pointer.interact_pos());
-            origin.zip(end).map(|(start, end)| {
-                let modifiers = ui.input(|input| input.modifiers);
-                SelectionGesture {
+            let gesture = drag_origin
+                .zip(pointer_position)
+                .map(|(start, end)| SelectionGesture {
                     start,
                     end,
                     modifiers,
                     pixels_per_point: ui.ctx().pixels_per_point(),
-                }
-            })
+                });
+            self.selection_drag_origin = None;
+            gesture
         } else {
+            if primary_released {
+                self.selection_drag_origin = None;
+            }
             None
         };
         ViewportInput {
@@ -3755,6 +3772,7 @@ mod tests {
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
+    use serde_json::json;
 
     #[test]
     fn back_faces_are_darker_and_slightly_bluer_than_front_faces() {
@@ -3945,6 +3963,58 @@ mod tests {
                 )
             }));
         }
+    }
+
+    #[test]
+    fn released_selection_drag_emits_a_marquee_gesture() {
+        let mut viewport = Viewport::default();
+        let context = egui::Context::default();
+        let document = meshcraft_core::document::Document::new();
+        let start = Pos2::new(180.0, 160.0);
+        let end = Pos2::new(340.0, 300.0);
+        run_viewport_frame(&mut viewport, &context, &document, Vec::new());
+        run_viewport_frame(
+            &mut viewport,
+            &context,
+            &document,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        run_viewport_frame(
+            &mut viewport,
+            &context,
+            &document,
+            vec![Event::PointerMoved(end)],
+        );
+        let release = run_viewport_frame(
+            &mut viewport,
+            &context,
+            &document,
+            vec![
+                Event::PointerMoved(end),
+                Event::PointerButton {
+                    pos: end,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        assert_eq!(
+            Some(start),
+            release.selection_gesture.map(|gesture| gesture.start)
+        );
+        assert_eq!(
+            Some(end),
+            release.selection_gesture.map(|gesture| gesture.end)
+        );
     }
 
     #[test]
@@ -4554,6 +4624,31 @@ mod tests {
         assert_eq!(orientation, (viewport.yaw, viewport.elevation));
         assert!(viewport.target.distance(expected_target) < 1.0e-10);
         assert_eq!(Vec2::ZERO, viewport.pan);
+    }
+
+    #[test]
+    fn orbit_pitch_allows_near_vertical_views_and_clamps_at_eighty_nine_degrees() {
+        let mut viewport = Viewport::default();
+
+        viewport.orbit_by(Vec2::new(0.0, -10_000.0));
+        assert!((viewport.elevation - MIN_ELEVATION).abs() < 1.0e-12);
+        assert!(viewport.camera_direction().length().is_finite());
+
+        viewport.orbit_by(Vec2::new(0.0, 20_000.0));
+        assert!((viewport.elevation - MAX_ELEVATION).abs() < 1.0e-12);
+        assert!(viewport.camera_direction().length().is_finite());
+    }
+
+    #[test]
+    fn restored_camera_pitch_is_clamped_to_the_expanded_orbit_range() {
+        let mut viewport = Viewport::default();
+        for (height, expected) in [(10.0, MAX_ELEVATION), (-10.0, MIN_ELEVATION)] {
+            assert!(viewport.restore_legacy_camera_state(&json!({
+                "position": {"x": 0.0, "y": height, "z": 0.0},
+                "target": {"x": 0.0, "y": 0.0, "z": 0.0}
+            })));
+            assert!((viewport.elevation - expected).abs() < 1.0e-12);
+        }
     }
 
     #[test]
