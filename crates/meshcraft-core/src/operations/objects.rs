@@ -353,7 +353,16 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
         let resolved = document
             .resolve_occurrence(occurrence)
             .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
+        let has_legacy_annotations = ["dimensions", "texts"].iter().any(|field| {
+            resolved
+                .definition
+                .extensions
+                .get(&format!("k3d.{field}"))
+                .and_then(Value::as_array)
+                .is_some_and(|records| !records.is_empty())
+        });
         if !resolved.definition.domain_data.is_empty()
+            || has_legacy_annotations
             || resolved.edits.is_some_and(|edits| {
                 !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
             })
@@ -1890,6 +1899,51 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(before, after);
         assert!(document.resolve_occurrence(&instance).is_none());
+    }
+
+    #[test]
+    fn mesh_only_explode_rejects_legacy_annotations_without_losing_them() {
+        let mut document = Document::new();
+        let instance = cube(&mut document, "annotated mesh", Vec3::ZERO);
+        let definition_id = document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let definition = document.definitions.get_mut(&definition_id).unwrap();
+        definition.extensions.insert(
+            "k3d.dimensions".to_owned(),
+            serde_json::json!([{
+                "start": {"x": 0, "y": 0, "z": 0},
+                "end": {"x": 1, "y": 0, "z": 0},
+                "offset": {"x": 0, "y": 1, "z": 0}
+            }]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("dimensions".to_owned(), vec!["dimension-1".to_owned()]);
+        definition.extensions.insert(
+            "k3d.texts".to_owned(),
+            serde_json::json!([{
+                "position": {"x": 2, "y": 0, "z": 0},
+                "text": "Door"
+            }]),
+        );
+        definition
+            .domain_entity_ids
+            .insert("texts".to_owned(), vec!["text-1".to_owned()]);
+        let before = document.clone();
+
+        let error = explode_occurrences(
+            &mut document,
+            std::slice::from_ref(&instance),
+            &MeshOnlyExplodeAdapter,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("domain content without an explode adapter"));
+        assert_eq!(before, document);
+        document.validate().unwrap();
     }
 
     #[test]
