@@ -213,16 +213,15 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
-        for field in [
-            "architectureWalls",
-            "architectureSlabs",
-            "architectureStairs",
-            "architectureFrames",
-        ] {
+        for field in SCHEMA17_DOMAIN_ARRAY_FIELDS
+            .iter()
+            .copied()
+            .chain(["voxelColor"])
+        {
             if let Some(value) = object.get(field) {
                 definition.extensions.insert(
                     format!("k3d.{field}"),
-                    normalize_sparse_architecture_dtos(field, value),
+                    normalize_sparse_component_dtos(field, value),
                 );
             }
         }
@@ -1127,8 +1126,20 @@ fn preserve_unknown_fields(
     }
 }
 
-fn normalize_sparse_architecture_dtos(field: &str, value: &Value) -> Value {
+fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
+    if field == "voxelColor" {
+        return normalize_sparse_dto_object(
+            value,
+            &serde_json::json!({"r": 1, "g": 1, "b": 1, "a": 1}),
+        );
+    }
     let defaults = match field {
+        "voxels" => serde_json::json!({
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "color": {"r": 1, "g": 1, "b": 1, "a": 1}
+        }),
         "architectureWalls" => serde_json::json!({
             "id": "",
             "name": "",
@@ -1186,6 +1197,40 @@ fn normalize_sparse_architecture_dtos(field: &str, value: &Value) -> Value {
             "glazingEnabled": false,
             "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
         }),
+        "hvacPlumbingRuns" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "path": [],
+            "diameter": 0.2,
+            "sides": 16,
+            "color": {"r": 0.7, "g": 0.82, "b": 0.95, "a": 1}
+        }),
+        "hvacVentilationDucts" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "start": {"x": 0, "y": 0, "z": 0},
+            "end": {"x": 0, "y": 0, "z": 0},
+            "binormalRef": {"x": 0, "y": 0, "z": 0},
+            "autoJoinEnabled": false,
+            "width": 0.5,
+            "height": 0.25,
+            "humpHalfSpan": 0.625,
+            "humpClearance": 0.05,
+            "color": {"r": 0.82, "g": 0.82, "b": 0.82, "a": 1}
+        }),
+        "hotspots" => serde_json::json!({
+            "id": "",
+            "name": "",
+            "position": {"x": 0, "y": 0, "z": 0},
+            "operation": "MOVE",
+            "shape": "CIRCLE",
+            "color": {"r": 0.2, "g": 0.55, "b": 0.95, "a": 1},
+            "referencePosition": null,
+            "attachedHotspotIds": [],
+            "attachedVertexIds": [],
+            "attachedSegments": [],
+            "attachedTriangles": []
+        }),
         _ => return value.clone(),
     };
     let mut dtos = normalize_sparse_dto_array(value, &defaults);
@@ -1206,6 +1251,31 @@ fn normalize_sparse_architecture_dtos(field: &str, value: &Value) -> Value {
             }
         }
     }
+    if field == "hotspots"
+        && let Some(dtos) = dtos.as_array_mut()
+    {
+        let segment_defaults = serde_json::json!({
+            "id": "",
+            "a": {"x": 0, "y": 0, "z": 0},
+            "b": {"x": 0, "y": 0, "z": 0}
+        });
+        let triangle_defaults = serde_json::json!({
+            "id": "",
+            "a": {"x": 0, "y": 0, "z": 0},
+            "b": {"x": 0, "y": 0, "z": 0},
+            "c": {"x": 0, "y": 0, "z": 0}
+        });
+        for dto in dtos {
+            if let Some(hotspot) = dto.as_object_mut() {
+                if let Some(segments) = hotspot.get_mut("attachedSegments") {
+                    *segments = normalize_sparse_dto_array(segments, &segment_defaults);
+                }
+                if let Some(triangles) = hotspot.get_mut("attachedTriangles") {
+                    *triangles = normalize_sparse_dto_array(triangles, &triangle_defaults);
+                }
+            }
+        }
+    }
     dtos
 }
 
@@ -1216,20 +1286,32 @@ fn normalize_sparse_dto_array(value: &Value, defaults: &Value) -> Value {
 
     Value::Array(
         dtos.iter()
-            .map(|frame| {
-                let Some(frame) = frame.as_object() else {
-                    return frame.clone();
+            .map(|dto| {
+                let Some(dto) = dto.as_object() else {
+                    return dto.clone();
                 };
-                let mut frame = frame.clone();
-                for (field, default) in defaults.as_object().expect("DTO defaults") {
-                    frame
-                        .entry(field.clone())
-                        .or_insert_with(|| default.clone());
-                }
-                Value::Object(frame)
+                let mut dto = dto.clone();
+                apply_sparse_dto_defaults(&mut dto, defaults);
+                Value::Object(dto)
             })
             .collect(),
     )
+}
+
+fn normalize_sparse_dto_object(value: &Value, defaults: &Value) -> Value {
+    let Some(mut object) = value.as_object().cloned() else {
+        return value.clone();
+    };
+    apply_sparse_dto_defaults(&mut object, defaults);
+    Value::Object(object)
+}
+
+fn apply_sparse_dto_defaults(object: &mut Map<String, Value>, defaults: &Value) {
+    for (field, default) in defaults.as_object().expect("DTO defaults") {
+        object
+            .entry(field.clone())
+            .or_insert_with(|| default.clone());
+    }
 }
 
 fn parse_definition_kind(object: &Map<String, Value>, path: &str) -> ImportResult<DefinitionKind> {
@@ -2008,7 +2090,7 @@ mod tests {
     }
 
     #[test]
-    fn sparse_architecture_dtos_receive_legacy_defaults() {
+    fn sparse_schema17_component_dtos_receive_legacy_defaults() {
         let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
         source["prototypes"][0]["architectureFrames"] = serde_json::json!([
             {"id": "sparse-frame", "vendorData": {"kept": true}},
@@ -2018,6 +2100,15 @@ mod tests {
             serde_json::json!([{"id": "wall", "holes": [{"id": "hole"}]}]);
         source["prototypes"][0]["architectureSlabs"] = serde_json::json!([{"id": "slab"}]);
         source["prototypes"][0]["architectureStairs"] = serde_json::json!([{"id": "stair"}]);
+        source["prototypes"][0]["voxels"] = serde_json::json!([{"x": 3}]);
+        source["prototypes"][0]["voxelColor"] = serde_json::json!({"r": 0.4});
+        source["prototypes"][0]["hvacPlumbingRuns"] = serde_json::json!([{"id": "pipe"}]);
+        source["prototypes"][0]["hvacVentilationDucts"] = serde_json::json!([{"id": "duct"}]);
+        source["prototypes"][0]["hotspots"] = serde_json::json!([{
+            "id": "hotspot",
+            "attachedSegments": [{"id": "attached-segment"}],
+            "attachedTriangles": [{"id": "attached-triangle"}]
+        }]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
@@ -2072,6 +2163,31 @@ mod tests {
         assert_eq!(0.2, stair["supportThickness"]);
         assert_eq!(true, stair["railLeft"]);
         assert_eq!(true, stair["railRight"]);
+
+        assert_eq!(0.4, prototype["voxelColor"]["r"]);
+        assert_eq!(1, prototype["voxelColor"]["g"]);
+        assert_eq!(3, prototype["voxels"][0]["x"]);
+        assert_eq!(0, prototype["voxels"][0]["z"]);
+        assert_eq!(1, prototype["voxels"][0]["color"]["a"]);
+
+        let plumbing = &prototype["hvacPlumbingRuns"][0];
+        assert_eq!(0.2, plumbing["diameter"]);
+        assert_eq!(16, plumbing["sides"]);
+        assert_eq!(0.7, plumbing["color"]["r"]);
+
+        let ventilation = &prototype["hvacVentilationDucts"][0];
+        assert_eq!(false, ventilation["autoJoinEnabled"]);
+        assert_eq!(0.5, ventilation["width"]);
+        assert_eq!(0.25, ventilation["height"]);
+        assert_eq!(0.625, ventilation["humpHalfSpan"]);
+
+        let hotspot = &prototype["hotspots"][0];
+        assert_eq!("MOVE", hotspot["operation"]);
+        assert_eq!("CIRCLE", hotspot["shape"]);
+        assert_eq!(0.2, hotspot["color"]["r"]);
+        assert_eq!(Value::Null, hotspot["referencePosition"]);
+        assert_eq!(0, hotspot["attachedSegments"][0]["a"]["x"]);
+        assert_eq!(0, hotspot["attachedTriangles"][0]["c"]["z"]);
     }
 
     #[test]
@@ -2087,7 +2203,14 @@ mod tests {
             .id;
         let expected = serde_json::json!({
             "voxelColor": {"r": 0.2, "g": 0.4, "b": 0.6, "a": 1.0},
-            "voxels": [{"position": {"x": 1, "y": 2, "z": 3}, "futureVoxel": true}],
+            "voxels": [{
+                "x": 1,
+                "y": 2,
+                "z": 3,
+                "color": {"r": 1, "g": 1, "b": 1, "a": 1},
+                "position": {"x": 1, "y": 2, "z": 3},
+                "futureVoxel": true
+            }],
             "architectureWalls": [{
                 "id": "wall-1",
                 "name": "",
@@ -2146,9 +2269,41 @@ mod tests {
                 "glazingEnabled": false,
                 "glazingColor": {"r": 0.72, "g": 0.84, "b": 0.95, "a": 0.4}
             }],
-            "hvacPlumbingRuns": [{"id": "pipe-1", "diameter": 0.2}],
-            "hvacVentilationDucts": [{"id": "duct-1", "width": 0.5}],
-            "hotspots": [{"id": "hotspot-1", "futureHotspot": {"mode": "switch"}}]
+            "hvacPlumbingRuns": [{
+                "id": "pipe-1",
+                "name": "",
+                "path": [],
+                "diameter": 0.2,
+                "sides": 16,
+                "color": {"r": 0.7, "g": 0.82, "b": 0.95, "a": 1}
+            }],
+            "hvacVentilationDucts": [{
+                "id": "duct-1",
+                "name": "",
+                "start": {"x": 0, "y": 0, "z": 0},
+                "end": {"x": 0, "y": 0, "z": 0},
+                "binormalRef": {"x": 0, "y": 0, "z": 0},
+                "autoJoinEnabled": false,
+                "width": 0.5,
+                "height": 0.25,
+                "humpHalfSpan": 0.625,
+                "humpClearance": 0.05,
+                "color": {"r": 0.82, "g": 0.82, "b": 0.82, "a": 1}
+            }],
+            "hotspots": [{
+                "id": "hotspot-1",
+                "name": "",
+                "position": {"x": 0, "y": 0, "z": 0},
+                "operation": "MOVE",
+                "shape": "CIRCLE",
+                "color": {"r": 0.2, "g": 0.55, "b": 0.95, "a": 1},
+                "referencePosition": null,
+                "attachedHotspotIds": [],
+                "attachedVertexIds": [],
+                "attachedSegments": [],
+                "attachedTriangles": [],
+                "futureHotspot": {"mode": "switch"}
+            }]
         });
         let definition = document.definitions.get_mut(&definition_id).unwrap();
         for (field, value) in expected.as_object().unwrap() {
