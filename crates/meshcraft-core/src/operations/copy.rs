@@ -92,6 +92,31 @@ pub fn translated_array(
     {
         return Err("array offsets must be finite and nonzero".to_owned());
     }
+    let transforms = offsets
+        .iter()
+        .copied()
+        .map(Affine3::from_translation)
+        .collect::<Vec<_>>();
+    transformed_array(document, selection, &transforms)
+}
+
+/// Copies the supported selection once through each supplied world-space transform.
+/// Each result derives from the source selection, and publication is atomic.
+pub fn transformed_array(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    affines: &[Affine3],
+) -> Result<LinearArrayReport, String> {
+    if affines.is_empty() || affines.len() > MAX_LINEAR_ARRAY_COPIES {
+        return Err(format!(
+            "array copy count must be between 1 and {MAX_LINEAR_ARRAY_COPIES}"
+        ));
+    }
+    if affines.iter().any(|transform| {
+        !transform.is_finite() || transform.inverse(GeometryTolerance::default()).is_none()
+    }) {
+        return Err("array transforms must be finite and invertible".to_owned());
+    }
     if !can_linear_array_selection(document, selection) {
         return Err("select supported object instances or mesh entities to array".to_owned());
     }
@@ -102,21 +127,14 @@ pub fn translated_array(
     resulting_selection.clear();
     let mut result_targets = BTreeSet::new();
     let mut report = LinearArrayReport {
-        copies: offsets.len(),
+        copies: affines.len(),
         ..LinearArrayReport::default()
     };
 
-    for offset in offsets {
-        if !offset.is_finite() {
-            return Err("linear array offsets exceed the supported coordinate range".to_owned());
-        }
+    for transform in affines {
         let mut copy_selection = original_selection.clone();
-        let transform_report = transforms::transform_selection(
-            &mut candidate,
-            &mut copy_selection,
-            Affine3::from_translation(*offset),
-            true,
-        )?;
+        let transform_report =
+            transforms::transform_selection(&mut candidate, &mut copy_selection, *transform, true)?;
         if !transform_report.changed() || copy_selection.selected().is_empty() {
             return Err("linear array could not create a copy of the selection".to_owned());
         }
@@ -263,7 +281,7 @@ mod tests {
         planar_translation_offsets, translated_array, volumetric_translation_offsets,
     };
     use crate::document::{Document, OccurrenceRef};
-    use crate::geometry::Vec3;
+    use crate::geometry::{Affine3, Vec3};
     use crate::selection::{SelectedEntity, SelectionMode, SelectionSession, SelectionTarget};
 
     fn cube(document: &mut Document, name: &str, origin: Vec3) -> OccurrenceRef {
@@ -478,5 +496,36 @@ mod tests {
                 .triangles
                 .contains_key(&face)
         );
+    }
+
+    #[test]
+    fn transformed_array_copies_selected_geometry_through_rotation_affines() {
+        let mut document = Document::new();
+        let source = cube(&mut document, "source", Vec3::ZERO);
+        let face = *document
+            .effective_geometry(&source)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: source.clone(),
+            entity: SelectedEntity::Triangle(face),
+        });
+        let quarter_turn = Affine3::from_linear_translation(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            Vec3::ZERO,
+        );
+
+        let report =
+            super::transformed_array(&mut document, &mut selection, &[quarter_turn]).unwrap();
+
+        assert_eq!(1, report.copies);
+        assert_eq!(1, selection.selected().len());
+        let geometry = document.effective_geometry(&source).unwrap();
+        assert_eq!(13, geometry.triangles.len());
+        assert!(geometry.triangles.contains_key(&face));
     }
 }

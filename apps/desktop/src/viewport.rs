@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef, Rgba8, VertexId};
-use meshcraft_core::geometry::Vec3;
+use meshcraft_core::geometry::{Affine3, Vec3};
 use meshcraft_core::selection::{
     SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionTarget,
 };
@@ -283,6 +283,11 @@ pub enum ToolPreview {
     ArrayOffsets {
         edges: Vec<[Vec3; 2]>,
         offsets: Vec<Vec3>,
+        capped: bool,
+    },
+    ArrayTransforms {
+        edges: Vec<[Vec3; 2]>,
+        transforms: Vec<Affine3>,
         capped: bool,
     },
     LineOffset {
@@ -909,6 +914,13 @@ impl Viewport {
                 ToolPreview::ArrayOffsets { edges, offsets, .. } => {
                     for translation in offsets {
                         self.draw_translated_transform_preview(&painter, rect, edges, *translation);
+                    }
+                }
+                ToolPreview::ArrayTransforms {
+                    edges, transforms, ..
+                } => {
+                    for transform in transforms {
+                        self.draw_affine_transform_preview(&painter, rect, edges, *transform);
                     }
                 }
                 ToolPreview::LineOffset {
@@ -3514,6 +3526,30 @@ impl Viewport {
         for [start, end] in edges {
             let start = *start + translation;
             let end = *end + translation;
+            if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
+                continue;
+            }
+            painter.line_segment(
+                [
+                    self.world_to_screen(rect, start),
+                    self.world_to_screen(rect, end),
+                ],
+                Stroke::new(1.8, color),
+            );
+        }
+    }
+
+    fn draw_affine_transform_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        edges: &[[Vec3; 2]],
+        transform: Affine3,
+    ) {
+        let color = Color32::from_rgb(235, 105, 70);
+        for [start, end] in edges {
+            let start = transform.transform_point(*start);
+            let end = transform.transform_point(*end);
             if !self.point_in_front_of_camera(start) || !self.point_in_front_of_camera(end) {
                 continue;
             }

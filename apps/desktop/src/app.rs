@@ -34,7 +34,10 @@ use meshcraft_core::selection::{
 use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
     ToolEvent,
-    arrays::{ArrayToolKind, ArrayToolPick, ArrayToolState},
+    arrays::{
+        ArrayToolKind, ArrayToolPick, ArrayToolState, RotationalArrayKind, RotationalArrayPick,
+        RotationalArrayToolState,
+    },
     object_place::{ObjectPlaceEffect, ObjectPlaceToolState, PlacementHit},
     paths::{
         FACE_OUTLINE_MERGE_TOLERANCE, LINE_OFFSET_MERGE_TOLERANCE, LineOffsetPick,
@@ -1368,6 +1371,13 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "rotate_stretch" => ShellAction::SelectToolAlias("Rotate Stretch"),
                 "paint" => ShellAction::SelectToolAlias("Paint"),
                 "copy_multiple" => ShellAction::SelectToolAlias("Copy Multiple"),
+                "planar_rotate_multiple" => {
+                    ShellAction::SelectToolAlias("Planar Rotate Multiple")
+                }
+                "helicoidal_rotate_multiple" => {
+                    ShellAction::SelectToolAlias("Helicoidal Rotate Multiple")
+                }
+                "rotational_array" => ShellAction::SelectToolAlias("Rotational Array"),
                 "planar_translate_multiple" => {
                     ShellAction::SelectToolAlias("Planar Translate Multiple")
                 }
@@ -1995,6 +2005,7 @@ pub struct MeshcraftApp {
     transform_tool_state: TransformToolState,
     object_place_tool_state: ObjectPlaceToolState,
     array_tool_state: ArrayToolState,
+    rotational_array_tool_state: RotationalArrayToolState,
     current_paint_color: Rgba8,
     array_count: usize,
     array_spacing: f64,
@@ -2147,6 +2158,7 @@ impl MeshcraftApp {
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: ObjectPlaceToolState::default(),
             array_tool_state: ArrayToolState::default(),
+            rotational_array_tool_state: RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -4453,6 +4465,8 @@ impl MeshcraftApp {
         self.object_place_tool_state.cancel();
         self.array_tool_state
             .activate(ArrayToolKind::from_label(tool));
+        self.rotational_array_tool_state
+            .activate(RotationalArrayKind::from_label(tool));
         self.array_preview = false;
         self.clear_push_pull_transient();
         self.active_tool = tool.to_owned();
@@ -4543,6 +4557,9 @@ impl MeshcraftApp {
             "Paint" => "Paint: click an edge or face, or apply the current color to a selection."
                 .to_owned(),
             "Copy Multiple" => "Copy Multiple: pick reference point (U), size point (V), then span point (D). Copies advance along U→V and stop before passing D.".to_owned(),
+            "Planar Rotate Multiple" => "Planar Rotate Multiple: pick center (C), reference (U), angular increment (V), then sweep end (W). Copies rotate the current selection by each fixed signed increment.".to_owned(),
+            "Helicoidal Rotate Multiple" => "Helicoidal Rotate Multiple: pick center (C), reference (U), angular increment (V), then sweep/lift end (W). Copies follow the fixed rotation step and share the measured axial lift.".to_owned(),
+            "Rotational Array" => "Rotational Array: pick center (C), first reference (A), increment (B), then sweep end (D). Copies rotate the current selection by each fixed signed increment.".to_owned(),
             "Planar Translate Multiple" => "Planar Translate Multiple: pick origin (O), planar XZ step (A), then extent (B). Copies fill the measured XZ grid; the source cell is omitted.".to_owned(),
             "Volumetric Translate Multiple" => "Volumetric Translate Multiple: pick origin (O), XYZ step (A), then extent (B). Copies fill the measured volume; the source cell is omitted.".to_owned(),
             _ => format!("{tool} tool selected."),
@@ -4645,6 +4662,13 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::UndoToolPoint => {
+                if self.rotational_array_tool_state.active() {
+                    if !self.rotational_array_tool_state.backspace() {
+                        return CommandResult::failed("there is no rotational array point to undo");
+                    }
+                    self.status = "Removed the last rotational array point.".to_owned();
+                    return CommandResult::completed();
+                }
                 if self.array_tool_state.active() {
                     if !self.array_tool_state.backspace() {
                         return CommandResult::failed(
@@ -5558,6 +5582,8 @@ impl MeshcraftApp {
                 || !self.polyline_tool_state.points().is_empty());
         let array_undo_ready =
             self.array_tool_state.active() && !self.array_tool_state.points().is_empty();
+        let rotational_array_undo_ready = self.rotational_array_tool_state.active()
+            && !self.rotational_array_tool_state.points().is_empty();
         if id == "tool.distance"
             && !line_distance_ready
             && !transform_input_ready
@@ -5586,6 +5612,7 @@ impl MeshcraftApp {
             && !polyline_undo_ready
             && !revolve_undo_ready
             && !array_undo_ready
+            && !rotational_array_undo_ready
         {
             return CommandState::disabled("start a point-input tool before undoing a point");
         }
@@ -5693,6 +5720,9 @@ impl MeshcraftApp {
             "tool.builtin.copy_multiple"
                 | "tool.builtin.planar_translate_multiple"
                 | "tool.builtin.volumetric_translate_multiple"
+                | "tool.builtin.planar_rotate_multiple"
+                | "tool.builtin.helicoidal_rotate_multiple"
+                | "tool.builtin.rotational_array"
         ) && !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
         {
             return CommandState::disabled(
@@ -6043,6 +6073,7 @@ impl MeshcraftApp {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
         self.array_tool_state.cancel();
+        self.rotational_array_tool_state.cancel();
         self.array_preview = false;
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
@@ -6326,6 +6357,77 @@ impl MeshcraftApp {
                 };
             } else {
                 self.status = "Could not construct a stable guide orientation.".to_owned();
+            }
+            return;
+        }
+        if self.rotational_array_tool_state.active() {
+            let Some(point) = construction_point else {
+                self.status =
+                    "Rotational array needs a point in the active construction view.".to_owned();
+                return;
+            };
+            match self.rotational_array_tool_state.pick(point) {
+                Ok(RotationalArrayPick::NeedReference) => {
+                    self.status = match self.rotational_array_tool_state.kind() {
+                        Some(RotationalArrayKind::RotationalArray) => {
+                            "Rotational Array: pick the first reference point (A).".to_owned()
+                        }
+                        _ => "Rotational array: pick the reference point (U).".to_owned(),
+                    };
+                }
+                Ok(RotationalArrayPick::NeedIncrement) => {
+                    self.status = match self.rotational_array_tool_state.kind() {
+                        Some(RotationalArrayKind::RotationalArray) => {
+                            "Rotational Array: pick the increment point (B).".to_owned()
+                        }
+                        _ => "Rotational array: pick the angular increment point (V).".to_owned(),
+                    };
+                }
+                Ok(RotationalArrayPick::NeedExtent) => {
+                    self.status = match self.rotational_array_tool_state.kind() {
+                        Some(RotationalArrayKind::RotationalArray) => {
+                            "Rotational Array: pick the sweep end point (D).".to_owned()
+                        }
+                        Some(RotationalArrayKind::Helicoidal) => {
+                            "Helicoidal Rotate Multiple: pick the sweep/lift end point (W)."
+                                .to_owned()
+                        }
+                        _ => "Planar Rotate Multiple: pick the sweep end point (W).".to_owned(),
+                    };
+                }
+                Ok(RotationalArrayPick::Complete { transforms, capped })
+                    if transforms.is_empty() =>
+                {
+                    self.status = if capped {
+                        "Rotational array produced no copies before reaching the copy limit."
+                            .to_owned()
+                    } else {
+                        "Rotational array: no angular steps fit inside the sweep.".to_owned()
+                    };
+                }
+                Ok(RotationalArrayPick::Complete { transforms, capped }) => {
+                    let mut next_selection = self.selection.clone();
+                    let history_label = self.active_tool.clone();
+                    match self.commit_document_edit(&history_label, |document| {
+                        modeling_copy::transformed_array(document, &mut next_selection, &transforms)
+                    }) {
+                        Ok(report) => {
+                            self.selection = next_selection;
+                            self.rotational_array_tool_state.cancel();
+                            self.active_tool = "Select".to_owned();
+                            self.status = if capped {
+                                format!(
+                                    "Created {} rotational array copies; the legacy copy limit was reached.",
+                                    report.copies
+                                )
+                            } else {
+                                format!("Created {} rotational array copies.", report.copies)
+                            };
+                        }
+                        Err(error) => self.status = error,
+                    }
+                }
+                Err(error) => self.status = error.to_owned(),
             }
             return;
         }
@@ -7111,6 +7213,31 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if self.rotational_array_tool_state.active() {
+            let point = snap.map(|result| result.point).or_else(|| {
+                pointer
+                    .and_then(|position| self.viewport.screen_to_construction_plane(rect, position))
+            });
+            let (transforms, capped) = self
+                .rotational_array_tool_state
+                .preview_transforms(point?)?;
+            if transforms.is_empty()
+                || !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
+            {
+                return None;
+            }
+            let edges = modeling_transforms::preview_selection_transform(
+                &self.document,
+                &self.selection,
+                Affine3::IDENTITY,
+            )
+            .ok()?;
+            return (!edges.is_empty()).then_some(ToolPreview::ArrayTransforms {
+                edges,
+                transforms,
+                capped,
+            });
+        }
         if self.array_tool_state.active() {
             let point = snap.map(|result| result.point).or_else(|| {
                 pointer
@@ -7610,6 +7737,19 @@ impl MeshcraftApp {
                 text: format!(
                     "Array preview: {} copies{}",
                     offsets.len(),
+                    if *capped { " (preview capped)" } else { "" }
+                ),
+            });
+        }
+        if let Some(ToolPreview::ArrayTransforms {
+            transforms, capped, ..
+        }) = preview
+        {
+            return Some(ToolFeedback {
+                screen_position,
+                text: format!(
+                    "Rotational array preview: {} copies{}",
+                    transforms.len(),
                     if *capped { " (preview capped)" } else { "" }
                 ),
             });
@@ -9977,6 +10117,7 @@ mod tests {
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: super::ObjectPlaceToolState::default(),
             array_tool_state: super::ArrayToolState::default(),
+            rotational_array_tool_state: super::RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
             array_count: 12,
             array_spacing: 3.0,
@@ -14709,6 +14850,125 @@ mod tests {
         let geometry = app.document.effective_geometry(&occurrence).unwrap();
         assert_eq!(14, geometry.triangles.len());
         assert!(geometry.triangles.contains_key(&source_face));
+    }
+
+    #[test]
+    fn planar_rotational_array_previews_and_copies_selected_faces() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("source", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let source_face = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Triangle(source_face),
+        });
+
+        app.run_command("tool.builtin.planar_rotate_multiple");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::X);
+        pick_array_tool_point(&mut app, Vec3::Y);
+        let preview = app
+            .tool_preview(
+                Rect::NOTHING,
+                None,
+                Some(SnapResult {
+                    point: Vec3::X,
+                    normal: Vec3::Y,
+                    kind: SnapKind::Grid,
+                    screen_distance: 0.0,
+                }),
+            )
+            .expect("the final point previews the full-circle array copies");
+        let ToolPreview::ArrayTransforms {
+            transforms, capped, ..
+        } = preview
+        else {
+            panic!("rotational preview stores each affine copy transform")
+        };
+        assert_eq!(3, transforms.len());
+        assert!(!capped);
+
+        pick_array_tool_point(&mut app, Vec3::X);
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.status.contains("3 rotational array copies"));
+        assert_eq!(3, app.selection.selected().len());
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert_eq!(15, geometry.triangles.len());
+        assert!(geometry.triangles.contains_key(&source_face));
+        assert_eq!(1, app.history.entries().len());
+    }
+
+    #[test]
+    fn helicoidal_rotate_multiple_commits_object_instances_with_axial_lift() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("source", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+
+        app.run_command("tool.builtin.helicoidal_rotate_multiple");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        pick_array_tool_point(&mut app, Vec3::X);
+        pick_array_tool_point(&mut app, Vec3::Y);
+        pick_array_tool_point(&mut app, Vec3::new(-1.0, 0.0, 4.0));
+
+        assert_eq!("Select", app.active_tool);
+        assert!(app.status.contains("2 rotational array copies"));
+        assert_eq!(2, app.selection.selected().len());
+        let z_positions = app
+            .selection
+            .selected()
+            .iter()
+            .map(|target| {
+                app.document
+                    .resolve_occurrence(&target.occurrence)
+                    .unwrap()
+                    .world_transform
+                    .translation
+                    .z
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(vec![2.0, 4.0], z_positions);
+        assert_eq!(3, app.top_level_occurrences().len());
+    }
+
+    #[test]
+    fn rotational_array_alias_uses_its_own_prompt_labels() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("source", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::Occurrence,
+        });
+
+        app.run_command("tool.builtin.rotational_array");
+        pick_array_tool_point(&mut app, Vec3::ZERO);
+        assert!(app.status.contains("reference point (A)"));
+        pick_array_tool_point(&mut app, Vec3::X);
+        assert!(app.status.contains("increment point (B)"));
+        pick_array_tool_point(&mut app, Vec3::Y);
+        assert!(app.status.contains("sweep end point (D)"));
+
+        app.cancel_active_tool();
+        assert_eq!("Select", app.active_tool);
+        assert!(!app.rotational_array_tool_state.active());
     }
 
     #[test]
