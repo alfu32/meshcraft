@@ -1,0 +1,42 @@
+{
+  "baseline_commit": "acd84f4c67509e10363c33850501eb8f4fc3ffa7",
+  "fixture_count": 60,
+  "geometry_prototype_count": 605,
+  "measurements": {
+    "point_slots": 168849,
+    "exact_positions": 28561,
+    "quantized_keys": 24718,
+    "ambiguous_quantized_keys": 3181,
+    "slots_in_ambiguous_keys": 27073,
+    "minimum_corner_residual_slots": 9908
+  },
+  "packed_layouts": {
+    "scope": "position and vertex-reference columns only; primitive IDs/colors, alias strings, opaque metadata, allocator and container overhead excluded",
+    "inline_coordinate_bytes": 4052376,
+    "indexed_exact_coordinate_lower_bound_bytes": 2264744,
+    "indexed_legacy_quantized_key_bytes": 2141768,
+    "indexed_no_weld_bytes": 6753960,
+    "indexed_source_alias_preserving_bytes": 2603960,
+    "exact_indexed_saving_percent": 44.11,
+    "quantized_indexed_saving_percent": 47.15,
+    "no_weld_indexed_overhead_percent": 66.67,
+    "source_alias_preserving_saving_percent": 35.74
+  },
+  "legacy_vertex_alias_coverage": {
+    "serialized_prototype_vertex_records": 29199,
+    "geometry_quantized_keys_with_record": 23452,
+    "geometry_quantized_keys_without_record": 1266,
+    "slots_without_record": 8427,
+    "mapped_slots_requiring_position_residual": 9710,
+    "serialized_keys_not_in_base_geometry": 5747
+  },
+  "interpretation": [
+    "Exact-coordinate indexing is a storage lower bound, not an identity-safe weld rule.",
+    "Quantized indexing uses the legacy 1e-3 key; ambiguous keys preserve multiple exact positions and cannot be collapsed without corner residuals.",
+    "The source-alias-preserving estimate shares mapped legacy keys, stores corner residuals for differing exact positions, and allocates a unique vertex to each slot without a legacy key.",
+    "No-weld indexing preserves every position slot and adds persistent IDs/references, so its overhead is the cost of identity without proven sharing.",
+    "All byte estimates use packed f64 coordinates and u64 IDs/references; they are not Rust heap measurements.",
+    "Compatibility alias strings and opaque legacy metadata are excluded, so source-alias-preserving bytes are a lower bound.",
+    "Legacy prototypeVertices coverage is measured against base segment/face positions only; unmatched entries remain compatibility data, not garbage."
+  ]
+}
