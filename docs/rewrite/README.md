@@ -32,7 +32,7 @@ Browser runtime and `<octodraw-editor>` compatibility follow desktop. Android ha
 
 The object model is now examined separately in [object-model.md](object-model.md): eliminate redundant ownership/copies before freezing core contracts. A measured census found 2,899 of 2,939 serialized geometry override bundles equal to their definitions across the 60 fixtures. These are normalization candidates, not permission to discard authored instance differences. T46 gates the core model; T47–T50 deliver JavaScriptCore plugins after initial desktop qualification.
 
-Implementation has started with a provisional `meshcraft-core` model, an isometric viewport, and an interactive cuboid plus copy/object/array workflow. This code proves an initial end-to-end slice; it does not complete persistence, undo, topology tools, or legacy compatibility. T00 and T46 remain open, so the current model is not a ratified schema and dependent task contracts must still follow the gate.
+Implementation has started with a provisional `meshcraft-core` model, an isometric viewport, interactive Line/Rectangle/Cuboid tools, and copy/object/array commands. The native X11 smoke test exercised those drafting tools and the cuboid → copy → object → array path through `Ctrl+Shift+P`. This is an initial slice; persistence, undo, topology repair/cutting, and legacy compatibility remain unimplemented. T00 and T46 remain open, so the current model is not a ratified schema and dependent task contracts must still follow the gate.
 
 ## What was found
 

@@ -2,7 +2,7 @@
 
 This expands the original architecture audit in response to the user's request to eliminate redundancy. Source baseline remains `acd84f4c67509e10363c33850501eb8f4fc3ffa7`. Current behavior and file compatibility are requirements; the layout of Kotlin classes is not a required Rust layout. A first Rust model prototype now exists in `crates/meshcraft-core`; it has not passed the T46 ratification gate and must not be treated as a stable schema.
 
-The prototype covers f64 geometry, indexed geometry bundles, shared definitions/layouts, occurrence edits, and the cuboid → copy → object → array scenario. It does not yet provide import/export, full topology services, undo, or revisioned caches. T00 fixture/oracle work and T46's measured comparison and migration contracts remain open; revise or replace prototype APIs as those decisions require.
+The prototype covers f64 geometry, indexed geometry bundles, shared definitions/layouts, occurrence edits, two-point line and ground-plane rectangle drafting, and the cuboid → copy → object → array scenario. It does not yet provide import/export, full topology services, undo, or revisioned caches. T00 fixture/oracle work and T46's measured comparison and migration contracts remain open; revise or replace prototype APIs as those decisions require.
 
 ## What the fixture census establishes
 

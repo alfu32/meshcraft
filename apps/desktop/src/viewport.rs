@@ -1,6 +1,7 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
-use meshcraft_core::document::{Document, OccurrenceRef, Rgba8};
+use meshcraft_core::document::{Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
+use std::collections::BTreeSet;
 
 const ISO_X: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ISO_GROUND_Y: f64 = 0.408_248_290_463_863_1;
@@ -10,6 +11,13 @@ const ISO_HEIGHT_Y: f64 = 0.816_496_580_927_726_1;
 pub struct CuboidPreview {
     pub origin: Vec3,
     pub dimensions: Vec3,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ToolPreview {
+    Cuboid(CuboidPreview),
+    Line { start: Vec3, end: Vec3 },
+    GroundRectangle { first: Vec3, opposite: Vec3 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -43,7 +51,7 @@ impl Viewport {
         document: &Document,
         selection: &[OccurrenceRef],
         active_tool: &str,
-        preview: Option<CuboidPreview>,
+        preview: Option<ToolPreview>,
     ) -> ViewportInput {
         let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
         let rect = response.rect;
@@ -67,7 +75,15 @@ impl Viewport {
         self.draw_grid(&painter, rect);
         self.draw_document(&painter, rect, document, selection);
         if let Some(preview) = preview {
-            self.draw_cuboid_preview(&painter, rect, preview);
+            match preview {
+                ToolPreview::Cuboid(cuboid) => self.draw_cuboid_preview(&painter, rect, cuboid),
+                ToolPreview::Line { start, end } => {
+                    self.draw_line_preview(&painter, rect, start, end)
+                }
+                ToolPreview::GroundRectangle { first, opposite } => {
+                    self.draw_rectangle_preview(&painter, rect, first, opposite);
+                }
+            }
         }
 
         let pointer = response.hover_pos();
@@ -122,7 +138,7 @@ impl Viewport {
 
     pub fn pick(&self, rect: Rect, document: &Document, position: Pos2) -> Option<OccurrenceRef> {
         let occurrences = document.occurrence_refs().ok()?;
-        let mut nearest: Option<(f64, OccurrenceRef)> = None;
+        let mut nearest: Option<(f32, f64, OccurrenceRef)> = None;
         for occurrence in occurrences {
             let resolved = document.resolve_occurrence(&occurrence)?;
             let geometry = document.effective_geometry(&occurrence)?;
@@ -157,13 +173,39 @@ impl Viewport {
                         })
                         .sum::<f64>()
                         / 3.0;
-                    if nearest.as_ref().is_none_or(|(current, _)| depth > *current) {
-                        nearest = Some((depth, occurrence.clone()));
+                    if nearest.as_ref().is_none_or(|(distance, current_depth, _)| {
+                        0.0 < *distance || (0.0 == *distance && depth > *current_depth)
+                    }) {
+                        nearest = Some((0.0, depth, occurrence.clone()));
                     }
                 }
             }
+            for segment in geometry.segments.values() {
+                let start = resolved
+                    .world_transform
+                    .transform_point(geometry.vertices[&segment.endpoints[0]].position);
+                let end = resolved
+                    .world_transform
+                    .transform_point(geometry.vertices[&segment.endpoints[1]].position);
+                let a = self.world_to_screen(rect, start);
+                let b = self.world_to_screen(rect, end);
+                let distance = distance_to_segment_squared(position, a, b);
+                if distance > 25.0 {
+                    continue;
+                }
+                let depth = (start.x + start.y * 0.5 + start.z + end.x + end.y * 0.5 + end.z) * 0.5;
+                if nearest
+                    .as_ref()
+                    .is_none_or(|(current_distance, current_depth, _)| {
+                        distance < *current_distance
+                            || (distance == *current_distance && depth > *current_depth)
+                    })
+                {
+                    nearest = Some((distance, depth, occurrence.clone()));
+                }
+            }
         }
-        nearest.map(|(_, occurrence)| occurrence)
+        nearest.map(|(_, _, occurrence)| occurrence)
     }
 
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect) {
@@ -210,6 +252,12 @@ impl Viewport {
             return;
         };
         let mut faces = Vec::new();
+        let mut segments = Vec::new();
+        let view_direction = Vec3::new(
+            self.yaw.cos() - self.yaw.sin(),
+            1.0,
+            self.yaw.sin() + self.yaw.cos(),
+        );
         for occurrence in occurrences {
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
@@ -218,11 +266,18 @@ impl Viewport {
                 continue;
             };
             let selected = selection.contains(&occurrence);
+            let mut surface_edges = BTreeSet::new();
+            let mut visible_surface_edges = BTreeSet::new();
             for triangle in geometry.triangles.values() {
-                let points = triangle.vertices.map(|vertex| {
-                    let local = geometry.vertices[&vertex].position;
-                    self.world_to_screen(rect, resolved.world_transform.transform_point(local))
+                let world_points = triangle.vertices.map(|vertex| {
+                    resolved
+                        .world_transform
+                        .transform_point(geometry.vertices[&vertex].position)
                 });
+                let points = world_points.map(|point| self.world_to_screen(rect, point));
+                let facing = (world_points[1] - world_points[0])
+                    .cross(world_points[2] - world_points[0])
+                    .dot(view_direction);
                 let depth = triangle
                     .vertices
                     .iter()
@@ -234,21 +289,54 @@ impl Viewport {
                     })
                     .sum::<f64>()
                     / 3.0;
-                let color = if selected {
-                    Color32::from_rgb(244, 166, 77)
-                } else {
-                    color32(triangle.color)
-                };
+                for [a, b] in [[0, 1], [1, 2], [2, 0]] {
+                    let edge = edge_key(triangle.vertices[a], triangle.vertices[b]);
+                    surface_edges.insert(edge);
+                    if facing > 0.0 {
+                        visible_surface_edges.insert(edge);
+                    }
+                }
+                let color = color32(triangle.color);
                 faces.push((depth, points, color));
+            }
+            for segment in geometry.segments.values() {
+                if surface_edges.contains(&edge_key(segment.endpoints[0], segment.endpoints[1]))
+                    && !visible_surface_edges
+                        .contains(&edge_key(segment.endpoints[0], segment.endpoints[1]))
+                {
+                    continue;
+                }
+                let start = resolved
+                    .world_transform
+                    .transform_point(geometry.vertices[&segment.endpoints[0]].position);
+                let end = resolved
+                    .world_transform
+                    .transform_point(geometry.vertices[&segment.endpoints[1]].position);
+                let depth = (start.x + start.y * 0.5 + start.z + end.x + end.y * 0.5 + end.z) * 0.5;
+                let edge_color = if selected {
+                    Color32::from_rgb(244, 166, 77)
+                } else if segment.color == Rgba8::WHITE {
+                    Color32::from_rgb(62, 66, 72)
+                } else {
+                    color32(segment.color)
+                };
+                segments.push((
+                    depth,
+                    [
+                        self.world_to_screen(rect, start),
+                        self.world_to_screen(rect, end),
+                    ],
+                    edge_color,
+                ));
             }
         }
         faces.sort_by(|left, right| left.0.total_cmp(&right.0));
         for (_, points, color) in faces {
-            painter.add(Shape::convex_polygon(
-                points.to_vec(),
-                color,
-                Stroke::new(0.8, Color32::from_rgb(62, 66, 72)),
-            ));
+            painter.add(Shape::convex_polygon(points.to_vec(), color, Stroke::NONE));
+        }
+        segments.sort_by(|left, right| left.0.total_cmp(&right.0));
+        for (_, points, color) in segments {
+            painter.line_segment(points, Stroke::new(1.4, color));
         }
     }
 
@@ -264,10 +352,55 @@ impl Viewport {
             );
         }
     }
+
+    fn draw_line_preview(&self, painter: &egui::Painter, rect: Rect, start: Vec3, end: Vec3) {
+        painter.line_segment(
+            [
+                self.world_to_screen(rect, start),
+                self.world_to_screen(rect, end),
+            ],
+            Stroke::new(1.8, Color32::from_rgb(235, 105, 70)),
+        );
+    }
+
+    fn draw_rectangle_preview(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        first: Vec3,
+        opposite: Vec3,
+    ) {
+        let points = [
+            Vec3::new(first.x, 0.0, first.z),
+            Vec3::new(first.x, 0.0, opposite.z),
+            Vec3::new(opposite.x, 0.0, opposite.z),
+            Vec3::new(opposite.x, 0.0, first.z),
+        ]
+        .map(|point| self.world_to_screen(rect, point));
+        painter.add(Shape::convex_polygon(
+            points.to_vec(),
+            Color32::from_rgba_unmultiplied(235, 105, 70, 36),
+            Stroke::NONE,
+        ));
+        for index in 0..points.len() {
+            painter.line_segment(
+                [points[index], points[(index + 1) % points.len()]],
+                Stroke::new(1.8, Color32::from_rgb(235, 105, 70)),
+            );
+        }
+    }
 }
 
 fn color32(color: Rgba8) -> Color32 {
     Color32::from_rgba_unmultiplied(color.red, color.green, color.blue, color.alpha)
+}
+
+fn edge_key(first: VertexId, second: VertexId) -> (VertexId, VertexId) {
+    if first <= second {
+        (first, second)
+    } else {
+        (second, first)
+    }
 }
 
 fn cuboid_corners(origin: Vec3, dimensions: Vec3) -> [Vec3; 8] {
@@ -311,6 +444,16 @@ fn point_in_triangle(point: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
     (d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0) || (d1 <= 0.0 && d2 <= 0.0 && d3 <= 0.0)
 }
 
+fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
+    let direction = end - start;
+    let length_squared = direction.length_sq();
+    if length_squared <= f32::EPSILON {
+        return point.distance_sq(start);
+    }
+    let t = ((point - start).dot(direction) / length_squared).clamp(0.0, 1.0);
+    point.distance_sq(start + direction * t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Viewport, point_in_triangle};
@@ -341,5 +484,25 @@ mod tests {
         assert!(point_in_triangle(Pos2::new(2.0, 2.0), a, b, c));
         assert!(point_in_triangle(Pos2::new(1.0, 5.0), a, b, c));
         assert!(!point_in_triangle(Pos2::new(9.0, 9.0), a, b, c));
+    }
+
+    #[test]
+    fn segment_picker_selects_standalone_lines_with_a_small_screen_tolerance() {
+        let rect = Rect::from_min_size(Pos2::new(30.0, 50.0), Vec2::new(800.0, 600.0));
+        let viewport = Viewport::default();
+        let mut document = meshcraft_core::document::Document::new();
+        let line = document
+            .add_line_segment("line", Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        let midpoint = viewport.world_to_screen(rect, Vec3::ZERO);
+        assert_eq!(viewport.pick(rect, &document, midpoint), Some(line.clone()));
+        assert_eq!(
+            viewport.pick(
+                rect,
+                &document,
+                midpoint + Vec2::new(-3.5, 7.0 * 0.866_025_4)
+            ),
+            None
+        );
     }
 }

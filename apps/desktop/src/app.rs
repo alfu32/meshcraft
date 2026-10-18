@@ -1,5 +1,5 @@
 use crate::assets::{self, IconRegion};
-use crate::viewport::{CuboidPreview, Viewport};
+use crate::viewport::{CuboidPreview, ToolPreview, Viewport};
 use eframe::egui::{self, Align, Align2, Layout, Vec2};
 use meshcraft_core::document::{Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
@@ -201,6 +201,8 @@ pub struct MeshcraftApp {
     viewport: Viewport,
     cuboid_first: Option<Vec3>,
     cuboid_base: Option<(Vec3, Vec3)>,
+    line_first: Option<Vec3>,
+    rectangle_first: Option<Vec3>,
     array_count: usize,
     array_spacing: f64,
 }
@@ -231,6 +233,8 @@ impl MeshcraftApp {
             viewport: Viewport::default(),
             cuboid_first: None,
             cuboid_base: None,
+            line_first: None,
+            rectangle_first: None,
             array_count: 12,
             array_spacing: 3.0,
         }
@@ -247,10 +251,17 @@ impl MeshcraftApp {
                 self.active_tool = tool.to_owned();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
-                self.status = if tool == "Cuboid" {
-                    "Cuboid: click two ground-plane corners, then click the height.".to_owned()
-                } else {
-                    format!("{tool} tool selected.")
+                self.line_first = None;
+                self.rectangle_first = None;
+                self.status = match tool {
+                    "Cuboid" => {
+                        "Cuboid: click two ground-plane corners, then click the height.".to_owned()
+                    }
+                    "Line" => {
+                        "Line: click a start point and an end point on the ground plane.".to_owned()
+                    }
+                    "Rectangle" => "Rectangle: click two opposite ground-plane corners.".to_owned(),
+                    _ => format!("{tool} tool selected."),
                 };
             }
             ShellAction::AddCuboid => {
@@ -271,6 +282,8 @@ impl MeshcraftApp {
                 self.selection.clear();
                 self.cuboid_first = None;
                 self.cuboid_base = None;
+                self.line_first = None;
+                self.rectangle_first = None;
                 self.status = "New empty document.".to_owned();
             }
             ShellAction::SetProfile(profile) => {
@@ -354,7 +367,59 @@ impl MeshcraftApp {
         self.status = format!("Created {} array copies.", self.array_count);
     }
 
+    fn cancel_active_tool(&mut self) {
+        self.active_tool = "Select".to_owned();
+        self.cuboid_first = None;
+        self.cuboid_base = None;
+        self.line_first = None;
+        self.rectangle_first = None;
+        self.status = "Current tool operation canceled.".to_owned();
+    }
+
     fn handle_viewport_click(&mut self, rect: egui::Rect, position: egui::Pos2) {
+        if self.active_tool == "Line" {
+            let point = self.viewport.screen_to_ground(rect, position);
+            if let Some(start) = self.line_first {
+                if let Some(occurrence) = self.document.add_line_segment("line", start, point) {
+                    self.selection = vec![occurrence];
+                    self.active_tool = "Select".to_owned();
+                    self.line_first = None;
+                    self.status = format!("Created line {:.2} units long.", start.distance(point));
+                } else {
+                    self.status = "Line endpoints must be distinct finite points.".to_owned();
+                }
+            } else {
+                self.line_first = Some(point);
+                self.status = "Line: choose the end point.".to_owned();
+            }
+            return;
+        }
+
+        if self.active_tool == "Rectangle" {
+            let point = self.viewport.screen_to_ground(rect, position);
+            if let Some(first) = self.rectangle_first {
+                if let Some(occurrence) =
+                    self.document
+                        .add_ground_rectangle("rectangle", first, point)
+                {
+                    self.selection = vec![occurrence];
+                    self.active_tool = "Select".to_owned();
+                    self.rectangle_first = None;
+                    self.status = format!(
+                        "Created ground rectangle {:.2} × {:.2}.",
+                        (point.x - first.x).abs(),
+                        (point.z - first.z).abs()
+                    );
+                } else {
+                    self.status = "Rectangle sides must be distinct finite points.".to_owned();
+                }
+            } else {
+                self.rectangle_first = Some(point);
+                self.status = "Rectangle: choose the opposite corner.".to_owned();
+            }
+            return;
+        }
+
         if self.active_tool == "Cuboid" {
             let ground = self.viewport.screen_to_ground(rect, position);
             if self.cuboid_first.is_none() {
@@ -422,30 +487,45 @@ impl MeshcraftApp {
         }
     }
 
-    fn cuboid_preview(
-        &self,
-        rect: egui::Rect,
-        pointer: Option<egui::Pos2>,
-    ) -> Option<CuboidPreview> {
-        let (first, opposite) = self.cuboid_base?;
+    fn tool_preview(&self, rect: egui::Rect, pointer: Option<egui::Pos2>) -> Option<ToolPreview> {
         let position = pointer?;
-        let center = Vec3::new(
-            (first.x + opposite.x) * 0.5,
-            0.0,
-            (first.z + opposite.z) * 0.5,
-        );
-        let height = self
-            .viewport
-            .height_from_screen_position(rect, center, position)
-            .max(0.05);
-        Some(CuboidPreview {
-            origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
-            dimensions: Vec3::new(
-                (opposite.x - first.x).abs(),
-                height,
-                (opposite.z - first.z).abs(),
-            ),
-        })
+        match self.active_tool.as_str() {
+            "Cuboid" => {
+                let (first, opposite) = self.cuboid_base?;
+                let center = Vec3::new(
+                    (first.x + opposite.x) * 0.5,
+                    0.0,
+                    (first.z + opposite.z) * 0.5,
+                );
+                let height = self
+                    .viewport
+                    .height_from_screen_position(rect, center, position)
+                    .max(0.05);
+                Some(ToolPreview::Cuboid(CuboidPreview {
+                    origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
+                    dimensions: Vec3::new(
+                        (opposite.x - first.x).abs(),
+                        height,
+                        (opposite.z - first.z).abs(),
+                    ),
+                }))
+            }
+            "Line" => {
+                let start = self.line_first?;
+                Some(ToolPreview::Line {
+                    start,
+                    end: self.viewport.screen_to_ground(rect, position),
+                })
+            }
+            "Rectangle" => {
+                let first = self.rectangle_first?;
+                Some(ToolPreview::GroundRectangle {
+                    first,
+                    opposite: self.viewport.screen_to_ground(rect, position),
+                })
+            }
+            _ => None,
+        }
     }
 
     fn matching_commands(&self) -> Vec<&'static ShellCommand> {
@@ -699,9 +779,7 @@ impl MeshcraftApp {
             .ctx()
             .pointer_interact_pos()
             .filter(|position| predicted_rect.contains(*position));
-        let preview = (self.active_tool == "Cuboid")
-            .then(|| self.cuboid_preview(predicted_rect, pointer))
-            .flatten();
+        let preview = self.tool_preview(predicted_rect, pointer);
         let input = self.viewport.show(
             ui,
             size,
@@ -851,6 +929,10 @@ impl MeshcraftApp {
                     self.command_palette_open = false;
                 }
             }
+        } else if ui.input(|input| input.key_pressed(egui::Key::Escape))
+            && self.active_tool != "Select"
+        {
+            self.cancel_active_tool();
         }
 
         let menus_visible = self.preferences.profile != UiProfile::Buttons;

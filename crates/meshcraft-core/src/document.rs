@@ -353,12 +353,7 @@ impl Document {
         {
             return None;
         }
-        let definition_id = DefinitionId(self.allocate_id());
-        let geometry_id = GeometryBundleId(self.allocate_id());
-        let mut geometry = GeometryBundle {
-            id: geometry_id,
-            ..GeometryBundle::default()
-        };
+        let mut geometry = GeometryBundle::default();
         let corners = [
             Vec3::ZERO,
             Vec3::new(dimensions.x, 0.0, 0.0),
@@ -432,6 +427,131 @@ impl Document {
                 },
             );
         }
+        self.add_root_geometry(name, geometry, Affine3::from_translation(origin))
+    }
+
+    /// Adds one open segment as a standalone root object without running topology repair.
+    pub fn add_line_segment(
+        &mut self,
+        name: impl Into<String>,
+        start: Vec3,
+        end: Vec3,
+    ) -> Option<OccurrenceRef> {
+        if !start.is_finite() || !end.is_finite() {
+            return None;
+        }
+        let scale = start.length().max(end.length());
+        if start.distance(end) <= crate::geometry::GeometryTolerance::default().linear_at(scale) {
+            return None;
+        }
+
+        let mut geometry = GeometryBundle::default();
+        let start_id = VertexId(self.allocate_id());
+        let end_id = VertexId(self.allocate_id());
+        geometry.vertices.insert(
+            start_id,
+            Vertex {
+                id: start_id,
+                position: start,
+                legacy_aliases: Vec::new(),
+            },
+        );
+        geometry.vertices.insert(
+            end_id,
+            Vertex {
+                id: end_id,
+                position: end,
+                legacy_aliases: Vec::new(),
+            },
+        );
+        let segment_id = SegmentId(self.allocate_id());
+        geometry.segments.insert(
+            segment_id,
+            Segment {
+                id: segment_id,
+                endpoints: [start_id, end_id],
+                color: Rgba8::WHITE,
+                legacy_aliases: Vec::new(),
+            },
+        );
+        self.add_root_geometry(name, geometry, Affine3::IDENTITY)
+    }
+
+    /// Adds a filled, two-triangle rectangle on the ground plane using raw topology.
+    pub fn add_ground_rectangle(
+        &mut self,
+        name: impl Into<String>,
+        first: Vec3,
+        opposite: Vec3,
+    ) -> Option<OccurrenceRef> {
+        if !first.is_finite() || !opposite.is_finite() {
+            return None;
+        }
+        let min_x = first.x.min(opposite.x);
+        let max_x = first.x.max(opposite.x);
+        let min_z = first.z.min(opposite.z);
+        let max_z = first.z.max(opposite.z);
+        let scale = first.length().max(opposite.length());
+        let minimum = crate::geometry::GeometryTolerance::default().linear_at(scale);
+        if max_x - min_x <= minimum || max_z - min_z <= minimum {
+            return None;
+        }
+
+        let mut geometry = GeometryBundle::default();
+        let corners = [
+            Vec3::new(min_x, 0.0, min_z),
+            Vec3::new(min_x, 0.0, max_z),
+            Vec3::new(max_x, 0.0, max_z),
+            Vec3::new(max_x, 0.0, min_z),
+        ];
+        let mut vertex_ids = Vec::with_capacity(corners.len());
+        for position in corners {
+            let id = VertexId(self.allocate_id());
+            geometry.vertices.insert(
+                id,
+                Vertex {
+                    id,
+                    position,
+                    legacy_aliases: Vec::new(),
+                },
+            );
+            vertex_ids.push(id);
+        }
+        for [a, b] in [[0, 1], [1, 2], [2, 3], [3, 0]] {
+            let id = SegmentId(self.allocate_id());
+            geometry.segments.insert(
+                id,
+                Segment {
+                    id,
+                    endpoints: [vertex_ids[a], vertex_ids[b]],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                },
+            );
+        }
+        for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
+            let id = TriangleId(self.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: [vertex_ids[a], vertex_ids[b], vertex_ids[c]],
+                    color: Rgba8::WHITE,
+                    legacy_aliases: Vec::new(),
+                },
+            );
+        }
+        self.add_root_geometry(name, geometry, Affine3::IDENTITY)
+    }
+
+    fn add_root_geometry(
+        &mut self,
+        name: impl Into<String>,
+        mut geometry: GeometryBundle,
+        transform: Affine3,
+    ) -> Option<OccurrenceRef> {
+        let definition_id = DefinitionId(self.allocate_id());
+        geometry.id = GeometryBundleId(self.allocate_id());
         self.definitions.insert(
             definition_id,
             Definition {
@@ -453,7 +573,7 @@ impl Document {
             .push(LayoutEntry {
                 id: entry_id,
                 definition: definition_id,
-                transform: Affine3::from_translation(origin),
+                transform,
                 legacy_aliases: Vec::new(),
             });
         self.revision = self.revision.saturating_add(1);
@@ -1309,6 +1429,56 @@ mod tests {
         assert_eq!(
             document.child_layouts[&document.root_layout].entries.len(),
             14
+        );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn line_tool_geometry_is_an_open_segment_and_rejects_zero_length() {
+        let mut document = Document::new();
+        assert!(
+            document
+                .add_line_segment("line", Vec3::ZERO, Vec3::ZERO)
+                .is_none()
+        );
+        let line = document
+            .add_line_segment("line", Vec3::new(-2.0, 1.0, 4.0), Vec3::new(3.0, 2.0, -1.0))
+            .unwrap();
+        let geometry = document.effective_geometry(&line).unwrap();
+        assert_eq!(geometry.vertices.len(), 2);
+        assert_eq!(geometry.segments.len(), 1);
+        assert!(geometry.triangles.is_empty());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn rectangle_tool_creates_a_ground_plane_face_with_consistent_winding() {
+        let mut document = Document::new();
+        assert!(
+            document
+                .add_ground_rectangle("rectangle", Vec3::ZERO, Vec3::new(1.0e-12, 0.0, 2.0),)
+                .is_none()
+        );
+        let rectangle = document
+            .add_ground_rectangle(
+                "rectangle",
+                Vec3::new(3.0, 8.0, -2.0),
+                Vec3::new(-1.0, -5.0, 4.0),
+            )
+            .unwrap();
+        let geometry = document.effective_geometry(&rectangle).unwrap();
+        assert_eq!(geometry.vertices.len(), 4);
+        assert_eq!(geometry.segments.len(), 4);
+        assert_eq!(geometry.triangles.len(), 2);
+        for triangle in geometry.triangles.values() {
+            let [a, b, c] = triangle.vertices.map(|id| geometry.vertices[&id].position);
+            assert!((b - a).cross(c - a).y > 0.0);
+        }
+        assert!(
+            geometry
+                .vertices
+                .values()
+                .all(|vertex| vertex.position.y == 0.0)
         );
         assert!(document.validate().is_ok());
     }
