@@ -20,8 +20,297 @@ pub struct SweepMesh {
     pub triangles: Vec<SweepTriangle>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SweepFrame {
+    pub origin: Vec3,
+    pub normal: Vec3,
+    pub u: Vec3,
+    pub v: Vec3,
+}
+
 type PointKey = [i64; 3];
 type EdgeKey = [usize; 2];
+
+/// Builds rotation-minimizing frames along an open or closed 3D path.
+pub fn build_sweep_frames(
+    path: &[Vec3],
+    closed: bool,
+    up_axis: Vec3,
+    tolerance: f64,
+) -> Result<Vec<SweepFrame>, &'static str> {
+    let path = clean_spatial_path(path, closed, tolerance)?;
+    let up = up_axis
+        .try_normalized(tolerance)
+        .ok_or("A spatial sweep needs a valid local vertical axis.")?;
+    let span_count = if closed { path.len() } else { path.len() - 1 };
+    let tangents = (0..span_count)
+        .map(|index| {
+            let next = (index + 1) % path.len();
+            (path[next] - path[index])
+                .try_normalized(tolerance)
+                .ok_or("A spatial sweep path contains a degenerate span.")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let normals = if closed {
+        (0..path.len())
+            .map(|index| {
+                let previous = tangents[(index + tangents.len() - 1) % tangents.len()];
+                let next = tangents[index];
+                (previous + next).try_normalized(tolerance).unwrap_or(next)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let mut normals = Vec::with_capacity(path.len());
+        normals.push(tangents[0]);
+        for pair in tangents.windows(2) {
+            normals.push(
+                (pair[0] + pair[1])
+                    .try_normalized(tolerance)
+                    .unwrap_or(pair[1]),
+            );
+        }
+        normals.push(*tangents.last().expect("open paths have a span"));
+        normals
+    };
+
+    let mut frames = Vec::with_capacity(path.len());
+    let mut u = initial_frame_u(normals[0], up, tolerance);
+    let mut v = normals[0]
+        .cross(u)
+        .try_normalized(tolerance)
+        .ok_or("A spatial sweep could not build its initial frame.")?;
+    frames.push(SweepFrame {
+        origin: path[0],
+        normal: normals[0],
+        u,
+        v,
+    });
+    for index in 1..path.len() {
+        u = transport_frame_vector(u, normals[index - 1], normals[index], tolerance);
+        u = reject_from_axis(u, normals[index]);
+        u = u
+            .try_normalized(tolerance)
+            .unwrap_or_else(|| initial_frame_u(normals[index], up, tolerance));
+        v = normals[index]
+            .cross(u)
+            .try_normalized(tolerance)
+            .ok_or("A spatial sweep could not transport its frame.")?;
+        frames.push(SweepFrame {
+            origin: path[index],
+            normal: normals[index],
+            u,
+            v,
+        });
+    }
+
+    if closed {
+        let closing_u = transport_frame_vector(
+            frames.last().expect("closed paths have frames").u,
+            normals[path.len() - 1],
+            normals[0],
+            tolerance,
+        );
+        let twist = signed_angle_around_axis(closing_u, frames[0].u, normals[0], tolerance);
+        for (index, frame) in frames.iter_mut().enumerate().skip(1) {
+            let correction = twist * index as f64 / path.len() as f64;
+            frame.u = rotate_about_axis(frame.u, frame.normal, correction);
+            frame.u = reject_from_axis(frame.u, frame.normal)
+                .try_normalized(tolerance)
+                .unwrap_or(frame.u);
+            frame.v = frame
+                .normal
+                .cross(frame.u)
+                .try_normalized(tolerance)
+                .ok_or("A closed spatial sweep could not correct its frame seam.")?;
+        }
+    }
+    Ok(frames)
+}
+
+/// Sweeps selected 3D line profiles through rotation-minimizing path frames.
+pub fn extrude_swipe_3d(
+    profile: &[SweepProfileSegment],
+    path: &[Vec3],
+    closed: bool,
+    up_axis: Vec3,
+    tolerance: f64,
+) -> Result<SweepMesh, &'static str> {
+    if profile.is_empty() {
+        return Err("Extrude Swipe 3D needs selected profile edges.");
+    }
+    if profile
+        .iter()
+        .flat_map(|segment| segment.endpoints)
+        .any(|point| !point.is_finite())
+    {
+        return Err("Extrude Swipe 3D profiles must contain finite points.");
+    }
+    let path = clean_spatial_path(path, closed, tolerance)?;
+    let frames = build_sweep_frames(&path, closed, up_axis, tolerance)?;
+    let profile = profile
+        .iter()
+        .filter_map(|segment| {
+            let coordinates = segment.endpoints.map(|point| {
+                let relative = point - path[0];
+                [relative.dot(frames[0].u), relative.dot(frames[0].v)]
+            });
+            (distance_2d(coordinates[0], coordinates[1]) > tolerance).then_some(coordinates)
+        })
+        .collect::<Vec<_>>();
+    build_frame_sweep(&profile, &path, &frames, closed, tolerance)
+}
+
+/// Creates a ribbon with the configured width and lateral offset along a 3D path.
+pub fn ribbon_3d(
+    path: &[Vec3],
+    closed: bool,
+    width: f64,
+    offset: f64,
+    up_axis: Vec3,
+    tolerance: f64,
+) -> Result<SweepMesh, &'static str> {
+    if !width.is_finite() || width <= tolerance || !offset.is_finite() {
+        return Err("Ribbon width must be positive and its offset finite.");
+    }
+    let path = clean_spatial_path(path, closed, tolerance)?;
+    let frames = build_sweep_frames(&path, closed, up_axis, tolerance)?;
+    let profile = [[[offset - width * 0.5, 0.0], [offset + width * 0.5, 0.0]]];
+    build_frame_sweep(&profile, &path, &frames, closed, tolerance)
+}
+
+fn clean_spatial_path(
+    path: &[Vec3],
+    closed: bool,
+    tolerance: f64,
+) -> Result<Vec<Vec3>, &'static str> {
+    if !tolerance.is_finite() || tolerance <= 0.0 {
+        return Err("Spatial sweep tolerance must be positive and finite.");
+    }
+    if path.iter().any(|point| !point.is_finite()) {
+        return Err("Spatial sweep path must contain finite points.");
+    }
+    let mut path = path.iter().copied().fold(Vec::new(), |mut unique, point| {
+        if unique
+            .last()
+            .is_none_or(|previous: &Vec3| previous.distance(point) > tolerance)
+        {
+            unique.push(point);
+        }
+        unique
+    });
+    if closed && path.len() > 1 && path[0].distance(*path.last().unwrap()) <= tolerance {
+        path.pop();
+    }
+    let minimum = if closed { 3 } else { 2 };
+    if path.len() < minimum {
+        return Err("A spatial sweep needs at least two distinct path points.");
+    }
+    Ok(path)
+}
+
+fn initial_frame_u(normal: Vec3, up: Vec3, tolerance: f64) -> Vec3 {
+    reject_from_axis(up, normal)
+        .try_normalized(tolerance)
+        .or_else(|| reject_from_axis(Vec3::X, normal).try_normalized(tolerance))
+        .or_else(|| reject_from_axis(Vec3::Z, normal).try_normalized(tolerance))
+        .expect("a frame normal cannot be parallel to both X and Z")
+}
+
+fn transport_frame_vector(vector: Vec3, from: Vec3, to: Vec3, tolerance: f64) -> Vec3 {
+    let axis = from.cross(to);
+    let axis_length = axis.length();
+    if axis_length <= tolerance {
+        return vector;
+    }
+    let axis = axis / axis_length;
+    let angle = axis_length.atan2(from.dot(to).clamp(-1.0, 1.0));
+    rotate_about_axis(vector, axis, angle)
+}
+
+fn reject_from_axis(vector: Vec3, axis: Vec3) -> Vec3 {
+    vector - axis * vector.dot(axis)
+}
+
+fn rotate_about_axis(vector: Vec3, axis: Vec3, angle: f64) -> Vec3 {
+    vector * angle.cos()
+        + axis.cross(vector) * angle.sin()
+        + axis * (axis.dot(vector) * (1.0 - angle.cos()))
+}
+
+fn signed_angle_around_axis(from: Vec3, to: Vec3, axis: Vec3, tolerance: f64) -> f64 {
+    let from = reject_from_axis(from, axis).try_normalized(tolerance);
+    let to = reject_from_axis(to, axis).try_normalized(tolerance);
+    let (Some(from), Some(to)) = (from, to) else {
+        return 0.0;
+    };
+    axis.dot(from.cross(to)).atan2(from.dot(to))
+}
+
+fn distance_2d(a: [f64; 2], b: [f64; 2]) -> f64 {
+    ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt()
+}
+
+fn build_frame_sweep(
+    profile: &[[[f64; 2]; 2]],
+    path: &[Vec3],
+    frames: &[SweepFrame],
+    closed: bool,
+    tolerance: f64,
+) -> Result<SweepMesh, &'static str> {
+    let profile = profile
+        .iter()
+        .copied()
+        .filter(|segment| distance_2d(segment[0], segment[1]) > tolerance)
+        .collect::<Vec<_>>();
+    if profile.is_empty() {
+        return Err("Spatial sweep profiles collapse in the initial path frame.");
+    }
+    let span_count = if closed {
+        frames.len()
+    } else {
+        frames.len() - 1
+    };
+    let origin = path[0];
+    let mut mesh = SweepMesh::default();
+    let mut point_indices = BTreeMap::<PointKey, usize>::new();
+    let mut edge_indices = BTreeSet::<EdgeKey>::new();
+    for [[ax, ay], [bx, by]] in profile {
+        for span in 0..span_count {
+            let next = (span + 1) % frames.len();
+            let a0 = frame_section_point(frames[span], [ax, ay]);
+            let b0 = frame_section_point(frames[span], [bx, by]);
+            let a1 = frame_section_point(frames[next], [ax, ay]);
+            let b1 = frame_section_point(frames[next], [bx, by]);
+            let preferred_normal = (b0 - a0).cross(path[next] - path[span]);
+            if preferred_normal.length() <= tolerance * tolerance {
+                continue;
+            }
+            let quad = [a0, b0, b1, a1]
+                .map(|point| intern_vertex(point, origin, tolerance, &mut mesh, &mut point_indices))
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?;
+            let [a0, b0, b1, a1] = [quad[0], quad[1], quad[2], quad[3]];
+            add_oriented_triangle([a0, b0, b1], preferred_normal, tolerance, &mut mesh);
+            add_oriented_triangle([a0, b1, a1], preferred_normal, tolerance, &mut mesh);
+            for [start, end] in [[a0, b0], [b0, b1], [b1, a1], [a1, a0]] {
+                edge_indices.insert(if start < end {
+                    [start, end]
+                } else {
+                    [end, start]
+                });
+            }
+        }
+    }
+    if mesh.triangles.is_empty() {
+        return Err("Spatial sweep produced no non-degenerate faces.");
+    }
+    mesh.segments = edge_indices.into_iter().collect();
+    Ok(mesh)
+}
+
+fn frame_section_point(frame: SweepFrame, [x, y]: [f64; 2]) -> Vec3 {
+    frame.origin + frame.u * x + frame.v * y
+}
 
 /// Sweeps selected line profiles along a sampled polyline in the active geometry plane.
 ///
@@ -191,15 +480,6 @@ fn default_heading(up: Vec3, tolerance: f64) -> Vec3 {
         .expect("a normalized up axis cannot be parallel to both X and Z")
 }
 
-fn signed_angle_around_axis(from: Vec3, to: Vec3, axis: Vec3, tolerance: f64) -> f64 {
-    let from = (from - axis * from.dot(axis)).try_normalized(tolerance);
-    let to = (to - axis * to.dot(axis)).try_normalized(tolerance);
-    let (Some(from), Some(to)) = (from, to) else {
-        return 0.0;
-    };
-    axis.dot(from.cross(to)).atan2(from.dot(to))
-}
-
 fn transform_profile_point(point: Vec3, origin: Vec3, node: Vec3, up: Vec3, angle: f64) -> Vec3 {
     let relative = point - origin;
     let rotated = relative * angle.cos()
@@ -262,7 +542,9 @@ fn add_oriented_triangle(
 
 #[cfg(test)]
 mod tests {
-    use super::{SweepProfileSegment, extrude_swipe};
+    use super::{
+        SweepProfileSegment, build_sweep_frames, extrude_swipe, extrude_swipe_3d, ribbon_3d,
+    };
     use crate::geometry::Vec3;
     use std::collections::BTreeMap;
 
@@ -396,6 +678,100 @@ mod tests {
             mesh.vertices
                 .iter()
                 .all(|point| point.x <= 12.0 + TOLERANCE)
+        );
+    }
+
+    #[test]
+    fn transported_frames_stay_orthonormal_on_a_nonplanar_path() {
+        let path = [
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::X + Vec3::Y + Vec3::Z,
+            Vec3::X + Vec3::Y + Vec3::Z * 2.0,
+        ];
+        let frames = build_sweep_frames(&path, false, Vec3::Y, TOLERANCE).unwrap();
+        assert_eq!(path.len(), frames.len());
+        for frame in frames {
+            assert!((frame.normal.length() - 1.0).abs() <= TOLERANCE);
+            assert!((frame.u.length() - 1.0).abs() <= TOLERANCE);
+            assert!((frame.v.length() - 1.0).abs() <= TOLERANCE);
+            assert!(frame.normal.dot(frame.u).abs() <= TOLERANCE);
+            assert!(frame.normal.dot(frame.v).abs() <= TOLERANCE);
+            assert!(frame.u.dot(frame.v).abs() <= TOLERANCE);
+            assert!((frame.normal.cross(frame.u).distance(frame.v)) <= TOLERANCE);
+        }
+    }
+
+    #[test]
+    fn spatial_sweep_closes_both_profile_and_path_seams() {
+        let path = [
+            Vec3::ZERO,
+            Vec3::X * 3.0,
+            Vec3::X * 3.0 + Vec3::Z * 3.0,
+            Vec3::Z * 3.0,
+        ];
+        let frames = build_sweep_frames(&path, true, Vec3::Y, TOLERANCE).unwrap();
+        let u = frames[0].u * 0.5;
+        let v = frames[0].v * 0.5;
+        let corners = [
+            path[0] - u - v,
+            path[0] + u - v,
+            path[0] + u + v,
+            path[0] - u + v,
+        ];
+        let profile = (0..corners.len())
+            .map(|index| SweepProfileSegment {
+                endpoints: [corners[index], corners[(index + 1) % corners.len()]],
+            })
+            .collect::<Vec<_>>();
+        let mesh = extrude_swipe_3d(&profile, &path, true, Vec3::Y, TOLERANCE).unwrap();
+        assert_eq!(16, mesh.vertices.len());
+        assert_eq!(32, mesh.triangles.len());
+        assert!(edge_uses(&mesh).values().all(|uses| *uses == 2));
+    }
+
+    #[test]
+    fn ribbon_uses_configured_width_and_offset_and_handles_collinear_path_points() {
+        let mesh = ribbon_3d(
+            &[Vec3::ZERO, Vec3::X, Vec3::X * 2.0, Vec3::X * 2.0 + Vec3::Z],
+            false,
+            2.0,
+            3.0,
+            Vec3::Y,
+            TOLERANCE,
+        )
+        .unwrap();
+        assert_eq!(8, mesh.vertices.len());
+        assert_eq!(10, mesh.segments.len());
+        assert_eq!(6, mesh.triangles.len());
+        let min_y = mesh
+            .vertices
+            .iter()
+            .map(|point| point.y)
+            .fold(f64::INFINITY, f64::min);
+        let max_y = mesh
+            .vertices
+            .iter()
+            .map(|point| point.y)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!((min_y - 2.0).abs() <= TOLERANCE);
+        assert!((max_y - 4.0).abs() <= TOLERANCE);
+    }
+
+    #[test]
+    fn spatial_sweeps_reject_degenerate_paths_and_ribbon_dimensions() {
+        assert!(build_sweep_frames(&[Vec3::ZERO, Vec3::ZERO], false, Vec3::Y, TOLERANCE).is_err());
+        assert!(ribbon_3d(&[Vec3::ZERO, Vec3::X], false, 0.0, 0.0, Vec3::Y, TOLERANCE).is_err());
+        assert!(
+            ribbon_3d(
+                &[Vec3::ZERO, Vec3::X],
+                false,
+                1.0,
+                f64::NAN,
+                Vec3::Y,
+                TOLERANCE
+            )
+            .is_err()
         );
     }
 }
