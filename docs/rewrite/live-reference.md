@@ -2,15 +2,15 @@
 
 These captures document a running desktop build inspected on 2026-10-18. Its MCP contract identifies Octodraw 5.7.1, commit `5c97836026cf8274ad43d99542a3057b215231c4`; the pinned source baseline is 5.7.2 at `acd84f4c67509e10363c33850501eb8f4fc3ffa7`. Use this page for visual layout and configuration clues only. It is not a geometry or parity oracle for the pinned source. The user-supplied settings-panel captures are 1920×1080; the earlier workspace and command-palette captures are 1882×1011.
 
-The app has twelve floating toolbar groups at the left, a vertically scrolling accordion panel at the right, and a status strip along the bottom. `Ctrl+Shift+P` opens the command palette. The visible palette reports 138 commands; searching `Rectangle` shows `Tool> Rectangle` and `Tool> Surface Rect`. MCP `/scene/listCommands` also returned 138 entries: Tools 74, View 52, Edit 7, Export 4, Import 1. The MCP exposed six tools and five resources. Palette search and display were observed; command activation was not verified in this inspection.
+The supplied screenshots show thirteen labeled toolbar groups at the left: Point Construction, Actions, Modification, Entity Construction, Rendering, Architecture, Camera, Modification 2, Mech, Primitives, Voxel, In-tool Operators, and HVAC. The right side is a vertically scrolling accordion titled “Panels,” with a status strip along the bottom. `Ctrl+Shift+P` opens the command palette. The visible palette reports 138 commands; searching `Rectangle` shows `Tool> Rectangle` and `Tool> Surface Rect`. MCP `/scene/listCommands` also returned 138 entries: Tools 74, View 52, Edit 7, Export 4, Import 1. The MCP exposed six tools and five resources. Palette search and display were observed; command activation was not verified in this inspection.
 
-Observed UI/configuration values include:
+Visible UI/configuration values include:
 
 - UI: 1× text, 32×32 toolbar icons, auto-collapse off, permanent grid on, Y-up, extent 20, normal/thick widths 1/3 px.
 - Model: unit size 1, grid size 1, 24 circle segments; walk speed 24, jump 16, gravity 48, height-adjust speed 8.
 - Polyline/vector text: arc length 0.5, double-line size/offset 1/0.5; text `TEXT`, size 1, tracking 0.1, line spacing 1.25, source `embedded:alphabet`.
 - Architecture/HVAC: wall thickness/height 0.2/2.7; pipe diameter/sides 0.2/16; duct size 0.5×0.25, hump half-span 0.625 and clearance 0.05.
-- Hotspot/random/lighting: hotspot operations include move, scale, stretch, rotate and multiply variants; random array count 12, zero scale/rotation fuzz, normal alignment enabled, remesh subdivisions 12 and tolerance 0.05. Lighting exposes shadow, directional, ambient and specular value/alpha controls.
+- Hotspot/random/lighting: the default hotspot operation is MOVE with CIRCLE shape; random array count 12, zero scale/rotation fuzz, normal alignment enabled, remesh subdivisions 12 and tolerance 0.05. Shader controls expose shadow, directional, ambient and specular value/alpha settings.
 
 The user-confirmed modeling sequence is cuboid → copy → create an object from the copied selection → array that object. The current viewport shows the resulting regular cuboid array, the Objects panel lists 16 objects, and the Selection panel reports 16 objects, 460 faces and 524 edges. The Random Surface Array settings show a copy count of 12. These are live document values, not a fixture contract.
 
@@ -24,18 +24,18 @@ An additional live read on 2026-10-18 reported 16 groups, 460 faces, 524 edges, 
 
 ![Selection counts, object information, object list and the cuboid array](references/live-5.7.1/object-array.png)
 
-![Model settings including units, grid, circle segments and navigation values](references/live-5.7.1/model-settings.png)
+![XRef import controls above Model Settings, including units, grid, circle segments and navigation values; UI Settings begins at the bottom](references/live-5.7.1/model-settings.png)
 
 ![UI settings followed by Help and About](references/live-5.7.1/ui-settings-help-about.png)
 
-![Polyline, vector text and the start of architecture wall settings](references/live-5.7.1/architecture-and-text-settings.png)
+![Help / About, Polyline Settings, Vector Text controls and the first Architecture heading](references/live-5.7.1/architecture-and-text-settings.png)
 
-![Architecture wall, slab, stair and frame settings, followed by HVAC](references/live-5.7.1/architecture-and-hvac-settings.png)
+![Architecture Walls, Slabs, Stairs and Frames; this capture ends in Frames and does not show HVAC](references/live-5.7.1/architecture-settings.png)
 
-![HVAC and hotspot settings, followed by the Random Tools section](references/live-5.7.1/hvac-settings.png)
+![HVAC and Hotspot Settings, followed by the start of Random Tools](references/live-5.7.1/hvac-settings.png)
 
-![Random tool settings, tutorial controls and the Shader Settings heading](references/live-5.7.1/random-tools-tutorials.png)
+![Random Tools, tutorial selection/playback controls and the Shader Settings heading](references/live-5.7.1/random-tools-tutorials.png)
 
-![Tutorial playback controls and shader lighting settings](references/live-5.7.1/tutorials-and-shader-settings.png)
+![Tutorial list/playback controls above shader lighting and shadow settings](references/live-5.7.1/tutorials-and-shader-settings.png)
 
 Viewport lines and points in these captures include transient overlays; do not use these images to judge geometry rendering fidelity.

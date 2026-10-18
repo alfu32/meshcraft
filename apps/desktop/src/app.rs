@@ -209,6 +209,32 @@ pub struct MeshcraftApp {
 
 impl MeshcraftApp {
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+        Self::from_document(
+            creation_context,
+            Document::new(),
+            "Empty document ready · choose Cuboid or Add Cuboid to begin.".to_owned(),
+            false,
+        )
+    }
+
+    pub fn new_with_document(
+        creation_context: &eframe::CreationContext<'_>,
+        document: Document,
+        status: String,
+    ) -> Self {
+        Self::from_document(creation_context, document, status, true)
+    }
+
+    pub fn new_with_error(creation_context: &eframe::CreationContext<'_>, error: String) -> Self {
+        Self::from_document(creation_context, Document::new(), error, false)
+    }
+
+    fn from_document(
+        creation_context: &eframe::CreationContext<'_>,
+        document: Document,
+        status: String,
+        frame_document: bool,
+    ) -> Self {
         let preferences = creation_context
             .storage
             .and_then(|storage| eframe::get_value(storage, PREFERENCES_KEY))
@@ -220,7 +246,7 @@ impl MeshcraftApp {
             icon_regions: assets::icon_regions(),
             active_tool: "Select".to_owned(),
             input_probe: String::new(),
-            status: "Empty document ready · choose Cuboid or Add Cuboid to begin.".to_owned(),
+            status,
             pointer_in_viewport: None,
             viewport_size: Vec2::ZERO,
             open_file_menu: false,
@@ -228,9 +254,15 @@ impl MeshcraftApp {
             command_search: String::new(),
             command_selection: 0,
             focus_command_search: false,
-            document: Document::new(),
+            document,
             selection: Vec::new(),
-            viewport: Viewport::default(),
+            viewport: {
+                let mut viewport = Viewport::default();
+                if frame_document {
+                    viewport.request_frame();
+                }
+                viewport
+            },
             cuboid_first: None,
             cuboid_base: None,
             line_first: None,
@@ -238,6 +270,32 @@ impl MeshcraftApp {
             array_count: 12,
             array_spacing: 3.0,
         }
+    }
+
+    fn top_level_occurrences(&self) -> Vec<OccurrenceRef> {
+        let occurrences = self.document.occurrence_refs().unwrap_or_default();
+        let root = occurrences
+            .iter()
+            .find(|occurrence| occurrence.path.len() == 1);
+        if let Some(root) = root
+            && self
+                .document
+                .resolve_occurrence(root)
+                .is_some_and(|resolved| resolved.definition.name == "Root")
+        {
+            let children = occurrences
+                .iter()
+                .filter(|occurrence| occurrence.path.len() == 2)
+                .cloned()
+                .collect::<Vec<_>>();
+            if !children.is_empty() {
+                return children;
+            }
+        }
+        occurrences
+            .into_iter()
+            .filter(|occurrence| occurrence.path.len() == 1)
+            .collect()
     }
 
     fn run_command(&mut self, id: &str) {
@@ -800,11 +858,7 @@ impl MeshcraftApp {
             ui.set_width(228.0);
             ui.set_min_height(height);
             ui.heading("Selection");
-            let occurrences = self.document.occurrence_refs().unwrap_or_default();
-            let root_objects = occurrences
-                .iter()
-                .filter(|occurrence| occurrence.path.len() == 1)
-                .collect::<Vec<_>>();
+            let root_objects = self.top_level_occurrences();
             ui.label(format!("Objects: {}", root_objects.len()));
             ui.label(format!("Selected: {}", self.selection.len()));
             ui.separator();
@@ -813,7 +867,7 @@ impl MeshcraftApp {
                 .id_salt("document-object-list")
                 .max_height(120.0)
                 .show(ui, |ui| {
-                    for occurrence in root_objects {
+                    for occurrence in &root_objects {
                         let label = self
                             .document
                             .resolve_occurrence(occurrence)
@@ -985,16 +1039,7 @@ impl MeshcraftApp {
         ui.horizontal(|ui| {
             ui.label(&self.status);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let object_count = self
-                    .document
-                    .occurrence_refs()
-                    .map(|occurrences| {
-                        occurrences
-                            .iter()
-                            .filter(|item| item.path.len() == 1)
-                            .count()
-                    })
-                    .unwrap_or_default();
+                let object_count = self.top_level_occurrences().len();
                 ui.weak(format!(
                     "{} root objects · revision {}",
                     object_count, self.document.revision

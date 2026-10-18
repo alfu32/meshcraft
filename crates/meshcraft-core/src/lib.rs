@@ -2,3 +2,4 @@
 
 pub mod document;
 pub mod geometry;
+pub mod legacy;

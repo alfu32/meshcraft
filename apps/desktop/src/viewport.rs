@@ -31,6 +31,7 @@ pub struct Viewport {
     zoom: f32,
     pan: Vec2,
     yaw: f64,
+    frame_pending: bool,
 }
 
 impl Default for Viewport {
@@ -39,6 +40,7 @@ impl Default for Viewport {
             zoom: 28.0,
             pan: Vec2::ZERO,
             yaw: 0.0,
+            frame_pending: false,
         }
     }
 }
@@ -56,6 +58,10 @@ impl Viewport {
         let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
         let rect = response.rect;
         painter.rect_filled(rect, 0.0, Color32::from_rgb(200, 222, 244));
+
+        if std::mem::take(&mut self.frame_pending) {
+            self.frame_document(rect, document);
+        }
 
         if response.hovered() {
             let scroll = ui.input(|input| input.smooth_scroll_delta.y);
@@ -111,6 +117,53 @@ impl Viewport {
             0.0,
             sine * rotated_x + cosine * rotated_z,
         )
+    }
+
+    pub fn request_frame(&mut self) {
+        self.frame_pending = true;
+    }
+
+    fn frame_document(&mut self, rect: Rect, document: &Document) {
+        let Ok(occurrences) = document.occurrence_refs() else {
+            return;
+        };
+        let mut bounds: Option<[f64; 4]> = None;
+        for occurrence in occurrences {
+            let (Some(resolved), Some(geometry)) = (
+                document.resolve_occurrence(&occurrence),
+                document.effective_geometry(&occurrence),
+            ) else {
+                continue;
+            };
+            for vertex in geometry.vertices.values() {
+                let point = resolved.world_transform.transform_point(vertex.position);
+                let rotated_x = self.yaw.cos() * point.x + self.yaw.sin() * point.z;
+                let rotated_z = -self.yaw.sin() * point.x + self.yaw.cos() * point.z;
+                let projected_x = (rotated_x - rotated_z) * ISO_X;
+                let projected_y = (rotated_x + rotated_z) * ISO_GROUND_Y - point.y * ISO_HEIGHT_Y;
+                match &mut bounds {
+                    Some([min_x, min_y, max_x, max_y]) => {
+                        *min_x = min_x.min(projected_x);
+                        *min_y = min_y.min(projected_y);
+                        *max_x = max_x.max(projected_x);
+                        *max_y = max_y.max(projected_y);
+                    }
+                    None => bounds = Some([projected_x, projected_y, projected_x, projected_y]),
+                }
+            }
+        }
+        let Some([min_x, min_y, max_x, max_y]) = bounds else {
+            return;
+        };
+        let span_x = (max_x - min_x).max(1.0);
+        let span_y = (max_y - min_y).max(1.0);
+        let available = rect.size() - Vec2::splat(72.0);
+        self.zoom = (f64::from(available.x) / span_x).min(f64::from(available.y) / span_y) as f32;
+        self.zoom = self.zoom.clamp(5.0, 160.0);
+        self.pan = Vec2::new(
+            -((min_x + max_x) * 0.5) as f32 * self.zoom,
+            -((min_y + max_y) * 0.5) as f32 * self.zoom,
+        );
     }
 
     pub fn world_to_screen(&self, rect: Rect, point: Vec3) -> Pos2 {

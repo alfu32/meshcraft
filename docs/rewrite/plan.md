@@ -1,6 +1,6 @@
 # Implementation and agent handoff plan
 
-`tasks.json` is the authoritative task registry: 51 tasks, 169 assignable slices, explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. T00 and T01 are now in progress. The workspace has a maximized eframe shell, a shell command palette and a geometry-stack experiment; normalized document and modeling operations remain unimplemented. Task slices are deliberately smaller than a whole feature family, especially arrays, formats, domains and rendering. Existing task IDs are stable; T46 is an early gate despite its appended number.
+`tasks.json` is the authoritative task registry: 51 tasks, 169 assignable slices, explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. T00 and T01 are in progress. The workspace now has a normalized document with cuboid/copy/object/array operations, initial Line and Rectangle tools, and a read-only importer for current prototype/instance JSON. That importer is an early partial T05 slice; the full DTO/history/format contract and most modeling domains remain unimplemented. Task slices are deliberately smaller than a whole feature family, especially arrays, formats, domains and rendering. Existing task IDs are stable; T46 is an early gate despite its appended number.
 
 ## Delivery scope
 

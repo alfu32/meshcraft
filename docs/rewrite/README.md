@@ -70,6 +70,6 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 
 ## Current handoff
 
-T00 and T01 are in progress. Continue the baseline fixture/oracle work and finish T46's ownership, identity, hierarchy, migration, and measured-comparison decisions before treating core APIs as stable. Use `python3 docs/rewrite/scripts/handoff.py --ready` to identify work whose dependencies are complete; do not begin by translating `Main.kt` wholesale.
+T00 and T01 are in progress. A read-only importer for current prototype/instance JSON is an early partial T05 implementation; see `handoffs/T05.md` for its limits. Continue the baseline fixture/oracle work and finish T46's ownership, identity, hierarchy, migration, and measured-comparison decisions before treating core APIs as stable. Use `python3 docs/rewrite/scripts/handoff.py --ready` to identify work whose dependencies are complete; do not begin by translating `Main.kt` wholesale.
 
-No legacy application was launched, no source-repository build was run, and no live API or screenshot comparison was performed during this audit. The plan explicitly budgets those checks. Existing examples were decoded read-only; original source files were not modified.
+The initial source audit did not launch the legacy application or run its source-repository build. A later live UI/MCP inspection is documented in `live-reference.md`; its screenshots are visual evidence, not a geometry parity oracle. The user-supplied `.octd` scene was read and imported without modifying or saving it.

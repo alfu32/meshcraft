@@ -163,6 +163,29 @@ pub struct Triangle {
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
+/// A raw vertex supplied by an importer; positions are never welded implicitly.
+#[derive(Clone, Debug)]
+pub struct RawGeometryVertex {
+    pub position: Vec3,
+    pub legacy_aliases: Vec<LegacyAlias>,
+}
+
+/// A raw segment whose endpoints index the vertex array passed to the import operation.
+#[derive(Clone, Debug)]
+pub struct RawGeometrySegment {
+    pub endpoints: [usize; 2],
+    pub color: Rgba8,
+    pub legacy_aliases: Vec<LegacyAlias>,
+}
+
+/// A raw triangle whose corners index the vertex array passed to the import operation.
+#[derive(Clone, Debug)]
+pub struct RawGeometryTriangle {
+    pub vertices: [usize; 3],
+    pub color: Rgba8,
+    pub legacy_aliases: Vec<LegacyAlias>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DefinitionKind {
@@ -312,6 +335,104 @@ impl Document {
         );
         self.revision = self.revision.saturating_add(1);
         id
+    }
+
+    /// Replaces a definition's geometry with raw indexed data, without topology repair or welding.
+    pub fn replace_definition_geometry_raw(
+        &mut self,
+        definition_id: DefinitionId,
+        vertices: Vec<RawGeometryVertex>,
+        segments: Vec<RawGeometrySegment>,
+        triangles: Vec<RawGeometryTriangle>,
+    ) -> Result<Vec<VertexId>, String> {
+        if !self.definitions.contains_key(&definition_id) {
+            return Err(format!("missing definition {}", definition_id.0));
+        }
+        let geometry = self.build_geometry_bundle_raw(vertices, segments, triangles)?;
+        let vertex_ids = geometry.vertices.keys().copied().collect();
+        self.definitions
+            .get_mut(&definition_id)
+            .expect("definition checked before geometry allocation")
+            .geometry = geometry;
+        self.revision = self.revision.saturating_add(1);
+        Ok(vertex_ids)
+    }
+
+    /// Builds raw indexed geometry for an authored occurrence replacement or definition import.
+    pub fn build_geometry_bundle_raw(
+        &mut self,
+        vertices: Vec<RawGeometryVertex>,
+        segments: Vec<RawGeometrySegment>,
+        triangles: Vec<RawGeometryTriangle>,
+    ) -> Result<GeometryBundle, String> {
+        if vertices.iter().any(|vertex| !vertex.position.is_finite()) {
+            return Err("raw geometry contains a non-finite vertex".to_owned());
+        }
+        for segment in &segments {
+            if segment
+                .endpoints
+                .iter()
+                .any(|index| *index >= vertices.len())
+            {
+                return Err("raw segment references a missing vertex".to_owned());
+            }
+        }
+        for triangle in &triangles {
+            if triangle
+                .vertices
+                .iter()
+                .any(|index| *index >= vertices.len())
+            {
+                return Err("raw triangle references a missing vertex".to_owned());
+            }
+        }
+
+        let mut geometry = GeometryBundle {
+            id: GeometryBundleId(self.allocate_id()),
+            ..GeometryBundle::default()
+        };
+        let mut vertex_ids = Vec::with_capacity(vertices.len());
+        for vertex in vertices {
+            let id = VertexId(self.allocate_id());
+            geometry.vertices.insert(
+                id,
+                Vertex {
+                    id,
+                    position: vertex.position,
+                    legacy_aliases: vertex.legacy_aliases,
+                },
+            );
+            vertex_ids.push(id);
+        }
+        for segment in segments {
+            let id = SegmentId(self.allocate_id());
+            geometry.segments.insert(
+                id,
+                Segment {
+                    id,
+                    endpoints: [
+                        vertex_ids[segment.endpoints[0]],
+                        vertex_ids[segment.endpoints[1]],
+                    ],
+                    color: segment.color,
+                    legacy_aliases: segment.legacy_aliases,
+                },
+            );
+        }
+        for triangle in triangles {
+            let id = TriangleId(self.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: triangle.vertices.map(|index| vertex_ids[index]),
+                    color: triangle.color,
+                    legacy_aliases: triangle.legacy_aliases,
+                },
+            );
+        }
+        geometry.validate()?;
+        Ok(geometry)
     }
 
     pub fn add_layout_entry(
