@@ -12,9 +12,13 @@ use meshcraft_core::commands::{
     CommandState, CommandStateQuery, CommandValueType,
 };
 use meshcraft_core::document::{
-    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, TriangleId, VertexId,
+    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, TriangleId, TriangleReplacement,
+    VertexId,
 };
 use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
+use meshcraft_core::operations::cuts::{
+    CutSegment3, CutSourceTriangle, CutTool, cut_selected_faces as cut_selected_face_mesh,
+};
 use meshcraft_core::operations::drawing::{self, LineOwner};
 use meshcraft_core::operations::extrude::{ExtrudeSourceTriangle, extrude_region};
 use meshcraft_core::operations::objects as modeling_objects;
@@ -650,6 +654,7 @@ enum ShellAction {
     PaintSelection,
     FaceOutline,
     PolylineMesh,
+    CutSelectedFaces(CutTool),
     SetPaintColor,
     CancelActiveTool,
     PlaceGuide(ConstructionGuideKind),
@@ -1336,6 +1341,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "double_line" => ShellAction::SelectToolAlias("Double Line"),
                 "face_outline" => ShellAction::FaceOutline,
                 "polyline_mesh" => ShellAction::PolylineMesh,
+                "cut_holes" => ShellAction::CutSelectedFaces(CutTool::Holes),
+                "cut_holes_2" => ShellAction::CutSelectedFaces(CutTool::Holes2),
+                "cut_out_3" => ShellAction::CutSelectedFaces(CutTool::Cutout),
                 "line_offset" => ShellAction::SelectToolAlias("Line Offset"),
                 "mesh" => ShellAction::SelectToolAlias("Mesh"),
                 "push_pull" => ShellAction::SelectToolAlias("Push/Pull"),
@@ -1443,6 +1451,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::DeleteSelection
         | ShellAction::FaceOutline
         | ShellAction::PolylineMesh
+        | ShellAction::CutSelectedFaces(_)
         | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
         | ShellAction::CreateObject
@@ -1500,6 +1509,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::CopySelection => CommandStateQuery::SelectionAvailable,
         ShellAction::FaceOutline => CommandStateQuery::SelectionAvailable,
         ShellAction::PolylineMesh => CommandStateQuery::SelectionAvailable,
+        ShellAction::CutSelectedFaces(_) => CommandStateQuery::SelectionAvailable,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
         ShellAction::CreateObject
@@ -2561,6 +2571,189 @@ impl MeshcraftApp {
         result.outputs.insert(
             "polyline_mesh".to_owned(),
             serde_json::json!({"faces": face_count, "segments": world_segments.len()}),
+        );
+        result
+    }
+
+    fn selected_cut_occurrence(&self) -> Option<OccurrenceRef> {
+        let mut occurrence = None;
+        let mut has_faces = false;
+        let mut has_edges = false;
+        for target in self.selection.selected() {
+            match target.entity {
+                SelectedEntity::Triangle(_) => has_faces = true,
+                SelectedEntity::Segment(_) => has_edges = true,
+                _ => continue,
+            }
+            if occurrence
+                .as_ref()
+                .is_some_and(|current| current != &target.occurrence)
+            {
+                return None;
+            }
+            occurrence = Some(target.occurrence.clone());
+        }
+        if !has_faces || !has_edges {
+            return None;
+        }
+        let occurrence = occurrence?;
+        let resolved = self.document.resolve_occurrence(&occurrence)?;
+        match &self.selection.context {
+            EditContext::Document if occurrence.is_scene_root() => Some(occurrence),
+            EditContext::Definition(definition) if resolved.definition.id == *definition => {
+                Some(occurrence)
+            }
+            EditContext::Occurrence(active) if active == &occurrence => Some(occurrence),
+            _ => None,
+        }
+    }
+
+    fn cut_selected_faces(&mut self, tool: CutTool) -> CommandResult {
+        let Some(occurrence) = self.selected_cut_occurrence() else {
+            return CommandResult::failed(
+                "Select faces and edges in one active geometry graph before cutting.",
+            );
+        };
+        let Some(resolved) = self.document.resolve_occurrence(&occurrence) else {
+            return CommandResult::failed("The selected geometry graph is no longer available.");
+        };
+        if resolved
+            .edits
+            .is_some_and(|edits| edits.geometry_replacement.is_some())
+        {
+            return CommandResult::failed(
+                "Cutting instance-local replacement geometry is not supported yet.",
+            );
+        }
+        let Some(inverse) = resolved
+            .world_transform
+            .inverse(GeometryTolerance::default())
+        else {
+            return CommandResult::failed("The selected geometry transform cannot be inverted.");
+        };
+        let definition = resolved.definition.id;
+        let Some(geometry) = self.document.effective_geometry(&occurrence) else {
+            return CommandResult::failed("The selected geometry graph is no longer available.");
+        };
+
+        let mut source_ids = Vec::new();
+        let mut source_faces = Vec::new();
+        let mut selected_segments = Vec::new();
+        for target in self.selection.selected() {
+            if target.occurrence != occurrence {
+                continue;
+            }
+            match target.entity {
+                SelectedEntity::Triangle(id) => {
+                    let Some(triangle) = geometry.triangles.get(&id) else {
+                        continue;
+                    };
+                    let Some(points) = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                        .into_iter()
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        return CommandResult::failed("A selected face has invalid vertices.");
+                    };
+                    let source = source_ids.len();
+                    source_ids.push(id);
+                    source_faces.push(CutSourceTriangle {
+                        source,
+                        vertices: [points[0], points[1], points[2]]
+                            .map(|point| resolved.world_transform.transform_point(point)),
+                        color: triangle.color,
+                    });
+                }
+                SelectedEntity::Segment(id) => {
+                    let Some(segment) = geometry.segments.get(&id) else {
+                        continue;
+                    };
+                    let [Some(start), Some(end)] = segment
+                        .endpoints
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        return CommandResult::failed("A selected edge has invalid endpoints.");
+                    };
+                    selected_segments.push(CutSegment3 {
+                        start: resolved.world_transform.transform_point(start),
+                        end: resolved.world_transform.transform_point(end),
+                    });
+                }
+                _ => {}
+            }
+        }
+        let cut_tolerance =
+            GeometryTolerance::new(1.0e-3, 1.0e-12).expect("the legacy cut tolerance is valid");
+        let cut =
+            match cut_selected_face_mesh(&source_faces, &selected_segments, tool, cut_tolerance) {
+                Ok(cut) => cut,
+                Err(error) => return CommandResult::failed(error),
+            };
+
+        let changed_source_ids = cut
+            .replaced_sources
+            .iter()
+            .map(|source| source_ids[*source])
+            .collect::<Vec<_>>();
+        let replacements = cut
+            .triangles
+            .iter()
+            .map(|triangle| TriangleReplacement {
+                source: source_ids[triangle.source],
+                vertices: triangle
+                    .vertices
+                    .map(|point| inverse.transform_point(point)),
+                color: triangle.color,
+            })
+            .collect::<Vec<_>>();
+        let label = match tool {
+            CutTool::Holes => "Cut Holes",
+            CutTool::Holes2 => "Cut Holes 2",
+            CutTool::Cutout => "Cutout",
+        };
+        let remap = match self.commit_document_edit(label, |document| {
+            document.replace_selected_triangles(definition, &changed_source_ids, replacements)
+        }) {
+            Ok(remap) => remap,
+            Err(error) => return CommandResult::failed(error),
+        };
+        let mut selection = self
+            .selection
+            .selected()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for targets in remap.triangles.values() {
+            selection.extend(targets.iter().copied().map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            }));
+        }
+        self.selection.apply(selection, SelectionMode::Replace);
+        let created_faces = remap.triangles.values().map(Vec::len).sum::<usize>();
+        let removed_faces = remap
+            .triangles
+            .values()
+            .filter(|targets| targets.is_empty())
+            .count();
+        self.status = format!(
+            "{label}: replaced {} selected face(s), created {created_faces}, removed {removed_faces}.",
+            remap.triangles.len()
+        );
+        let mut result = CommandResult::completed();
+        result.outputs.insert(
+            "cut".to_owned(),
+            serde_json::json!({
+                "replaced_faces": remap.triangles.len(),
+                "created_faces": created_faces,
+                "removed_faces": removed_faces,
+                "tool": match tool {
+                    CutTool::Holes => "CUT_HOLES",
+                    CutTool::Holes2 => "CUT_HOLES_2",
+                    CutTool::Cutout => "CUT_OUT_3",
+                },
+            }),
         );
         result
     }
@@ -4060,6 +4253,7 @@ impl MeshcraftApp {
             }
             ShellAction::FaceOutline => return self.outline_selected_faces(),
             ShellAction::PolylineMesh => return self.mesh_selected_polylines(),
+            ShellAction::CutSelectedFaces(tool) => return self.cut_selected_faces(tool),
             ShellAction::SetPaintColor => {
                 let channels = ["red", "green", "blue", "alpha"]
                     .map(|name| payload.values.get(name).and_then(serde_json::Value::as_u64));
@@ -4797,6 +4991,24 @@ impl MeshcraftApp {
                 .any(|target| matches!(target.entity, SelectedEntity::Segment(_)))
         {
             return CommandState::disabled("select connected line segments first");
+        }
+        if matches!(
+            id,
+            "tool.builtin.cut_holes" | "tool.builtin.cut_holes_2" | "tool.builtin.cut_out_3"
+        ) && self.selected_cut_occurrence().is_none()
+        {
+            return CommandState::disabled(
+                "select faces and edges in one active geometry graph first",
+            );
+        }
+        if matches!(
+            id,
+            "tool.builtin.cut_holes" | "tool.builtin.cut_holes_2" | "tool.builtin.cut_out_3"
+        ) && self.selected_cut_occurrence().is_none()
+        {
+            return CommandState::disabled(
+                "select faces and edges in one active geometry graph first",
+            );
         }
         if id == "tool.builtin.line_offset"
             && !self
@@ -8793,7 +9005,7 @@ impl Drop for MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
+        CommandPayload, CutTool, DrawingToolState, EditContext, LineOffsetToolState, MeshToolState,
         MeshcraftApp, OrthoView, PolylineToolState, Preferences, PrimitiveToolState,
         ReplacementDecision, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy,
         SelectionMode, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
@@ -8813,12 +9025,12 @@ mod tests {
     use meshcraft_core::commands::{
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
-    use meshcraft_core::document::{Document, OccurrenceRef, Rgba8};
+    use meshcraft_core::document::{DefinitionKind, Document, OccurrenceRef, Rgba8};
     use meshcraft_core::geometry::{Affine3, Vec3};
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
     use serde_json::{Value, json};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::io::Write;
     #[cfg(not(target_arch = "wasm32"))]
     use std::path::{Path, PathBuf};
@@ -11803,6 +12015,265 @@ mod tests {
             "select connected line segments first",
             state.disabled_reason.as_deref().unwrap()
         );
+    }
+
+    #[test]
+    fn all_cut_commands_replace_selected_faces_keep_colors_and_undo_atomically() {
+        let cases = [
+            ("tool.builtin.cut_holes", CutTool::Holes, "CUT_HOLES", 3.0),
+            (
+                "tool.builtin.cut_holes_2",
+                CutTool::Holes2,
+                "CUT_HOLES_2",
+                4.0,
+            ),
+            ("tool.builtin.cut_out_3", CutTool::Cutout, "CUT_OUT_3", 4.0),
+        ];
+        for (command, _tool, expected_tool_id, expected_area) in cases {
+            let mut app = test_app();
+            let face_color = Rgba8::new(36, 72, 144, 255);
+            let (boundary, faces) = app
+                .document
+                .append_colored_indexed_mesh_to_scene_root(
+                    vec![
+                        Vec3::ZERO,
+                        Vec3::X * 2.0,
+                        Vec3::new(2.0, 0.0, 2.0),
+                        Vec3::Z * 2.0,
+                    ],
+                    vec![
+                        ([0, 1], face_color),
+                        ([1, 2], face_color),
+                        ([2, 3], face_color),
+                        ([3, 0], face_color),
+                    ],
+                    vec![([0, 1, 2], face_color), ([0, 2, 3], face_color)],
+                )
+                .unwrap();
+            let loop_points = [
+                Vec3::new(0.5, 0.0, 0.5),
+                Vec3::new(1.5, 0.0, 0.5),
+                Vec3::new(1.5, 0.0, 1.5),
+                Vec3::new(0.5, 0.0, 1.5),
+            ];
+            let loop_edges = (0..loop_points.len())
+                .map(|index| {
+                    app.document
+                        .append_line_segment_to_scene_root(
+                            loop_points[index],
+                            loop_points[(index + 1) % loop_points.len()],
+                        )
+                        .unwrap()
+                        .affected_segments[0]
+                })
+                .collect::<Vec<_>>();
+            let occurrence = OccurrenceRef::scene_root();
+            let before_document = app.document.clone();
+            let before_ids = faces.iter().copied().collect::<BTreeSet<_>>();
+            let mut selected = faces
+                .iter()
+                .copied()
+                .map(|face| SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Triangle(face),
+                })
+                .collect::<Vec<_>>();
+            selected.extend(loop_edges.iter().copied().map(|edge| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(edge),
+            }));
+            app.selection.apply(selected, SelectionMode::Replace);
+
+            assert!(
+                app.query_command_state(command).enabled,
+                "{command}: {}",
+                app.status
+            );
+            assert_ne!(
+                CommandCapability::Deferred,
+                shell_commands().get(command).unwrap().descriptor.capability
+            );
+            let dispatch = app.dispatch_command(command, &CommandPayload::default());
+            assert!(dispatch.accepted, "{command}: {}", app.status);
+            assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+            assert_eq!(expected_tool_id, dispatch.result.outputs["cut"]["tool"]);
+
+            let geometry = app.document.effective_geometry(&occurrence).unwrap();
+            let new_faces = geometry
+                .triangles
+                .keys()
+                .filter(|id| !before_ids.contains(id))
+                .copied()
+                .collect::<Vec<_>>();
+            assert!(!new_faces.is_empty());
+            assert!(
+                before_ids
+                    .iter()
+                    .all(|id| !geometry.triangles.contains_key(id))
+            );
+            assert!(
+                new_faces
+                    .iter()
+                    .all(|id| geometry.triangles[id].color == face_color)
+            );
+            let total_area = geometry
+                .triangles
+                .values()
+                .map(|triangle| {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        panic!("replacement face has invalid vertices")
+                    };
+                    (b - a).cross(c - a).length() * 0.5
+                })
+                .sum::<f64>();
+            assert!((expected_area - total_area).abs() < 1.0e-5);
+            assert_eq!(loop_edges.len(), app.selection.summary().edges);
+            assert_eq!(new_faces.len(), app.selection.summary().faces);
+            assert_eq!(1, app.history.entries().len());
+
+            app.run_command("edit.undo");
+            let restored = app.document.effective_geometry(&occurrence).unwrap();
+            assert_eq!(
+                before_document
+                    .definition(Document::SCENE_ROOT_DEFINITION_ID)
+                    .unwrap()
+                    .geometry
+                    .triangles,
+                restored.triangles
+            );
+            assert_eq!(boundary.len() + loop_edges.len(), restored.segments.len());
+        }
+    }
+
+    #[test]
+    fn cut_command_edits_an_entered_definition_in_its_local_coordinates() {
+        let mut app = test_app();
+        let definition = app
+            .document
+            .add_definition("editable face", DefinitionKind::Mesh);
+        let color = Rgba8::new(90, 120, 150, 255);
+        let (_, faces) = app
+            .document
+            .append_colored_indexed_mesh_to_definition(
+                definition,
+                vec![
+                    Vec3::ZERO,
+                    Vec3::X * 2.0,
+                    Vec3::new(2.0, 0.0, 2.0),
+                    Vec3::Z * 2.0,
+                ],
+                vec![],
+                vec![([0, 1, 2], color), ([0, 2, 3], color)],
+            )
+            .unwrap();
+        let loop_points = [
+            Vec3::new(0.5, 0.0, 0.5),
+            Vec3::new(1.5, 0.0, 0.5),
+            Vec3::new(1.5, 0.0, 1.5),
+            Vec3::new(0.5, 0.0, 1.5),
+        ];
+        let edges = (0..loop_points.len())
+            .map(|index| {
+                app.document
+                    .append_line_segment_to_definition(
+                        definition,
+                        loop_points[index],
+                        loop_points[(index + 1) % loop_points.len()],
+                    )
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let entry = app
+            .document
+            .add_layout_entry(
+                app.document.root_layout(),
+                definition,
+                Affine3::from_translation(Vec3::new(12.0, 5.0, -7.0)),
+            )
+            .unwrap();
+        let occurrence = OccurrenceRef::root(entry);
+        app.selection
+            .set_context(EditContext::Occurrence(occurrence.clone()));
+        let mut selected = faces
+            .iter()
+            .copied()
+            .map(|face| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(face),
+            })
+            .collect::<Vec<_>>();
+        selected.extend(edges.into_iter().map(|edge| SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Segment(edge),
+        }));
+        app.selection.apply(selected, SelectionMode::Replace);
+
+        let dispatch = app.dispatch_command("tool.builtin.cut_holes_2", &CommandPayload::default());
+
+        assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
+        let geometry = app.document.effective_geometry(&occurrence).unwrap();
+        assert!(geometry.triangles.len() > faces.len());
+        assert!(
+            geometry
+                .triangles
+                .values()
+                .all(|triangle| triangle.color == color)
+        );
+        assert!(geometry.vertices.values().all(|vertex| {
+            vertex.position.x.abs() <= 2.0
+                && vertex.position.y.abs() <= 1.0e-8
+                && vertex.position.z.abs() <= 2.0
+        }));
+        assert!(
+            app.selection
+                .selected()
+                .iter()
+                .all(|target| target.occurrence == occurrence)
+        );
+        assert!(app.document.validate().is_ok());
+    }
+
+    #[test]
+    fn cut_failure_preserves_document_history_and_mixed_selection() {
+        let mut app = test_app();
+        let faces = app
+            .document
+            .append_triangles_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X * 2.0, Vec3::Z * 2.0],
+                vec![[0, 1, 2]],
+            )
+            .unwrap();
+        let edge = app
+            .document
+            .append_line_segment_to_scene_root(Vec3::new(0.25, 0.0, 0.25), Vec3::new(0.5, 0.0, 0.5))
+            .unwrap()
+            .affected_segments[0];
+        let occurrence = OccurrenceRef::scene_root();
+        app.selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Triangle(faces[0]),
+                },
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Segment(edge),
+                },
+            ],
+            SelectionMode::Replace,
+        );
+        let document = app.document.clone();
+        let selection = app.selection.selected().clone();
+
+        let dispatch = app.dispatch_command("tool.builtin.cut_holes_2", &CommandPayload::default());
+
+        assert_eq!(CommandCompletion::Failed, dispatch.result.completion);
+        assert_eq!(document, app.document);
+        assert_eq!(selection, *app.selection.selected());
+        assert!(app.history.entries().is_empty());
     }
 
     #[test]

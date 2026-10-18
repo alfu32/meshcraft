@@ -1,3 +1,4 @@
+pub mod cuts;
 pub mod drawing;
 pub mod extrude;
 pub mod objects;

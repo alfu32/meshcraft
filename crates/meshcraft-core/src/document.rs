@@ -276,6 +276,14 @@ pub struct Triangle {
     pub extensions: BTreeMap<String, Value>,
 }
 
+/// One generated face replacing a selected triangle during an atomic topology edit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TriangleReplacement {
+    pub source: TriangleId,
+    pub vertices: [Vec3; 3],
+    pub color: Rgba8,
+}
+
 /// A raw topological vertex supplied by an importer; positions are never welded implicitly.
 #[derive(Clone, Debug)]
 pub struct RawGeometryVertex {
@@ -1197,6 +1205,155 @@ impl Document {
         staged.revision = staged.revision.saturating_add(1);
         *self = staged;
         Ok(triangle_ids)
+    }
+
+    /// Atomically replaces selected faces and returns the source-to-output identity remap.
+    /// Untouched geometry and selected line segments retain their existing IDs.
+    pub fn replace_selected_triangles(
+        &mut self,
+        definition_id: DefinitionId,
+        sources: &[TriangleId],
+        replacements: Vec<TriangleReplacement>,
+    ) -> Result<TopologyRemap, String> {
+        if sources.is_empty() {
+            return Err("face replacement needs at least one selected source face".to_owned());
+        }
+        let source_set = sources.iter().copied().collect::<BTreeSet<_>>();
+        if source_set.len() != sources.len() {
+            return Err("face replacement contains duplicate source IDs".to_owned());
+        }
+        if replacements
+            .iter()
+            .any(|replacement| !source_set.contains(&replacement.source))
+        {
+            return Err("replacement face references an unselected source ID".to_owned());
+        }
+
+        let mut staged = self.clone();
+        let mut geometry = staged
+            .definitions
+            .get(&definition_id)
+            .ok_or_else(|| format!("missing definition {}", definition_id.0))?
+            .geometry
+            .clone();
+        let mut source_triangles = BTreeMap::new();
+        for source in &source_set {
+            let triangle = geometry
+                .triangles
+                .get(source)
+                .cloned()
+                .ok_or_else(|| format!("missing source triangle {}", source.0))?;
+            source_triangles.insert(*source, triangle);
+        }
+
+        let scale_origin = geometry
+            .vertices
+            .values()
+            .next()
+            .map_or_else(|| replacements[0].vertices[0], |vertex| vertex.position);
+        let coordinate_scale = replacements
+            .iter()
+            .flat_map(|replacement| replacement.vertices)
+            .map(|point| (point - scale_origin).length())
+            .chain(
+                geometry
+                    .vertices
+                    .values()
+                    .map(|vertex| (vertex.position - scale_origin).length()),
+            )
+            .fold(0.0, f64::max);
+        let tolerance = crate::geometry::GeometryTolerance::default().linear_at(coordinate_scale);
+        if !tolerance.is_finite() || tolerance <= 0.0 {
+            return Err("replacement geometry exceeds the supported coordinate range".to_owned());
+        }
+        for source in &source_set {
+            geometry.triangles.remove(source);
+        }
+
+        let mut remap = TopologyRemap::default();
+        for source in &source_set {
+            remap.triangles.insert(*source, Vec::new());
+        }
+        let mut inherited_metadata = BTreeSet::new();
+        for replacement in replacements {
+            let [a, b, c] = replacement.vertices;
+            if replacement.vertices.iter().any(|point| !point.is_finite())
+                || (b - a).cross(c - a).length() <= tolerance * tolerance
+            {
+                return Err("replacement geometry contains a degenerate face".to_owned());
+            }
+            let mut references = [VertexRef::new(VertexId::default()); 3];
+            for (index, point) in replacement.vertices.into_iter().enumerate() {
+                let matching = geometry
+                    .vertices
+                    .values()
+                    .filter_map(|vertex| {
+                        let distance = vertex.position.distance(point);
+                        (distance <= tolerance).then_some((distance, vertex.id, vertex.position))
+                    })
+                    .min_by(|left, right| left.0.total_cmp(&right.0));
+                let (id, position) = if let Some((_, id, position)) = matching {
+                    (id, position)
+                } else {
+                    let id = VertexId(staged.allocate_id());
+                    geometry.vertices.insert(
+                        id,
+                        Vertex {
+                            id,
+                            position: point,
+                            legacy_aliases: Vec::new(),
+                        },
+                    );
+                    (id, point)
+                };
+                references[index] = VertexRef {
+                    id,
+                    position_offset: point - position,
+                };
+            }
+            if references[0].id == references[1].id
+                || references[1].id == references[2].id
+                || references[2].id == references[0].id
+            {
+                return Err("replacement face collapses to repeated vertices".to_owned());
+            }
+            let source_triangle = &source_triangles[&replacement.source];
+            let inherit = inherited_metadata.insert(replacement.source);
+            let id = TriangleId(staged.allocate_id());
+            geometry.triangles.insert(
+                id,
+                Triangle {
+                    id,
+                    vertices: references,
+                    color: replacement.color,
+                    legacy_aliases: if inherit {
+                        source_triangle.legacy_aliases.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    extensions: if inherit {
+                        source_triangle.extensions.clone()
+                    } else {
+                        BTreeMap::new()
+                    },
+                },
+            );
+            remap
+                .triangles
+                .get_mut(&replacement.source)
+                .unwrap()
+                .push(id);
+        }
+
+        geometry.validate()?;
+        staged
+            .definitions
+            .get_mut(&definition_id)
+            .expect("definition checked before geometry replacement")
+            .geometry = geometry;
+        staged.revision = staged.revision.saturating_add(1);
+        *self = staged;
+        Ok(remap)
     }
 
     /// Appends authored faces to the scene-root graph without creating line segments.
@@ -2783,7 +2940,7 @@ mod tests {
     use super::{
         DefinitionKind, Document, GeometryBundle, InstanceEdits, ModelSettings, OccurrenceRef,
         RawGeometryTriangle, RawGeometryVertex, RawVertexRef, Rgba8, SegmentId, TopologyRemap,
-        Triangle, TriangleId, Vertex, VertexId, VertexRef,
+        Triangle, TriangleId, TriangleReplacement, Vertex, VertexId, VertexRef,
     };
     use crate::geometry::{Affine3, Vec3};
     use std::collections::BTreeMap;
@@ -2827,6 +2984,80 @@ mod tests {
             },
         );
         bundle
+    }
+
+    #[test]
+    fn selected_triangle_replacement_is_atomic_and_returns_colored_identity_remap() {
+        let mut document = Document::new();
+        let definition = document.add_definition("face", DefinitionKind::Mesh);
+        document.definitions.get_mut(&definition).unwrap().geometry = triangle_bundle(200, 0.0);
+        let source = TriangleId(204);
+        let before_revision = document.revision();
+        let remap = document
+            .replace_selected_triangles(
+                definition,
+                &[source],
+                vec![
+                    TriangleReplacement {
+                        source,
+                        vertices: [
+                            Vec3::new(0.0, 0.0, 0.0),
+                            Vec3::new(1.0, 0.0, 0.0),
+                            Vec3::new(0.0, 0.0, 0.5),
+                        ],
+                        color: Rgba8 {
+                            red: 12,
+                            green: 34,
+                            blue: 56,
+                            alpha: 255,
+                        },
+                    },
+                    TriangleReplacement {
+                        source,
+                        vertices: [
+                            Vec3::new(1.0, 0.0, 0.0),
+                            Vec3::new(0.0, 1.0, 0.0),
+                            Vec3::new(0.0, 0.0, 0.5),
+                        ],
+                        color: Rgba8 {
+                            red: 12,
+                            green: 34,
+                            blue: 56,
+                            alpha: 255,
+                        },
+                    },
+                ],
+            )
+            .unwrap();
+
+        let outputs = &remap.triangles[&source];
+        assert_eq!(2, outputs.len());
+        assert!(!outputs.contains(&source));
+        assert_eq!(before_revision + 1, document.revision());
+        let geometry = &document.definition(definition).unwrap().geometry;
+        assert!(!geometry.triangles.contains_key(&source));
+        assert!(
+            outputs
+                .iter()
+                .all(|id| geometry.triangles[id].color.red == 12)
+        );
+        assert!(document.validate().is_ok());
+
+        let before_failure = document.clone();
+        assert!(
+            document
+                .replace_selected_triangles(
+                    definition,
+                    outputs,
+                    vec![TriangleReplacement {
+                        source: outputs[0],
+                        vertices: [Vec3::ZERO, Vec3::X, Vec3::X * 2.0],
+                        color: Rgba8::WHITE,
+                    }],
+                )
+                .is_err()
+        );
+        assert_eq!(before_failure, document);
     }
 
     #[test]
