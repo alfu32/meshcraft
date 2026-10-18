@@ -25,16 +25,16 @@ An additional live read on 2026-10-18 reported 16 groups, 460 faces, 524 edges, 
 
 ## Right-hand Panels screenshots
 
-These eight 1920×1080 captures were compared byte-for-byte with the screenshots supplied for this walkthrough. The numbered list follows attachment order. Captions below name only visible content; a heading at a crop edge does not mean its full section is shown. “Panels” means the vertically scrolling inspector/settings column on the right.
+These eight 1920×1080 captures were compared byte-for-byte with the screenshots supplied for this walkthrough. The numbered list follows attachment order. Filenames and captions name every visible section, including partial sections at crop edges; a heading at a crop edge does not mean its full section is shown. “Panels” means the vertically scrolling inspector/settings column on the right, distinct from the centered command palette.
 
-1. Selection totals, the empty Object editor, and the `cuboid | internal | 16` Objects entry: ![01 — Selection, Object, and Objects](references/live-5.7.1/object-array.png)
-2. XRef actions, Model Settings through walk-height-adjust speed, and the start of UI Settings: ![02 — XRef, Model Settings, and start of UI Settings](references/live-5.7.1/model-settings.png)
-3. UI Settings controls followed by Help / About: ![03 — UI Settings and Help / About](references/live-5.7.1/ui-settings-help-about.png)
-4. Help / About tail, Polyline Settings, and Vector Text through the embedded glyph source: ![04 — Polyline Settings and Vector Text](references/live-5.7.1/polyline-vector-text-settings.png)
-5. Architecture - Walls, Slabs, Stairs, and the visible top of Frames; the Frames section continues below the crop: ![05 — Architecture construction settings](references/live-5.7.1/architecture-settings.png)
-6. HVAC Settings, Hotspot Settings, and the beginning of Random Tools: ![06 — HVAC, Hotspot, and start of Random Tools](references/live-5.7.1/hvac-settings.png)
-7. Random Tools (Fuzzy Offset, Random Surface Array, and Planar Regularize / Surface Remesh), Tutorials and playback controls, plus the Shader Settings heading: ![07 — Random Tools, Tutorials, and Shader Settings heading](references/live-5.7.1/random-tools-tutorials.png)
-8. The tail of Random Tools, Tutorials, and visible Shader Settings controls through shadow bias, normal bias, PCF, CSM, and dithering: ![08 — Tutorials and Shader Settings controls](references/live-5.7.1/tutorials-and-shader-settings.png)
+1. Selection totals, the empty Object editor, and the `cuboid | internal | 16` Objects entry: ![01 — Selection, Object, and Objects](references/live-5.7.1/panels-selection-object-objects.png)
+2. XRef actions, Model Settings through walk-height-adjust speed, and the first UI Settings field: ![02 — XRef, Model Settings, and start of UI Settings](references/live-5.7.1/panels-xref-model-settings-ui-start.png)
+3. The final walk-height-adjust value, UI Settings controls, and Help / About: ![03 — UI Settings and Help / About](references/live-5.7.1/panels-ui-settings-help-about.png)
+4. Help / About tail, Polyline Settings, and Vector Text through the embedded glyph source: ![04 — Help / About, Polyline Settings, and Vector Text](references/live-5.7.1/panels-help-about-polyline-vector-text.png)
+5. Architecture - Walls, Slabs, Stairs, and the visible top of Frames; the Frames section continues below the crop: ![05 — Architecture walls, slabs, stairs, and frames](references/live-5.7.1/panels-architecture-walls-slabs-stairs-frames.png)
+6. HVAC Settings, Hotspot Settings, and the beginning of Random Tools: ![06 — HVAC, Hotspot, and start of Random Tools](references/live-5.7.1/panels-hvac-hotspots-random-tools-start.png)
+7. Random Tools (Fuzzy Offset, Random Surface Array, and Planar Regularize / Surface Remesh), Tutorials and playback controls, plus the Shader Settings heading: ![07 — Random Tools, Tutorials, and Shader Settings heading](references/live-5.7.1/panels-random-tools-tutorials-shader-heading.png)
+8. The tail of Random Tools, Tutorials, and visible Shader Settings controls through shadow bias, normal bias, PCF, CSM, and dithering: ![08 — Remesh, Tutorials, and Shader Settings controls](references/live-5.7.1/panels-remesh-tutorials-shader-settings.png)
 
 ## Command palette screenshot
 
