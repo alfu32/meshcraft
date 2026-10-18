@@ -70,7 +70,7 @@ Use one effective-content view for viewport, picking, snapping, export, explode,
 
 ## Geometry identity: remove coordinate copies carefully
 
-The recommended candidate is a per-bundle vertex arena with stable VertexIds and indexed segments/triangles. Primitive types remain segments/triangles; a boundary-loop/half-edge migration is not implied. Shared vertices keep their identity when moved. Newly split topology emits an explicit identity remap consumed by selection/hotspots.
+The recommended candidate is a per-bundle vertex arena with stable VertexIds and indexed segments/triangles. Primitive types remain segments/triangles; a boundary-loop/half-edge migration is not implied. Shared vertices keep their identity when moved. Newly split topology emits a `TopologyRemap`: old vertex/segment/triangle IDs map to ordered result IDs; omitted entries are unchanged and empty result lists mean deletion. Selection and hotspot attachment adapters consume the operation's remap atomically; coordinate searches are for legacy reconciliation only.
 
 An imported legacy alias may identify one vertex across corners whose serialized coordinates differ slightly. Those corners keep the same `VertexId` and store `position_offset`; `GeometryBundle::vertex_position` returns the original corner coordinate. Equal coordinates without an identity alias remain separate vertices. This avoids both alias loss and coordinate welding.
 

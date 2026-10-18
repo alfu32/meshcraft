@@ -1059,6 +1059,8 @@ mod tests {
         include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
     const HOTSPOT_SCENE: &str =
         include_str!("../../../fixtures/legacy/samples/examples/hotspots.demo.2.k3d");
+    const ARCHITECTURE_WITH_MESH: &str =
+        include_str!("../../../fixtures/legacy/samples/examples/test-shortcuts.0.octd");
     const ALPHABET_GLYPHS: &str =
         include_str!("../../../fixtures/legacy/samples/assets/glyphs/alphabet.octd");
 
@@ -1095,12 +1097,33 @@ mod tests {
         let root_layout = root.definition.default_child_layout.unwrap();
         let first_child_layout = first_child.definition.default_child_layout.unwrap();
         assert_ne!(root_layout, first_child_layout);
-        assert!(document.occurrence_edits.values().any(|edits| {
-            edits
-                .hotspot_positions
-                .values()
-                .any(|position| *position != Vec3::ZERO)
+        let shared_prototype = first_child.definition.id;
+        assert!(occurrences[1..4].iter().all(|occurrence| {
+            document
+                .resolve_occurrence(occurrence)
+                .unwrap()
+                .definition
+                .id
+                == shared_prototype
         }));
+        let hotspot_positions: Vec<_> = occurrences[1..4]
+            .iter()
+            .map(|occurrence| {
+                *document.occurrence_edits[occurrence]
+                    .hotspot_positions
+                    .values()
+                    .next()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            [
+                Vec3::new(6.0, 0.0, 2.0),
+                Vec3::new(3.0, 0.0, 2.0),
+                Vec3::new(7.0, 0.0, 2.0),
+            ],
+            hotspot_positions.as_slice()
+        );
         assert!(document.extensions.contains_key("k3d.undoHistory"));
     }
 
@@ -1163,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_prototype_geometry_when_only_domain_overrides_are_present() {
+    fn preserves_prototype_geometry_when_only_annotation_overrides_are_present() {
         let source = r#"{
             "prototypes": [
                 {"id":"root","name":"Root","definitionAxisU":{"x":1},"definitionAxisV":{"y":1},"definitionAxisW":{"z":1}},
@@ -1335,6 +1358,33 @@ mod tests {
                 .iter()
                 .all(|point| *point == first || *point == second)
         );
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn preserves_loose_mesh_and_architecture_payload_on_the_same_definition() {
+        let document = import_current_json(ARCHITECTURE_WITH_MESH).unwrap();
+        let root = document
+            .definitions
+            .values()
+            .find(|definition| definition.name == "Root")
+            .unwrap();
+
+        assert_eq!(48, root.geometry.segments.len());
+        assert_eq!(50, root.geometry.triangles.len());
+        for (field, expected) in [
+            ("k3d.architectureWalls", 5),
+            ("k3d.architectureSlabs", 6),
+            ("k3d.architectureFrames", 25),
+        ] {
+            assert_eq!(
+                Some(expected),
+                root.extensions
+                    .get(field)
+                    .and_then(serde_json::Value::as_array)
+                    .map(Vec::len)
+            );
+        }
         assert!(document.validate().is_ok());
     }
 }

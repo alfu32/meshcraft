@@ -1,6 +1,7 @@
 use crate::geometry::{Affine3, Vec3};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 macro_rules! stable_id {
@@ -30,6 +31,44 @@ stable_id!(SegmentId);
 stable_id!(TriangleId);
 stable_id!(ChildLayoutId);
 stable_id!(LayoutEntryId);
+
+/// Identity changes produced by one topology-edit operation.
+///
+/// A missing key means the source ID is unchanged, an empty target list means it was deleted,
+/// and multiple ordered targets represent a split. Consumers apply these mappings in the same
+/// transaction as the geometry edit.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct TopologyRemap {
+    #[serde(default)]
+    pub vertices: BTreeMap<VertexId, Vec<VertexId>>,
+    #[serde(default)]
+    pub segments: BTreeMap<SegmentId, Vec<SegmentId>>,
+    #[serde(default)]
+    pub triangles: BTreeMap<TriangleId, Vec<TriangleId>>,
+}
+
+impl TopologyRemap {
+    pub fn vertex_targets(&self, id: VertexId) -> Cow<'_, [VertexId]> {
+        match self.vertices.get(&id) {
+            Some(targets) => Cow::Borrowed(targets.as_slice()),
+            None => Cow::Owned(vec![id]),
+        }
+    }
+
+    pub fn segment_targets(&self, id: SegmentId) -> Cow<'_, [SegmentId]> {
+        match self.segments.get(&id) {
+            Some(targets) => Cow::Borrowed(targets.as_slice()),
+            None => Cow::Owned(vec![id]),
+        }
+    }
+
+    pub fn triangle_targets(&self, id: TriangleId) -> Cow<'_, [TriangleId]> {
+        match self.triangles.get(&id) {
+            Some(targets) => Cow::Borrowed(targets.as_slice()),
+            None => Cow::Owned(vec![id]),
+        }
+    }
+}
 
 /// A reference to one realized placement through shared child-layout templates.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -1371,8 +1410,8 @@ pub struct ResolvedOccurrence<'a> {
 mod tests {
     use super::{
         DefinitionKind, Document, GeometryBundle, InstanceEdits, ModelSettings, OccurrenceRef,
-        RawGeometryTriangle, RawGeometryVertex, RawVertexRef, Rgba8, Triangle, TriangleId, Vertex,
-        VertexId, VertexRef,
+        RawGeometryTriangle, RawGeometryVertex, RawVertexRef, Rgba8, SegmentId, TopologyRemap,
+        Triangle, TriangleId, Vertex, VertexId, VertexRef,
     };
     use crate::geometry::{Affine3, Vec3};
     use std::collections::BTreeMap;
@@ -1672,6 +1711,39 @@ mod tests {
                 .iter()
                 .all(|reference| reference.position_offset == Vec3::ZERO)
         );
+    }
+
+    #[test]
+    fn topology_remaps_distinguish_unchanged_deleted_and_split_identity() {
+        let remap = TopologyRemap {
+            vertices: BTreeMap::from([
+                (VertexId(10), vec![VertexId(10), VertexId(11)]),
+                (VertexId(12), Vec::new()),
+            ]),
+            segments: BTreeMap::from([(SegmentId(20), Vec::new())]),
+            triangles: BTreeMap::from([(TriangleId(30), vec![TriangleId(31)])]),
+        };
+
+        assert_eq!(
+            &[VertexId(10), VertexId(11)],
+            remap.vertex_targets(VertexId(10)).as_ref()
+        );
+        assert_eq!(
+            &[] as &[VertexId],
+            remap.vertex_targets(VertexId(12)).as_ref()
+        );
+        assert_eq!(&[VertexId(13)], remap.vertex_targets(VertexId(13)).as_ref());
+        assert_eq!(
+            &[] as &[SegmentId],
+            remap.segment_targets(SegmentId(20)).as_ref()
+        );
+        assert_eq!(
+            &[TriangleId(31)],
+            remap.triangle_targets(TriangleId(30)).as_ref()
+        );
+        let round_trip: TopologyRemap =
+            serde_json::from_value(serde_json::to_value(&remap).unwrap()).unwrap();
+        assert_eq!(remap, round_trip);
     }
 
     #[test]
