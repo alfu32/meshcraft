@@ -226,6 +226,10 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             }
         }
         if let Some(vertices) = object.get("prototypeVertices") {
+            let vertices = normalize_sparse_dto_array(
+                vertices,
+                &serde_json::json!({"id": "", "x": 0, "y": 0, "z": 0}),
+            );
             definition
                 .extensions
                 .insert("k3d.__raw_prototype_vertices".to_owned(), vertices.clone());
@@ -1329,6 +1333,26 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
             }
         }
     }
+    let vector_array_fields: &[&str] = match field {
+        "architectureFrames" => &["contour"],
+        "architectureStairs" => &["contour", "walkingPath"],
+        "hvacPlumbingRuns" => &["path"],
+        _ => &[],
+    };
+    if !vector_array_fields.is_empty()
+        && let Some(dtos) = dtos.as_array_mut()
+    {
+        let vector_defaults = serde_json::json!({"x": 0, "y": 0, "z": 0});
+        for dto in dtos {
+            if let Some(dto) = dto.as_object_mut() {
+                for field in vector_array_fields {
+                    if let Some(values) = dto.get_mut(*field) {
+                        *values = normalize_sparse_dto_array(values, &vector_defaults);
+                    }
+                }
+            }
+        }
+    }
     dtos
 }
 
@@ -1360,10 +1384,23 @@ fn normalize_sparse_dto_object(value: &Value, defaults: &Value) -> Value {
 }
 
 fn apply_sparse_dto_defaults(object: &mut Map<String, Value>, defaults: &Value) {
-    for (field, default) in defaults.as_object().expect("DTO defaults") {
-        object
-            .entry(field.clone())
-            .or_insert_with(|| default.clone());
+    apply_sparse_dto_map_defaults(object, defaults.as_object().expect("DTO defaults"));
+}
+
+fn apply_sparse_dto_map_defaults(object: &mut Map<String, Value>, defaults: &Map<String, Value>) {
+    for (field, default) in defaults {
+        match object.entry(field.clone()) {
+            serde_json::map::Entry::Vacant(entry) => {
+                entry.insert(default.clone());
+            }
+            serde_json::map::Entry::Occupied(mut entry) => {
+                if let (Some(value), Some(defaults)) =
+                    (entry.get_mut().as_object_mut(), default.as_object())
+                {
+                    apply_sparse_dto_map_defaults(value, defaults);
+                }
+            }
+        }
     }
 }
 
@@ -2159,23 +2196,39 @@ mod tests {
     fn sparse_schema17_component_dtos_receive_legacy_defaults() {
         let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
         source["prototypes"][0]["architectureFrames"] = serde_json::json!([
-            {"id": "sparse-frame", "vendorData": {"kept": true}},
+            {
+                "id": "sparse-frame",
+                "contour": [{"x": 2}],
+                "vendorData": {"kept": true}
+            },
             {"id": "explicit-frame", "depth": 0.75, "glazingEnabled": true}
         ]);
-        source["prototypes"][0]["architectureWalls"] =
-            serde_json::json!([{"id": "wall", "holes": [{"id": "hole"}]}]);
+        source["prototypes"][0]["prototypeVertices"] =
+            serde_json::json!([{"id": "sparse-vertex", "vendorVertex": true}]);
+        source["prototypes"][0]["architectureWalls"] = serde_json::json!([{
+            "id": "wall",
+            "exteriorColor": {"r": 0.25},
+            "holes": [{"id": "hole"}]
+        }]);
         source["prototypes"][0]["architectureSlabs"] = serde_json::json!([{"id": "slab"}]);
-        source["prototypes"][0]["architectureStairs"] = serde_json::json!([{"id": "stair"}]);
+        source["prototypes"][0]["architectureStairs"] = serde_json::json!([{
+            "id": "stair",
+            "contour": [{"y": 2}],
+            "walkingPath": [{"z": 3}]
+        }]);
         source["prototypes"][0]["voxels"] = serde_json::json!([{"x": 3}]);
         source["prototypes"][0]["voxelColor"] = serde_json::json!({"r": 0.4});
-        source["prototypes"][0]["hvacPlumbingRuns"] = serde_json::json!([{"id": "pipe"}]);
+        source["prototypes"][0]["hvacPlumbingRuns"] = serde_json::json!([{
+            "id": "pipe",
+            "path": [{"x": 4}]
+        }]);
         source["prototypes"][0]["hvacVentilationDucts"] = serde_json::json!([{"id": "duct"}]);
         source["prototypes"][0]["hotspots"] = serde_json::json!([{
             "id": "hotspot",
-            "attachedSegments": [{"id": "attached-segment"}],
-            "attachedTriangles": [{"id": "attached-triangle"}]
+            "attachedSegments": [{"id": "attached-segment", "a": {"x": 9}}],
+            "attachedTriangles": [{"id": "attached-triangle", "c": {"z": 3}}]
         }]);
-        source["prototypes"][0]["dimensions"] = serde_json::json!([{}]);
+        source["prototypes"][0]["dimensions"] = serde_json::json!([{"start": {"x": 4}}]);
         source["prototypes"][0]["texts"] = serde_json::json!([{"text": "label"}]);
         source["rootInstance"]["hotspotPositions"] = serde_json::json!([{"id": "position"}]);
         source["rootInstance"]["hotspotSegmentAttachments"] = serde_json::json!([{
@@ -2209,7 +2262,7 @@ mod tests {
                 "name": "",
                 "cornerA": {"x": 0, "y": 0, "z": 0},
                 "cornerB": {"x": 0, "y": 0, "z": 0},
-                "contour": [],
+                "contour": [{"x": 2, "y": 0, "z": 0}],
                 "normal": {"x": 0, "y": 1, "z": 0},
                 "depth": 0.12,
                 "frameWidth": 0.06,
@@ -2227,6 +2280,9 @@ mod tests {
         let wall = &prototype["architectureWalls"][0];
         assert_eq!(0.2, wall["thickness"]);
         assert_eq!(2.7, wall["height"]);
+        assert_eq!(0.25, wall["exteriorColor"]["r"]);
+        assert_eq!(0.93, wall["exteriorColor"]["g"]);
+        assert_eq!(1, wall["exteriorColor"]["a"]);
         assert_eq!(0, wall["holes"][0]["u0"]);
         assert_eq!("", wall["holes"][0]["name"]);
 
@@ -2242,9 +2298,17 @@ mod tests {
         assert_eq!(0.2, stair["supportThickness"]);
         assert_eq!(true, stair["railLeft"]);
         assert_eq!(true, stair["railRight"]);
+        assert_eq!(2, stair["contour"][0]["y"]);
+        assert_eq!(0, stair["contour"][0]["x"]);
+        assert_eq!(3, stair["walkingPath"][0]["z"]);
+        assert_eq!(0, stair["walkingPath"][0]["y"]);
 
         assert_eq!(0.4, prototype["voxelColor"]["r"]);
         assert_eq!(1, prototype["voxelColor"]["g"]);
+        assert_eq!(0, prototype["prototypeVertices"][0]["x"]);
+        assert_eq!(0, prototype["prototypeVertices"][0]["y"]);
+        assert_eq!(0, prototype["prototypeVertices"][0]["z"]);
+        assert_eq!(true, prototype["prototypeVertices"][0]["vendorVertex"]);
         assert_eq!(3, prototype["voxels"][0]["x"]);
         assert_eq!(0, prototype["voxels"][0]["z"]);
         assert_eq!(1, prototype["voxels"][0]["color"]["a"]);
@@ -2253,6 +2317,8 @@ mod tests {
         assert_eq!(0.2, plumbing["diameter"]);
         assert_eq!(16, plumbing["sides"]);
         assert_eq!(0.7, plumbing["color"]["r"]);
+        assert_eq!(4, plumbing["path"][0]["x"]);
+        assert_eq!(0, plumbing["path"][0]["y"]);
 
         let ventilation = &prototype["hvacVentilationDucts"][0];
         assert_eq!(false, ventilation["autoJoinEnabled"]);
@@ -2265,11 +2331,16 @@ mod tests {
         assert_eq!("CIRCLE", hotspot["shape"]);
         assert_eq!(0.2, hotspot["color"]["r"]);
         assert_eq!(Value::Null, hotspot["referencePosition"]);
-        assert_eq!(0, hotspot["attachedSegments"][0]["a"]["x"]);
-        assert_eq!(0, hotspot["attachedTriangles"][0]["c"]["z"]);
+        assert_eq!(9, hotspot["attachedSegments"][0]["a"]["x"]);
+        assert_eq!(0, hotspot["attachedSegments"][0]["a"]["y"]);
+        assert_eq!(0, hotspot["attachedSegments"][0]["a"]["z"]);
+        assert_eq!(3, hotspot["attachedTriangles"][0]["c"]["z"]);
+        assert_eq!(0, hotspot["attachedTriangles"][0]["c"]["x"]);
 
         let dimension = &prototype["dimensions"][0];
-        assert_eq!(0, dimension["start"]["x"]);
+        assert_eq!(4, dimension["start"]["x"]);
+        assert_eq!(0, dimension["start"]["y"]);
+        assert_eq!(0, dimension["start"]["z"]);
         assert_eq!(0, dimension["end"]["y"]);
         assert_eq!(0, dimension["offset"]["z"]);
 
