@@ -1,5 +1,7 @@
 use crate::assets::{self, IconRegion};
-use crate::viewport::{CuboidPreview, GridStyle, OrthoView, ToolPreview, Viewport, ViewportScene};
+use crate::viewport::{
+    CuboidPreview, GridStyle, OrthoView, ToolPreview, Viewport, ViewportScene, WalkthroughTuning,
+};
 use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 #[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::commands::HostEffect;
@@ -338,6 +340,7 @@ enum ShellAction {
     SaveProjectAs,
     SetProfile(UiProfile),
     SetOrthographicView(OrthoView),
+    SetWalkthroughView,
     FrameDocument,
     ResetCamera,
     TogglePanelSection(&'static str),
@@ -742,6 +745,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             let action = match *id {
                 "edit.group" => ShellAction::CreateObject,
                 "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
+                "view.camera.walkthrough" => ShellAction::SetWalkthroughView,
                 "view.camera.orthographic" => ShellAction::SetOrthographicView(OrthoView::Top),
                 _ => ShellAction::Unsupported,
             };
@@ -812,6 +816,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
+        | ShellAction::SetWalkthroughView
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
         | ShellAction::ResetCamera
@@ -879,6 +884,7 @@ fn register_shell_command(
         | ShellAction::SelectToolAlias(_)
         | ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
+        | ShellAction::SetWalkthroughView
         | ShellAction::ToggleToolbars
         | ShellAction::TogglePanels
         | ShellAction::ToggleGrid
@@ -942,6 +948,10 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("thick_grid_width", CommandValueType::Number),
             ("toolbar_flow_top_down", CommandValueType::Boolean),
             ("toolbars_visible", CommandValueType::Boolean),
+            ("walk_move_speed", CommandValueType::Number),
+            ("walk_jump_velocity", CommandValueType::Number),
+            ("walk_gravity", CommandValueType::Number),
+            ("walk_height_adjust_speed", CommandValueType::Number),
         ],
         "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
         _ => &[],
@@ -969,6 +979,10 @@ struct Preferences {
     normal_grid_width: f32,
     thick_grid_width: f32,
     toolbar_flow_top_down: bool,
+    walk_move_speed: f32,
+    walk_jump_velocity: f32,
+    walk_gravity: f32,
+    walk_height_adjust_speed: f32,
     panels_visible: bool,
     panel_open: BTreeMap<String, bool>,
 }
@@ -986,6 +1000,10 @@ impl Default for Preferences {
             normal_grid_width: 1.0,
             thick_grid_width: 3.0,
             toolbar_flow_top_down: false,
+            walk_move_speed: 24.0,
+            walk_jump_velocity: 16.0,
+            walk_gravity: 48.0,
+            walk_height_adjust_speed: 8.0,
             panels_visible: true,
             panel_open: BTreeMap::new(),
         }
@@ -2063,6 +2081,12 @@ impl MeshcraftApp {
                 self.viewport.set_orthographic_view(view);
                 self.status = format!("{} orthographic view selected.", view.id());
             }
+            ShellAction::SetWalkthroughView => {
+                self.viewport.set_walkthrough_view();
+                self.status =
+                    "Walkthrough camera selected. Move with WASD and look with right-drag."
+                        .to_owned();
+            }
             ShellAction::FrameDocument => {
                 self.viewport.request_frame();
                 self.status = "Framed the document in the viewport.".to_owned();
@@ -2158,6 +2182,25 @@ impl MeshcraftApp {
                 0.5,
                 8.0,
             ),
+            (
+                "walk_move_speed",
+                &mut preferences.walk_move_speed,
+                0.1,
+                1000.0,
+            ),
+            (
+                "walk_jump_velocity",
+                &mut preferences.walk_jump_velocity,
+                0.1,
+                1000.0,
+            ),
+            ("walk_gravity", &mut preferences.walk_gravity, 0.1, 10000.0),
+            (
+                "walk_height_adjust_speed",
+                &mut preferences.walk_height_adjust_speed,
+                0.1,
+                1000.0,
+            ),
         ];
         for (name, target, minimum, maximum) in numeric_preferences {
             if payload.values.contains_key(name) {
@@ -2227,6 +2270,12 @@ impl MeshcraftApp {
         if let Some(view) = id.strip_prefix("view.ortho.").and_then(OrthoView::from_id) {
             return CommandState {
                 checked: Some(self.viewport.orthographic_view() == Some(view)),
+                ..CommandState::default()
+            };
+        }
+        if id == "view.camera.walkthrough" {
+            return CommandState {
+                checked: Some(self.viewport.walkthrough_active()),
                 ..CommandState::default()
             };
         }
@@ -2947,6 +2996,12 @@ impl MeshcraftApp {
     }
 
     fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
+        self.viewport.set_walkthrough_tuning(WalkthroughTuning {
+            move_speed: f64::from(self.preferences.walk_move_speed),
+            jump_velocity: f64::from(self.preferences.walk_jump_velocity),
+            gravity: f64::from(self.preferences.walk_gravity),
+            height_adjust_speed: f64::from(self.preferences.walk_height_adjust_speed),
+        });
         let predicted_rect = egui::Rect::from_min_size(ui.cursor().min, size);
         let pointer = ui
             .ctx()
@@ -3137,7 +3192,9 @@ impl MeshcraftApp {
 
     fn show_model_settings(&mut self, ui: &mut egui::Ui) {
         let mut settings = self.document.model_settings().clone();
+        let mut preferences = self.preferences.clone();
         let mut changed = false;
+        let mut preferences_changed = false;
         ui.label("Unit name");
         changed |= ui
             .add(egui::TextEdit::singleline(&mut settings.unit_name).desired_width(f32::INFINITY))
@@ -3163,6 +3220,43 @@ impl MeshcraftApp {
             .add_sized(
                 [ui.available_width(), 24.0],
                 egui::DragValue::new(&mut settings.circle_segments).range(3..=256),
+            )
+            .changed();
+        ui.separator();
+        ui.label("Walk move speed");
+        preferences_changed |= ui
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::DragValue::new(&mut preferences.walk_move_speed)
+                    .range(0.1..=1000.0)
+                    .speed(0.5),
+            )
+            .changed();
+        ui.label("Walk jump velocity");
+        preferences_changed |= ui
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::DragValue::new(&mut preferences.walk_jump_velocity)
+                    .range(0.1..=1000.0)
+                    .speed(0.5),
+            )
+            .changed();
+        ui.label("Walk gravity");
+        preferences_changed |= ui
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::DragValue::new(&mut preferences.walk_gravity)
+                    .range(0.1..=10000.0)
+                    .speed(1.0),
+            )
+            .changed();
+        ui.label("Walk height adjust speed");
+        preferences_changed |= ui
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::DragValue::new(&mut preferences.walk_height_adjust_speed)
+                    .range(0.1..=1000.0)
+                    .speed(0.5),
             )
             .changed();
         if changed {
@@ -3199,6 +3293,9 @@ impl MeshcraftApp {
                         .unwrap_or("Model settings could not be updated."),
                 );
             }
+        }
+        if preferences_changed {
+            self.dispatch_ui_preferences(&preferences);
         }
     }
 
@@ -3296,6 +3393,22 @@ impl MeshcraftApp {
         payload.values.insert(
             "toolbars_visible".to_owned(),
             serde_json::json!(preferences.toolbars_visible),
+        );
+        payload.values.insert(
+            "walk_move_speed".to_owned(),
+            serde_json::json!(preferences.walk_move_speed),
+        );
+        payload.values.insert(
+            "walk_jump_velocity".to_owned(),
+            serde_json::json!(preferences.walk_jump_velocity),
+        );
+        payload.values.insert(
+            "walk_gravity".to_owned(),
+            serde_json::json!(preferences.walk_gravity),
+        );
+        payload.values.insert(
+            "walk_height_adjust_speed".to_owned(),
+            serde_json::json!(preferences.walk_height_adjust_speed),
         );
         self.dispatch_command("ui.update_preferences", &payload);
     }
@@ -4115,10 +4228,26 @@ mod tests {
 
         app.run_command("view.camera.reset");
         assert_eq!(None, app.viewport.orthographic_view());
+        app.run_command("view.camera.walkthrough");
+        assert!(app.viewport.walkthrough_active());
+        assert_eq!(
+            Some(true),
+            app.query_command_state("view.camera.walkthrough").checked
+        );
+        assert_eq!(
+            meshcraft_core::commands::CommandKind::SessionMutation,
+            shell_commands()
+                .get("view.camera.walkthrough")
+                .unwrap()
+                .descriptor
+                .kind
+        );
         app.run_command("view.camera.orthographic");
         assert_eq!(Some(OrthoView::Top), app.viewport.orthographic_view());
+        assert!(!app.viewport.walkthrough_active());
         app.run_command("view.camera.orbit");
         assert_eq!(None, app.viewport.orthographic_view());
+        assert!(!app.viewport.walkthrough_active());
     }
 
     #[test]
@@ -4350,6 +4479,18 @@ mod tests {
         payload
             .values
             .insert("toolbars_visible".to_owned(), json!(false));
+        payload
+            .values
+            .insert("walk_move_speed".to_owned(), json!(30.0));
+        payload
+            .values
+            .insert("walk_jump_velocity".to_owned(), json!(18.0));
+        payload
+            .values
+            .insert("walk_gravity".to_owned(), json!(52.0));
+        payload
+            .values
+            .insert("walk_height_adjust_speed".to_owned(), json!(9.0));
 
         let result = app.dispatch_command("ui.update_preferences", &payload);
 
@@ -4367,6 +4508,10 @@ mod tests {
         assert_eq!(4.0, app.preferences.thick_grid_width);
         assert!(app.preferences.toolbar_flow_top_down);
         assert!(!app.preferences.toolbars_visible);
+        assert_eq!(30.0, app.preferences.walk_move_speed);
+        assert_eq!(18.0, app.preferences.walk_jump_velocity);
+        assert_eq!(52.0, app.preferences.walk_gravity);
+        assert_eq!(9.0, app.preferences.walk_height_adjust_speed);
         assert_eq!(initial_revision, app.document.revision());
         assert!(app.history.entries().is_empty());
 
@@ -4379,6 +4524,17 @@ mod tests {
             rejected.result.completion
         );
         assert_eq!(before.grid_extent, app.preferences.grid_extent);
+
+        let mut invalid_tuning = CommandPayload::default();
+        invalid_tuning
+            .values
+            .insert("walk_move_speed".to_owned(), json!(0.0));
+        let rejected = app.dispatch_command("ui.update_preferences", &invalid_tuning);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected.result.completion
+        );
+        assert_eq!(before.walk_move_speed, app.preferences.walk_move_speed);
     }
 
     #[test]
@@ -4591,6 +4747,10 @@ mod tests {
         assert_eq!(20, preferences.grid_extent);
         assert_eq!(1.0, preferences.normal_grid_width);
         assert_eq!(3.0, preferences.thick_grid_width);
+        assert_eq!(24.0, preferences.walk_move_speed);
+        assert_eq!(16.0, preferences.walk_jump_velocity);
+        assert_eq!(48.0, preferences.walk_gravity);
+        assert_eq!(8.0, preferences.walk_height_adjust_speed);
         assert!(preferences.panels_visible);
     }
 

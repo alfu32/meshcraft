@@ -13,6 +13,52 @@ const DEFAULT_PERSPECTIVE_DISTANCE: f64 = 10.392_304_845_413_264;
 const DEFAULT_FIELD_OF_VIEW: f64 = 67.0;
 const DEFAULT_NEAR_PLANE: f64 = 0.1;
 const DEFAULT_FAR_PLANE: f64 = 500.0;
+const WALK_EYE_HEIGHT: f64 = 6.0;
+const WALK_LOOK_RADIANS_PER_PIXEL: f64 = 0.25_f64.to_radians();
+const WALK_PAN_UNITS_PER_PIXEL: f64 = 0.05;
+const WALK_SCROLL_MOVE_SCALE: f64 = 0.2;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WalkthroughTuning {
+    pub move_speed: f64,
+    pub jump_velocity: f64,
+    pub gravity: f64,
+    pub height_adjust_speed: f64,
+}
+
+impl Default for WalkthroughTuning {
+    fn default() -> Self {
+        Self {
+            move_speed: 24.0,
+            jump_velocity: 16.0,
+            gravity: 48.0,
+            height_adjust_speed: 8.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WalkthroughCamera {
+    position: Vec3,
+    yaw: f64,
+    pitch: f64,
+    eye_offset: f64,
+    jump_offset: f64,
+    vertical_velocity: f64,
+    jump_queued: bool,
+    grounded: bool,
+}
+
+impl WalkthroughCamera {
+    fn forward(self) -> Vec3 {
+        let horizontal = self.pitch.cos();
+        Vec3::new(
+            horizontal * self.yaw.cos(),
+            self.pitch.sin(),
+            horizontal * self.yaw.sin(),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct CuboidPreview {
@@ -133,6 +179,8 @@ pub struct Viewport {
     near_plane: f64,
     far_plane: f64,
     orthographic: Option<OrthoView>,
+    walkthrough: Option<WalkthroughCamera>,
+    walkthrough_tuning: WalkthroughTuning,
     camera_drag: Option<egui::PointerButton>,
     frame_pending: bool,
     derived: DerivedIndexCache,
@@ -151,6 +199,8 @@ impl Default for Viewport {
             near_plane: DEFAULT_NEAR_PLANE,
             far_plane: DEFAULT_FAR_PLANE,
             orthographic: None,
+            walkthrough: None,
+            walkthrough_tuning: WalkthroughTuning::default(),
             camera_drag: None,
             frame_pending: false,
             derived: DerivedIndexCache::default(),
@@ -175,11 +225,19 @@ impl Viewport {
         if pointer_over_viewport {
             let scroll = ui.input(|input| input.smooth_scroll_delta.y);
             if scroll.abs() > f32::EPSILON {
-                self.zoom_at(
-                    rect,
-                    pointer_position.expect("viewport pointer was checked"),
-                    scroll,
-                );
+                if let Some(walkthrough) = &mut self.walkthrough {
+                    let scroll_steps = f64::from(scroll) / 40.0;
+                    walkthrough.position += walkthrough.forward()
+                        * (scroll_steps
+                            * self.walkthrough_tuning.move_speed
+                            * WALK_SCROLL_MOVE_SCALE);
+                } else {
+                    self.zoom_at(
+                        rect,
+                        pointer_position.expect("viewport pointer was checked"),
+                        scroll,
+                    );
+                }
             }
             if self.camera_drag.is_none() {
                 self.camera_drag = ui.input(|input| {
@@ -207,15 +265,60 @@ impl Viewport {
                 )
             });
             if button_down {
-                self.drag_camera(
-                    rect,
-                    button,
-                    shift_held,
-                    pointer_delta,
-                    scene.active_tool == "Orbit",
-                );
+                if self.walkthrough.is_some() {
+                    self.drag_walkthrough(button, shift_held, pointer_delta);
+                } else {
+                    self.drag_camera(
+                        rect,
+                        button,
+                        shift_held,
+                        pointer_delta,
+                        scene.active_tool == "Orbit",
+                    );
+                }
             } else {
                 self.camera_drag = None;
+            }
+        }
+
+        if self.walkthrough.is_some() {
+            let keyboard_allowed = pointer_over_viewport && !ui.ctx().egui_wants_keyboard_input();
+            let (forward, backward, left, right, raise, lower, jump, delta) = ui.input(|input| {
+                (
+                    keyboard_allowed && input.key_down(egui::Key::W),
+                    keyboard_allowed && input.key_down(egui::Key::S),
+                    keyboard_allowed
+                        && (input.key_down(egui::Key::A) || input.key_down(egui::Key::ArrowLeft)),
+                    keyboard_allowed
+                        && (input.key_down(egui::Key::D) || input.key_down(egui::Key::ArrowRight)),
+                    keyboard_allowed && input.key_down(egui::Key::ArrowUp),
+                    keyboard_allowed && input.key_down(egui::Key::ArrowDown),
+                    keyboard_allowed && input.key_pressed(egui::Key::Space),
+                    f64::from(input.stable_dt.clamp(0.0, 0.1)),
+                )
+            });
+            self.update_walkthrough(
+                scene.document,
+                delta,
+                forward,
+                backward,
+                left,
+                right,
+                raise,
+                lower,
+                jump,
+            );
+            if forward
+                || backward
+                || left
+                || right
+                || raise
+                || lower
+                || self
+                    .walkthrough
+                    .is_some_and(|walkthrough| !walkthrough.grounded)
+            {
+                ui.ctx().request_repaint();
             }
         }
 
@@ -278,17 +381,20 @@ impl Viewport {
         self.near_plane = DEFAULT_NEAR_PLANE;
         self.far_plane = DEFAULT_FAR_PLANE;
         self.orthographic = None;
+        self.walkthrough = None;
         self.camera_drag = None;
         self.frame_pending = false;
     }
 
     pub fn set_orthographic_view(&mut self, view: OrthoView) {
+        self.leave_walkthrough();
         self.orthographic = Some(view);
         self.camera_drag = None;
         self.frame_pending = true;
     }
 
     pub fn set_perspective_view(&mut self) {
+        self.leave_walkthrough();
         self.orthographic = None;
         self.camera_drag = None;
         self.frame_pending = true;
@@ -296,6 +402,212 @@ impl Viewport {
 
     pub fn orthographic_view(&self) -> Option<OrthoView> {
         self.orthographic
+    }
+
+    pub fn walkthrough_active(&self) -> bool {
+        self.walkthrough.is_some()
+    }
+
+    pub fn set_walkthrough_tuning(&mut self, tuning: WalkthroughTuning) {
+        self.walkthrough_tuning = tuning;
+    }
+
+    pub fn set_walkthrough_view(&mut self) {
+        if self.walkthrough.is_some() {
+            return;
+        }
+        let position = self.camera_position();
+        let eye = self.camera_direction();
+        let forward = -eye;
+        let horizontal = forward.x.hypot(forward.z);
+        let yaw = if horizontal > 1.0e-9 {
+            forward.z.atan2(forward.x)
+        } else {
+            0.0
+        };
+        let pitch = forward
+            .y
+            .clamp(-1.0, 1.0)
+            .asin()
+            .clamp(-89.0_f64.to_radians(), 89.0_f64.to_radians());
+        self.orthographic = None;
+        self.walkthrough = Some(WalkthroughCamera {
+            position,
+            yaw,
+            pitch,
+            eye_offset: 0.0,
+            jump_offset: 0.0,
+            vertical_velocity: 0.0,
+            jump_queued: false,
+            grounded: true,
+        });
+        self.pan = Vec2::ZERO;
+        self.camera_drag = None;
+        self.frame_pending = false;
+    }
+
+    fn leave_walkthrough(&mut self) {
+        let Some(walkthrough) = self.walkthrough.take() else {
+            return;
+        };
+        let forward = walkthrough.forward();
+        let eye = -forward;
+        let horizontal = eye.x.hypot(eye.z);
+        self.yaw = if horizontal > 1.0e-9 {
+            eye.z.atan2(eye.x) - std::f64::consts::FRAC_PI_4
+        } else {
+            0.0
+        };
+        self.elevation = eye
+            .y
+            .clamp(-1.0, 1.0)
+            .asin()
+            .clamp(MIN_ELEVATION, MAX_ELEVATION);
+        self.distance = self.distance.clamp(1.0, 1000.0);
+        self.target = walkthrough.position + forward * self.distance;
+        self.pan = Vec2::ZERO;
+    }
+
+    fn drag_walkthrough(&mut self, button: egui::PointerButton, shift_held: bool, delta: Vec2) {
+        let Some(walkthrough) = &mut self.walkthrough else {
+            return;
+        };
+        if button == egui::PointerButton::Middle
+            || (button == egui::PointerButton::Secondary && shift_held)
+        {
+            let forward = walkthrough.forward();
+            let right = forward
+                .cross(Vec3::Y)
+                .try_normalized(1.0e-12)
+                .unwrap_or(Vec3::X);
+            let screen_up = right
+                .cross(forward)
+                .try_normalized(1.0e-12)
+                .unwrap_or(Vec3::Y);
+            walkthrough.position += right * (-f64::from(delta.x) * WALK_PAN_UNITS_PER_PIXEL);
+            walkthrough.position += screen_up * (f64::from(delta.y) * WALK_PAN_UNITS_PER_PIXEL);
+        } else if button == egui::PointerButton::Secondary {
+            walkthrough.yaw += f64::from(delta.x) * WALK_LOOK_RADIANS_PER_PIXEL;
+            walkthrough.pitch = (walkthrough.pitch
+                - f64::from(delta.y) * WALK_LOOK_RADIANS_PER_PIXEL)
+                .clamp(-89.0_f64.to_radians(), 89.0_f64.to_radians());
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_walkthrough(
+        &mut self,
+        document: &Document,
+        delta: f64,
+        moving_forward: bool,
+        moving_backward: bool,
+        moving_left: bool,
+        moving_right: bool,
+        raising_height: bool,
+        lowering_height: bool,
+        jump: bool,
+    ) {
+        let Some(mut walkthrough) = self.walkthrough else {
+            return;
+        };
+        let delta = delta.clamp(0.0, 0.1);
+        let forward = Vec3::new(walkthrough.yaw.cos(), 0.0, walkthrough.yaw.sin());
+        let right = Vec3::new(-forward.z, 0.0, forward.x);
+        let mut movement = Vec3::ZERO;
+        if moving_forward {
+            movement += forward;
+        }
+        if moving_backward {
+            movement += -forward;
+        }
+        if moving_right {
+            movement += right;
+        }
+        if moving_left {
+            movement += -right;
+        }
+        if let Some(direction) = movement.try_normalized(1.0e-12) {
+            walkthrough.position += direction * (self.walkthrough_tuning.move_speed * delta);
+        }
+        if raising_height {
+            walkthrough.eye_offset = (walkthrough.eye_offset
+                + self.walkthrough_tuning.height_adjust_speed * delta)
+                .clamp(-5.0, 60.0);
+        }
+        if lowering_height {
+            walkthrough.eye_offset = (walkthrough.eye_offset
+                - self.walkthrough_tuning.height_adjust_speed * delta)
+                .clamp(-5.0, 60.0);
+        }
+
+        let support_y = self.walk_support_height(
+            document,
+            walkthrough.position.x,
+            walkthrough.position.z,
+            walkthrough.position.y,
+        );
+        let standing_y = support_y + WALK_EYE_HEIGHT + walkthrough.eye_offset;
+        walkthrough.jump_queued |= jump;
+        if walkthrough.jump_queued && walkthrough.grounded {
+            walkthrough.grounded = false;
+            walkthrough.vertical_velocity = self.walkthrough_tuning.jump_velocity;
+            walkthrough.jump_queued = false;
+        }
+        if !walkthrough.grounded {
+            walkthrough.vertical_velocity -= self.walkthrough_tuning.gravity * delta;
+            walkthrough.jump_offset += walkthrough.vertical_velocity * delta;
+            if walkthrough.jump_offset <= 0.0 {
+                walkthrough.jump_offset = 0.0;
+                walkthrough.vertical_velocity = 0.0;
+                walkthrough.grounded = true;
+            }
+        }
+        walkthrough.position.y = standing_y + walkthrough.jump_offset;
+        self.walkthrough = Some(walkthrough);
+    }
+
+    fn walk_support_height(&mut self, document: &Document, x: f64, z: f64, current_y: f64) -> f64 {
+        let ray_y = current_y + 0.25;
+        let mut best_y = None::<f64>;
+        let Ok(occurrences) = document.occurrence_refs() else {
+            return 0.0;
+        };
+        for occurrence in occurrences {
+            let Some(bounds) = self.derived.world_bounds(document, &occurrence) else {
+                continue;
+            };
+            if x < bounds.min.x
+                || x > bounds.max.x
+                || z < bounds.min.z
+                || z > bounds.max.z
+                || bounds.min.y > ray_y
+            {
+                continue;
+            }
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            for triangle in geometry.triangles.values() {
+                let [Some(a), Some(b), Some(c)] = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    continue;
+                };
+                let [a, b, c] =
+                    [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                let Some(y) = height_in_triangle_xz(x, z, a, b, c) else {
+                    continue;
+                };
+                if y <= ray_y + 1.0e-3 && best_y.is_none_or(|current| y > current) {
+                    best_y = Some(y);
+                }
+            }
+        }
+        best_y.unwrap_or(0.0)
     }
 
     /// Restores the schema-17 camera pose using the legacy loader's position/target semantics.
@@ -430,6 +742,7 @@ impl Viewport {
     }
 
     fn frame_document(&mut self, rect: Rect, document: &Document) {
+        self.leave_walkthrough();
         let Ok(occurrences) = document.occurrence_refs() else {
             return;
         };
@@ -506,7 +819,7 @@ impl Viewport {
 
     fn point_in_front_of_camera(&self, point: Vec3) -> bool {
         self.orthographic.is_some() || {
-            let depth = self.distance - self.camera_direction().dot(point - self.target);
+            let depth = (-self.camera_direction()).dot(point - self.camera_position());
             depth >= self.near_plane && depth <= self.far_plane
         }
     }
@@ -518,7 +831,7 @@ impl Viewport {
             return (right.dot(relative), -up.dot(relative));
         }
         let (right, up, _) = self.camera_axes();
-        let relative = point - self.target;
+        let relative = point - self.camera_position();
         (right.dot(relative), -up.dot(relative))
     }
 
@@ -528,8 +841,8 @@ impl Viewport {
             return Vec2::new(x as f32, y as f32) * self.zoom;
         }
         let (right, up, eye) = self.camera_axes();
-        let relative = point - self.target;
-        let depth = (self.distance - eye.dot(relative)).max(self.near_plane);
+        let relative = point - self.camera_position();
+        let depth = (-eye.dot(relative)).max(self.near_plane);
         let focal = self.focal_length(rect.height());
         Vec2::new(
             (focal * right.dot(relative) / depth) as f32,
@@ -572,7 +885,7 @@ impl Viewport {
         let direction =
             (-eye + right * (f64::from(pixel.x) / focal) + up * (-f64::from(pixel.y) / focal))
                 .try_normalized(1.0e-12)?;
-        Some((self.target + eye * self.distance, direction))
+        Some((self.camera_position(), direction))
     }
 
     fn ray_plane_intersection(
@@ -594,7 +907,17 @@ impl Viewport {
         if let Some(view) = self.orthographic {
             return view.screen_axes().2;
         }
+        if let Some(walkthrough) = self.walkthrough {
+            return -walkthrough.forward();
+        }
         self.perspective_camera_direction()
+    }
+
+    fn camera_position(&self) -> Vec3 {
+        self.walkthrough.map_or_else(
+            || self.target + self.camera_direction() * self.distance,
+            |walkthrough| walkthrough.position,
+        )
     }
 
     fn perspective_camera_direction(&self) -> Vec3 {
@@ -628,12 +951,13 @@ impl Viewport {
             return Some(f64::from(delta.dot(vertical) / length_squared));
         }
         let (_, up, eye) = self.camera_axes();
-        let relative = base_center - self.target;
-        let depth = self.distance - eye.dot(relative);
+        let forward = -eye;
+        let relative = base_center - self.camera_position();
+        let depth = forward.dot(relative);
         let up_offset = up.dot(relative);
         let screen_up = -f64::from(position.y - rect.center().y - self.pan.y)
             / self.focal_length(rect.height());
-        let denominator = up.y + screen_up * eye.y;
+        let denominator = up.y - screen_up * forward.y;
         (denominator.abs() > 1.0e-12).then(|| (screen_up * depth - up_offset) / denominator)
     }
 
@@ -1025,6 +1349,25 @@ fn point_in_triangle(point: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
     (d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0) || (d1 <= 0.0 && d2 <= 0.0 && d3 <= 0.0)
 }
 
+fn height_in_triangle_xz(x: f64, z: f64, a: Vec3, b: Vec3, c: Vec3) -> Option<f64> {
+    let denominator = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+    if !denominator.is_finite() || denominator.abs() <= 1.0e-12 {
+        return None;
+    }
+    let weight_a = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / denominator;
+    let weight_b = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / denominator;
+    let weight_c = 1.0 - weight_a - weight_b;
+    let tolerance = 1.0e-9;
+    if [weight_a, weight_b, weight_c]
+        .into_iter()
+        .all(|weight| (-tolerance..=1.0 + tolerance).contains(&weight))
+    {
+        Some(weight_a * a.y + weight_b * b.y + weight_c * c.y)
+    } else {
+        None
+    }
+}
+
 fn read_camera_vector(value: Option<&Value>, default: Vec3) -> Option<Vec3> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Some(default);
@@ -1055,7 +1398,8 @@ fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
 mod tests {
     use super::{
         DEFAULT_ELEVATION, DEFAULT_PERSPECTIVE_DISTANCE, MAX_ELEVATION, MIN_ELEVATION, OrthoView,
-        Viewport, cuboid_corners, point_in_triangle,
+        Viewport, WalkthroughCamera, WalkthroughTuning, cuboid_corners, height_in_triangle_xz,
+        point_in_triangle,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::geometry::Vec3;
@@ -1121,6 +1465,178 @@ mod tests {
         assert_eq!(super::DEFAULT_FAR_PLANE, viewport.far_plane);
         assert_eq!(None, viewport.orthographic_view());
         assert!(!viewport.frame_pending);
+    }
+
+    #[test]
+    fn walkthrough_uses_highest_surface_moves_and_applies_jump_gravity() {
+        let mut document = meshcraft_core::document::Document::new();
+        document
+            .add_cuboid("ground", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        document
+            .add_cuboid(
+                "platform",
+                Vec3::new(1.0, 3.0, 1.0),
+                Vec3::new(0.5, 2.0, 0.5),
+            )
+            .unwrap();
+        let mut viewport = Viewport {
+            walkthrough: Some(WalkthroughCamera {
+                position: Vec3::new(0.75, 12.0, 0.75),
+                yaw: 0.0,
+                pitch: 0.0,
+                eye_offset: 0.0,
+                jump_offset: 0.0,
+                vertical_velocity: 0.0,
+                jump_queued: false,
+                grounded: true,
+            }),
+            walkthrough_tuning: WalkthroughTuning {
+                move_speed: 2.0,
+                ..WalkthroughTuning::default()
+            },
+            ..Viewport::default()
+        };
+
+        viewport.update_walkthrough(
+            &document, 0.0, false, false, false, false, false, false, false,
+        );
+        assert!((viewport.walkthrough.unwrap().position.y - 11.0).abs() < 1.0e-12);
+        viewport.update_walkthrough(
+            &document, 0.1, true, false, false, false, false, false, true,
+        );
+        let jumping = viewport.walkthrough.unwrap();
+        assert!((jumping.position.x - 0.95).abs() < 1.0e-12);
+        assert!(jumping.position.y > 11.0);
+        assert!(!jumping.grounded);
+        viewport.update_walkthrough(
+            &document, 0.1, false, false, false, false, false, false, true,
+        );
+        assert!(viewport.walkthrough.unwrap().jump_queued);
+        viewport.walkthrough.as_mut().unwrap().jump_queued = false;
+
+        for _ in 0..20 {
+            viewport.update_walkthrough(
+                &document, 0.1, false, false, false, false, false, false, false,
+            );
+        }
+        let landed = viewport.walkthrough.unwrap();
+        assert!(landed.grounded);
+        assert!((landed.position.y - 11.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn walkthrough_projection_uses_its_pose_but_model_camera_state_stays_perspective() {
+        let mut viewport = Viewport::default();
+        let state = serde_json::json!({
+            "position": {"x": 8.0, "y": 7.0, "z": 6.0},
+            "target": {"x": 2.0, "y": 3.0, "z": 4.0},
+            "fieldOfView": 51.0
+        });
+        assert!(viewport.restore_legacy_camera_state(&state));
+        let model_camera = viewport.legacy_camera_state();
+        viewport.set_walkthrough_view();
+        viewport.walkthrough.as_mut().unwrap().position += Vec3::new(3.0, 2.0, -5.0);
+
+        assert!(viewport.walkthrough_active());
+        assert_eq!(model_camera, viewport.legacy_camera_state());
+        let walk = viewport.walkthrough.unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let point_ahead = walk.position + walk.forward() * 10.0;
+        assert!(
+            viewport
+                .world_to_screen(rect, point_ahead)
+                .distance(rect.center())
+                < 1.0e-4
+        );
+        assert_eq!(None, viewport.orthographic_view());
+    }
+
+    #[test]
+    fn walkthrough_center_ray_picks_mesh_in_front_of_the_camera() {
+        let mut document = meshcraft_core::document::Document::new();
+        let occurrence = document
+            .add_cuboid("target", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let mut viewport = Viewport {
+            walkthrough: Some(WalkthroughCamera {
+                position: Vec3::new(5.0, 1.0, 1.0),
+                yaw: std::f64::consts::PI,
+                pitch: 0.0,
+                eye_offset: 0.0,
+                jump_offset: 0.0,
+                vertical_velocity: 0.0,
+                jump_queued: false,
+                grounded: true,
+            }),
+            ..Viewport::default()
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+
+        assert_eq!(
+            Some(occurrence),
+            viewport.pick(rect, &document, rect.center())
+        );
+    }
+
+    #[test]
+    fn walkthrough_keyboard_movement_is_routed_only_over_the_viewport() {
+        let mut viewport = Viewport::default();
+        viewport.set_walkthrough_view();
+        let document = meshcraft_core::document::Document::new();
+        let context = egui::Context::default();
+        let start = viewport.walkthrough.unwrap().position;
+        let center = Pos2::new(400.0, 300.0);
+
+        run_viewport_frame(
+            &mut viewport,
+            &context,
+            &document,
+            vec![
+                Event::PointerMoved(center),
+                Event::Key {
+                    key: egui::Key::W,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        );
+        let after_key_press = viewport.walkthrough.unwrap().position;
+        assert!(after_key_press.distance(start) > 0.0);
+
+        run_viewport_frame(
+            &mut viewport,
+            &context,
+            &document,
+            vec![Event::PointerMoved(Pos2::new(900.0, 700.0))],
+        );
+        let after_releasing_pointer = viewport.walkthrough.unwrap().position;
+        assert!((after_releasing_pointer.x - after_key_press.x).abs() < 1.0e-12);
+        assert!((after_releasing_pointer.z - after_key_press.z).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn walkthrough_height_sampling_interpolates_slopes_and_rejects_vertical_faces() {
+        let first = Vec3::new(0.0, 0.0, 0.0);
+        let second = Vec3::new(1.0, 1.0, 0.0);
+        let third = Vec3::new(0.0, 0.0, 1.0);
+        assert!(
+            (height_in_triangle_xz(0.25, 0.25, first, second, third).unwrap() - 0.25).abs()
+                < 1.0e-12
+        );
+        assert_eq!(
+            None,
+            height_in_triangle_xz(
+                0.0,
+                0.0,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0),
+            )
+        );
+        assert_eq!(None, height_in_triangle_xz(2.0, 2.0, first, second, third));
     }
 
     #[test]
