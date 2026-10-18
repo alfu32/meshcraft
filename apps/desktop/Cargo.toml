@@ -20,6 +20,8 @@ meshcraft-io = { path = "../../crates/meshcraft-io" }
 serde.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
+flate2.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

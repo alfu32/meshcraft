@@ -1,7 +1,6 @@
 use eframe::egui;
-use meshcraft_core::document::Document;
 use meshcraft_desktop::MeshcraftApp;
-use meshcraft_io::project::read_project;
+use meshcraft_io::project::{ImportedProject, read_project};
 use std::{env, fs, path::PathBuf};
 
 fn main() -> eframe::Result {
@@ -20,8 +19,8 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |creation_context| {
             let app = match startup_document {
-                Ok(Some((document, status))) => {
-                    MeshcraftApp::new_with_document(creation_context, document, status)
+                Ok(Some((project, status))) => {
+                    MeshcraftApp::new_with_project(creation_context, project, status)
                 }
                 Ok(None) => MeshcraftApp::new(creation_context),
                 Err(error) => MeshcraftApp::new_with_error(creation_context, error),
@@ -31,7 +30,7 @@ fn main() -> eframe::Result {
     )
 }
 
-fn load_startup_document() -> Result<Option<(Document, String)>, String> {
+fn load_startup_document() -> Result<Option<(ImportedProject, String)>, String> {
     let mut args = env::args_os().skip(1);
     let Some(first) = args.next() else {
         return Ok(None);
@@ -47,7 +46,7 @@ fn load_startup_document() -> Result<Option<(Document, String)>, String> {
         fs::read(&path).map_err(|error| format!("Could not read {}: {error}", path.display()))?;
     let imported = read_project(&source)
         .map_err(|error| format!("Could not import {}: {error}", path.display()))?;
-    let document = imported.document;
+    let document = &imported.document;
     let occurrences = document
         .occurrence_refs()
         .map_err(|error| format!("Could not count imported document occurrences: {error}"))?;
@@ -71,7 +70,7 @@ fn load_startup_document() -> Result<Option<(Document, String)>, String> {
             )
         });
     Ok(Some((
-        document,
+        imported,
         format!(
             "Opened {} · {top_level_count} top-level objects imported read-only{history_status}.",
             path.display(),

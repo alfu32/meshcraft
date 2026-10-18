@@ -42,18 +42,18 @@ impl HistoryLimits {
 }
 
 pub trait HistoryClock {
-    fn now_millis(&self) -> u64;
+    fn now_millis(&self) -> i64;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemHistoryClock;
 
 impl HistoryClock for SystemHistoryClock {
-    fn now_millis(&self) -> u64 {
+    fn now_millis(&self) -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| {
-                duration.as_millis().min(u128::from(u64::MAX)) as u64
+                duration.as_millis().min(i64::MAX as u128) as i64
             })
     }
 }
@@ -168,8 +168,18 @@ impl PendingTransaction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HistoryEntryInfo {
     pub label: String,
-    pub timestamp_millis: u64,
+    pub timestamp_millis: i64,
+    pub origin: HistoryEntryOrigin,
     pub change_set: ChangeSet,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HistoryEntryOrigin {
+    Native,
+    Legacy {
+        from_entry_index: usize,
+        to_entry_index: usize,
+    },
 }
 
 struct HistoryState {
@@ -285,6 +295,7 @@ impl<C: HistoryClock> TransactionHistory<C> {
         self.entries.push(HistoryEntryInfo {
             label: pending.label,
             timestamp_millis: self.clock.now_millis(),
+            origin: HistoryEntryOrigin::Native,
             change_set: change_set.clone(),
         });
         self.states.push(HistoryState {
@@ -366,6 +377,205 @@ impl<C: HistoryClock> TransactionHistory<C> {
             });
         }
         self.restore_state(document, self.cursor + 1)
+    }
+
+    /// Adds an older decoded legacy snapshot immediately before the current timeline state.
+    /// The caller can then use ordinary `undo` to traverse it; already loaded redo states remain
+    /// ordered after the current state.
+    pub fn prepend_legacy_state(
+        &mut self,
+        document: &Document,
+        earlier: Document,
+        label: impl Into<String>,
+        timestamp_millis: i64,
+        earlier_entry_index: usize,
+        current_entry_index: usize,
+    ) -> Result<(), TransactionError> {
+        earlier
+            .validate()
+            .map_err(TransactionError::InvalidDocument)?;
+        document
+            .revision()
+            .checked_add(1)
+            .ok_or(TransactionError::RevisionExhausted)?;
+        if !self.states.is_empty()
+            && !same_authored_state(&self.states[self.cursor].document, document)
+        {
+            return Err(TransactionError::StaleDocument {
+                expected_revision: self.states[self.cursor].document.revision(),
+                actual_revision: document.revision(),
+            });
+        }
+        let current_size = match self.states.get(self.cursor) {
+            Some(state) => state.encoded_size,
+            None => snapshot_size(document)?,
+        };
+        let current_additional_size = if self.states.is_empty() {
+            current_size
+        } else {
+            0
+        };
+        let earlier_size = snapshot_size(&earlier)?;
+        self.check_history_capacity(current_size.saturating_add(earlier_size))?;
+
+        let mut change_set = diff_documents(&earlier, document);
+        change_set.before_revision = earlier.revision();
+        change_set.after_revision = document.revision();
+        if self.states.is_empty() {
+            self.states.push(HistoryState {
+                document: earlier,
+                encoded_size: earlier_size,
+            });
+            self.states.push(HistoryState {
+                document: document.clone(),
+                encoded_size: current_size,
+            });
+            self.entries.push(HistoryEntryInfo {
+                label: label.into(),
+                timestamp_millis,
+                origin: HistoryEntryOrigin::Legacy {
+                    from_entry_index: earlier_entry_index,
+                    to_entry_index: current_entry_index,
+                },
+                change_set,
+            });
+            self.cursor = 1;
+        } else {
+            if self.cursor != 0 {
+                return Err(TransactionError::StaleDocument {
+                    expected_revision: self.states[self.cursor].document.revision(),
+                    actual_revision: document.revision(),
+                });
+            }
+            self.states.insert(
+                0,
+                HistoryState {
+                    document: earlier,
+                    encoded_size: earlier_size,
+                },
+            );
+            self.entries.insert(
+                0,
+                HistoryEntryInfo {
+                    label: label.into(),
+                    timestamp_millis,
+                    origin: HistoryEntryOrigin::Legacy {
+                        from_entry_index: earlier_entry_index,
+                        to_entry_index: current_entry_index,
+                    },
+                    change_set,
+                },
+            );
+            self.cursor += 1;
+        }
+        self.snapshot_bytes = self
+            .snapshot_bytes
+            .saturating_add(current_additional_size)
+            .saturating_add(earlier_size);
+        self.trim_history_from_end();
+        Ok(())
+    }
+
+    /// Adds a decoded legacy snapshot after the current timeline state. The caller can then use
+    /// ordinary `redo` to move into it.
+    pub fn append_legacy_state(
+        &mut self,
+        document: &Document,
+        later: Document,
+        label: impl Into<String>,
+        timestamp_millis: i64,
+        current_entry_index: usize,
+        later_entry_index: usize,
+    ) -> Result<(), TransactionError> {
+        later
+            .validate()
+            .map_err(TransactionError::InvalidDocument)?;
+        document
+            .revision()
+            .checked_add(1)
+            .ok_or(TransactionError::RevisionExhausted)?;
+        if !self.states.is_empty()
+            && (self.cursor != self.entries.len()
+                || !same_authored_state(&self.states[self.cursor].document, document))
+        {
+            return Err(TransactionError::StaleDocument {
+                expected_revision: self.states[self.cursor].document.revision(),
+                actual_revision: document.revision(),
+            });
+        }
+        let current_size = match self.states.get(self.cursor) {
+            Some(state) => state.encoded_size,
+            None => snapshot_size(document)?,
+        };
+        let current_additional_size = if self.states.is_empty() {
+            current_size
+        } else {
+            0
+        };
+        let later_size = snapshot_size(&later)?;
+        self.check_history_capacity(current_size.saturating_add(later_size))?;
+
+        let mut change_set = diff_documents(document, &later);
+        change_set.before_revision = document.revision();
+        change_set.after_revision = later.revision();
+        if self.states.is_empty() {
+            self.states.push(HistoryState {
+                document: document.clone(),
+                encoded_size: current_size,
+            });
+        }
+        self.states.push(HistoryState {
+            document: later,
+            encoded_size: later_size,
+        });
+        self.entries.push(HistoryEntryInfo {
+            label: label.into(),
+            timestamp_millis,
+            origin: HistoryEntryOrigin::Legacy {
+                from_entry_index: current_entry_index,
+                to_entry_index: later_entry_index,
+            },
+            change_set,
+        });
+        self.snapshot_bytes = self
+            .snapshot_bytes
+            .saturating_add(current_additional_size)
+            .saturating_add(later_size);
+        self.trim_history_from_front();
+        Ok(())
+    }
+
+    fn check_history_capacity(&self, snapshot_bytes: usize) -> Result<(), TransactionError> {
+        if snapshot_bytes > self.limits.max_snapshot_bytes {
+            return Err(TransactionError::HistoryBudgetExceeded {
+                required_bytes: snapshot_bytes,
+                max_bytes: self.limits.max_snapshot_bytes,
+            });
+        }
+        Ok(())
+    }
+
+    fn trim_history_from_end(&mut self) {
+        while self.entries.len() > self.limits.max_entries
+            || self.snapshot_bytes > self.limits.max_snapshot_bytes
+        {
+            debug_assert!(self.cursor < self.entries.len());
+            let removed = self.states.pop().expect("history has its final state");
+            self.entries.pop().expect("history has its final entry");
+            self.snapshot_bytes = self.snapshot_bytes.saturating_sub(removed.encoded_size);
+        }
+    }
+
+    fn trim_history_from_front(&mut self) {
+        while self.entries.len() > self.limits.max_entries
+            || self.snapshot_bytes > self.limits.max_snapshot_bytes
+        {
+            debug_assert!(self.cursor > 0);
+            let removed = self.states.remove(0);
+            self.entries.remove(0);
+            self.cursor -= 1;
+            self.snapshot_bytes = self.snapshot_bytes.saturating_sub(removed.encoded_size);
+        }
     }
 
     fn restore_state(
@@ -457,16 +667,19 @@ pub trait LegacyHistoryDecoder {
 }
 
 impl OpaqueLegacyHistory {
-    /// Resolves the legacy manager's active position after it filters empty encoded entries.
-    /// The stored `index` and all original entries remain untouched for lossless re-export.
-    pub fn active_entry_index(&self) -> Option<usize> {
-        let nonempty = self
-            .entries
+    fn nonempty_entry_indices(&self) -> Vec<usize> {
+        self.entries
             .iter()
             .enumerate()
             .filter(|(_, entry)| !entry.data.trim().is_empty())
             .map(|(index, _)| index)
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    /// Resolves the legacy manager's active position after it filters empty encoded entries.
+    /// The stored `index` and all original entries remain untouched for lossless re-export.
+    pub fn active_entry_index(&self) -> Option<usize> {
+        let nonempty = self.nonempty_entry_indices();
         if nonempty.is_empty() {
             return None;
         }
@@ -474,6 +687,23 @@ impl OpaqueLegacyHistory {
             .unwrap_or_default()
             .min(nonempty.len() - 1);
         nonempty.get(active).copied()
+    }
+
+    /// Returns the preceding nonempty source entry, preserving the legacy manager's filtered
+    /// ordering while keeping the original entry indices available for diagnostics and export.
+    pub fn previous_entry_index(&self, current_index: usize) -> Option<usize> {
+        let nonempty = self.nonempty_entry_indices();
+        let position = nonempty.iter().position(|index| *index == current_index)?;
+        position
+            .checked_sub(1)
+            .and_then(|previous| nonempty.get(previous).copied())
+    }
+
+    /// Returns the next nonempty source entry after the current imported state.
+    pub fn next_entry_index(&self, current_index: usize) -> Option<usize> {
+        let nonempty = self.nonempty_entry_indices();
+        let position = nonempty.iter().position(|index| *index == current_index)?;
+        nonempty.get(position + 1).copied()
     }
 
     /// Lazily decodes one entry. The opaque string is retained unchanged on success and failure.
@@ -644,18 +874,19 @@ fn classify_instance_edit_change(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChangeKind, DerivedDataKind, HistoryClock, HistoryLimits, LegacyHistoryDecoder,
-        OpaqueLegacyHistory, OpaqueLegacyUndoEntry, TransactionError, TransactionHistory,
+        ChangeKind, DerivedDataKind, HistoryClock, HistoryEntryOrigin, HistoryLimits,
+        LegacyHistoryDecoder, OpaqueLegacyHistory, OpaqueLegacyUndoEntry, TransactionError,
+        TransactionHistory,
     };
     use crate::document::{Document, ModelSettings};
     use crate::geometry::Vec3;
     use std::cell::Cell;
     use std::collections::BTreeMap;
 
-    struct FakeClock(Cell<u64>);
+    struct FakeClock(Cell<i64>);
 
     impl HistoryClock for FakeClock {
-        fn now_millis(&self) -> u64 {
+        fn now_millis(&self) -> i64 {
             self.0.get()
         }
     }
@@ -903,6 +1134,182 @@ mod tests {
         assert_eq!(0, legacy.index);
         assert_eq!(Some(0), legacy.active_entry_index());
         assert_eq!(20, legacy.max_entries);
+    }
+
+    #[test]
+    fn legacy_history_timeline_bridges_imported_states_and_preserves_filtered_indices() {
+        let mut earlier = Document::new();
+        earlier
+            .add_cuboid("earlier", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut current = earlier.clone();
+        current
+            .add_cuboid("current", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut later = current.clone();
+        later
+            .add_cuboid("later", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+
+        let manager = OpaqueLegacyHistory {
+            max_entries: 10,
+            index: 1,
+            entries: vec![
+                OpaqueLegacyUndoEntry {
+                    data: "old".to_owned(),
+                    label: Some("Earlier".to_owned()),
+                    timestamp_millis: 10,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+                OpaqueLegacyUndoEntry {
+                    data: "  ".to_owned(),
+                    label: None,
+                    timestamp_millis: 0,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+                OpaqueLegacyUndoEntry {
+                    data: "current".to_owned(),
+                    label: Some("Current".to_owned()),
+                    timestamp_millis: 20,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+                OpaqueLegacyUndoEntry {
+                    data: "later".to_owned(),
+                    label: Some("Later".to_owned()),
+                    timestamp_millis: 30,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+            ],
+            extensions: BTreeMap::new(),
+        };
+        assert_eq!(Some(2), manager.active_entry_index());
+        assert_eq!(Some(0), manager.previous_entry_index(2));
+        assert_eq!(Some(3), manager.next_entry_index(2));
+
+        let mut live = current.clone();
+        let mut history = history(4, 1_000_000);
+        history
+            .prepend_legacy_state(&live, earlier.clone(), "Earlier", 10, 0, 2)
+            .unwrap();
+        assert_eq!(
+            HistoryEntryOrigin::Legacy {
+                from_entry_index: 0,
+                to_entry_index: 2
+            },
+            history.entries()[0].origin
+        );
+        history.undo(&mut live).unwrap();
+        assert_eq!(1, live.occurrence_refs().unwrap().len());
+        history.redo(&mut live).unwrap();
+        assert_eq!(2, live.occurrence_refs().unwrap().len());
+        history
+            .append_legacy_state(&live, later, "Later", 30, 2, 3)
+            .unwrap();
+        history.redo(&mut live).unwrap();
+        assert_eq!(3, live.occurrence_refs().unwrap().len());
+        assert_eq!(
+            HistoryEntryOrigin::Legacy {
+                from_entry_index: 2,
+                to_entry_index: 3
+            },
+            history.entries()[1].origin
+        );
+        assert_eq!("Later", manager.entries[3].label.as_deref().unwrap());
+    }
+
+    #[test]
+    fn lazy_legacy_history_keeps_nearest_states_when_the_timeline_is_full() {
+        let mut current = Document::new();
+        current
+            .add_cuboid("current", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let earlier = Document::new();
+        let mut later = current.clone();
+        later
+            .add_cuboid("later", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut live = current.clone();
+        let mut history = history(1, 1_000_000);
+        history
+            .append_legacy_state(&live, later, "Later", 30, 0, 1)
+            .unwrap();
+        assert_eq!(1, history.entries().len());
+        history.redo(&mut live).unwrap();
+        history.undo(&mut live).unwrap();
+        history
+            .prepend_legacy_state(&live, earlier, "Earlier", 10, 2, 0)
+            .unwrap();
+        assert_eq!(1, history.entries().len());
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
+        history.undo(&mut live).unwrap();
+        assert!(live.occurrence_refs().unwrap().is_empty());
+        history.redo(&mut live).unwrap();
+        assert_eq!(1, live.occurrence_refs().unwrap().len());
+    }
+
+    #[test]
+    fn lazy_legacy_history_prunes_farthest_states_to_respect_snapshot_budget() {
+        let mut current = Document::new();
+        current
+            .add_cuboid("one", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut later = current.clone();
+        later
+            .add_cuboid("two", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut latest = later.clone();
+        latest
+            .add_cuboid("three", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let budget =
+            serde_json::to_vec(&later).unwrap().len() + serde_json::to_vec(&latest).unwrap().len();
+        let mut live = current.clone();
+        let mut history = history(10, budget);
+        history
+            .append_legacy_state(&live, later.clone(), "Two", 2, 0, 1)
+            .unwrap();
+        history.redo(&mut live).unwrap();
+        history
+            .append_legacy_state(&live, latest, "Three", 3, 1, 2)
+            .unwrap();
+
+        assert_eq!(1, history.entries().len());
+        assert_eq!("Three", history.entries()[0].label);
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+        assert!(history.snapshot_bytes() <= budget);
+        assert_eq!(2, live.occurrence_refs().unwrap().len());
+        history.redo(&mut live).unwrap();
+        assert_eq!(3, live.occurrence_refs().unwrap().len());
+    }
+
+    #[test]
+    fn legacy_snapshot_budget_failure_does_not_add_a_partial_timeline_entry() {
+        let mut current = Document::new();
+        current
+            .add_cuboid("current", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let mut earlier = Document::new();
+        earlier
+            .add_cuboid("earlier", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let current_size = serde_json::to_vec(&current).unwrap().len();
+        let earlier_size = serde_json::to_vec(&earlier).unwrap().len();
+        let live = current.clone();
+        let mut history = history(4, current_size + earlier_size - 1);
+
+        assert!(matches!(
+            history.prepend_legacy_state(&live, earlier, "Earlier", 1, 0, 1),
+            Err(TransactionError::HistoryBudgetExceeded { .. })
+        ));
+        assert!(history.entries().is_empty());
+        assert_eq!(0, history.cursor());
+        assert_eq!(current, live);
     }
 
     #[test]

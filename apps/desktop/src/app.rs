@@ -4,7 +4,10 @@ use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::document::{DefinitionId, Document, OccurrenceRef};
 use meshcraft_core::geometry::Vec3;
 use meshcraft_core::selection::{SelectedEntity, SelectionSession, SelectionTarget};
-use meshcraft_core::transactions::{SystemHistoryClock, TransactionHistory};
+use meshcraft_core::transactions::{
+    HistoryEntryOrigin, OpaqueLegacyHistory, SystemHistoryClock, TransactionHistory,
+};
+use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -264,6 +267,8 @@ pub struct MeshcraftApp {
     focus_command_search: bool,
     document: Document,
     history: TransactionHistory<SystemHistoryClock>,
+    legacy_history: Option<OpaqueLegacyHistory>,
+    legacy_active_index: Option<usize>,
     selection: SelectionSession,
     object_name_edit: Option<(DefinitionId, String)>,
     viewport: Viewport,
@@ -282,6 +287,7 @@ impl MeshcraftApp {
             Document::new(),
             "Empty document ready · choose Cuboid or Add Cuboid to begin.".to_owned(),
             false,
+            None,
         )
     }
 
@@ -290,11 +296,25 @@ impl MeshcraftApp {
         document: Document,
         status: String,
     ) -> Self {
-        Self::from_document(creation_context, document, status, true)
+        Self::from_document(creation_context, document, status, true, None)
+    }
+
+    pub fn new_with_project(
+        creation_context: &eframe::CreationContext<'_>,
+        project: ImportedProject,
+        status: String,
+    ) -> Self {
+        Self::from_document(
+            creation_context,
+            project.document,
+            status,
+            true,
+            project.history,
+        )
     }
 
     pub fn new_with_error(creation_context: &eframe::CreationContext<'_>, error: String) -> Self {
-        Self::from_document(creation_context, Document::new(), error, false)
+        Self::from_document(creation_context, Document::new(), error, false, None)
     }
 
     fn from_document(
@@ -302,11 +322,16 @@ impl MeshcraftApp {
         document: Document,
         status: String,
         frame_document: bool,
+        legacy_history: Option<OpaqueLegacyHistory>,
     ) -> Self {
         let preferences = creation_context
             .storage
             .and_then(|storage| eframe::get_value(storage, PREFERENCES_KEY))
             .unwrap_or_default();
+
+        let legacy_active_index = legacy_history
+            .as_ref()
+            .and_then(OpaqueLegacyHistory::active_entry_index);
 
         Self {
             preferences,
@@ -323,6 +348,8 @@ impl MeshcraftApp {
             focus_command_search: false,
             document,
             history: TransactionHistory::default(),
+            legacy_history,
+            legacy_active_index,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: {
@@ -402,6 +429,213 @@ impl MeshcraftApp {
         Ok(result)
     }
 
+    fn undo_document(&mut self) {
+        if self.history.can_undo() {
+            let entry = self.history.cursor() - 1;
+            let origin = self.history.entries()[entry].origin.clone();
+            match self.history.undo(&mut self.document) {
+                Ok(Some(_)) => {
+                    if let HistoryEntryOrigin::Legacy {
+                        from_entry_index, ..
+                    } = origin
+                    {
+                        self.legacy_active_index = Some(from_entry_index);
+                    }
+                    self.selection.retain_valid(&self.document);
+                    self.status = "Undid the previous document operation.".to_owned();
+                }
+                Ok(None) => self.status = "Nothing to undo.".to_owned(),
+                Err(error) => self.status = error.to_string(),
+            }
+            return;
+        }
+
+        let Some(current_index) = self.legacy_active_index else {
+            self.status = "Nothing to undo.".to_owned();
+            return;
+        };
+        let mut scan_index = current_index;
+        let mut skipped_entries = Vec::new();
+        let (previous_index, label, timestamp_millis, earlier) = loop {
+            let Some(previous_index) = self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.previous_entry_index(scan_index))
+            else {
+                self.status = if skipped_entries.is_empty() {
+                    "Nothing to undo.".to_owned()
+                } else {
+                    format!(
+                        "No earlier legacy snapshot could be loaded; skipped corrupt entries {}.",
+                        skipped_entries
+                            .iter()
+                            .map(|index: &usize| (index + 1).to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                return;
+            };
+            let Some(entry) = self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.entries.get(previous_index))
+            else {
+                self.status = format!("Legacy history entry {} is missing.", previous_index + 1);
+                return;
+            };
+            let label = entry
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("Legacy undo entry {}", previous_index + 1));
+            let timestamp_millis = entry.timestamp_millis;
+            let decoded = self
+                .legacy_history
+                .as_mut()
+                .expect("legacy entry came from retained history")
+                .decode_entry(previous_index, &LegacySnapshotAdapter::default());
+            match decoded {
+                Ok(document) => break (previous_index, label, timestamp_millis, document),
+                Err(_) => {
+                    skipped_entries.push(previous_index);
+                    scan_index = previous_index;
+                }
+            }
+        };
+        if let Err(error) = self.history.prepend_legacy_state(
+            &self.document,
+            earlier,
+            label.clone(),
+            timestamp_millis,
+            previous_index,
+            current_index,
+        ) {
+            self.status = error.to_string();
+            return;
+        }
+
+        match self.history.undo(&mut self.document) {
+            Ok(Some(_)) => {
+                self.legacy_active_index = Some(previous_index);
+                self.selection.retain_valid(&self.document);
+                self.status = legacy_replay_status("Undid", &label, &skipped_entries);
+            }
+            Ok(None) => self.status = "Nothing to undo.".to_owned(),
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    fn redo_document(&mut self) {
+        if self.history.can_redo() {
+            let entry = self.history.cursor();
+            let origin = self.history.entries()[entry].origin.clone();
+            match self.history.redo(&mut self.document) {
+                Ok(Some(_)) => {
+                    if let HistoryEntryOrigin::Legacy { to_entry_index, .. } = origin {
+                        self.legacy_active_index = Some(to_entry_index);
+                    }
+                    self.selection.retain_valid(&self.document);
+                    self.status = "Redid the document operation.".to_owned();
+                }
+                Ok(None) => self.status = "Nothing to redo.".to_owned(),
+                Err(error) => self.status = error.to_string(),
+            }
+            return;
+        }
+
+        let Some(current_index) = self.legacy_active_index else {
+            self.status = "Nothing to redo.".to_owned();
+            return;
+        };
+        let mut scan_index = current_index;
+        let mut skipped_entries = Vec::new();
+        let (next_index, label, timestamp_millis, later) = loop {
+            let Some(next_index) = self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.next_entry_index(scan_index))
+            else {
+                self.status = if skipped_entries.is_empty() {
+                    "Nothing to redo.".to_owned()
+                } else {
+                    format!(
+                        "No later legacy snapshot could be loaded; skipped corrupt entries {}.",
+                        skipped_entries
+                            .iter()
+                            .map(|index: &usize| (index + 1).to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                return;
+            };
+            let Some(entry) = self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.entries.get(next_index))
+            else {
+                self.status = format!("Legacy history entry {} is missing.", next_index + 1);
+                return;
+            };
+            let label = entry
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("Legacy undo entry {}", next_index + 1));
+            let timestamp_millis = entry.timestamp_millis;
+            let decoded = self
+                .legacy_history
+                .as_mut()
+                .expect("legacy entry came from retained history")
+                .decode_entry(next_index, &LegacySnapshotAdapter::default());
+            match decoded {
+                Ok(document) => break (next_index, label, timestamp_millis, document),
+                Err(_) => {
+                    skipped_entries.push(next_index);
+                    scan_index = next_index;
+                }
+            }
+        };
+        if let Err(error) = self.history.append_legacy_state(
+            &self.document,
+            later,
+            label.clone(),
+            timestamp_millis,
+            current_index,
+            next_index,
+        ) {
+            self.status = error.to_string();
+            return;
+        }
+
+        match self.history.redo(&mut self.document) {
+            Ok(Some(_)) => {
+                self.legacy_active_index = Some(next_index);
+                self.selection.retain_valid(&self.document);
+                self.status = legacy_replay_status("Redid", &label, &skipped_entries);
+            }
+            Ok(None) => self.status = "Nothing to redo.".to_owned(),
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    fn can_undo_document(&self) -> bool {
+        self.history.can_undo()
+            || self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.previous_entry_index(self.legacy_active_index?))
+                .is_some()
+    }
+
+    fn can_redo_document(&self) -> bool {
+        self.history.can_redo()
+            || self
+                .legacy_history
+                .as_ref()
+                .and_then(|history| history.next_entry_index(self.legacy_active_index?))
+                .is_some()
+    }
+
     fn run_command(&mut self, id: &str) {
         let Some(command) = SHELL_COMMANDS.iter().find(|command| command.id == id) else {
             self.status = format!("Unknown command: {id}");
@@ -449,22 +683,8 @@ impl MeshcraftApp {
             ShellAction::CopySelection => self.copy_selection(),
             ShellAction::CreateObject => self.create_object_from_selection(),
             ShellAction::ArraySelection => self.array_selection(),
-            ShellAction::Undo => match self.history.undo(&mut self.document) {
-                Ok(Some(_)) => {
-                    self.selection.retain_valid(&self.document);
-                    self.status = "Undid the previous document operation.".to_owned();
-                }
-                Ok(None) => self.status = "Nothing to undo.".to_owned(),
-                Err(error) => self.status = error.to_string(),
-            },
-            ShellAction::Redo => match self.history.redo(&mut self.document) {
-                Ok(Some(_)) => {
-                    self.selection.retain_valid(&self.document);
-                    self.status = "Redid the document operation.".to_owned();
-                }
-                Ok(None) => self.status = "Nothing to redo.".to_owned(),
-                Err(error) => self.status = error.to_string(),
-            },
+            ShellAction::Undo => self.undo_document(),
+            ShellAction::Redo => self.redo_document(),
             ShellAction::NewDocument => {
                 match self.commit_document_edit("New document", |document| {
                     *document = Document::new();
@@ -912,13 +1132,13 @@ impl MeshcraftApp {
 
             ui.menu_button("Edit", |ui| {
                 if ui
-                    .add_enabled(self.history.can_undo(), egui::Button::new("Undo"))
+                    .add_enabled(self.can_undo_document(), egui::Button::new("Undo"))
                     .clicked()
                 {
                     self.run_command("edit.undo");
                 }
                 if ui
-                    .add_enabled(self.history.can_redo(), egui::Button::new("Redo"))
+                    .add_enabled(self.can_redo_document(), egui::Button::new("Redo"))
                     .clicked()
                 {
                     self.run_command("edit.redo");
@@ -1587,6 +1807,18 @@ fn tool_command_id(tool: &str) -> &'static str {
     }
 }
 
+fn legacy_replay_status(action: &str, label: &str, skipped_entries: &[usize]) -> String {
+    if skipped_entries.is_empty() {
+        return format!("{action} legacy history: {label}.");
+    }
+    let skipped = skipped_entries
+        .iter()
+        .map(|index| (index + 1).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Skipped corrupt legacy entries {skipped}; {action} legacy history: {label}.")
+}
+
 fn command_matches(command: &ShellCommand, raw_query: &str) -> bool {
     let query = raw_query.trim().to_lowercase();
     query.split_whitespace().all(|term| {
@@ -1619,9 +1851,73 @@ mod tests {
         MeshcraftApp, Preferences, SHELL_COMMANDS, SelectionSession, TransactionHistory,
         command_matches, registry_has_unique_ids, tool_command_id,
     };
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
     use meshcraft_core::document::Document;
+    use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
+    use meshcraft_io::project::read_project;
+    use serde_json::{Value, json};
     use std::collections::BTreeMap;
+    use std::io::Write;
+
+    const LEGACY_MODEL: &str =
+        include_str!("../../../fixtures/legacy/samples/examples/arch_frame.octd");
+
+    fn snapshot_json(root_only: bool) -> String {
+        let mut value: Value = serde_json::from_str(LEGACY_MODEL).unwrap();
+        if root_only {
+            value["rootInstance"]["children"] = json!([]);
+        }
+        value.to_string()
+    }
+
+    fn encode_history_snapshot(root_only: bool) -> String {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(snapshot_json(root_only).as_bytes())
+            .unwrap();
+        BASE64_STANDARD.encode(encoder.finish().unwrap())
+    }
+
+    fn app_with_legacy_history(corrupt_older_entry: bool) -> MeshcraftApp {
+        let older_snapshot = if corrupt_older_entry {
+            "%%% invalid base64 %%%".to_owned()
+        } else {
+            encode_history_snapshot(false)
+        };
+        let current_snapshot = encode_history_snapshot(true);
+        let current_project = read_project(snapshot_json(true).as_bytes()).unwrap();
+        let legacy_history = OpaqueLegacyHistory {
+            max_entries: 10,
+            index: 1,
+            entries: vec![
+                OpaqueLegacyUndoEntry {
+                    data: older_snapshot,
+                    label: Some("Before import".to_owned()),
+                    timestamp_millis: 100,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+                OpaqueLegacyUndoEntry {
+                    data: current_snapshot,
+                    label: Some("Imported state".to_owned()),
+                    timestamp_millis: 200,
+                    diagnostic: None,
+                    extensions: BTreeMap::new(),
+                },
+            ],
+            extensions: BTreeMap::new(),
+        };
+        let active_index = legacy_history.active_entry_index();
+        let mut app = test_app();
+        app.document = current_project.document;
+        app.legacy_active_index = active_index;
+        app.legacy_history = Some(legacy_history);
+        app
+    }
 
     fn test_app() -> MeshcraftApp {
         MeshcraftApp {
@@ -1639,6 +1935,8 @@ mod tests {
             focus_command_search: false,
             document: Document::new(),
             history: TransactionHistory::default(),
+            legacy_history: None,
+            legacy_active_index: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
             viewport: Default::default(),
@@ -1741,6 +2039,83 @@ mod tests {
         assert_eq!(1, app.document.occurrence_refs().unwrap().len());
         assert!(!app.history.can_redo());
         assert!(app.selection.selected().is_empty());
+    }
+
+    #[test]
+    fn reopening_with_legacy_history_supports_edit_undo_and_lazy_legacy_replay() {
+        let mut app = app_with_legacy_history(false);
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert!(app.can_undo_document());
+        assert!(!app.can_redo_document());
+
+        app.run_command("geometry.add_cuboid");
+        assert_eq!(2, app.document.occurrence_refs().unwrap().len());
+        app.run_command("edit.undo");
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(0, app.history.cursor());
+
+        app.run_command("edit.undo");
+        assert_eq!(2, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(Some(0), app.legacy_active_index);
+        assert!(app.status.contains("Before import"));
+        assert!(!app.can_undo_document());
+        assert!(app.can_redo_document());
+
+        app.run_command("edit.redo");
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(Some(1), app.legacy_active_index);
+        app.run_command("edit.redo");
+        assert_eq!(2, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(2, app.history.entries().len());
+    }
+
+    #[test]
+    fn corrupt_legacy_undo_entry_is_diagnosed_without_changing_the_document() {
+        let mut app = app_with_legacy_history(true);
+        let before = app.document.clone();
+        let original = app.legacy_history.as_ref().unwrap().entries[0].data.clone();
+
+        app.run_command("edit.undo");
+
+        assert_eq!(before, app.document);
+        assert_eq!(Some(1), app.legacy_active_index);
+        assert!(app.history.entries().is_empty());
+        let history = app.legacy_history.as_ref().unwrap();
+        assert_eq!(original, history.entries[0].data);
+        assert!(history.entries[0].diagnostic.is_some());
+        assert!(
+            app.status
+                .contains("No earlier legacy snapshot could be loaded")
+        );
+    }
+
+    #[test]
+    fn legacy_undo_skips_a_corrupt_neighbor_and_keeps_its_diagnostic() {
+        let mut app = app_with_legacy_history(false);
+        let history = app.legacy_history.as_mut().unwrap();
+        history.entries.insert(
+            1,
+            OpaqueLegacyUndoEntry {
+                data: "%%% broken middle snapshot %%%".to_owned(),
+                label: Some("Corrupt middle state".to_owned()),
+                timestamp_millis: 150,
+                diagnostic: None,
+                extensions: BTreeMap::new(),
+            },
+        );
+        history.index = 2;
+        app.legacy_active_index = history.active_entry_index();
+
+        app.run_command("edit.undo");
+
+        assert_eq!(2, app.document.occurrence_refs().unwrap().len());
+        assert_eq!(Some(0), app.legacy_active_index);
+        assert!(
+            app.legacy_history.as_ref().unwrap().entries[1]
+                .diagnostic
+                .is_some()
+        );
+        assert!(app.status.contains("Skipped corrupt legacy entries 2"));
     }
 
     #[test]

@@ -225,7 +225,9 @@
         "C06"
       ],
       "targets": [
-        "crates/meshcraft-core/src/transactions/"
+        "crates/meshcraft-core/src/transactions/",
+        "apps/desktop/src/app.rs",
+        "apps/desktop/src/main.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/model/UndoRedoManager.kt",
@@ -245,10 +247,11 @@
       ],
       "done": [
         "Preview/cancel does not change history; failed operations publish no partial edits.",
-        "Legacy debounce divergence is documented and redo/cap tests pass."
+        "Legacy debounce divergence is documented and redo/cap tests pass.",
+        "Supported imported legacy snapshots are traversable lazily through the same bounded Undo/Redo timeline; corrupt entries remain diagnostic and do not alter the document."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T05",
@@ -292,7 +295,8 @@
       ],
       "done": [
         "C03/C04 payload round trips preserve fields even before domain generators ship.",
-        "Empty/sparse axes are handled according to the documented validation/new-document policy; bad loads leave the live document intact."
+        "Empty/sparse axes are handled according to the documented validation/new-document policy; bad loads leave the live document intact.",
+        "Supported imported history snapshots connect lazily to desktop Undo/Redo; decode failures preserve their opaque entry and leave the document unchanged."
       ],
       "tool_ids": [],
       "status": "in_progress",
