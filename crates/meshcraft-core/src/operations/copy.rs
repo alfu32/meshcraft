@@ -29,8 +29,8 @@ impl LinearArrayReport {
     }
 }
 
-/// Returns whether the current selection contains existing objects or mesh entities supported by
-/// the shared copy transform. Nested object occurrences and semantic handles need domain adapters.
+/// Returns whether the current selection contains existing object occurrences or mesh entities
+/// supported by the shared copy transform. Semantic handles need domain adapters.
 pub fn can_linear_array_selection(document: &Document, selection: &SelectionSession) -> bool {
     !selection.selected().is_empty()
         && selection.selected().iter().all(|target| {
@@ -39,8 +39,7 @@ pub fn can_linear_array_selection(document: &Document, selection: &SelectionSess
             };
             match target.entity {
                 SelectedEntity::Occurrence => {
-                    target.occurrence.path.len() == 1
-                        && document.resolve_occurrence(&target.occurrence).is_some()
+                    document.resolve_occurrence(&target.occurrence).is_some()
                 }
                 SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
                 SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
@@ -249,10 +248,10 @@ pub fn transformed_array(
     }
 
     let mut candidate = document.clone();
-    let original_selection = selection.clone();
+    let mut original_selection = selection.clone();
     let mut resulting_selection = original_selection.clone();
     resulting_selection.clear();
-    let mut result_targets = BTreeSet::new();
+    let mut result_targets = BTreeSet::<SelectionTarget>::new();
     let mut report = LinearArrayReport {
         copies: affines.len(),
         ..LinearArrayReport::default()
@@ -260,12 +259,39 @@ pub fn transformed_array(
 
     for transform in affines {
         let mut copy_selection = original_selection.clone();
-        let transform_report =
-            transforms::transform_selection(&mut candidate, &mut copy_selection, *transform, true)?;
+        let (transform_report, path_remaps) = transforms::transform_selection_with_path_remaps(
+            &mut candidate,
+            &mut copy_selection,
+            *transform,
+            true,
+        )?;
         if !transform_report.changed() || copy_selection.selected().is_empty() {
             return Err("linear array could not create a copy of the selection".to_owned());
         }
         report.include_transform(transform_report);
+        for remap in path_remaps {
+            let remapped_source = original_selection
+                .selected()
+                .iter()
+                .cloned()
+                .map(|mut target| {
+                    target.occurrence = remap
+                        .remap_path(&target.occurrence)
+                        .unwrap_or(target.occurrence);
+                    target
+                })
+                .collect::<Vec<_>>();
+            original_selection.apply(remapped_source, SelectionMode::Replace);
+            result_targets = result_targets
+                .into_iter()
+                .map(|mut target| {
+                    target.occurrence = remap
+                        .remap_path(&target.occurrence)
+                        .unwrap_or(target.occurrence);
+                    target
+                })
+                .collect();
+        }
         result_targets.extend(copy_selection.selected().iter().cloned());
     }
 
@@ -563,6 +589,128 @@ mod tests {
                 .filter(|target| { matches!(target.entity, SelectedEntity::Triangle(_)) })
                 .count()
         );
+    }
+
+    #[test]
+    fn nested_object_array_preserves_source_paths_and_prior_results() {
+        let mut document = Document::new();
+        let child = cube(&mut document, "nested child", Vec3::ZERO);
+        let mesh_child = cube(&mut document, "mesh child", Vec3::X * 5.0);
+        let parent = crate::operations::objects::group_occurrences(
+            &mut document,
+            &[child, mesh_child],
+            "parent",
+        )
+        .unwrap();
+        let parent_copy = document
+            .copy_root_occurrence(&parent, Vec3::X * 20.0)
+            .unwrap();
+        let child_layout = document
+            .resolve_occurrence(&parent)
+            .unwrap()
+            .definition
+            .default_child_layout
+            .unwrap();
+        let entries = &document.child_layout(child_layout).unwrap().entries;
+        let child_entry = entries[0].id;
+        let mesh_entry = entries[1].id;
+        let nested = parent.child(child_entry);
+        let mesh_occurrence = parent.child(mesh_entry);
+        let face = *document
+            .effective_geometry(&mesh_occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.set_context(crate::selection::EditContext::Occurrence(parent.clone()));
+        selection.apply(
+            [
+                SelectionTarget {
+                    occurrence: nested,
+                    entity: SelectedEntity::Occurrence,
+                },
+                SelectionTarget {
+                    occurrence: mesh_occurrence.clone(),
+                    entity: SelectedEntity::Triangle(face),
+                },
+            ],
+            SelectionMode::Replace,
+        );
+
+        assert!(can_linear_array_selection(&document, &selection));
+        let report = linear_array(&mut document, &mut selection, 2, Vec3::X * 2.0).unwrap();
+
+        assert_eq!(2, report.copied_occurrences);
+        assert_eq!(2, report.copied_triangles);
+        assert_eq!(4, report.selected_results.len());
+        assert!(report.selected_results.iter().all(|target| {
+            target.occurrence.path.starts_with(&parent.path)
+                && document.resolve_occurrence(&target.occurrence).is_some()
+        }));
+        let copied_positions = report
+            .selected_results
+            .iter()
+            .filter(|target| target.entity == SelectedEntity::Occurrence)
+            .map(|target| {
+                document
+                    .resolve_occurrence(&target.occurrence)
+                    .unwrap()
+                    .world_transform
+                    .translation
+                    .x
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(2, copied_positions.len());
+        assert!(copied_positions.contains(&2.0));
+        assert!(copied_positions.contains(&4.0));
+        let private_layout = document
+            .resolve_occurrence(&parent)
+            .unwrap()
+            .edits
+            .unwrap()
+            .child_layout
+            .unwrap();
+        assert_eq!(
+            4,
+            document.child_layout(private_layout).unwrap().entries.len()
+        );
+        assert_eq!(
+            2,
+            document.child_layout(child_layout).unwrap().entries.len()
+        );
+        let peer_child = document
+            .resolve_occurrence(&parent_copy)
+            .unwrap()
+            .definition
+            .default_child_layout
+            .and_then(|layout| document.child_layout(layout))
+            .unwrap()
+            .entries[0]
+            .id;
+        assert!(
+            document
+                .resolve_occurrence(&parent_copy.child(peer_child))
+                .is_some()
+        );
+        assert_eq!(
+            2,
+            report
+                .selected_results
+                .iter()
+                .filter(|target| target.entity == SelectedEntity::Occurrence)
+                .count()
+        );
+        assert_eq!(
+            2,
+            report
+                .selected_results
+                .iter()
+                .filter(|target| matches!(target.entity, SelectedEntity::Triangle(_)))
+                .count()
+        );
+        assert!(document.validate().is_ok());
     }
 
     #[test]

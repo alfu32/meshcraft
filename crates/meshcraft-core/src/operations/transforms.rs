@@ -68,6 +68,24 @@ pub fn transform_selection(
     world_transform: Affine3,
     copy: bool,
 ) -> Result<TransformReport, String> {
+    transform_selection_with_path_remaps(document, selection, world_transform, copy)
+        .map(|(report, _)| report)
+}
+
+/// Applies a transform and returns nested-layout path remaps in operation order.
+/// Array operations use them to keep their source selection and prior results valid.
+pub(crate) fn transform_selection_with_path_remaps(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    world_transform: Affine3,
+    copy: bool,
+) -> Result<
+    (
+        TransformReport,
+        Vec<crate::operations::objects::OccurrencePathRemap>,
+    ),
+    String,
+> {
     if !world_transform.is_finite()
         || world_transform
             .inverse(GeometryTolerance::default())
@@ -76,7 +94,7 @@ pub fn transform_selection(
         return Err("transform must be finite and invertible".to_owned());
     }
     if is_identity(world_transform) {
-        return Ok(TransformReport::default());
+        return Ok((TransformReport::default(), Vec::new()));
     }
 
     let selected = selection
@@ -95,7 +113,7 @@ pub fn transform_selection(
             matches!(target.entity, SelectedEntity::Occurrence).then_some(target.occurrence.clone())
         })
         .collect::<BTreeSet<_>>();
-    let selected_objects = selected_objects
+    let mut selected_objects = selected_objects
         .iter()
         .filter(|occurrence| {
             !selected_objects.iter().any(|ancestor| {
@@ -169,22 +187,28 @@ pub fn transform_selection(
     let mut candidate_selection = selection.clone();
     let mut report = TransformReport::default();
     let mut copy_targets = BTreeSet::new();
+    let mut path_remaps = Vec::new();
 
-    for occurrence in &selected_objects {
+    while let Some(occurrence) = selected_objects.pop_first() {
         if copy {
-            if occurrence.path.len() != 1 {
-                return Err("copying a nested object is not supported yet".to_owned());
+            let (duplicate, remap) = crate::operations::objects::duplicate_occurrence_with_remap(
+                &mut candidate,
+                &occurrence,
+                Vec3::ZERO,
+            )?;
+            if let Some(remap) = remap {
+                remap_occurrence_set(&mut selected_objects, &remap);
+                remap_geometry_selections(&mut geometry, &remap);
+                copy_targets = remap_selection_targets(copy_targets, &remap);
+                path_remaps.push(remap);
             }
-            let duplicate = candidate
-                .copy_root_occurrence(occurrence, Vec3::ZERO)
-                .ok_or_else(|| "could not copy the selected object instance".to_owned())?;
             transform_occurrence(&mut candidate, &duplicate, world_transform)?;
             copy_targets.insert(SelectionTarget {
                 occurrence: duplicate,
                 entity: SelectedEntity::Occurrence,
             });
             report.copied_occurrences += 1;
-        } else if transform_occurrence(&mut candidate, occurrence, world_transform)? {
+        } else if transform_occurrence(&mut candidate, &occurrence, world_transform)? {
             report.transformed_occurrences += 1;
         }
     }
@@ -257,7 +281,7 @@ pub fn transform_selection(
     }
 
     if !report.changed() {
-        return Ok(report);
+        return Ok((report, path_remaps));
     }
     if copy {
         if copy_targets.is_empty() {
@@ -272,7 +296,72 @@ pub fn transform_selection(
         .ok_or_else(|| "document revision counter is exhausted".to_owned())?;
     *document = candidate;
     *selection = candidate_selection;
-    Ok(report)
+    Ok((report, path_remaps))
+}
+
+fn remapped_occurrence(
+    occurrence: &OccurrenceRef,
+    remap: &crate::operations::objects::OccurrencePathRemap,
+) -> OccurrenceRef {
+    remap
+        .remap_path(occurrence)
+        .unwrap_or_else(|| occurrence.clone())
+}
+
+fn remap_occurrence_set(
+    occurrences: &mut BTreeSet<OccurrenceRef>,
+    remap: &crate::operations::objects::OccurrencePathRemap,
+) {
+    *occurrences = std::mem::take(occurrences)
+        .into_iter()
+        .map(|occurrence| remapped_occurrence(&occurrence, remap))
+        .collect();
+}
+
+fn remap_selection_targets(
+    targets: BTreeSet<SelectionTarget>,
+    remap: &crate::operations::objects::OccurrencePathRemap,
+) -> BTreeSet<SelectionTarget> {
+    targets
+        .into_iter()
+        .map(|mut target| {
+            target.occurrence = remapped_occurrence(&target.occurrence, remap);
+            target
+        })
+        .collect()
+}
+
+fn remap_geometry_selections(
+    groups: &mut BTreeMap<GeometryOwner, GeometrySelection>,
+    remap: &crate::operations::objects::OccurrencePathRemap,
+) {
+    let previous = std::mem::take(groups);
+    for (owner, mut group) in previous {
+        let owner = match owner {
+            GeometryOwner::Definition(id) => GeometryOwner::Definition(id),
+            GeometryOwner::Occurrence(occurrence) => {
+                GeometryOwner::Occurrence(remapped_occurrence(&occurrence, remap))
+            }
+        };
+        remap_occurrence_set(&mut group.occurrence_targets, remap);
+        group.transform_occurrence = group
+            .transform_occurrence
+            .as_ref()
+            .map(|occurrence| remapped_occurrence(occurrence, remap));
+        let destination = groups.entry(owner).or_default();
+        destination
+            .occurrence_targets
+            .extend(group.occurrence_targets);
+        destination.vertices.extend(group.vertices);
+        destination
+            .explicit_vertices
+            .extend(group.explicit_vertices);
+        destination.segments.extend(group.segments);
+        destination.triangles.extend(group.triangles);
+        if destination.transform_occurrence.is_none() {
+            destination.transform_occurrence = group.transform_occurrence;
+        }
+    }
 }
 
 /// Applies the current RGBA value to selected faces and edges in the active edit context.
@@ -934,6 +1023,65 @@ mod tests {
                 .world_transform
                 .translation
         );
+    }
+
+    #[test]
+    fn nested_object_copies_remap_siblings_and_remain_selected_in_parent_context() {
+        let mut document = Document::new();
+        let first = document
+            .add_cuboid("first child", Vec3::new(1.0, 1.0, 1.0), Vec3::ZERO)
+            .unwrap();
+        let second = document
+            .add_cuboid("second child", Vec3::new(1.0, 1.0, 1.0), Vec3::X * 3.0)
+            .unwrap();
+        let parent = crate::operations::objects::group_occurrences(
+            &mut document,
+            &[first, second],
+            "parent",
+        )
+        .unwrap();
+        let child_layout = document
+            .resolve_occurrence(&parent)
+            .unwrap()
+            .definition
+            .default_child_layout
+            .unwrap();
+        let children = document.child_layout(child_layout).unwrap().entries.clone();
+        let first_child = parent.child(children[0].id);
+        let second_child = parent.child(children[1].id);
+        let mut selection = SelectionSession::default();
+        selection.set_context(EditContext::Occurrence(parent.clone()));
+        selection.apply(
+            [
+                selected(first_child, SelectedEntity::Occurrence),
+                selected(second_child, SelectedEntity::Occurrence),
+            ],
+            crate::selection::SelectionMode::Replace,
+        );
+
+        let report = transform_selection(
+            &mut document,
+            &mut selection,
+            affine_translation(Vec3::new(0.0, 2.0, 0.0)),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(2, report.copied_occurrences);
+        assert_eq!(2, selection.selected().len());
+        assert!(selection.selected().iter().all(|target| {
+            target.occurrence.path.starts_with(&parent.path)
+                && document.resolve_occurrence(&target.occurrence).is_some()
+        }));
+        let resolved_parent = document.resolve_occurrence(&parent).unwrap();
+        let private_layout = resolved_parent.edits.unwrap().child_layout.unwrap();
+        assert_eq!(
+            4,
+            document.child_layout(private_layout).unwrap().entries.len()
+        );
+        assert!(!selection.retain_valid(&document));
+        assert_eq!(2, selection.selected().len());
+        assert!(document.validate().is_ok());
     }
 
     #[test]

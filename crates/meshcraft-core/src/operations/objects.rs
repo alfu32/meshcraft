@@ -26,6 +26,29 @@ pub struct DeleteReport {
     pub triangles: usize,
 }
 
+/// Describes path changes made when a parent occurrence receives a private child layout.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OccurrencePathRemap {
+    parent: OccurrenceRef,
+    child_index: usize,
+    entry_ids: BTreeMap<LayoutEntryId, LayoutEntryId>,
+}
+
+impl OccurrencePathRemap {
+    /// Returns the rekeyed path when `occurrence` is below the forked parent's child layout.
+    pub fn remap_path(&self, occurrence: &OccurrenceRef) -> Option<OccurrenceRef> {
+        if !occurrence.path.starts_with(&self.parent.path)
+            || occurrence.path.len() <= self.child_index
+        {
+            return None;
+        }
+        let new_id = self.entry_ids.get(&occurrence.path[self.child_index])?;
+        let mut path = occurrence.path.clone();
+        path[self.child_index] = *new_id;
+        Some(OccurrenceRef { path })
+    }
+}
+
 impl DeleteReport {
     pub fn deleted_count(&self) -> usize {
         self.occurrences + self.vertices + self.segments + self.triangles
@@ -806,6 +829,16 @@ pub fn duplicate_occurrence(
     source: &OccurrenceRef,
     offset_in_parent: Vec3,
 ) -> Result<OccurrenceRef, String> {
+    duplicate_occurrence_with_remap(document, source, offset_in_parent).map(|(copy, _)| copy)
+}
+
+/// Copies a placement and reports occurrence paths that were rekeyed while isolating its parent.
+/// Callers holding other selection paths can apply the returned map after a nested copy.
+pub fn duplicate_occurrence_with_remap(
+    document: &mut Document,
+    source: &OccurrenceRef,
+    offset_in_parent: Vec3,
+) -> Result<(OccurrenceRef, Option<OccurrencePathRemap>), String> {
     if source.path.is_empty() || !offset_in_parent.is_finite() {
         return Err("copy requires a placed object and a finite offset".to_owned());
     }
@@ -819,12 +852,13 @@ pub fn duplicate_occurrence(
             .ok_or_else(|| "could not copy the selected object instance".to_owned())?;
         candidate.validate()?;
         *document = candidate;
-        return Ok(copy);
+        return Ok((copy, None));
     }
 
     let parent = OccurrenceRef {
         path: source.path[..source.path.len() - 1].to_vec(),
     };
+    let child_index = parent.path.len();
     let source_entry_id = *source.path.last().expect("non-empty path");
     let layout_id = child_layout_for_parent(&candidate, &parent)?;
     let layout = candidate
@@ -863,7 +897,6 @@ pub fn duplicate_occurrence(
 
     let mut remapped_edits = BTreeMap::new();
     for (path, edits) in std::mem::take(&mut candidate.occurrence_edits) {
-        let child_index = parent.path.len();
         if path.path.starts_with(&parent.path) && path.path.len() > child_index {
             let old_id = path.path[child_index];
             if let Some(new_id) = entry_map.get(&old_id) {
@@ -941,8 +974,13 @@ pub fn duplicate_occurrence(
         }
     }
     candidate.validate()?;
+    let remap = OccurrencePathRemap {
+        parent,
+        child_index,
+        entry_ids: entry_map,
+    };
     *document = candidate;
-    Ok(copy)
+    Ok((copy, Some(remap)))
 }
 
 /// Adds a definition to the active object graph at a world-space point. If a surface normal is

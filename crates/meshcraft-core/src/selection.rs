@@ -413,7 +413,9 @@ impl SelectionSession {
             };
             let context_matches = match &self.context {
                 EditContext::Definition(id) => resolved.definition.id == *id,
-                EditContext::Occurrence(occurrence) => occurrence == &target.occurrence,
+                EditContext::Occurrence(occurrence) => {
+                    target.occurrence.path.starts_with(&occurrence.path)
+                }
                 EditContext::Document => true,
             };
             entity_exists && context_matches
