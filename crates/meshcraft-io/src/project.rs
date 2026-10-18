@@ -727,6 +727,49 @@ mod tests {
     }
 
     #[test]
+    fn root_group_blank_names_use_the_legacy_object_fallback() {
+        let mut source: Value = serde_json::from_str(ROOT_GROUP_MODEL).unwrap();
+        source["rootGroup"]["name"] = json!("  ");
+        source["rootGroup"]["children"] = json!([{
+            "name": "",
+            "origin": {},
+            "axisU": {"x": 1},
+            "axisV": {"y": 1},
+            "axisW": {"z": 1},
+            "segments": [{"start": {}, "end": {"x": 1}}]
+        }]);
+
+        let imported = read_project(source.to_string().as_bytes()).unwrap();
+        let occurrences = imported.document.occurrence_refs().unwrap();
+        let root = occurrences
+            .iter()
+            .find(|occurrence| occurrence.path.len() == 1)
+            .unwrap();
+        let child = occurrences
+            .iter()
+            .find(|occurrence| occurrence.path.len() == 2)
+            .unwrap();
+        assert_eq!(
+            "Object",
+            imported
+                .document
+                .resolve_occurrence(root)
+                .unwrap()
+                .definition
+                .name
+        );
+        assert_eq!(
+            "Object",
+            imported
+                .document
+                .resolve_occurrence(child)
+                .unwrap()
+                .definition
+                .name
+        );
+    }
+
+    #[test]
     fn imports_flat_geometry_and_prototype_only_recovery_shapes() {
         let root_group: Value = serde_json::from_str(ROOT_GROUP_MODEL).unwrap();
         let group = &root_group["rootGroup"];

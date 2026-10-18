@@ -175,6 +175,19 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             return Err(format!("{path}/id: duplicate prototype ID {legacy_id:?}"));
         }
         let name = read_string(object, "name", &path)?.unwrap_or_default();
+        // Kotlin keeps the existing scene-root name for a blank root DTO and gives
+        // newly created prototypes the generic "Object" name. Mirror that effective
+        // load behavior so sparse names do not render as empty entries in inspectors.
+        let name = if name.trim().is_empty() {
+            if legacy_id == "root" {
+                "Root"
+            } else {
+                "Object"
+            }
+            .to_owned()
+        } else {
+            name
+        };
         let kind = parse_definition_kind(object, &path)?;
         let frame = parse_transform(
             object,
@@ -2522,14 +2535,14 @@ mod tests {
 
     #[test]
     fn sparse_prototype_uses_legacy_dto_defaults_and_preserves_flags() {
-        for expected_name in [None, Some(""), Some("  ")] {
+        for dto_name in [None, Some(""), Some("  ")] {
             let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
             let prototype_id = source["prototypes"][0]["id"].as_str().unwrap().to_owned();
             let prototype = source["prototypes"][0].as_object_mut().unwrap();
             prototype.remove("gluedToSurface");
             prototype.remove("externalReferenceEnabled");
             prototype.remove("externalReferencePath");
-            if let Some(name) = expected_name {
+            if let Some(name) = dto_name {
                 prototype.insert("name".to_owned(), Value::String(name.to_owned()));
             } else {
                 prototype.remove("name");
@@ -2544,10 +2557,31 @@ mod tests {
                 .find(|prototype| prototype["id"] == prototype_id)
                 .unwrap();
 
-            assert_eq!(expected_name.unwrap_or_default(), prototype["name"]);
+            assert_eq!("Root", prototype["name"]);
             assert_eq!(false, prototype["gluedToSurface"]);
             assert_eq!(false, prototype["externalReferenceEnabled"]);
             assert_eq!("", prototype["externalReferencePath"]);
+        }
+
+        for dto_name in [None, Some(""), Some("  ")] {
+            let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+            let prototype_id = source["prototypes"][1]["id"].as_str().unwrap().to_owned();
+            let prototype = source["prototypes"][1].as_object_mut().unwrap();
+            if let Some(name) = dto_name {
+                prototype.insert("name".to_owned(), Value::String(name.to_owned()));
+            } else {
+                prototype.remove("name");
+            }
+
+            let imported = import_current_value(&source).unwrap();
+            let exported = export_current_value(&imported).unwrap();
+            let prototype = exported["prototypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|prototype| prototype["id"] == prototype_id)
+                .unwrap();
+            assert_eq!("Object", prototype["name"]);
         }
 
         let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
