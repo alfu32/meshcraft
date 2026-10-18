@@ -213,11 +213,11 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
             &mut definition.extensions,
             "k3d.",
         );
-        for field in SCHEMA17_DOMAIN_ARRAY_FIELDS
-            .iter()
-            .copied()
-            .chain(["voxelColor"])
-        {
+        for field in SCHEMA17_DOMAIN_ARRAY_FIELDS.iter().copied().chain([
+            "dimensions",
+            "texts",
+            "voxelColor",
+        ]) {
             if let Some(value) = object.get(field) {
                 definition.extensions.insert(
                     format!("k3d.{field}"),
@@ -1139,6 +1139,23 @@ fn normalize_sparse_component_dtos(field: &str, value: &Value) -> Value {
             "y": 0,
             "z": 0,
             "color": {"r": 1, "g": 1, "b": 1, "a": 1}
+        }),
+        "dimensions" => serde_json::json!({
+            "start": {"x": 0, "y": 0, "z": 0},
+            "end": {"x": 0, "y": 0, "z": 0},
+            "offset": {"x": 0, "y": 0, "z": 0}
+        }),
+        "texts" => serde_json::json!({
+            "position": {"x": 0, "y": 0, "z": 0},
+            "text": "",
+            "size": 0.1,
+            "normal": {"x": 0, "y": 0, "z": 0},
+            "axisU": {"x": 0, "y": 0, "z": 0},
+            "screenText": true,
+            "kind": "BITMAP",
+            "tracking": 0.1,
+            "lineSpacing": 1.25,
+            "glyphSourcePath": "embedded:alphabet"
         }),
         "architectureWalls" => serde_json::json!({
             "id": "",
@@ -2109,6 +2126,8 @@ mod tests {
             "attachedSegments": [{"id": "attached-segment"}],
             "attachedTriangles": [{"id": "attached-triangle"}]
         }]);
+        source["prototypes"][0]["dimensions"] = serde_json::json!([{}]);
+        source["prototypes"][0]["texts"] = serde_json::json!([{"text": "label"}]);
 
         let imported = import_current_value(&source).unwrap();
         let exported = export_current_value(&imported).unwrap();
@@ -2188,6 +2207,19 @@ mod tests {
         assert_eq!(Value::Null, hotspot["referencePosition"]);
         assert_eq!(0, hotspot["attachedSegments"][0]["a"]["x"]);
         assert_eq!(0, hotspot["attachedTriangles"][0]["c"]["z"]);
+
+        let dimension = &prototype["dimensions"][0];
+        assert_eq!(0, dimension["start"]["x"]);
+        assert_eq!(0, dimension["end"]["y"]);
+        assert_eq!(0, dimension["offset"]["z"]);
+
+        let text = &prototype["texts"][0];
+        assert_eq!("label", text["text"]);
+        assert_eq!(0.1, text["size"]);
+        assert_eq!(true, text["screenText"]);
+        assert_eq!(0.1, text["tracking"]);
+        assert_eq!(1.25, text["lineSpacing"]);
+        assert_eq!("embedded:alphabet", text["glyphSourcePath"]);
     }
 
     #[test]
