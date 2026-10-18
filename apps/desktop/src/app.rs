@@ -1112,6 +1112,12 @@ impl MeshcraftApp {
             .as_ref()
             .and_then(OpaqueLegacyHistory::active_entry_index);
         let saved_revision = document.revision();
+        let mut viewport = Viewport::default();
+        let restored_camera = meshcraft_core::legacy::legacy_camera_state(&document)
+            .is_some_and(|state| viewport.restore_legacy_camera_state(state));
+        if frame_document && !restored_camera {
+            viewport.request_frame();
+        }
 
         Self {
             preferences,
@@ -1143,13 +1149,7 @@ impl MeshcraftApp {
             pending_project_save: None,
             selection: SelectionSession::default(),
             object_name_edit: None,
-            viewport: {
-                let mut viewport = Viewport::default();
-                if frame_document {
-                    viewport.request_frame();
-                }
-                viewport
-            },
+            viewport,
             cuboid_first: None,
             cuboid_base: None,
             line_first: None,
@@ -1519,7 +1519,13 @@ impl MeshcraftApp {
         let job_id = format!("document-save-{}", self.next_job_id);
         self.next_job_id = self.next_job_id.saturating_add(1);
         let input_revision = self.document.revision();
-        let document = self.document.clone();
+        let document = match meshcraft_core::legacy::snapshot_with_legacy_camera_state(
+            &self.document,
+            self.viewport.legacy_camera_state(),
+        ) {
+            Ok(document) => document,
+            Err(error) => return CommandResult::failed(error),
+        };
         let document_is_dirty = self.document_is_dirty();
         let dropped_legacy_history = document_is_dirty && self.legacy_history.is_some();
         let history = if document_is_dirty {
@@ -1865,7 +1871,11 @@ impl MeshcraftApp {
         self.line_first = None;
         self.rectangle_first = None;
         self.viewport.reset_camera();
-        self.viewport.request_frame();
+        let restored_camera = meshcraft_core::legacy::legacy_camera_state(&self.document)
+            .is_some_and(|state| self.viewport.restore_legacy_camera_state(state));
+        if !restored_camera {
+            self.viewport.request_frame();
+        }
 
         self.status = format!("Opened {}.", path.display());
         if history_entries > 0 {
@@ -3764,6 +3774,7 @@ mod tests {
         CommandPayload, MeshcraftApp, OrthoView, Preferences, SelectionSession, TransactionHistory,
         command_matches, registry_has_unique_ids, shell_commands, tool_command_id,
     };
+    use crate::viewport::Viewport;
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
@@ -4108,6 +4119,24 @@ mod tests {
         assert_eq!(Some(OrthoView::Top), app.viewport.orthographic_view());
         app.run_command("view.camera.orbit");
         assert_eq!(None, app.viewport.orthographic_view());
+    }
+
+    #[test]
+    fn camera_pose_changes_remain_outside_document_dirty_tracking() {
+        let mut app = test_app();
+        let original_revision = app.document.revision();
+        let camera_state = json!({
+            "position": {"x": 13.0, "y": 8.0, "z": 2.0},
+            "target": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "fieldOfView": 58.0
+        });
+
+        assert!(app.viewport.restore_legacy_camera_state(&camera_state));
+        app.run_command("view.ortho.front");
+        app.run_command("view.camera.orbit");
+
+        assert_eq!(original_revision, app.document.revision());
+        assert!(!app.document_is_dirty());
     }
 
     #[test]
@@ -4664,6 +4693,16 @@ mod tests {
         let mut app = test_app();
         app.run_command("geometry.add_cuboid");
         assert!(app.document_is_dirty());
+        let camera_input = json!({
+            "position": {"x": 9.0, "y": 4.0, "z": -6.0},
+            "target": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "near": 0.2,
+            "far": 320.0,
+            "fieldOfView": 54.0
+        });
+        assert!(app.viewport.restore_legacy_camera_state(&camera_input));
+        let model_revision_before_save = app.document.revision();
+        let expected_camera = app.viewport.legacy_camera_state();
         let mut payload = CommandPayload::default();
         payload
             .values
@@ -4682,6 +4721,24 @@ mod tests {
         assert_eq!(Some(path.display().to_string()), app.current_project_path());
         let reopened = read_project(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(1, reopened.document.occurrence_refs().unwrap().len());
+        assert_eq!(model_revision_before_save, app.document.revision());
+        let saved_camera = meshcraft_core::legacy::legacy_camera_state(&reopened.document).unwrap();
+        assert_eq!(expected_camera["position"], saved_camera["position"]);
+        assert_eq!(expected_camera["target"], saved_camera["target"]);
+        assert_eq!(expected_camera["fieldOfView"], saved_camera["fieldOfView"]);
+        let mut reopened_viewport = Viewport::default();
+        assert!(reopened_viewport.restore_legacy_camera_state(saved_camera));
+        let restored_camera = reopened_viewport.legacy_camera_state();
+        let camera_vector = |value: &Value| {
+            serde_json::from_value::<meshcraft_core::geometry::Vec3>(value.clone()).unwrap()
+        };
+        assert!(
+            camera_vector(&restored_camera["position"])
+                .distance(camera_vector(&saved_camera["position"]))
+                < 1.0e-10
+        );
+        assert_eq!(saved_camera["target"], restored_camera["target"]);
+        assert_eq!(saved_camera["fieldOfView"], restored_camera["fieldOfView"]);
         assert!(reopened.history.is_none());
 
         app.legacy_history = Some(OpaqueLegacyHistory {
@@ -4719,6 +4776,19 @@ mod tests {
         assert_eq!(2.0, reopened.document.model_settings().grid_size);
         assert!(reopened.history.is_none());
         assert!(app.status.contains("Imported undo snapshots were cleared"));
+
+        let job_id = start_project_load(&mut app, &path);
+        wait_for_project_load(&mut app, &job_id);
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        let reloaded_camera = app.viewport.legacy_camera_state();
+        assert_eq!(expected_camera["target"], reloaded_camera["target"]);
+        assert_eq!(
+            expected_camera["fieldOfView"],
+            reloaded_camera["fieldOfView"]
+        );
         std::fs::remove_file(path).unwrap();
     }
 

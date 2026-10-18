@@ -368,6 +368,36 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
     Ok(document)
 }
 
+/// Returns the schema-17 perspective camera block retained by the normalized document.
+pub fn legacy_camera_state(document: &Document) -> Option<&Value> {
+    document.extensions.get("k3d.cameraState")
+}
+
+/// Builds a persistence snapshot with the active perspective camera pose.
+///
+/// Unknown keys in an imported camera block are retained. The source document is not changed,
+/// and camera motion therefore remains outside geometry revision and undo history.
+pub fn snapshot_with_legacy_camera_state(
+    document: &Document,
+    camera_state: Value,
+) -> ImportResult<Document> {
+    let replacement = camera_state
+        .as_object()
+        .ok_or_else(|| "legacy camera state must be a JSON object".to_owned())?;
+    let mut snapshot = document.clone();
+    let mut merged = snapshot
+        .extensions
+        .get("k3d.cameraState")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    merged.extend(replacement.clone());
+    snapshot
+        .extensions
+        .insert("k3d.cameraState".to_owned(), Value::Object(merged));
+    Ok(snapshot)
+}
+
 fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
     let source_version = root.get("version").cloned().unwrap_or(Value::from(17));
     document
@@ -1703,7 +1733,7 @@ fn read_string(object: &Map<String, Value>, key: &str, path: &str) -> ImportResu
 mod tests {
     use super::{
         GeometryDraft, QuantizedVertex, export_current_value, import_current_json,
-        import_current_value,
+        import_current_value, legacy_camera_state, snapshot_with_legacy_camera_state,
     };
     use crate::document::{DefinitionKind, LegacyAlias, OccurrenceRef};
     use crate::geometry::Vec3;
@@ -1721,6 +1751,38 @@ mod tests {
     const DIFFERING_INSTANCE_OVERRIDE: &str = include_str!(
         "../../../fixtures/scenarios/object-model/differing-instance-override-input.octd"
     );
+
+    #[test]
+    fn camera_persistence_snapshot_updates_pose_and_retains_unknown_camera_fields() {
+        let mut source: Value = serde_json::from_str(ARCH_FRAME).unwrap();
+        source["cameraState"] = serde_json::json!({
+            "position": {"x": 2.0, "y": 3.0, "z": 4.0},
+            "target": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "vendorExtension": {"lens": "wide"}
+        });
+        let document = import_current_value(&source).unwrap();
+        let original_revision = document.revision();
+        let replacement = serde_json::json!({
+            "position": {"x": 8.0, "y": 5.0, "z": -3.0},
+            "target": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "fieldOfView": 51.0
+        });
+
+        let snapshot = snapshot_with_legacy_camera_state(&document, replacement).unwrap();
+        let exported = export_current_value(&snapshot).unwrap();
+
+        assert_eq!(original_revision, document.revision());
+        assert_eq!(
+            serde_json::json!({"lens": "wide"}),
+            exported["cameraState"]["vendorExtension"]
+        );
+        assert_eq!(8.0, exported["cameraState"]["position"]["x"]);
+        assert_eq!(51.0, exported["cameraState"]["fieldOfView"]);
+        assert_eq!(
+            3.0,
+            legacy_camera_state(&document).unwrap()["position"]["y"]
+        );
+    }
 
     #[test]
     fn exports_schema17_snapshot_and_round_trips_frames_geometry_and_instance_ids() {

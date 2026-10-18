@@ -2,6 +2,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{Document, OccurrenceRef, Rgba8, VertexId};
 use meshcraft_core::geometry::Vec3;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 const ISO_X: f64 = std::f64::consts::FRAC_1_SQRT_2;
@@ -9,8 +10,9 @@ const DEFAULT_ELEVATION: f64 = 0.615_479_708_670_387_4;
 const MIN_ELEVATION: f64 = 0.261_799_387_799_149_4;
 const MAX_ELEVATION: f64 = 1.308_996_938_995_747_2;
 const DEFAULT_PERSPECTIVE_DISTANCE: f64 = 10.392_304_845_413_264;
-const PERSPECTIVE_FOV_RADIANS: f64 = 67.0_f64.to_radians();
-const NEAR_PLANE: f64 = 0.05;
+const DEFAULT_FIELD_OF_VIEW: f64 = 67.0;
+const DEFAULT_NEAR_PLANE: f64 = 0.1;
+const DEFAULT_FAR_PLANE: f64 = 500.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CuboidPreview {
@@ -127,6 +129,9 @@ pub struct Viewport {
     elevation: f64,
     target: Vec3,
     distance: f64,
+    field_of_view: f64,
+    near_plane: f64,
+    far_plane: f64,
     orthographic: Option<OrthoView>,
     camera_drag: Option<egui::PointerButton>,
     frame_pending: bool,
@@ -142,6 +147,9 @@ impl Default for Viewport {
             elevation: DEFAULT_ELEVATION,
             target: Vec3::ZERO,
             distance: DEFAULT_PERSPECTIVE_DISTANCE,
+            field_of_view: DEFAULT_FIELD_OF_VIEW,
+            near_plane: DEFAULT_NEAR_PLANE,
+            far_plane: DEFAULT_FAR_PLANE,
             orthographic: None,
             camera_drag: None,
             frame_pending: false,
@@ -266,6 +274,9 @@ impl Viewport {
         self.elevation = DEFAULT_ELEVATION;
         self.target = Vec3::ZERO;
         self.distance = DEFAULT_PERSPECTIVE_DISTANCE;
+        self.field_of_view = DEFAULT_FIELD_OF_VIEW;
+        self.near_plane = DEFAULT_NEAR_PLANE;
+        self.far_plane = DEFAULT_FAR_PLANE;
         self.orthographic = None;
         self.camera_drag = None;
         self.frame_pending = false;
@@ -285,6 +296,77 @@ impl Viewport {
 
     pub fn orthographic_view(&self) -> Option<OrthoView> {
         self.orthographic
+    }
+
+    /// Restores the schema-17 camera pose using the legacy loader's position/target semantics.
+    pub fn restore_legacy_camera_state(&mut self, state: &Value) -> bool {
+        let Some(fields) = state.as_object() else {
+            return false;
+        };
+        let Some(position) =
+            read_camera_vector(fields.get("position"), Vec3::new(10.0, 10.0, 10.0))
+        else {
+            return false;
+        };
+        let Some(target) = read_camera_vector(fields.get("target"), Vec3::ZERO) else {
+            return false;
+        };
+        let offset = position - target;
+        let Some(eye) = offset.try_normalized(1.0e-9) else {
+            return false;
+        };
+        let distance = offset.length();
+        if !distance.is_finite() || distance > 1.0e12 {
+            return false;
+        }
+        let horizontal = eye.x.hypot(eye.z);
+        let yaw = if horizontal > 1.0e-9 {
+            eye.z.atan2(eye.x) - std::f64::consts::FRAC_PI_4
+        } else {
+            0.0
+        };
+        let elevation = eye
+            .y
+            .clamp(-1.0, 1.0)
+            .asin()
+            .clamp(MIN_ELEVATION, MAX_ELEVATION);
+        let field_of_view = read_camera_number(fields.get("fieldOfView"))
+            .filter(|value| (1.0..179.0).contains(value))
+            .unwrap_or(DEFAULT_FIELD_OF_VIEW);
+        let near_plane = read_camera_number(fields.get("near"))
+            .filter(|value| *value > 0.0)
+            .unwrap_or(DEFAULT_NEAR_PLANE);
+        let far_plane = read_camera_number(fields.get("far"))
+            .filter(|value| *value > near_plane)
+            .unwrap_or(DEFAULT_FAR_PLANE.max(near_plane * 2.0));
+
+        self.target = target;
+        self.distance = distance;
+        self.yaw = yaw;
+        self.elevation = elevation;
+        self.field_of_view = field_of_view;
+        self.near_plane = near_plane;
+        self.far_plane = far_plane;
+        self.pan = Vec2::ZERO;
+        self.orthographic = None;
+        self.camera_drag = None;
+        self.frame_pending = false;
+        true
+    }
+
+    /// Produces the legacy schema-17 camera payload for this viewport's perspective pose.
+    pub fn legacy_camera_state(&self) -> Value {
+        let (_, up, eye) = self.perspective_camera_axes();
+        let position = self.target + eye * self.distance;
+        json!({
+            "position": position,
+            "direction": -eye,
+            "up": up,
+            "target": self.target,
+            "near": self.near_plane,
+            "far": self.far_plane,
+            "fieldOfView": self.field_of_view,
+        })
     }
 
     fn orbit_by(&mut self, delta: Vec2) {
@@ -423,8 +505,10 @@ impl Viewport {
     }
 
     fn point_in_front_of_camera(&self, point: Vec3) -> bool {
-        self.orthographic.is_some()
-            || self.distance - self.camera_direction().dot(point - self.target) > NEAR_PLANE
+        self.orthographic.is_some() || {
+            let depth = self.distance - self.camera_direction().dot(point - self.target);
+            depth >= self.near_plane && depth <= self.far_plane
+        }
     }
 
     fn projected_position(&self, point: Vec3) -> (f64, f64) {
@@ -445,7 +529,7 @@ impl Viewport {
         }
         let (right, up, eye) = self.camera_axes();
         let relative = point - self.target;
-        let depth = (self.distance - eye.dot(relative)).max(NEAR_PLANE);
+        let depth = (self.distance - eye.dot(relative)).max(self.near_plane);
         let focal = self.focal_length(rect.height());
         Vec2::new(
             (focal * right.dot(relative) / depth) as f32,
@@ -454,11 +538,18 @@ impl Viewport {
     }
 
     fn focal_length(&self, viewport_height: f32) -> f64 {
-        f64::from(viewport_height.max(1.0)) * 0.5 / (PERSPECTIVE_FOV_RADIANS * 0.5).tan()
+        f64::from(viewport_height.max(1.0)) * 0.5 / (self.field_of_view.to_radians() * 0.5).tan()
     }
 
     fn camera_axes(&self) -> (Vec3, Vec3, Vec3) {
-        let eye = self.camera_direction();
+        Self::axes_for_eye(self.camera_direction())
+    }
+
+    fn perspective_camera_axes(&self) -> (Vec3, Vec3, Vec3) {
+        Self::axes_for_eye(self.perspective_camera_direction())
+    }
+
+    fn axes_for_eye(eye: Vec3) -> (Vec3, Vec3, Vec3) {
         let forward = -eye;
         let right = forward
             .cross(Vec3::Y)
@@ -503,6 +594,10 @@ impl Viewport {
         if let Some(view) = self.orthographic {
             return view.screen_axes().2;
         }
+        self.perspective_camera_direction()
+    }
+
+    fn perspective_camera_direction(&self) -> Vec3 {
         let horizontal = self.elevation.cos() * ISO_X;
         Vec3::new(
             (self.yaw.cos() - self.yaw.sin()) * horizontal,
@@ -930,6 +1025,22 @@ fn point_in_triangle(point: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
     (d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0) || (d1 <= 0.0 && d2 <= 0.0 && d3 <= 0.0)
 }
 
+fn read_camera_vector(value: Option<&Value>, default: Vec3) -> Option<Vec3> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Some(default);
+    };
+    let fields = value.as_object()?;
+    let component = |name: &str| fields.get(name).map_or(Some(0.0), Value::as_f64);
+    let vector = Vec3::new(component("x")?, component("y")?, component("z")?);
+    vector.is_finite().then_some(vector)
+}
+
+fn read_camera_number(value: Option<&Value>) -> Option<f64> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|number| number.is_finite())
+}
+
 fn distance_to_segment_squared(point: Pos2, start: Pos2, end: Pos2) -> f32 {
     let direction = end - start;
     let length_squared = direction.length_sq();
@@ -1005,8 +1116,75 @@ mod tests {
         assert_eq!(DEFAULT_ELEVATION, viewport.elevation);
         assert_eq!(Vec3::ZERO, viewport.target);
         assert_eq!(DEFAULT_PERSPECTIVE_DISTANCE, viewport.distance);
+        assert_eq!(super::DEFAULT_FIELD_OF_VIEW, viewport.field_of_view);
+        assert_eq!(super::DEFAULT_NEAR_PLANE, viewport.near_plane);
+        assert_eq!(super::DEFAULT_FAR_PLANE, viewport.far_plane);
         assert_eq!(None, viewport.orthographic_view());
         assert!(!viewport.frame_pending);
+    }
+
+    #[test]
+    fn legacy_camera_pose_restores_and_round_trips_position_and_projection_parameters() {
+        let state = serde_json::json!({
+            "position": {"x": 8.0, "y": 7.0, "z": 6.0},
+            "direction": {"x": 0.0, "y": 1.0, "z": 0.0},
+            "up": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "target": {"x": 2.0, "y": 3.0, "z": 4.0},
+            "near": 0.25,
+            "far": 240.0,
+            "fieldOfView": 51.0
+        });
+        let mut viewport = Viewport::default();
+
+        assert!(viewport.restore_legacy_camera_state(&state));
+        assert!((viewport.target.distance(Vec3::new(2.0, 3.0, 4.0))) < 1.0e-12);
+        assert!((viewport.distance - 56.0_f64.sqrt()).abs() < 1.0e-12);
+        assert_eq!(51.0, viewport.field_of_view);
+        assert_eq!(0.25, viewport.near_plane);
+        assert_eq!(240.0, viewport.far_plane);
+        assert!(!viewport.frame_pending);
+
+        let written = viewport.legacy_camera_state();
+        let mut reopened = Viewport::default();
+        assert!(reopened.restore_legacy_camera_state(&written));
+        assert!(reopened.target.distance(viewport.target) < 1.0e-12);
+        assert!((reopened.distance - viewport.distance).abs() < 1.0e-12);
+        assert!((reopened.yaw - viewport.yaw).abs() < 1.0e-12);
+        assert!((reopened.elevation - viewport.elevation).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn malformed_or_degenerate_camera_states_do_not_replace_the_current_pose() {
+        let mut viewport = Viewport::default();
+        let original = viewport.legacy_camera_state();
+        let invalid = serde_json::json!({
+            "position": {"x": 1.0, "y": 1.0, "z": 1.0},
+            "target": {"x": 1.0, "y": 1.0, "z": 1.0}
+        });
+
+        assert!(!viewport.restore_legacy_camera_state(&invalid));
+        assert_eq!(original, viewport.legacy_camera_state());
+    }
+
+    #[test]
+    fn saving_from_an_orthographic_view_keeps_the_model_perspective_pose() {
+        let mut viewport = Viewport::default();
+        let camera_state = serde_json::json!({
+            "position": {"x": 8.0, "y": 7.0, "z": 6.0},
+            "target": {"x": 2.0, "y": 3.0, "z": 4.0},
+            "fieldOfView": 51.0
+        });
+        assert!(viewport.restore_legacy_camera_state(&camera_state));
+        let perspective_pose = viewport.legacy_camera_state();
+
+        viewport.set_orthographic_view(OrthoView::Top);
+
+        let saved_pose = viewport.legacy_camera_state();
+        assert_eq!(perspective_pose["position"], saved_pose["position"]);
+        assert_eq!(perspective_pose["direction"], saved_pose["direction"]);
+        assert_eq!(perspective_pose["up"], saved_pose["up"]);
+        assert_eq!(perspective_pose["target"], saved_pose["target"]);
+        assert_eq!(perspective_pose["fieldOfView"], saved_pose["fieldOfView"]);
     }
 
     #[test]
