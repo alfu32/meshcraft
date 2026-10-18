@@ -328,6 +328,7 @@ enum ShellAction {
     DeleteSelection,
     ClearSelection,
     ResetSceneForCapture,
+    SnapshotDocument,
     CreateObject,
     ArraySelection,
     UpdateModelSettings,
@@ -423,6 +424,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "interface scale toolbar grid layout preferences",
                 None,
                 ShellAction::UpdateUiPreferences,
+            ),
+            (
+                "document.snapshot",
+                "Model> Snapshot Document",
+                "Model",
+                "snapshot scene capture automation regression state",
+                None,
+                ShellAction::SnapshotDocument,
             ),
             (
                 "edit.undo",
@@ -847,7 +856,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleGrid
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
-        ShellAction::About => CommandKind::ReadOnly,
+        ShellAction::SnapshotDocument | ShellAction::About => CommandKind::ReadOnly,
     }
 }
 
@@ -2063,6 +2072,32 @@ impl MeshcraftApp {
                 self.preferences.panels_visible = false;
                 self.status = "Scene reset for capture (perspective, Y-up).".to_owned();
                 return CommandResult::completed();
+            }
+            ShellAction::SnapshotDocument => {
+                let document = match serde_json::to_value(&self.document) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return CommandResult::failed(format!(
+                            "could not serialize document snapshot: {error}"
+                        ));
+                    }
+                };
+                let selection = match serde_json::to_value(self.selected_occurrences()) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return CommandResult::failed(format!(
+                            "could not serialize selection snapshot: {error}"
+                        ));
+                    }
+                };
+                let mut result = CommandResult::completed();
+                result.document_revision = Some(self.document.revision());
+                result.outputs.insert("document".to_owned(), document);
+                result.outputs.insert("selection".to_owned(), selection);
+                result
+                    .outputs
+                    .insert("camera".to_owned(), self.viewport.legacy_camera_state());
+                return result;
             }
             ShellAction::CreateObject => return self.create_object_from_selection(),
             ShellAction::ArraySelection => {
@@ -4216,7 +4251,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(183, entries.len());
+        assert_eq!(184, entries.len());
         assert_eq!(
             74,
             entries
@@ -4246,6 +4281,7 @@ mod tests {
                 .get("edit.reset_scene_for_capture")
                 .is_some()
         );
+        assert!(shell_commands().get("document.snapshot").is_some());
         assert!(shell_commands().get("export.screenshot").is_some());
         assert!(shell_commands().get("import.mesh").is_some());
         assert!(entries.iter().any(|command| {
@@ -4625,6 +4661,32 @@ mod tests {
             let actual = camera["position"][axis].as_f64().unwrap();
             assert!((actual - expected).abs() < 1.0e-9, "{axis}: {actual}");
         }
+    }
+
+    #[test]
+    fn document_snapshot_command_returns_read_only_scene_state() {
+        let mut app = test_app();
+        app.run_command("geometry.add_cuboid");
+        let revision = app.document.revision();
+        let can_undo = app.can_undo_document();
+        let expected_document = serde_json::to_value(&app.document).unwrap();
+        let expected_selection = serde_json::to_value(app.selected_occurrences()).unwrap();
+        let expected_camera = app.viewport.legacy_camera_state();
+
+        let command = shell_commands()
+            .get("document.snapshot")
+            .expect("snapshot command is registered");
+        assert!(command_matches(&command.descriptor, "snapshot document"));
+        assert_eq!(CommandKind::ReadOnly, command.descriptor.kind);
+        let dispatch = app.dispatch_command("document.snapshot", &CommandPayload::default());
+
+        assert!(dispatch.accepted);
+        assert_eq!(Some(revision), dispatch.result.document_revision);
+        assert_eq!(expected_document, dispatch.result.outputs["document"]);
+        assert_eq!(expected_selection, dispatch.result.outputs["selection"]);
+        assert_eq!(expected_camera, dispatch.result.outputs["camera"]);
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(can_undo, app.can_undo_document());
     }
 
     #[test]
