@@ -1,6 +1,6 @@
 # Implementation and agent handoff plan
 
-`tasks.json` is the authoritative task registry: 57 tasks, 189 assignable slices, explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. T00–T04, T06, T10–T15, T19, T20, T25, T46, T51, T52, T53 and T54 are complete; T05, T07, T09, T16, T17, T21, T22, T23, T39, T55 and T56 remain in progress. The workspace has a normalized document with cuboid/copy/object/array operations, schema-17 project read/write, a desktop save/open service, a perspective orbit camera with schema-17 camera-state persistence, six orthographic views, and a walkthrough camera with movement, support, jump/gravity, and runtime tuning. These are partial task slices: most modeling domains, recovery, and complete legacy DTO coverage remain open. Task slices are deliberately smaller than a whole feature family, especially arrays, formats, domains and rendering. Existing task IDs are stable; T46 is an early gate despite its appended number.
+`tasks.json` is the authoritative task registry: 57 tasks, 189 assignable slices, explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. T00–T04, T06, T10–T15, T19, T20, T25, T46, T51–T56 are complete; T05, T07, T09, T16, T17, T21, T22, T23 and T39 remain in progress. The workspace has a normalized document with cuboid/copy/object/array operations, schema-17 project read/write, a desktop save/open service, a perspective orbit camera with schema-17 camera-state persistence, six orthographic views, and a walkthrough camera with movement, support, jump/gravity, and runtime tuning. These are partial task slices: most modeling domains, recovery, and complete legacy DTO coverage remain open. Task slices are deliberately smaller than a whole feature family, especially arrays, formats, domains and rendering. Existing task IDs are stable; T46 is an early gate despite its appended number.
 
 ## Delivery scope
 
@@ -104,8 +104,6 @@ For a small team, combine lanes without changing dependency contracts. Paralleli
 | T52 | Organize Tools menu into toolbar groups and favorites (#3) |
 | T53 | Delete selected mesh entities and object instances (#4) |
 | T54 | Persistent oriented cursor and context-safe guide placement (#8, #9) |
-| T55 | Persistent recent project list, File menu and palette access (#10) |
-| T56 | Two-opposite-corner Cuboid primitive in Primitives (#11) |
 | T55 | Persistent recent project list, File menu and palette access (#10) |
 | T56 | Two-opposite-corner Cuboid primitive in Primitives (#11) |
 

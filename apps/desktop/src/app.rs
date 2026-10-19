@@ -81,6 +81,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
+const MAX_RECENT_PROJECTS: usize = 10;
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -412,6 +413,7 @@ const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
             "render.save",
         ],
     ),
+    ("primitives", &["tool.cuboid"]),
 ];
 const LEGACY_TOOL_ICON_KEYS: &[(&str, &str)] = &[
     ("axial_grid", "grid_helper_axial"),
@@ -688,6 +690,7 @@ enum ShellAction {
     Redo,
     NewDocument,
     OpenProject,
+    ShowRecentProjects,
     CancelProjectLoad,
     SaveProject,
     SaveProjectAs,
@@ -938,6 +941,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "load project octd legacy file",
                 None,
                 ShellAction::OpenProject,
+            ),
+            (
+                "file.open_recent",
+                "File> Open Recent Project…",
+                "File",
+                "recent files projects reopen",
+                None,
+                ShellAction::ShowRecentProjects,
             ),
             (
                 "file.cancel_open",
@@ -1526,6 +1537,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ToggleGuides
         | ShellAction::ClearGuides
         | ShellAction::PlaceGuide(_)
+        | ShellAction::ShowRecentProjects
         | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
@@ -1617,7 +1629,7 @@ fn tools_menu_group(command_id: &str) -> Option<&'static str> {
         | "tool.finish"
         | "tool.undo_point"
         | "tool.cancel" => Some("In-tool Operators"),
-        "tool.cuboid" => None,
+        "tool.cuboid" => Some("Primitives"),
         _ => Some("Other Tools"),
     }
 }
@@ -1727,6 +1739,7 @@ fn register_shell_command(
         | ShellAction::CancelActiveTool
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
+        | ShellAction::ShowRecentProjects
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
         | ShellAction::SaveProjectAs
@@ -1741,8 +1754,6 @@ fn register_shell_command(
         menu_path: if category == "Tools" {
             if matches!(id, "tool.select" | "tool.line" | "tool.rectangle") {
                 Vec::new()
-            } else if id == "tool.cuboid" {
-                vec![category.to_owned()]
             } else {
                 vec![
                     category.to_owned(),
@@ -1869,9 +1880,6 @@ fn legacy_toolbar_command_ids(stem: &str) -> Vec<String> {
             .into_iter()
             .flat_map(|(_, command_ids)| command_ids.iter().map(|id| (*id).to_owned())),
     );
-    if stem == "construction_points" {
-        ids.insert(0, "tool.cuboid".to_owned());
-    }
     if stem == "voxel" {
         ids.push("edit.voxelize_faces".to_owned());
     }
@@ -1901,6 +1909,7 @@ struct Preferences {
     walk_height_adjust_speed: f32,
     panels_visible: bool,
     panel_open: BTreeMap<String, bool>,
+    recent_projects: Vec<String>,
 }
 
 fn deserialize_grid_normal_axis<'de, D>(deserializer: D) -> Result<GridNormalAxis, D::Error>
@@ -1944,7 +1953,24 @@ impl Default for Preferences {
             walk_height_adjust_speed: 8.0,
             panels_visible: true,
             panel_open: BTreeMap::new(),
+            recent_projects: Vec::new(),
         }
+    }
+}
+
+impl Preferences {
+    fn normalize_recent_projects(&mut self) {
+        let mut seen = BTreeSet::new();
+        self.recent_projects
+            .retain(|path| !path.is_empty() && seen.insert(path.clone()));
+        self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn record_recent_project(&mut self, path: String) {
+        self.recent_projects.retain(|existing| existing != &path);
+        self.recent_projects.insert(0, path);
+        self.recent_projects.truncate(MAX_RECENT_PROJECTS);
     }
 }
 
@@ -1958,6 +1984,7 @@ pub struct MeshcraftApp {
     cursor_snap: Option<SnapResult>,
     viewport_rect: egui::Rect,
     open_file_menu: bool,
+    recent_projects_dialog_open: bool,
     command_palette_open: bool,
     command_search: String,
     command_selection: usize,
@@ -1991,7 +2018,6 @@ pub struct MeshcraftApp {
     viewport: Viewport,
     guides: Vec<ConstructionGuide>,
     cuboid_first: Option<Vec3>,
-    cuboid_base: Option<(Vec3, Vec3)>,
     drawing_tool: DrawingToolState,
     polyline_tool_state: PolylineToolState,
     mesh_tool_state: MeshToolState,
@@ -2090,10 +2116,11 @@ impl MeshcraftApp {
         frame_document: bool,
         legacy_history: Option<OpaqueLegacyHistory>,
     ) -> Self {
-        let preferences = creation_context
+        let mut preferences: Preferences = creation_context
             .storage
             .and_then(|storage| eframe::get_value(storage, PREFERENCES_KEY))
             .unwrap_or_default();
+        preferences.normalize_recent_projects();
 
         let legacy_active_index = legacy_history
             .as_ref()
@@ -2116,6 +2143,7 @@ impl MeshcraftApp {
             cursor_snap: None,
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
+            recent_projects_dialog_open: false,
             command_palette_open: false,
             command_search: String::new(),
             command_selection: 0,
@@ -2149,7 +2177,6 @@ impl MeshcraftApp {
             viewport,
             guides: Vec::new(),
             cuboid_first: None,
-            cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
@@ -2378,6 +2405,54 @@ impl MeshcraftApp {
             },
         )?;
         let (segment_ids, triangle_ids) = inserted;
+        Ok(segment_ids
+            .into_iter()
+            .map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Segment(id),
+            })
+            .chain(triangle_ids.into_iter().map(|id| SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(id),
+            }))
+            .collect())
+    }
+
+    fn create_cuboid_in_active_context(
+        &mut self,
+        preview: CuboidPreview,
+    ) -> Result<Vec<SelectionTarget>, String> {
+        let (owner, occurrence, inverse) = self.line_geometry_context();
+        let mut mesh = cuboid_mesh(preview);
+        for vertex in &mut mesh.vertices {
+            *vertex = inverse.transform_point(*vertex);
+        }
+        let color = self.current_paint_color;
+        let segments = mesh
+            .segments
+            .into_iter()
+            .map(|segment| (segment, color))
+            .collect::<Vec<_>>();
+        let triangles = mesh
+            .triangles
+            .into_iter()
+            .map(|triangle| (triangle, color))
+            .collect::<Vec<_>>();
+        let (segment_ids, triangle_ids) =
+            self.commit_document_edit("Create cuboid", |document| match owner {
+                LineOwner::SceneRoot => document.append_colored_indexed_mesh_to_scene_root(
+                    mesh.vertices,
+                    segments,
+                    triangles,
+                ),
+                LineOwner::Definition(definition) => document
+                    .append_colored_indexed_mesh_to_definition(
+                        definition,
+                        mesh.vertices,
+                        segments,
+                        triangles,
+                    ),
+            })?;
         Ok(segment_ids
             .into_iter()
             .map(|id| SelectionTarget {
@@ -4313,6 +4388,7 @@ impl MeshcraftApp {
         path: &std::path::Path,
         project: ImportedProject,
     ) -> CommandResult {
+        self.remember_recent_project(path);
         self.document = project.document;
         self.saved_revision = self.document.revision();
         self.autosave_observed_revision = self.document.revision();
@@ -4335,7 +4411,6 @@ impl MeshcraftApp {
         self.guides.clear();
         self.cursor_snap = None;
         self.cuboid_first = None;
-        self.cuboid_base = None;
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.clear_picks();
@@ -4374,6 +4449,13 @@ impl MeshcraftApp {
             serde_json::to_value(&project.warnings).unwrap_or_default(),
         );
         result
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn remember_recent_project(&mut self, path: &Path) {
+        let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.preferences
+            .record_recent_project(path.display().to_string());
     }
 
     fn run_command(&mut self, id: &str) {
@@ -4471,7 +4553,6 @@ impl MeshcraftApp {
         self.object_name_edit = None;
         self.tool_cycle_state.cancel_hotspot_placement();
         self.cuboid_first = None;
-        self.cuboid_base = None;
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.clear_picks();
@@ -4538,7 +4619,6 @@ impl MeshcraftApp {
             self.preferences.toolbars_visible = false;
         }
         self.cuboid_first = None;
-        self.cuboid_base = None;
         self.polyline_tool_state.activate(matches!(
             tool,
             "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
@@ -4561,7 +4641,7 @@ impl MeshcraftApp {
         self.transform_tool_state
             .activate(TransformTool::from_label(tool));
         self.status = match tool {
-            "Cuboid" => "Cuboid: click two ground-plane corners, then click the height.".to_owned(),
+            "Cuboid" => "Cuboid: pick two opposite 3D corners.".to_owned(),
             "Line" => {
                 "Line: click a start and end point in the active construction plane.".to_owned()
             }
@@ -4913,7 +4993,6 @@ impl MeshcraftApp {
                 }
                 .to_owned();
                 self.cuboid_first = None;
-                self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.shape_tool_state.activate(None);
@@ -4930,7 +5009,6 @@ impl MeshcraftApp {
             ShellAction::RemoveGuide => {
                 self.active_tool = "Remove Guide".to_owned();
                 self.cuboid_first = None;
-                self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.shape_tool_state.activate(None);
@@ -5041,7 +5119,6 @@ impl MeshcraftApp {
                 self.tool_cycle_state.cancel_hotspot_placement();
                 self.active_tool = "Select".to_owned();
                 self.cuboid_first = None;
-                self.cuboid_base = None;
                 self.drawing_tool
                     .handle(ToolEvent::Activate(DrawingTool::Select));
                 self.shape_tool_state.activate(None);
@@ -5279,11 +5356,20 @@ impl MeshcraftApp {
             }
             ShellAction::NewDocument => return self.start_new_document(),
             ShellAction::OpenProject => return self.open_project(payload),
+            ShellAction::ShowRecentProjects => {
+                if self.preferences.recent_projects.is_empty() {
+                    return CommandResult::failed("there are no recently opened projects");
+                }
+                self.recent_projects_dialog_open = true;
+                self.status = "Choose a recently opened project.".to_owned();
+            }
             ShellAction::CancelProjectLoad => return self.cancel_project_load(),
             ShellAction::SaveProject => return self.save_project(false, payload),
             ShellAction::SaveProjectAs => return self.save_project(true, payload),
             ShellAction::ResetWorkspaceLayout => {
+                let recent_projects = std::mem::take(&mut self.preferences.recent_projects);
                 self.preferences = Preferences::default();
+                self.preferences.recent_projects = recent_projects;
                 self.panel_focus = None;
                 self.status = "Workspace layout reset to the default profile.".to_owned();
             }
@@ -5832,6 +5918,22 @@ impl MeshcraftApp {
                 }
             }
         }
+        if id == "file.open_recent" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Opening project files is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if self.preferences.recent_projects.is_empty() {
+                    return CommandState::disabled("there are no recently opened projects");
+                }
+                if self.pending_replacement.is_some()
+                    || self.pending_project_load.is_some()
+                    || self.pending_project_save.is_some()
+                {
+                    return CommandState::disabled("another project operation is already running");
+                }
+            }
+        }
         if id == "selection.exit_context" && self.selection.context == EditContext::Document {
             return CommandState::disabled("the document context is already active");
         }
@@ -6127,7 +6229,6 @@ impl MeshcraftApp {
         self.object_place_tool_state.activate(definition, false);
         self.active_tool = "Object Place".to_owned();
         self.cuboid_first = None;
-        self.cuboid_base = None;
         self.drawing_tool
             .handle(ToolEvent::Activate(DrawingTool::Select));
         self.shape_tool_state.activate(None);
@@ -6226,7 +6327,6 @@ impl MeshcraftApp {
         self.array_preview = false;
         self.active_tool = "Select".to_owned();
         self.cuboid_first = None;
-        self.cuboid_base = None;
         self.drawing_tool.handle(ToolEvent::Escape);
         self.shape_tool_state.activate(None);
         self.primitive_tool_state.cancel();
@@ -6958,73 +7058,28 @@ impl MeshcraftApp {
         }
 
         if self.active_tool == "Cuboid" {
-            let ground = snap
-                .map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
-                .or_else(|| self.viewport.screen_to_ground(rect, position));
-            let Some(ground) = ground else {
+            let Some(point) = snap.map(|snap| snap.point).or(construction_point) else {
+                self.status = "Cuboid needs two snapped 3D corner points.".to_owned();
+                return;
+            };
+            let Some(first) = self.cuboid_first else {
+                self.cuboid_first = Some(point);
+                self.status = "Cuboid: choose the opposite 3D corner.".to_owned();
+                return;
+            };
+            let Some(preview) = cuboid_preview_from_corners(first, point) else {
                 self.status =
-                    "Cuboid construction needs the perspective or top/bottom view.".to_owned();
+                    "Cuboid corners must differ by at least 0.05 units on every axis.".to_owned();
                 return;
             };
-            if self.cuboid_first.is_none() {
-                self.cuboid_first = Some(ground);
-                self.status = "Cuboid: choose the opposite corner of its base.".to_owned();
-                return;
-            }
-            if self.cuboid_base.is_none() {
-                let first = self.cuboid_first.unwrap();
-                let width = (ground.x - first.x).abs();
-                let depth = (ground.z - first.z).abs();
-                if width < 0.05 || depth < 0.05 {
-                    self.status =
-                        "Cuboid base must be at least 0.05 units wide and deep.".to_owned();
-                    return;
-                }
-                self.cuboid_base = Some((first, ground));
-                self.status = "Cuboid: click above the base to set its height.".to_owned();
-                return;
-            }
-
-            let (first, opposite) = self.cuboid_base.unwrap();
-            let center = Vec3::new(
-                (first.x + opposite.x) * 0.5,
-                0.0,
-                (first.z + opposite.z) * 0.5,
-            );
-            let snapped_height = snap
-                .filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
-                .map(|snap| snap.point.y);
-            let height = snapped_height.or_else(|| {
-                self.viewport
-                    .height_from_screen_position(rect, center, position)
-            });
-            let Some(height) = height else {
-                self.status = "Cuboid height cannot be set from this orthographic view.".to_owned();
-                return;
-            };
-            if height < 0.05 {
-                self.status = "Cuboid height must be at least 0.05 units.".to_owned();
-                return;
-            }
-            let origin = Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z));
-            let dimensions = Vec3::new(
-                (opposite.x - first.x).abs(),
-                height,
-                (opposite.z - first.z).abs(),
-            );
-            match self.commit_document_edit("Create cuboid", |document| {
-                document
-                    .add_cuboid("cuboid", dimensions, origin)
-                    .ok_or_else(|| "Cuboid could not be created.".to_owned())
-            }) {
-                Ok(occurrence) => {
-                    self.set_selection([occurrence]);
+            match self.create_cuboid_in_active_context(preview) {
+                Ok(targets) => {
+                    self.selection.apply(targets, SelectionMode::Replace);
                     self.active_tool = "Select".to_owned();
                     self.cuboid_first = None;
-                    self.cuboid_base = None;
                     self.status = format!(
                         "Created cuboid {:.2} × {:.2} × {:.2}.",
-                        dimensions.x, dimensions.y, dimensions.z
+                        preview.dimensions.x, preview.dimensions.y, preview.dimensions.z
                     );
                 }
                 Err(error) => self.status = error,
@@ -7827,39 +7882,15 @@ impl MeshcraftApp {
         }
         match self.active_tool.as_str() {
             "Cuboid" => {
-                let ground = snap
-                    .map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
-                    .or_else(|| self.viewport.screen_to_ground(rect, position));
-                let ground = ground?;
-                let Some((first, opposite)) = self.cuboid_base else {
-                    return self.feedback_preview(ground);
+                let point = snap
+                    .map(|snap| snap.point)
+                    .or_else(|| self.viewport.screen_to_construction_plane(rect, position))?;
+                let Some(first) = self.cuboid_first else {
+                    return self.feedback_preview(point);
                 };
-                let center = Vec3::new(
-                    (first.x + opposite.x) * 0.5,
-                    0.0,
-                    (first.z + opposite.z) * 0.5,
-                );
-                let Some(height) = snap
-                    .filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
-                    .map(|snap| snap.point.y)
-                    .or_else(|| {
-                        self.viewport
-                            .height_from_screen_position(rect, center, position)
-                    })
-                else {
-                    return self.feedback_preview(ground);
-                };
-                if !height.is_finite() || height < 0.05 {
-                    return self.feedback_preview(Vec3::new(center.x, height, center.z));
-                }
-                Some(ToolPreview::Cuboid(CuboidPreview {
-                    origin: Vec3::new(first.x.min(opposite.x), 0.0, first.z.min(opposite.z)),
-                    dimensions: Vec3::new(
-                        (opposite.x - first.x).abs(),
-                        height,
-                        (opposite.z - first.z).abs(),
-                    ),
-                }))
+                cuboid_preview_from_corners(first, point)
+                    .map(ToolPreview::Cuboid)
+                    .or_else(|| self.feedback_preview(point))
             }
             "Line" | "Construction Line" => {
                 let preview = self.drawing_tool.preview(point);
@@ -7950,30 +7981,10 @@ impl MeshcraftApp {
             });
         }
 
-        let point = if self.active_tool == "Cuboid" {
-            if let Some((first, opposite)) = self.cuboid_base {
-                let center = Vec3::new(
-                    (first.x + opposite.x) * 0.5,
-                    0.0,
-                    (first.z + opposite.z) * 0.5,
-                );
-                snap.filter(|snap| snap.point.y.abs() > GeometryTolerance::default().absolute)
-                    .map(|snap| snap.point.y)
-                    .or_else(|| {
-                        self.viewport
-                            .height_from_screen_position(rect, center, screen_position)
-                    })
-                    .map(|height| Vec3::new(center.x, height, center.z))?
-            } else {
-                snap.map(|snap| Vec3::new(snap.point.x, 0.0, snap.point.z))
-                    .or_else(|| self.viewport.screen_to_ground(rect, screen_position))?
-            }
-        } else {
-            snap.map(|snap| snap.point).or_else(|| {
-                self.viewport
-                    .screen_to_construction_plane(rect, screen_position)
-            })?
-        };
+        let point = snap.map(|snap| snap.point).or_else(|| {
+            self.viewport
+                .screen_to_construction_plane(rect, screen_position)
+        })?;
 
         if let Some(kind) = self.primitive_tool_state.active()
             && !self.primitive_tool_state.picks().is_empty()
@@ -8047,16 +8058,7 @@ impl MeshcraftApp {
             "Push/Pull" => self.push_pull_reference,
             "Move" | "Rotate" | "Rotate 2" | "Scale" | "Stretch" | "Stretch Scale"
             | "Rotate Stretch" => self.transform_tool_state.points().last().copied(),
-            "Cuboid" => self
-                .cuboid_base
-                .map(|(first, opposite)| {
-                    Vec3::new(
-                        (first.x + opposite.x) * 0.5,
-                        0.0,
-                        (first.z + opposite.z) * 0.5,
-                    )
-                })
-                .or(self.cuboid_first),
+            "Cuboid" => self.cuboid_first,
             _ => None,
         }
     }
@@ -8269,6 +8271,66 @@ impl MeshcraftApp {
         }
     }
 
+    fn show_recent_projects_menu(&mut self, ui: &mut egui::Ui) {
+        let recent_projects = self.preferences.recent_projects.clone();
+        let open_state = self.query_command_state("file.open");
+        ui.menu_button("Recent Files", |ui| {
+            self.show_command_menu_item(ui, "file.open_recent");
+            if !recent_projects.is_empty() {
+                ui.separator();
+            } else {
+                ui.weak("No recently opened projects.");
+            }
+            for path in recent_projects {
+                let response = ui.add_enabled(
+                    open_state.enabled,
+                    egui::Button::new(recent_project_display_name(&path)),
+                );
+                response.clone().on_hover_text(&path);
+                if response.clicked() {
+                    let mut payload = CommandPayload::default();
+                    payload
+                        .values
+                        .insert("path".to_owned(), path.clone().into());
+                    self.dispatch_command("file.open", &payload);
+                }
+            }
+        });
+    }
+
+    fn show_recent_projects_dialog(&mut self, ctx: &egui::Context) {
+        if !self.recent_projects_dialog_open {
+            return;
+        }
+        let recent_projects = self.preferences.recent_projects.clone();
+        let mut open = self.recent_projects_dialog_open;
+        let mut selected_path = None;
+        egui::Window::new("Open Recent Project")
+            .collapsible(false)
+            .resizable(false)
+            .default_width(480.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                if recent_projects.is_empty() {
+                    ui.weak("No recently opened projects.");
+                }
+                for path in &recent_projects {
+                    let response = ui.button(recent_project_display_name(path));
+                    response.clone().on_hover_text(path);
+                    if response.clicked() {
+                        selected_path = Some(path.clone());
+                    }
+                }
+            });
+        self.recent_projects_dialog_open = open;
+        if let Some(path) = selected_path {
+            let mut payload = CommandPayload::default();
+            payload.values.insert("path".to_owned(), path.into());
+            self.dispatch_command("file.open", &payload);
+            self.recent_projects_dialog_open = false;
+        }
+    }
+
     fn show_command_menu_branch(&mut self, ui: &mut egui::Ui, path: &[String]) {
         let commands = shell_commands()
             .entries()
@@ -8316,6 +8378,7 @@ impl MeshcraftApp {
                 self.show_command_menu_item(ui, "file.new");
                 ui.separator();
                 self.show_command_menu_item(ui, "file.open");
+                self.show_recent_projects_menu(ui);
                 self.show_command_menu_item(ui, "file.cancel_open");
                 self.show_command_menu_item(ui, "file.save");
                 self.show_command_menu_item(ui, "file.save_as");
@@ -9892,6 +9955,7 @@ impl MeshcraftApp {
         });
 
         self.show_command_palette(ui.ctx());
+        self.show_recent_projects_dialog(ui.ctx());
         self.show_document_replacement_dialog(ui.ctx());
     }
 }
@@ -9902,6 +9966,75 @@ fn normalize_project_path(mut path: PathBuf) -> PathBuf {
         path.set_extension("octd");
     }
     path
+}
+
+fn recent_project_display_name(path: &str) -> &str {
+    path.rsplit(['/', '\\'])
+        .find(|component| !component.is_empty())
+        .unwrap_or(path)
+}
+
+fn cuboid_preview_from_corners(first: Vec3, opposite: Vec3) -> Option<CuboidPreview> {
+    if !first.is_finite() || !opposite.is_finite() {
+        return None;
+    }
+    let origin = Vec3::new(
+        first.x.min(opposite.x),
+        first.y.min(opposite.y),
+        first.z.min(opposite.z),
+    );
+    let dimensions = Vec3::new(
+        (opposite.x - first.x).abs(),
+        (opposite.y - first.y).abs(),
+        (opposite.z - first.z).abs(),
+    );
+    (dimensions.is_finite() && dimensions.x >= 0.05 && dimensions.y >= 0.05 && dimensions.z >= 0.05)
+        .then_some(CuboidPreview { origin, dimensions })
+}
+
+fn cuboid_mesh(preview: CuboidPreview) -> PlanarMesh {
+    let origin = preview.origin;
+    let dimensions = preview.dimensions;
+    PlanarMesh {
+        vertices: vec![
+            origin,
+            origin + Vec3::new(dimensions.x, 0.0, 0.0),
+            origin + Vec3::new(dimensions.x, dimensions.y, 0.0),
+            origin + Vec3::new(0.0, dimensions.y, 0.0),
+            origin + Vec3::new(0.0, 0.0, dimensions.z),
+            origin + Vec3::new(dimensions.x, 0.0, dimensions.z),
+            origin + dimensions,
+            origin + Vec3::new(0.0, dimensions.y, dimensions.z),
+        ],
+        segments: vec![
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 5],
+            [5, 6],
+            [6, 7],
+            [7, 4],
+            [0, 4],
+            [1, 5],
+            [2, 6],
+            [3, 7],
+        ],
+        triangles: vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+        ],
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -10299,6 +10432,7 @@ mod tests {
             cursor_snap: None,
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
+            recent_projects_dialog_open: false,
             command_palette_open: false,
             command_search: String::new(),
             command_selection: 0,
@@ -10330,7 +10464,6 @@ mod tests {
             viewport: Default::default(),
             guides: Vec::new(),
             cuboid_first: None,
-            cuboid_base: None,
             drawing_tool: DrawingToolState::default(),
             polyline_tool_state: PolylineToolState::default(),
             mesh_tool_state: MeshToolState::default(),
@@ -10730,7 +10863,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(216, entries.len());
+        assert_eq!(217, entries.len());
         assert_eq!(
             74,
             entries
@@ -11348,11 +11481,27 @@ mod tests {
         let tools_menu = text_center_in_row(&menu_bar, "Tools", 48.0);
         click_workspace_position(&mut menu_path, &context, tools_menu);
         let open_menu = run_workspace_frame(&mut menu_path, &context, vec![]);
-        let cuboid_item = text_center_in_row(&open_menu, "Cuboid", 500.0);
+        let primitives = text_center_in_row(&open_menu, "Primitives", 500.0);
+        run_workspace_frame(
+            &mut menu_path,
+            &context,
+            vec![Event::PointerMoved(primitives)],
+        );
+        let primitives_menu = run_workspace_frame(&mut menu_path, &context, vec![]);
+        let cuboid_item = text_center_in_row(&primitives_menu, "Cuboid", 700.0);
         click_workspace_position(&mut menu_path, &context, cuboid_item);
         assert_eq!("Cuboid", menu_path.active_tool);
+        assert_eq!(
+            vec!["Tools", "Primitives"],
+            shell_commands()
+                .get("tool.cuboid")
+                .unwrap()
+                .descriptor
+                .presentation
+                .menu_path
+        );
 
-        let toolbar_command_ids = super::legacy_toolbar_command_ids("construction_points");
+        let toolbar_command_ids = super::legacy_toolbar_command_ids("primitives");
         assert!(toolbar_command_ids.iter().any(|id| id == "tool.cuboid"));
         let mut toolbar_path = test_app();
         toolbar_path.preferences.profile = super::UiProfile::Buttons;
@@ -14271,9 +14420,11 @@ mod tests {
     }
 
     #[test]
-    fn cuboid_base_and_height_picks_use_snapped_coordinates() {
+    fn cuboid_uses_two_snapped_opposite_corners_with_preview_and_undo() {
         let mut app = test_app();
-        app.active_tool = "Cuboid".to_owned();
+        app.activate_tool("Cuboid");
+        let color = Rgba8::new(96, 144, 192, 255);
+        app.current_paint_color = color;
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
         let snap_at = |point| SnapResult {
             point,
@@ -14281,45 +14432,166 @@ mod tests {
             kind: SnapKind::Endpoint,
             screen_distance: 0.0,
         };
-        let first = Vec3::new(0.25, 0.0, 0.5);
-        let opposite = Vec3::new(2.0, 0.0, 3.0);
-        for point in [first, opposite] {
-            let snap = snap_at(point);
-            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(snap.point));
-        }
-        assert_eq!(Some((first, opposite)), app.cuboid_base);
+        let first = Vec3::new(2.0, 4.5, 3.0);
+        let opposite = Vec3::new(0.25, -1.5, 0.5);
+        let first_snap = snap_at(first);
+        app.handle_viewport_click_at_point(
+            rect,
+            Pos2::ZERO,
+            Some(first_snap),
+            Some(first_snap.point),
+        );
+        assert_eq!(Some(first), app.cuboid_first);
+        assert_eq!(0, app.history.entries().len());
 
-        let height_point = Vec3::new(2.0, 4.5, 3.0);
-        let snap = snap_at(height_point);
+        let invalid = snap_at(Vec3::new(first.x, 8.0, 4.0));
+        app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(invalid), Some(invalid.point));
+        assert!(app.status.contains("every axis"));
+        assert_eq!(Some(first), app.cuboid_first);
+        assert_eq!(0, app.history.entries().len());
+
+        let snap = snap_at(opposite);
         let preview = app.tool_preview(rect, Some(Pos2::ZERO), Some(snap));
         assert!(matches!(
             &preview,
-            Some(ToolPreview::Cuboid(CuboidPreview { dimensions, .. }))
-                if (dimensions.y - 4.5).abs() < 1.0e-9
+            Some(ToolPreview::Cuboid(CuboidPreview { origin, dimensions }))
+                if *origin == Vec3::new(0.25, -1.5, 0.5)
+                    && *dimensions == Vec3::new(1.75, 6.0, 2.5)
         ));
         let feedback = app
             .tool_feedback(rect, Some(Pos2::ZERO), Some(snap), preview.as_ref())
-            .expect("cuboid height stage reports its snapped vector");
-        assert!(feedback.text.contains("ΔY +4.500"));
+            .expect("cuboid reports the snapped corner vector");
+        assert!(feedback.text.contains("ΔX -1.750"));
+        assert!(feedback.text.contains("ΔY -6.000"));
+        assert!(feedback.text.contains("ΔZ -2.500"));
         app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(snap.point));
 
-        let occurrence = app.selected_occurrences().remove(0);
-        let geometry = app.document.effective_geometry(&occurrence).unwrap();
-        let bounds = geometry.vertices.values().fold(
-            (f64::INFINITY, f64::NEG_INFINITY),
-            |(min, max), vertex| {
-                let y = app
-                    .document
-                    .resolve_occurrence(&occurrence)
-                    .unwrap()
-                    .world_transform
-                    .transform_point(vertex.position)
-                    .y;
-                (min.min(y), max.max(y))
-            },
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(None, app.cuboid_first);
+        assert_eq!(24, app.selection.selected().len());
+        assert_eq!(1, app.history.entries().len());
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(8, geometry.vertices.len());
+        assert_eq!(12, geometry.segments.len());
+        assert_eq!(12, geometry.triangles.len());
+        assert!(
+            geometry
+                .segments
+                .values()
+                .all(|segment| segment.color == color)
         );
-        assert!((bounds.0 - 0.0).abs() < 1.0e-9);
-        assert!((bounds.1 - 4.5).abs() < 1.0e-9);
+        assert!(
+            geometry
+                .triangles
+                .values()
+                .all(|triangle| triangle.color == color)
+        );
+        let positions = geometry
+            .vertices
+            .values()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        assert!(positions.contains(&Vec3::new(0.25, -1.5, 0.5)));
+        assert!(positions.contains(&Vec3::new(2.0, 4.5, 3.0)));
+        let mut triangle_edge_counts = BTreeMap::<(usize, usize), usize>::new();
+        for triangle in super::cuboid_mesh(CuboidPreview {
+            origin: Vec3::new(0.25, -1.5, 0.5),
+            dimensions: Vec3::new(1.75, 6.0, 2.5),
+        })
+        .triangles
+        {
+            for [start, end] in [
+                [triangle[0], triangle[1]],
+                [triangle[1], triangle[2]],
+                [triangle[2], triangle[0]],
+            ] {
+                let key = (start.min(end), start.max(end));
+                *triangle_edge_counts.entry(key).or_default() += 1;
+            }
+        }
+        assert_eq!(18, triangle_edge_counts.len());
+        assert!(triangle_edge_counts.values().all(|count| *count == 2));
+
+        app.run_command("edit.undo");
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert!(geometry.vertices.is_empty());
+        assert!(geometry.segments.is_empty());
+        assert!(geometry.triangles.is_empty());
+        app.run_command("edit.redo");
+        let geometry = app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap();
+        assert_eq!(8, geometry.vertices.len());
+        assert_eq!(12, geometry.triangles.len());
+    }
+
+    #[test]
+    fn cuboid_is_inserted_into_the_active_object_definition() {
+        let mut app = test_app();
+        let host = app
+            .document
+            .add_cuboid("host", Vec3::new(2.0, 2.0, 2.0), Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let occurrence_count = app.document.occurrence_refs().unwrap().len();
+        app.saved_revision = app.document.revision();
+        app.history.clear();
+        app.selection
+            .set_context(EditContext::Occurrence(host.clone()));
+        app.activate_tool("Cuboid");
+
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 640.0));
+        for point in [Vec3::new(10.5, 1.0, 0.5), Vec3::new(12.5, 3.0, 2.5)] {
+            let snap = SnapResult {
+                point,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            };
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, Some(snap), Some(point));
+        }
+
+        assert_eq!(
+            occurrence_count,
+            app.document.occurrence_refs().unwrap().len()
+        );
+        let geometry = app.document.effective_geometry(&host).unwrap();
+        assert_eq!(16, geometry.vertices.len());
+        assert_eq!(24, geometry.segments.len());
+        assert_eq!(24, geometry.triangles.len());
+        let resolved = app.document.resolve_occurrence(&host).unwrap();
+        let world_positions = geometry
+            .vertices
+            .values()
+            .map(|vertex| resolved.world_transform.transform_point(vertex.position))
+            .collect::<Vec<_>>();
+        assert!(world_positions.contains(&Vec3::new(10.5, 1.0, 0.5)));
+        assert!(world_positions.contains(&Vec3::new(12.5, 3.0, 2.5)));
+        assert_eq!(24, app.selection.selected().len());
+
+        app.run_command("edit.undo");
+        let geometry = app.document.effective_geometry(&host).unwrap();
+        assert_eq!(8, geometry.vertices.len());
+        assert_eq!(12, geometry.triangles.len());
+    }
+
+    #[test]
+    fn escape_cancels_a_pending_cuboid_corner_and_returns_to_selection() {
+        let mut app = test_app();
+        app.activate_tool("Cuboid");
+        app.cuboid_first = Some(Vec3::new(1.0, 2.0, 3.0));
+
+        app.handle_escape();
+
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(None, app.cuboid_first);
+        assert_eq!(0, app.history.entries().len());
     }
 
     #[test]
@@ -16968,6 +17240,141 @@ mod tests {
         assert_eq!(GridNormalAxis::Y, unknown_axis.grid_normal_axis);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn recent_project_preferences_deduplicate_limit_and_round_trip() {
+        let mut preferences = Preferences::default();
+        for index in 0..12 {
+            preferences.record_recent_project(format!("project-{index}.octd"));
+        }
+        preferences.record_recent_project("project-5.octd".to_owned());
+
+        assert_eq!(
+            super::MAX_RECENT_PROJECTS,
+            preferences.recent_projects.len()
+        );
+        assert_eq!("project-5.octd", preferences.recent_projects[0]);
+        assert_eq!("project-11.octd", preferences.recent_projects[1]);
+        assert_eq!(
+            preferences.recent_projects.len(),
+            preferences
+                .recent_projects
+                .iter()
+                .collect::<BTreeSet<_>>()
+                .len()
+        );
+        let reopened: Preferences =
+            serde_json::from_str(&serde_json::to_string(&preferences).unwrap()).unwrap();
+        assert_eq!(preferences, reopened);
+
+        let mut old_preferences: Preferences =
+            serde_json::from_str(r#"{"recent_projects":["same.octd","same.octd","older.octd"]}"#)
+                .unwrap();
+        old_preferences.normalize_recent_projects();
+        assert_eq!(
+            vec!["same.octd".to_owned(), "older.octd".to_owned()],
+            old_preferences.recent_projects
+        );
+        assert_eq!(
+            "project.octd",
+            super::recent_project_display_name("C:\\files\\project.octd")
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn open_recent_is_a_palette_command_that_opens_the_recent_project_picker() {
+        let path = project_fixture_path();
+        let canonical_path = std::fs::canonicalize(&path).unwrap();
+        let mut app = test_app();
+        app.preferences
+            .record_recent_project(canonical_path.display().to_string());
+        let context = egui::Context::default();
+        open_palette(&mut app, &context);
+        app.command_search = "file.open_recent".to_owned();
+        assert!(
+            app.matching_commands()
+                .iter()
+                .any(|command| command.descriptor.id.as_str() == "file.open_recent")
+        );
+
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+
+        assert!(app.recent_projects_dialog_open);
+        assert!(!app.command_palette_open);
+        assert_eq!(
+            CommandCapability::Desktop,
+            shell_commands()
+                .get("file.open_recent")
+                .unwrap()
+                .descriptor
+                .capability
+        );
+
+        let picker = run_workspace_frame(&mut app, &context, Vec::new());
+        let project_item = text_center_in_row(&picker, "arch_frame.octd", 900.0);
+        click_workspace_position(&mut app, &context, project_item);
+        let job_id = app
+            .pending_project_load
+            .as_ref()
+            .expect("palette picker should use the normal project loader")
+            .job_id
+            .clone();
+        wait_for_project_load(&mut app, &job_id);
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        assert_eq!(
+            vec![canonical_path.display().to_string()],
+            app.preferences.recent_projects
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_recent_menu_opens_the_selected_project_through_the_shared_loader() {
+        let path = project_fixture_path();
+        let mut app = test_app();
+        app.preferences
+            .record_recent_project(std::fs::canonicalize(&path).unwrap().display().to_string());
+        let context = egui::Context::default();
+
+        let menu_bar = run_workspace_frame(&mut app, &context, Vec::new());
+        let file_menu = text_center_in_row(&menu_bar, "File", 48.0);
+        click_workspace_position(&mut app, &context, file_menu);
+        let file_contents = run_workspace_frame(&mut app, &context, Vec::new());
+        let recent_menu = text_center_in_row(&file_contents, "Recent Files", 400.0);
+        click_workspace_position(&mut app, &context, recent_menu);
+        let recent_contents = run_workspace_frame(&mut app, &context, Vec::new());
+        let project_item = text_center_in_row(&recent_contents, "arch_frame.octd", 500.0);
+        click_workspace_position(&mut app, &context, project_item);
+
+        let job_id = app
+            .pending_project_load
+            .as_ref()
+            .expect("recent entry should start the normal project loader")
+            .job_id
+            .clone();
+        wait_for_project_load(&mut app, &job_id);
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.command_job_result(&job_id).unwrap().completion
+        );
+        assert_eq!(1, app.preferences.recent_projects.len());
+        assert!(app.preferences.recent_projects[0].ends_with("arch_frame.octd"));
+    }
+
     #[test]
     fn command_palette_search_receives_text_and_ime_composition() {
         let mut app = test_app();
@@ -17438,6 +17845,15 @@ mod tests {
             Some(project_fixture_path().display().to_string()),
             app.current_project_path()
         );
+        assert_eq!(
+            vec![
+                std::fs::canonicalize(project_fixture_path())
+                    .unwrap()
+                    .display()
+                    .to_string()
+            ],
+            app.preferences.recent_projects
+        );
         assert!(!app.document.occurrence_refs().unwrap().is_empty());
         assert_eq!("Select", app.active_tool);
     }
@@ -17451,6 +17867,8 @@ mod tests {
         ));
         std::fs::write(&path, b"{").unwrap();
         let mut app = test_app();
+        app.preferences
+            .record_recent_project("already-opened.octd".to_owned());
         app.run_command("geometry.add_cuboid");
         app.history.clear();
         app.saved_revision = app.document.revision();
@@ -17463,6 +17881,14 @@ mod tests {
         assert_eq!(CommandCompletion::Failed, result.completion);
         assert_eq!(before, app.document);
         assert_eq!(None, app.current_project_path());
+        assert_eq!(
+            vec!["already-opened.octd".to_owned()],
+            app.preferences
+                .recent_projects
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
         assert!(app.status.contains("Could not open"));
         std::fs::remove_file(path).unwrap();
     }
@@ -17488,6 +17914,8 @@ mod tests {
     #[test]
     fn cancelling_project_load_keeps_the_active_document_unchanged() {
         let mut app = test_app();
+        app.preferences
+            .record_recent_project("already-opened.octd".to_owned());
         let job_id = start_project_load(&mut app, &project_fixture_path());
         let cancellation = app.dispatch_command("file.cancel_open", &CommandPayload::default());
         assert!(cancellation.accepted);
@@ -17505,6 +17933,14 @@ mod tests {
         );
         assert!(app.document.occurrence_refs().unwrap().is_empty());
         assert_eq!(None, app.current_project_path());
+        assert_eq!(
+            vec!["already-opened.octd".to_owned()],
+            app.preferences
+                .recent_projects
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
         assert!(app.status.contains("cancelled"));
     }
 }

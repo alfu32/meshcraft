@@ -2675,7 +2675,7 @@
         "Recent projects open through the same safe loader from both File and the command palette; failed/cancelled loads leave the list unchanged."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "id": "T56",
@@ -2718,7 +2718,7 @@
         "Preview and committed geometry share the same snapped bounds, active-graph owner, selection and undo behavior."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
     }
   ]
 }

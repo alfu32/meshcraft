@@ -2564,34 +2564,6 @@ impl Viewport {
         self.camera_direction().dot(point)
     }
 
-    pub fn height_from_screen_position(
-        &self,
-        rect: Rect,
-        base_center: Vec3,
-        position: Pos2,
-    ) -> Option<f64> {
-        let base_screen = self.world_to_screen(rect, base_center);
-        if self.orthographic.is_some() {
-            let vertical =
-                self.world_to_screen(rect, base_center + Vec3::new(0.0, 1.0, 0.0)) - base_screen;
-            let length_squared = vertical.length_sq();
-            if length_squared <= f32::EPSILON {
-                return None;
-            }
-            let delta = position - base_screen;
-            return Some(f64::from(delta.dot(vertical) / length_squared));
-        }
-        let (_, up, eye) = self.camera_axes();
-        let forward = -eye;
-        let relative = base_center - self.camera_position();
-        let depth = forward.dot(relative);
-        let up_offset = up.dot(relative);
-        let screen_up = -f64::from(position.y - rect.center().y - self.pan.y)
-            / self.focal_length(rect.height());
-        let denominator = up.y - screen_up * forward.y;
-        (denominator.abs() > 1.0e-12).then(|| (screen_up * depth - up_offset) / denominator)
-    }
-
     #[cfg(test)]
     pub fn pick(
         &mut self,
@@ -6327,52 +6299,6 @@ mod tests {
                 .unwrap()
                 .distance(ground_anchor)
                 < 1.0e-5
-        );
-    }
-
-    #[test]
-    fn height_input_inverts_the_camera_elevation_projection() {
-        let rect = Rect::from_min_size(Pos2::new(100.0, 80.0), Vec2::new(900.0, 600.0));
-        let viewport = Viewport {
-            elevation: 0.9,
-            ..Viewport::default()
-        };
-        let base = Vec3::new(2.0, 0.0, -4.0);
-        let height = 3.25;
-        let screen = viewport.world_to_screen(rect, base + Vec3::new(0.0, height, 0.0));
-
-        assert!(
-            (viewport
-                .height_from_screen_position(rect, base, screen)
-                .unwrap()
-                - height)
-                .abs()
-                < 1.0e-6
-        );
-    }
-
-    #[test]
-    fn orthographic_height_input_uses_a_visible_vertical_axis_only() {
-        let rect = Rect::from_min_size(Pos2::new(100.0, 80.0), Vec2::new(900.0, 600.0));
-        let base = Vec3::new(2.0, 0.0, -4.0);
-        let mut front = Viewport::default();
-        front.set_orthographic_view(OrthoView::Front);
-        let height = 3.25;
-        let screen = front.world_to_screen(rect, base + Vec3::new(0.0, height, 0.0));
-        assert!(
-            (front
-                .height_from_screen_position(rect, base, screen)
-                .unwrap()
-                - height)
-                .abs()
-                < 1.0e-6
-        );
-
-        let mut top = Viewport::default();
-        top.set_orthographic_view(OrthoView::Top);
-        assert!(
-            top.height_from_screen_position(rect, base, rect.center())
-                .is_none()
         );
     }
 
