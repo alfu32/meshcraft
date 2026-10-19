@@ -124,10 +124,6 @@ enum NativeInspectorText {
         generation: u64,
         revision: u64,
     },
-    PolylineSettings {
-        generation: u64,
-        revision: u64,
-    },
     Object {
         generation: u64,
         revision: u64,
@@ -140,6 +136,9 @@ struct NativeModelSettingsEditorButton;
 
 #[derive(Component)]
 struct NativeModelSettingsApplyButton;
+
+#[derive(Component)]
+struct NativePolylineSettingsApplyButton;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum NativeModelSettingField {
@@ -165,6 +164,13 @@ impl NativeModelSettingField {
             Self::DoubleLineSize => "double_line_size",
             Self::DoubleLineOffset => "double_line_offset",
         }
+    }
+
+    fn is_polyline(self) -> bool {
+        matches!(
+            self,
+            Self::ArcMaxLength | Self::DoubleLineSize | Self::DoubleLineOffset
+        )
     }
 }
 
@@ -1602,15 +1608,38 @@ fn setup_ui(
                 .observe(open_native_model_settings_editor);
             spawn_native_ui_settings(panel, &ui_preferences);
             inspector_section(panel, "Help / About", "Meshcraft · Bevy 0.20\nDesktop viewport · GPU rendering\nCommands: Ctrl+Shift+P");
-            inspector_dynamic_section(
-                panel,
-                "Polyline Settings",
-                polyline_settings_summary(&scene.document),
-                NativeInspectorText::PolylineSettings {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                },
-            );
+            inspector_header(panel, "Polyline Settings");
+            for (field, label, value) in native_polyline_setting_fields(&scene.document) {
+                spawn_native_model_setting_input(
+                    panel,
+                    scene.generation,
+                    scene.revision,
+                    field,
+                    label,
+                    value,
+                );
+            }
+            panel
+                .spawn((
+                    Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
+                    NativePolylineSettingsApplyButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(27),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.17, 0.37, 0.29)),
+                ))
+                .with_child((
+                    Text::new("Apply Polyline Settings"),
+                    TextFont::from_font_size(12.0),
+                    TextColor(Color::WHITE),
+                ))
+                .observe(apply_native_polyline_settings);
             inspector_section(panel, "Vector Text", "Text  TEXT\nSize  1.000\nTracking  0.100\nLine spacing  1.250\nGlyph source  embedded:alphabet");
             inspector_section(panel, "Architecture - Walls", "Wall thickness  0.200\nWall height  2.700\nInclination  0°\nExterior / interior color");
             inspector_section(panel, "Architecture - Slabs", "Slab thickness  0.200\nTop / bottom / side color");
@@ -2009,7 +2038,7 @@ fn inspector_dynamic_section(
 
 fn native_model_setting_fields(
     document: &Document,
-) -> [(NativeModelSettingField, &'static str, String); 8] {
+) -> [(NativeModelSettingField, &'static str, String); 5] {
     let settings = document.model_settings();
     [
         (
@@ -2037,6 +2066,14 @@ fn native_model_setting_fields(
             "Snap radius",
             format!("{:.1}", settings.snap_radius),
         ),
+    ]
+}
+
+fn native_polyline_setting_fields(
+    document: &Document,
+) -> [(NativeModelSettingField, &'static str, String); 3] {
+    let settings = document.model_settings();
+    [
         (
             NativeModelSettingField::ArcMaxLength,
             "Arc max length",
@@ -2386,14 +2423,6 @@ fn spawn_native_object_rows(parent: &mut ChildSpawnerCommands, scene: &SceneDocu
     }
 }
 
-fn polyline_settings_summary(document: &Document) -> String {
-    let settings = document.model_settings();
-    format!(
-        "Arc max length\n{:.3}\nDouble line size\n{:.3}\nDouble line offset\n{:.3}",
-        settings.arc_max_length, settings.double_line_size, settings.double_line_offset,
-    )
-}
-
 fn objects_summary(occurrences: usize) -> String {
     format!("{occurrences} object instances in the scene")
 }
@@ -2456,16 +2485,6 @@ fn sync_native_settings_sections(
                     revision: scene.revision,
                 };
                 objects_summary(scene.occurrences)
-            }
-            NativeInspectorText::PolylineSettings {
-                generation,
-                revision,
-            } if generation != scene.generation || revision != scene.revision => {
-                *marker = NativeInspectorText::PolylineSettings {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                };
-                polyline_settings_summary(&scene.document)
             }
             _ => continue,
         };
@@ -3005,6 +3024,9 @@ fn apply_native_model_settings(
     }
     let mut payload = CommandPayload::default();
     for (input, editor) in &inputs {
+        if input.field.is_polyline() {
+            continue;
+        }
         let source = editor.value().to_string();
         let value = match input.field {
             NativeModelSettingField::UnitName => serde_json::json!(source),
@@ -3019,7 +3041,34 @@ fn apply_native_model_settings(
         };
         payload.values.insert(input.field.key().to_owned(), value);
     }
-    if payload.values.len() != 8 {
+    if payload.values.len() != 5 {
+        return;
+    }
+    session.dispatch_command("model.update_settings", &payload);
+}
+
+fn apply_native_polyline_settings(
+    event: On<Activate>,
+    buttons: Query<(), With<NativePolylineSettingsApplyButton>>,
+    inputs: Query<(&NativeModelSettingsInput, &EditableText)>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if !buttons.contains(event.entity) {
+        return;
+    }
+    let mut payload = CommandPayload::default();
+    for (input, editor) in &inputs {
+        if !input.field.is_polyline() {
+            continue;
+        }
+        let source = editor.value().to_string();
+        let value = source.parse::<f64>().map_or_else(
+            |_| serde_json::json!(source),
+            |value| serde_json::json!(value),
+        );
+        payload.values.insert(input.field.key().to_owned(), value);
+    }
+    if payload.values.len() != 3 {
         return;
     }
     session.dispatch_command("model.update_settings", &payload);
@@ -3205,6 +3254,7 @@ fn sync_native_model_settings_inputs(
         }
         let Some((_, _, value)) = native_model_setting_fields(&scene.document)
             .into_iter()
+            .chain(native_polyline_setting_fields(&scene.document))
             .find(|(field, _, _)| *field == state.field)
         else {
             continue;
@@ -5240,18 +5290,19 @@ mod tests {
         LightingChannel, LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
         NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
         NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
-        NativeObjectListRow, NativeObjectNameInput, NativeRenameObjectButton,
-        NativeRightClickGesture, NativeToolbarDrag, NativeToolsContextMenuState,
-        NativeUiInteraction, NativeUiPreferencesState, NativeUiSettingChoice,
-        NativeUiSettingChoiceButton, NativeUiSettingInput, NativeUiSettingInputField,
-        NativeUiSettingToggleButton, NativeUiSettingToggleField, NativeUiSettingsApplyButton,
-        NativeViewportOverlay, SceneDocument, SelectionStatsText, ShadowFilter, SnapResult,
-        TextureAtlasLayout, apply_native_model_settings, apply_native_ui_preferences,
-        back_face_color, build_oriented_grid_mesh, build_scene_meshes, command_payload_from_json,
+        NativeObjectListRow, NativeObjectNameInput, NativePolylineSettingsApplyButton,
+        NativeRenameObjectButton, NativeRightClickGesture, NativeToolbarDrag,
+        NativeToolsContextMenuState, NativeUiInteraction, NativeUiPreferencesState,
+        NativeUiSettingChoice, NativeUiSettingChoiceButton, NativeUiSettingInput,
+        NativeUiSettingInputField, NativeUiSettingToggleButton, NativeUiSettingToggleField,
+        NativeUiSettingsApplyButton, NativeViewportOverlay, SceneDocument, SelectionStatsText,
+        ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings,
+        apply_native_polyline_settings, apply_native_ui_preferences, back_face_color,
+        build_oriented_grid_mesh, build_scene_meshes, command_payload_from_json,
         create_native_icon_atlas, dispatch_palette_command, dispatch_toolbar_command, line_mesh,
-        native_model_setting_fields, native_object_entries, native_segment_intersects_rect,
-        native_triangle_intersects_rect, object_selection_summary, objects_summary,
-        open_native_model_settings_editor, polyline_settings_summary, refresh_status,
+        native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
+        native_segment_intersects_rect, native_triangle_intersects_rect, object_selection_summary,
+        objects_summary, open_native_model_settings_editor, refresh_status,
         rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
         search_command_ids, select_native_object_row, selected_object_info,
         selected_vertex_positions, selection_summary, submit_palette_parameters,
@@ -5827,9 +5878,13 @@ mod tests {
             MeshcraftApp::new_native_session(document.clone(), "Ready".to_owned(), None);
         let mut app = App::new();
         app.insert_non_send(session)
-            .add_observer(apply_native_model_settings);
+            .add_observer(apply_native_model_settings)
+            .add_observer(apply_native_polyline_settings);
         let mut grid_input = None;
-        for (field, _, _) in native_model_setting_fields(&document) {
+        for (field, _, _) in native_model_setting_fields(&document)
+            .into_iter()
+            .chain(native_polyline_setting_fields(&document))
+        {
             let value = match field {
                 NativeModelSettingField::UnitName => "meter",
                 NativeModelSettingField::UnitSize => "0.01",
@@ -5855,9 +5910,15 @@ mod tests {
                 grid_input = Some(entity);
             }
         }
-        let button = app.world_mut().spawn(NativeModelSettingsApplyButton).id();
+        let model_button = app.world_mut().spawn(NativeModelSettingsApplyButton).id();
+        let polyline_button = app
+            .world_mut()
+            .spawn(NativePolylineSettingsApplyButton)
+            .id();
 
-        app.world_mut().trigger(Activate { entity: button });
+        app.world_mut().trigger(Activate {
+            entity: model_button,
+        });
 
         session = app
             .world_mut()
@@ -5869,6 +5930,35 @@ mod tests {
         assert_eq!(0.25, settings.grid_size);
         assert_eq!(48, settings.circle_segments);
         assert_eq!(24.0, settings.snap_radius);
+        assert_eq!(
+            document.model_settings().arc_max_length,
+            settings.arc_max_length
+        );
+        assert_eq!(
+            document.model_settings().double_line_size,
+            settings.double_line_size
+        );
+        assert_eq!(
+            document.model_settings().double_line_offset,
+            settings.double_line_offset
+        );
+        assert!(session.native_command_state("edit.undo").enabled);
+        session.dispatch_command("edit.undo", &CommandPayload::default());
+        assert_eq!(
+            document.model_settings(),
+            session.document_snapshot().model_settings()
+        );
+        app.insert_non_send(session);
+
+        app.world_mut().trigger(Activate {
+            entity: polyline_button,
+        });
+        session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        let settings = session.document_snapshot().model_settings().clone();
+        assert_eq!(document.model_settings().unit_name, settings.unit_name);
         assert_eq!(0.75, settings.arc_max_length);
         assert_eq!(2.0, settings.double_line_size);
         assert_eq!(-0.3, settings.double_line_offset);
@@ -5887,7 +5977,9 @@ mod tests {
             .expect("grid-size input remains in the inspector")
             .editor_mut()
             .set_text("0.0");
-        app.world_mut().trigger(Activate { entity: button });
+        app.world_mut().trigger(Activate {
+            entity: model_button,
+        });
 
         let session = app
             .world_mut()
@@ -5911,6 +6003,7 @@ mod tests {
         let mut settings = document.model_settings().clone();
         settings.unit_name = "meters".to_owned();
         settings.grid_size = 2.5;
+        settings.arc_max_length = 0.75;
         document
             .update_model_settings(settings)
             .expect("model settings are valid");
@@ -5962,6 +6055,17 @@ mod tests {
                 },
             ))
             .id();
+        let arc = app
+            .world_mut()
+            .spawn((
+                EditableText::new("draft arc"),
+                NativeModelSettingsInput {
+                    generation: 2,
+                    revision: 0,
+                    field: NativeModelSettingField::ArcMaxLength,
+                },
+            ))
+            .id();
         *app.world_mut().resource_mut::<InputFocus>() = InputFocus::from_entity(grid);
 
         app.update();
@@ -5982,6 +6086,37 @@ mod tests {
                 .value()
                 .to_string()
         );
+        assert_eq!(
+            "0.750",
+            app.world()
+                .get::<EditableText>(arc)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+
+        app.world_mut()
+            .get_mut::<EditableText>(arc)
+            .unwrap()
+            .editor_mut()
+            .set_text("draft arc");
+        *app.world_mut().resource_mut::<InputFocus>() = InputFocus::from_entity(arc);
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            let mut settings = scene.document.model_settings().clone();
+            settings.arc_max_length = 0.9;
+            scene.document.update_model_settings(settings).unwrap();
+            scene.revision = scene.document.revision();
+        }
+        app.update();
+        assert_eq!(
+            "draft arc",
+            app.world()
+                .get::<EditableText>(arc)
+                .unwrap()
+                .value()
+                .to_string()
+        );
 
         *app.world_mut().resource_mut::<InputFocus>() = InputFocus::default();
         app.update();
@@ -5989,6 +6124,14 @@ mod tests {
             "2.5000",
             app.world()
                 .get::<EditableText>(grid)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+        assert_eq!(
+            "0.900",
+            app.world()
+                .get::<EditableText>(arc)
                 .unwrap()
                 .value()
                 .to_string()
@@ -6495,7 +6638,6 @@ mod tests {
     #[test]
     fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
         let document = Document::new();
-        let initial_polyline_summary = polyline_settings_summary(&document);
         let (occurrences, triangles, segments) = scene_counts(&document);
         let initial_objects_summary = objects_summary(occurrences);
         let mut app = App::new();
@@ -6521,16 +6663,6 @@ mod tests {
             segments,
         })
         .add_systems(Update, sync_native_settings_sections);
-        let polyline = app
-            .world_mut()
-            .spawn((
-                Text::new(initial_polyline_summary),
-                NativeInspectorText::PolylineSettings {
-                    generation: 1,
-                    revision: 0,
-                },
-            ))
-            .id();
         let objects = app
             .world_mut()
             .spawn((
@@ -6576,20 +6708,12 @@ mod tests {
             let mut settings = scene.document.model_settings().clone();
             settings.unit_name = "meter".to_owned();
             settings.grid_size = 0.25;
-            settings.arc_max_length = 0.75;
             scene.document.update_model_settings(settings).unwrap();
             scene.occurrences = 18;
             scene.revision = scene.document.revision();
         }
         app.update();
 
-        assert!(
-            app.world()
-                .get::<Text>(polyline)
-                .unwrap()
-                .0
-                .contains("0.750")
-        );
         assert_eq!(
             "18 object instances in the scene",
             app.world().get::<Text>(objects).unwrap().0
@@ -6611,13 +6735,6 @@ mod tests {
         }
         app.update();
 
-        assert!(
-            app.world()
-                .get::<Text>(polyline)
-                .unwrap()
-                .0
-                .contains("0.500")
-        );
         assert_eq!(
             "0 object instances in the scene",
             app.world().get::<Text>(objects).unwrap().0
