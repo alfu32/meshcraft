@@ -4,6 +4,7 @@
 //! snapshots and owns its OpenGL context, render target, camera and frame readback.
 
 use std::{
+    collections::BTreeMap,
     slice,
     sync::{
         Arc, Condvar, Mutex, RwLock,
@@ -13,6 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "gpui_layout.rs"]
+mod layout;
+
 use crate::MeshcraftApp;
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapKind, SnapResult, ToolFeedback,
@@ -20,14 +24,13 @@ use crate::viewport::{
 };
 use eframe::egui;
 use gpui::{
-    App, Application, Context, Entity, ImageSource, Render, RenderImage, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
-    img, prelude::*, px, rgb, size,
+    App, Application, Context, Entity, ImageSource, Render, RenderImage, SharedString, Styled,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, canvas, div, img, prelude::*, px, rgb,
+    size,
 };
 use gpui_component::{
     Disableable, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
-    scroll::ScrollableElement,
 };
 use image::{Frame, ImageBuffer, Rgba};
 use meshcraft_core::{
@@ -957,8 +960,10 @@ struct MeshcraftShell {
     layout: ViewportLayout,
     active_ribbon_tab: &'static str,
     open_menu: Option<&'static str>,
+    menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     cached_document_revision: Option<u64>,
     cached_document: Arc<Document>,
+    cached_scene_counts: layout::SceneCounts,
     cursor_local: Option<(f32, f32)>,
     cursor_snap: Option<SnapResult>,
     last_pick: Option<PointerPick>,
@@ -981,8 +986,10 @@ impl MeshcraftShell {
             layout: ViewportLayout::default(),
             active_ribbon_tab: "Home",
             open_menu: None,
+            menu_bounds: Arc::default(),
             cached_document_revision: None,
             cached_document: Arc::new(session.document_snapshot()),
+            cached_scene_counts: layout::SceneCounts::default(),
             cursor_local: None,
             cursor_snap: None,
             last_pick: None,
@@ -1006,6 +1013,7 @@ impl MeshcraftShell {
         let revision = self.session.document_revision();
         if self.cached_document_revision != Some(revision) {
             self.cached_document = Arc::new(self.session.document_snapshot());
+            self.cached_scene_counts = layout::SceneCounts::from_document(&self.cached_document);
             self.cached_document_revision = Some(revision);
         }
         let (preview, feedback, cursor_axes) = match (self.cursor_snap, self.cursor_local) {
@@ -1203,8 +1211,8 @@ impl MeshcraftShell {
     fn viewport_point(&self, position: gpui::Point<gpui::Pixels>, window: &Window) -> (f32, f32) {
         let scale = window.scale_factor();
         (
-            (f32::from(position.x) - 230.0) * scale,
-            (f32::from(position.y) - 140.0) * scale,
+            f32::from(position.x) * scale - self.layout.x as f32,
+            f32::from(position.y) * scale - self.layout.y as f32,
         )
     }
 
@@ -1441,10 +1449,10 @@ fn grid_point_on_ray(
 }
 
 fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout {
-    const LEFT_PANEL: f32 = 230.0;
-    const RIGHT_PANEL: f32 = 330.0;
-    const HEADER: f32 = 140.0;
-    const STATUS: f32 = 26.0;
+    use layout::{
+        HEADER_HEIGHT as HEADER, LEFT_PANEL_WIDTH as LEFT_PANEL, RIGHT_PANEL_WIDTH as RIGHT_PANEL,
+        STATUS_HEIGHT as STATUS,
+    };
     ViewportLayout {
         x: (LEFT_PANEL * scale).round() as i32,
         y: (HEADER * scale).round() as i32,
@@ -1458,15 +1466,15 @@ fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout
     }
 }
 
-fn publish_layout(bridge: &ViewportBridge, window: &Window) {
-    let bounds = window.bounds();
-    let scale = window.scale_factor();
+fn publish_layout(bridge: &ViewportBridge, window: &Window) -> ViewportLayout {
+    let size = window.viewport_size();
     let layout = viewport_physical_rect(
-        f32::from(bounds.size.width) / scale,
-        f32::from(bounds.size.height) / scale,
-        scale,
+        f32::from(size.width),
+        f32::from(size.height),
+        window.scale_factor(),
     );
     bridge.publish_layout(layout);
+    layout
 }
 
 fn selection_region(
@@ -1755,331 +1763,6 @@ fn command_label(command: &CommandDescriptor) -> &str {
     command.label.rsplit("> ").next().unwrap_or(&command.label)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RibbonCommandSpec {
-    key: &'static str,
-    label: &'static str,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct RibbonGroupSpec {
-    title: &'static str,
-    namespace: &'static str,
-    commands: &'static [RibbonCommandSpec],
-}
-
-macro_rules! ribbon_commands {
-    ($(($key:literal, $label:literal)),* $(,)?) => {
-        &[$(RibbonCommandSpec { key: $key, label: $label }),*]
-    };
-}
-
-const HOME_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Construction",
-        namespace: "ribbon/home/construction",
-        commands: ribbon_commands![
-            ("point", "Point"),
-            ("line", "Line"),
-            ("polyline", "Polyline"),
-            ("double-line", "2-Line"),
-            ("meshed-double-line", "Mesh 2-Line"),
-            ("closed-mesh", "Planar Mesh"),
-            ("rectangle", "Rectangle"),
-            ("circle", "Circle")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Modify Selection",
-        namespace: "ribbon/home/modify",
-        commands: ribbon_commands![
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("move", "Move"),
-            ("copy", "Copy"),
-            ("rotate-3d", "Rotate 3D"),
-            ("scale", "Scale"),
-            ("stretch", "Stretch"),
-            ("extrude", "Extrude")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Arrays & Objects",
-        namespace: "ribbon/home/arrays",
-        commands: ribbon_commands![
-            ("make-object", "Make Object"),
-            ("edit-object", "Edit Object"),
-            ("linear-array", "Linear"),
-            ("planar-array", "Planar"),
-            ("spatial-array", "Spatial"),
-            ("rotational-array", "Rotate"),
-            ("helical-array", "Helical")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Entities & View",
-        namespace: "ribbon/home/entities",
-        commands: ribbon_commands![
-            ("dimension", "Dimension"),
-            ("wall", "Wall"),
-            ("slab", "Slab"),
-            ("stair", "Stair"),
-            ("frame", "Frame"),
-            ("orbit", "Orbit"),
-            ("zoom", "Zoom")
-        ],
-    },
-];
-const CONSTRUCTION_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Point Construction",
-        namespace: "ribbon/construction/points",
-        commands: ribbon_commands![
-            ("point", "Point"),
-            ("line", "Line"),
-            ("construction-polyline", "Polyline"),
-            ("double-line", "2-Line"),
-            ("meshed-double-line", "Mesh 2-Line"),
-            ("closed-mesh", "Closed Mesh"),
-            ("rectangle", "Rectangle"),
-            ("circle", "Circle"),
-            ("arc", "Arc"),
-            ("hotspot", "Hotspot")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Entity Construction",
-        namespace: "ribbon/construction/entities",
-        commands: ribbon_commands![
-            ("dimension", "Dimension"),
-            ("text", "Text"),
-            ("leader", "Leader"),
-            ("wall", "Wall"),
-            ("slab", "Slab"),
-            ("stair", "Stair"),
-            ("frame", "Frame")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Primitives & Services",
-        namespace: "ribbon/construction/primitives",
-        commands: ribbon_commands![
-            ("cuboid", "Cuboid"),
-            ("sphere", "Sphere"),
-            ("cylinder", "Cylinder"),
-            ("cone", "Cone"),
-            ("voxel", "Voxel"),
-            ("pipe", "Pipe"),
-            ("duct", "Duct")
-        ],
-    },
-];
-const MODIFY_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Selection",
-        namespace: "ribbon/modify/selection",
-        commands: ribbon_commands![
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("select-connected", "Connected"),
-            ("select-coplanar", "Coplanar"),
-            ("select-all", "Select All")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Transforms",
-        namespace: "ribbon/modify/transforms",
-        commands: ribbon_commands![
-            ("move", "Move"),
-            ("copy", "Copy"),
-            ("rotate-3d", "Rotate 3D"),
-            ("rotate-copy-3d", "Rotate Copy"),
-            ("scale", "Scale"),
-            ("stretch", "Stretch"),
-            ("extrude", "Extrude"),
-            ("mirror", "Mirror")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Surface & Path",
-        namespace: "ribbon/modify/surface",
-        commands: ribbon_commands![
-            ("offset", "Offset"),
-            ("sweep", "Sweep"),
-            ("fillet", "Fillet"),
-            ("chamfer", "Chamfer"),
-            ("planar-regularize", "Regularize"),
-            ("surface-remesh", "Remesh")
-        ],
-    },
-];
-const ARRAY_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Selection Arrays",
-        namespace: "ribbon/arrays/spread",
-        commands: ribbon_commands![
-            ("linear-array", "Linear Spread"),
-            ("planar-array", "Planar Spread"),
-            ("spatial-array", "Spatial Spread")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Rotational Arrays",
-        namespace: "ribbon/arrays/rotational",
-        commands: ribbon_commands![
-            ("rotational-array", "Rotational"),
-            ("helical-array", "Helical")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Objects",
-        namespace: "ribbon/arrays/objects",
-        commands: ribbon_commands![
-            ("make-object", "Make Object"),
-            ("edit-object", "Edit Object"),
-            ("place-object", "Place Instance"),
-            ("explode-object", "Explode")
-        ],
-    },
-];
-const ARCHITECTURE_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Architecture",
-        namespace: "ribbon/architecture/building",
-        commands: ribbon_commands![
-            ("wall", "Wall"),
-            ("slab", "Slab"),
-            ("stair", "Stair"),
-            ("frame", "Frame"),
-            ("door", "Door"),
-            ("window", "Window")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Building Services",
-        namespace: "ribbon/architecture/services",
-        commands: ribbon_commands![
-            ("pipe", "Pipe"),
-            ("duct", "Duct"),
-            ("voxel", "Voxel"),
-            ("dimension", "Dimension"),
-            ("text", "Text")
-        ],
-    },
-];
-const INSPECT_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Inspect",
-        namespace: "ribbon/inspect/measure",
-        commands: ribbon_commands![
-            ("distance", "Distance"),
-            ("dimension", "Dimension"),
-            ("selection-info", "Selection Info"),
-            ("object-info", "Object Info")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Selection",
-        namespace: "ribbon/inspect/selection",
-        commands: ribbon_commands![
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("select-connected", "Connected"),
-            ("select-coplanar", "Coplanar")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Model",
-        namespace: "ribbon/inspect/model",
-        commands: ribbon_commands![
-            ("objects", "Objects"),
-            ("hotspots", "Hotspots"),
-            ("walls", "Walls"),
-            ("dimensions", "Dimensions")
-        ],
-    },
-];
-const VIEW_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Camera",
-        namespace: "ribbon/view/camera",
-        commands: ribbon_commands![
-            ("orbit", "Orbit"),
-            ("pan", "Pan"),
-            ("zoom", "Zoom"),
-            ("fit-model", "Fit Model"),
-            ("reset-camera", "Reset")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Projection & Grid",
-        namespace: "ribbon/view/grid",
-        commands: ribbon_commands![
-            ("perspective", "Perspective"),
-            ("orthographic", "Orthographic"),
-            ("permanent-grid", "Grid"),
-            ("guides", "Guides"),
-            ("snap-settings", "Snapping")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Rendering",
-        namespace: "ribbon/view/render",
-        commands: ribbon_commands![
-            ("realtime-render", "RT"),
-            ("global-illumination", "GI"),
-            ("stop-render", "Stop"),
-            ("save-render", "Save Image")
-        ],
-    },
-];
-const SETTINGS_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
-    RibbonGroupSpec {
-        title: "Model Settings",
-        namespace: "ribbon/settings/model",
-        commands: ribbon_commands![
-            ("unit-name", "Unit Name"),
-            ("unit-size", "Unit Size"),
-            ("grid-size", "Grid Size"),
-            ("circle-segments", "Circle Segments"),
-            ("snap-radius", "Snap Radius")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Interface",
-        namespace: "ribbon/settings/ui",
-        commands: ribbon_commands![
-            ("ui-text-size", "Text Size"),
-            ("toolbar-size", "Toolbar Size"),
-            ("permanent-grid", "Permanent Grid"),
-            ("arrange-toolbars", "Arrange Toolbars")
-        ],
-    },
-    RibbonGroupSpec {
-        title: "Domain Settings",
-        namespace: "ribbon/settings/domain",
-        commands: ribbon_commands![
-            ("architecture-settings", "Architecture"),
-            ("hvac-settings", "HVAC"),
-            ("hotspot-settings", "Hotspots"),
-            ("shader-settings", "Shaders")
-        ],
-    },
-];
-
-fn ribbon_groups(tab: &str) -> &'static [RibbonGroupSpec] {
-    match tab {
-        "Construction" => CONSTRUCTION_RIBBON_GROUPS,
-        "Modify" => MODIFY_RIBBON_GROUPS,
-        "Arrays" => ARRAY_RIBBON_GROUPS,
-        "Architecture" => ARCHITECTURE_RIBBON_GROUPS,
-        "Inspect" => INSPECT_RIBBON_GROUPS,
-        "View" => VIEW_RIBBON_GROUPS,
-        "Settings" => SETTINGS_RIBBON_GROUPS,
-        _ => HOME_RIBBON_GROUPS,
-    }
-}
-
 fn ribbon_command_for_key<'a>(
     key: &str,
     catalog: &'a [CommandDescriptor],
@@ -2091,24 +1774,25 @@ fn ribbon_command_for_key<'a>(
         "construction-polyline" => &["tool.builtin.construction_line"],
         "double-line" => &["tool.builtin.double_line"],
         "meshed-double-line" => &["tool.builtin.ribbon_3d"],
-        "closed-mesh" => &["tool.builtin.polyline_mesh"],
+        "closed-mesh" => &["tool.builtin.mesh"],
         "rectangle" => &["tool.builtin.rectangle", "tool.rectangle"],
         "circle" => &["tool.builtin.circle"],
         "arc" => &["tool.builtin.arc"],
         "hotspot" => &["hotspot.begin_placement"],
-        "select" | "window-select" => &["tool.select"],
+        "select" | "window-select" | "select-operator" => &["tool.select"],
         "move" => &["tool.builtin.move"],
         "copy" => &["edit.copy_selection"],
         "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],
-        "rotate-copy-3d" => &["tool.builtin.rotate_2"],
+        "rotate-copy-3d" | "rotate-copy" => &["tool.builtin.rotate_2"],
         "scale" => &["tool.builtin.scale"],
         "stretch" => &["tool.builtin.stretch"],
         "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
         "mirror" => &["tool.builtin.mirror"],
-        "make-object" => &["object.create_from_selection"],
-        "edit-object" => &["selection.edit_object"],
+        "make-object" | "create-object" => &["object.create_from_selection"],
+        "edit-object" | "edit-definition" => &["selection.edit_object"],
         "place-object" => &["object.place_selected_definition"],
-        "explode-object" => &["object.explode_selection"],
+        "explode-object" | "explode" => &["object.explode_selection"],
+        "array" => &["object.array_selection"],
         "dimension" => &["tool.builtin.linear_dimension"],
         "text" => &["tool.builtin.text"],
         "wall" => &["tool.builtin.arch_wall"],
@@ -2124,10 +1808,14 @@ fn ribbon_command_for_key<'a>(
         "sphere" => &["tool.builtin.primitive_sphere"],
         "cylinder" => &["tool.builtin.primitive_cylinder"],
         "cone" => &["tool.builtin.primitive_cone"],
-        "voxel" => &["tool.builtin.voxel"],
-        "pipe" => &["tool.builtin.hvac_plumbing"],
-        "duct" => &["tool.builtin.hvac_ventilation"],
-        "distance" => &["tool.distance"],
+        "voxel" | "voxel-edit" => &["tool.builtin.voxel"],
+        "voxel-fill" => &["tool.builtin.voxel_volume"],
+        "pipe" | "plumbing" => &["tool.builtin.hvac_plumbing"],
+        "duct" | "ventilation" => &["tool.builtin.hvac_ventilation"],
+        "distance" | "distance-operator" => &["tool.distance"],
+        "random-offset" => &["tool.builtin.random_offset"],
+        "surface-array" => &["tool.builtin.random_surface_array"],
+        "mesh-intersection" => &["tool.builtin.mesh_intersection"],
         "offset" => &["tool.builtin.line_offset"],
         "sweep" => &[
             "tool.builtin.extrude_swipe",
@@ -2144,6 +1832,8 @@ fn ribbon_command_for_key<'a>(
         "pan" | "zoom" => &[],
         "fit-model" => &["view.frame_document"],
         "reset-camera" => &["view.camera.reset"],
+        "front-view" => &["view.ortho.front"],
+        "top-view" => &["view.ortho.top"],
         "orthographic" => &["view.camera.orthographic"],
         "permanent-grid" => &["view.grid.toggle"],
         "guides" => &["view.guides.toggle"],
@@ -2154,132 +1844,33 @@ fn ribbon_command_for_key<'a>(
         "hvac-settings" => &["view.hvac_settings"],
         "hotspot-settings" => &["view.hotspot_settings"],
         "shader-settings" => &["view.panel.shaders.toggle"],
-        "realtime-render" => &["render.raytrace"],
+        "realtime-render" | "ray-trace" => &["render.raytrace"],
         "global-illumination" => &["render.global_illumination"],
         "stop-render" => &["render.stop"],
         "save-render" => &["render.save"],
+        "new" => &["file.new"],
+        "open" => &["file.open"],
+        "save" => &["file.save"],
+        "save-as" => &["file.save_as"],
+        "recent-projects" => &["file.open_recent"],
+        "exit" => &["app.quit"],
+        "undo" => &["edit.undo"],
+        "redo" => &["edit.redo"],
+        "delete" => &["edit.delete_selection"],
+        "import-objects" => &["import.mesh"],
+        "export" => &["export.mesh"],
+        "model-settings" | "settings-panel" => &["view.model_settings"],
+        "ui-settings" => &["view.panel.ui_settings.toggle"],
+        "selection-panel" => &["view.selection"],
+        "object-panel" => &["view.object_info"],
+        "reset-layout" => &["view.workspace.reset_layout"],
+        "tutorials" => &["view.panel.tutorials.toggle"],
+        "about-meshcraft" => &["help.about"],
+        "add-hotspot" => &["hotspot.begin_placement"],
         _ => return None,
     };
     ids.iter()
         .find_map(|id| catalog.iter().find(|command| command.id.as_str() == *id))
-}
-
-fn menu_x(menu: &str) -> f32 {
-    let mut x = 74.0;
-    for name in MENU_NAMES {
-        if *name == menu {
-            return x;
-        }
-        x += name.len() as f32 * 7.7 + 24.0;
-    }
-    x
-}
-
-fn panel_section(title: impl Into<SharedString>, body: impl IntoElement) -> impl IntoElement {
-    let title = title.into();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .border_1()
-        .border_color(rgb(0x46515e))
-        .bg(rgb(0x28313b))
-        .child(
-            div()
-                .px(px(8.))
-                .py(px(5.))
-                .bg(rgb(0x285477))
-                .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(0xe6f0f9))
-                .child(title),
-        )
-        .child(body)
-}
-
-fn readonly_setting(
-    id: &'static str,
-    label: &'static str,
-    value: &'static str,
-) -> impl IntoElement {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .gap(px(3.))
-        .child(div().text_xs().text_color(rgb(0x9faebb)).child(label))
-        .child(
-            div()
-                .w_full()
-                .px(px(6.))
-                .py(px(4.))
-                .bg(rgb(0x1c2229))
-                .text_sm()
-                .text_color(rgb(0xc1cad4))
-                .child(value),
-        )
-}
-
-fn readonly_setting_pair(
-    left_id: &'static str,
-    left_label: &'static str,
-    left_value: &'static str,
-    right_id: &'static str,
-    right_label: &'static str,
-    right_value: &'static str,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .gap(px(6.))
-        .child(
-            div()
-                .flex_1()
-                .child(readonly_setting(left_id, left_label, left_value)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .child(readonly_setting(right_id, right_label, right_value)),
-        )
-}
-
-fn readonly_check(id: &'static str, label: &'static str, checked: bool) -> impl IntoElement {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap(px(7.))
-        .text_sm()
-        .text_color(rgb(0xc1cad4))
-        .child(
-            div()
-                .w(px(14.))
-                .h(px(14.))
-                .border_1()
-                .border_color(rgb(0x646d79))
-                .bg(if checked {
-                    rgb(0x3d6388)
-                } else {
-                    rgb(0x30363e)
-                }),
-        )
-        .child(label)
-}
-
-fn disabled_setting_actions(
-    namespace: &'static str,
-    actions: &[(&'static str, &'static str)],
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_wrap()
-        .gap(px(4.))
-        .children(actions.iter().map(|(id, label)| {
-            Button::new(SharedString::from(format!("settings/{namespace}/{id}")))
-                .label(*label)
-                .small()
-                .disabled(true)
-        }))
 }
 
 impl Render for MeshcraftShell {
@@ -2287,6 +1878,7 @@ impl Render for MeshcraftShell {
         if self.close_requested {
             window.remove_window();
         }
+        self.layout = publish_layout(&self.bridge, window);
         self.session.poll_native_host_work();
         if self.cached_document_revision != Some(self.session.document_revision()) {
             self.refresh_scene();
@@ -2297,7 +1889,7 @@ impl Render for MeshcraftShell {
         }
 
         let menu_bar = div()
-            .h(px(34.))
+            .h(px(layout::MENU_HEIGHT))
             .flex()
             .items_center()
             .gap(px(3.))
@@ -2324,7 +1916,22 @@ impl Render for MeshcraftShell {
                             cx.notify();
                         }),
                     );
-                if active { button.primary() } else { button }
+                let bounds_store = Arc::clone(&self.menu_bounds);
+                div()
+                    .relative()
+                    .child(if active { button.primary() } else { button })
+                    .child(
+                        canvas(
+                            move |bounds, _, _| {
+                                if let Ok(mut menu_bounds) = bounds_store.lock() {
+                                    menu_bounds.insert(menu, bounds);
+                                }
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
             }))
             .child(div().flex_1())
             .child(
@@ -2349,7 +1956,7 @@ impl Render for MeshcraftShell {
             );
 
         let ribbon_tabs = div()
-            .h(px(28.))
+            .h(px(layout::TAB_HEIGHT))
             .flex()
             .items_center()
             .gap(px(4.))
@@ -2375,116 +1982,15 @@ impl Render for MeshcraftShell {
                 }
             }));
 
-        let ribbon_catalog = MeshcraftApp::command_catalog();
-        let ribbon_group_specs = ribbon_groups(self.active_ribbon_tab);
-        let ribbon = div()
-            .h(px(104.))
-            .flex()
-            .items_start()
-            .gap(px(2.))
-            .px(px(5.))
-            .py(px(3.))
-            .bg(rgb(0x202833))
-            .children(ribbon_group_specs.iter().map(|group| {
-                div()
-                    .id(group.namespace)
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .gap(px(3.))
-                    .px(px(6.))
-                    .border_r_1()
-                    .border_color(rgb(0x3b4654))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(rgb(0x9caec3))
-                            .child(group.title),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .w_full()
-                            .items_center()
-                            .gap(px(3.))
-                            .children(group.commands.iter().map(|spec| {
-                                let button_id = SharedString::from(format!(
-                                    "{}/{}/{}",
-                                    group.namespace, group.title, spec.key
-                                ));
-                                if let Some(command) =
-                                    ribbon_command_for_key(spec.key, &ribbon_catalog)
-                                {
-                                    let id = command.id.as_str().to_owned();
-                                    let enabled = command_enabled(&self.session, command);
-                                    let tooltip = command.presentation.palette_path.clone();
-                                    Button::new(button_id)
-                                        .label(spec.label)
-                                        .small()
-                                        .compact()
-                                        .tooltip(tooltip)
-                                        .disabled(!enabled)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.dispatch(&id);
-                                            cx.notify();
-                                        }))
-                                } else {
-                                    Button::new(button_id)
-                                        .label(spec.label)
-                                        .small()
-                                        .compact()
-                                        .disabled(true)
-                                }
-                            })),
-                    )
-            }));
-
-        let toolbar_visibility = self.session.native_toolbar_visibility();
-        let toolbar_groups = MeshcraftApp::native_toolbar_catalog()
-            .into_iter()
-            .zip(toolbar_visibility)
-            .filter_map(|(group, visible)| visible.then_some(group));
-        let left_panel = div()
-            .id("tool-palettes")
-            .w(px(230.))
-            .h_full()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .p(px(7.))
-            .bg(rgb(0x202730))
-            .overflow_y_scroll()
-            .children(toolbar_groups.map(|(title, commands)| {
-                panel_section(
-                    title,
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(3.))
-                        .px(px(5.))
-                        .pb(px(6.))
-                        .children(commands.into_iter().map(|command| {
-                            let id = command.id.as_str().to_owned();
-                            let label = command_label(&command).to_owned();
-                            let enabled = command_enabled(&self.session, &command);
-                            let tooltip = command.presentation.palette_path.clone();
-                            Button::new(command_button_id("toolbar", &command))
-                                .label(label)
-                                .small()
-                                .compact()
-                                .tooltip(tooltip)
-                                .disabled(!enabled)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.dispatch(&id);
-                                    cx.notify();
-                                }))
-                        })),
-                )
-                .into_any_element()
-            }));
+        let (ribbon, left_panel, right_panel) = {
+            let tab = self.active_ribbon_tab;
+            let mut bindings = layout::LayoutBindings::new(self, cx);
+            (
+                layout::ribbon_content(tab, &mut bindings),
+                layout::left_toolbars(&mut bindings),
+                layout::right_settings_panel(&mut bindings),
+            )
+        };
 
         let viewport_bridge_down_left =
             cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
@@ -2566,789 +2072,6 @@ impl Render for MeshcraftShell {
                     )),
             );
 
-        let selection = self.session.native_selection_summary();
-        let selected_objects = self.session.native_top_level_occurrences();
-        let settings = self.cached_document.model_settings().clone();
-        let selection_panel = panel_section(
-            "Selection",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .px(px(8.))
-                .pb(px(7.))
-                .child(stat_text(
-                    "Type                         T    S    D    M    W",
-                ))
-                .child(stat_text(format!(
-                    "Edges                         {}",
-                    selection.edges
-                )))
-                .child(stat_text(format!(
-                    "Faces                         {}",
-                    selection.faces
-                )))
-                .child(stat_text(format!(
-                    "Vertices                      {}",
-                    selection.vertices
-                )))
-                .child(stat_text(format!(
-                    "Objects                       {}",
-                    selection.objects
-                )))
-                .children(selection.counts_by_kind.iter().map(|(kind, count)| {
-                    stat_text(format!("{kind:?}                         {count}"))
-                })),
-        );
-        let object_panel = panel_section(
-            "Objects",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .px(px(8.))
-                .pb(px(7.))
-                .child(stat_text(format!(
-                    "{} object instances in the active scene",
-                    selected_objects.len()
-                )))
-                .children(selected_objects.into_iter().map(|occurrence| {
-                    let name = self
-                        .cached_document
-                        .resolve_occurrence(&occurrence)
-                        .map(|resolved| resolved.definition.name.clone())
-                        .unwrap_or_else(|| "Object".to_owned());
-                    let occurrence_for_click = occurrence.clone();
-                    Button::new(SharedString::from(format!(
-                        "objects/{}",
-                        occurrence
-                            .path
-                            .iter()
-                            .map(|id| id.0.to_string())
-                            .collect::<Vec<_>>()
-                            .join("-")
-                    )))
-                    .label(name)
-                    .small()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let _ = this
-                            .session
-                            .select_native_object_from_inspector(&occurrence_for_click, false);
-                        this.refresh_scene();
-                        cx.notify();
-                    }))
-                }))
-                .child(
-                    Button::new("objects/create-from-selection")
-                        .label("Create Object from Selection")
-                        .small()
-                        .disabled(
-                            !self
-                                .session
-                                .native_command_state("object.create_from_selection")
-                                .enabled,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.dispatch("object.create_from_selection");
-                            cx.notify();
-                        })),
-                ),
-        );
-
-        let model_values = [
-            ("unit_size", "Unit size", settings.unit_size, 0.1),
-            ("grid_size", "Grid size", settings.grid_size, 0.1),
-            (
-                "circle_segments",
-                "Circle segments",
-                f64::from(settings.circle_segments),
-                1.0,
-            ),
-            ("snap_radius", "Snap radius", settings.snap_radius, 1.0),
-            (
-                "arc_max_length",
-                "Arc max length",
-                settings.arc_max_length,
-                0.05,
-            ),
-            (
-                "double_line_size",
-                "Double line size",
-                settings.double_line_size,
-                0.1,
-            ),
-            (
-                "double_line_offset",
-                "Double line offset",
-                settings.double_line_offset,
-                0.1,
-            ),
-        ];
-        let ui_preferences = self.session.native_ui_preferences();
-        let current_grid_axis = match ui_preferences.grid_normal_axis {
-            GridNormalAxis::X => "x",
-            GridNormalAxis::Y => "y",
-            GridNormalAxis::Z => "z",
-        };
-        let preference_adjust_row = |field: &'static str, label: String| {
-            let decrease_field = field;
-            let increase_field = field;
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .child(div().flex_1().text_sm().child(label))
-                .child(
-                    Button::new(SharedString::from(format!(
-                        "settings/ui.update_preferences/{field}/decrease"
-                    )))
-                    .label("−")
-                    .xsmall()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.adjust_ui_preference(decrease_field, -1);
-                        cx.notify();
-                    })),
-                )
-                .child(
-                    Button::new(SharedString::from(format!(
-                        "settings/ui.update_preferences/{field}/increase"
-                    )))
-                    .label("+")
-                    .xsmall()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.adjust_ui_preference(increase_field, 1);
-                        cx.notify();
-                    })),
-                )
-        };
-        let model_panel = panel_section(
-            "Model Settings",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .px(px(8.))
-                .pb(px(7.))
-                .child(setting_value("Unit name", settings.unit_name.clone()))
-                .children(model_values.into_iter().map(|(field, title, value, step)| {
-                    let decrease_field = field;
-                    let increase_field = field;
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_sm()
-                                .child(format!("{title}: {value:.3}")),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("settings/{field}/decrease")))
-                                .label("−")
-                                .xsmall()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.update_model_number(decrease_field, -step);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("settings/{field}/increase")))
-                                .label("+")
-                                .xsmall()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.update_model_number(increase_field, step);
-                                    cx.notify();
-                                })),
-                        )
-                }))
-                .child(stat_text(
-                    "Settings are applied through model.update_settings",
-                )),
-        );
-        let ui_settings_panel = panel_section(
-            "UI Settings",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .px(px(8.))
-                .pb(px(7.))
-                .child(
-                    Button::new("settings/ui.update_preferences/show_permanent_grid")
-                        .label(format!(
-                            "Permanent grid: {}",
-                            if ui_preferences.show_permanent_grid {
-                                "On"
-                            } else {
-                                "Off"
-                            }
-                        ))
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_ui_preference("show_permanent_grid");
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("settings/ui.update_preferences/show_construction_guides")
-                        .label(format!(
-                            "Construction guides: {}",
-                            if ui_preferences.show_construction_guides {
-                                "On"
-                            } else {
-                                "Off"
-                            }
-                        ))
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_ui_preference("show_construction_guides");
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("settings/ui.update_preferences/auto_collapse_toolbars")
-                        .label(format!(
-                            "Auto-collapse palettes: {}",
-                            if ui_preferences.auto_collapse_toolbars {
-                                "On"
-                            } else {
-                                "Off"
-                            }
-                        ))
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_ui_preference("auto_collapse_toolbars");
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("settings/ui.update_preferences/toolbar_flow_top_down")
-                        .label(format!(
-                            "Palette flow: {}",
-                            if ui_preferences.toolbar_flow_top_down {
-                                "Top to bottom"
-                            } else {
-                                "Left to right"
-                            }
-                        ))
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_ui_preference("toolbar_flow_top_down");
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_sm()
-                                .child(format!("Grid normal: {current_grid_axis}")),
-                        )
-                        .children(["x", "y", "z"].into_iter().map(|axis| {
-                            let button = Button::new(SharedString::from(format!(
-                                "settings/ui.update_preferences/grid_normal_axis/{axis}"
-                            )))
-                            .label(axis.to_uppercase())
-                            .xsmall();
-                            let button = if current_grid_axis == axis {
-                                button.primary()
-                            } else {
-                                button.ghost()
-                            };
-                            button.on_click(cx.listener(move |this, _, _, cx| {
-                                this.update_ui_preference("grid_normal_axis", json!(axis));
-                                cx.notify();
-                            }))
-                        })),
-                )
-                .child(preference_adjust_row(
-                    "ui_text_scale",
-                    format!("UI text scale: {:.1}x", ui_preferences.ui_text_scale),
-                ))
-                .child(preference_adjust_row(
-                    "toolbar_icon_size",
-                    format!("Toolbar icon size: {} px", ui_preferences.toolbar_icon_size),
-                ))
-                .child(preference_adjust_row(
-                    "grid_extent",
-                    format!("Grid extent: {} steps", ui_preferences.grid_extent),
-                )),
-        );
-        let legacy_settings_panels = [
-            panel_section(
-                "Polyline Settings",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting(
-                        "polyline/arc-max-length",
-                        "Arc max length",
-                        "0.500",
-                    ))
-                    .child(readonly_setting(
-                        "polyline/double-line-size",
-                        "Double line size",
-                        "1.000",
-                    ))
-                    .child(readonly_setting(
-                        "polyline/double-line-offset",
-                        "Double line offset",
-                        "0.500",
-                    )),
-            ),
-            panel_section(
-                "Vector Text",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting("vector-text/text", "Text", "TEXT"))
-                    .child(readonly_setting_pair(
-                        "vector-text/size",
-                        "Size",
-                        "1.000",
-                        "vector-text/tracking",
-                        "Tracking",
-                        "0.100",
-                    ))
-                    .child(readonly_setting(
-                        "vector-text/line-spacing",
-                        "Line spacing",
-                        "1.250",
-                    ))
-                    .child(readonly_setting(
-                        "vector-text/glyph-source",
-                        "Glyph source file (.octd / .ttf / .otf)",
-                        "embedded:alphabet",
-                    ))
-                    .child(disabled_setting_actions(
-                        "vector-text",
-                        &[
-                            ("load-glyph-source", "Load Glyph Source"),
-                            ("browse-glyph-source", "Browse…"),
-                        ],
-                    )),
-            ),
-            panel_section(
-                "Architecture - Walls",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text(
-                        "Default construction settings · Walls (0 selected)",
-                    ))
-                    .child(readonly_setting_pair(
-                        "walls/name",
-                        "Wall name",
-                        "",
-                        "walls/thickness",
-                        "Wall thickness",
-                        "0.200",
-                    ))
-                    .child(readonly_setting_pair(
-                        "walls/height",
-                        "Wall height",
-                        "2.700",
-                        "walls/inclination",
-                        "Wall inclination (deg)",
-                        "0.000",
-                    ))
-                    .child(readonly_setting_pair(
-                        "walls/exterior-color",
-                        "Wall exterior color",
-                        "edededff",
-                        "walls/interior-color",
-                        "Wall interior color",
-                        "d6d6d6ff",
-                    )),
-            ),
-            panel_section(
-                "Architecture - Slabs",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Slabs (0 selected)"))
-                    .child(readonly_setting_pair(
-                        "slabs/name",
-                        "Slab name",
-                        "",
-                        "slabs/thickness",
-                        "Slab thickness",
-                        "0.200",
-                    ))
-                    .child(readonly_setting_pair(
-                        "slabs/top-color",
-                        "Slab top color",
-                        "edededff",
-                        "slabs/bottom-color",
-                        "Slab bottom color",
-                        "d6d6d6ff",
-                    ))
-                    .child(readonly_setting(
-                        "slabs/side-color",
-                        "Slab side color",
-                        "e0e0e0ff",
-                    )),
-            ),
-            panel_section(
-                "Architecture - Stairs",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Stairs (0 selected)"))
-                    .child(readonly_setting_pair(
-                        "stairs/name",
-                        "Stair name",
-                        "",
-                        "stairs/height",
-                        "Stair height",
-                        "2.700",
-                    ))
-                    .child(readonly_setting_pair(
-                        "stairs/steps",
-                        "Stair steps",
-                        "14",
-                        "stairs/support-thickness",
-                        "Stair support thickness",
-                        "0.200",
-                    ))
-                    .child(readonly_check(
-                        "stairs/left-rail-grid",
-                        "Stair left rail grid",
-                        true,
-                    ))
-                    .child(readonly_check(
-                        "stairs/right-rail-grid",
-                        "Stair right rail grid",
-                        true,
-                    ))
-                    .child(readonly_setting_pair(
-                        "stairs/tread-color",
-                        "Stair tread color",
-                        "edededff",
-                        "stairs/support-color",
-                        "Stair support color",
-                        "d1d1d1ff",
-                    )),
-            ),
-            panel_section(
-                "Architecture - Frames",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Frames (0 selected)"))
-                    .child(readonly_setting_pair(
-                        "frames/name",
-                        "Frame name",
-                        "",
-                        "frames/depth",
-                        "Frame depth",
-                        "0.120",
-                    ))
-                    .child(readonly_setting_pair(
-                        "frames/width",
-                        "Frame width",
-                        "0.060",
-                        "frames/glazing",
-                        "Frame glazing",
-                        "Enabled",
-                    )),
-            ),
-            panel_section(
-                "HVAC Settings",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting("hvac/plumbing-label", "Plumbing", ""))
-                    .child(readonly_setting_pair(
-                        "hvac/pipe-diameter",
-                        "Pipe diameter",
-                        "0.200",
-                        "hvac/pipe-sides",
-                        "Pipe sides",
-                        "16",
-                    ))
-                    .child(readonly_setting(
-                        "hvac/pipe-color",
-                        "Pipe color",
-                        "b3d1f2ff",
-                    ))
-                    .child(readonly_check(
-                        "hvac/auto-join",
-                        "Ventilation auto join",
-                        false,
-                    ))
-                    .child(readonly_setting_pair(
-                        "hvac/duct-width",
-                        "Duct width",
-                        "0.500",
-                        "hvac/duct-height",
-                        "Duct height",
-                        "0.250",
-                    ))
-                    .child(readonly_setting_pair(
-                        "hvac/hump-span",
-                        "Hump half span",
-                        "0.625",
-                        "hvac/hump-clearance",
-                        "Hump clearance",
-                        "0.050",
-                    ))
-                    .child(readonly_setting(
-                        "hvac/duct-color",
-                        "Duct color",
-                        "d1d1d1ff",
-                    )),
-            ),
-            panel_section(
-                "Hotspot Settings",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Default hotspot settings"))
-                    .child(readonly_setting("hotspot/name", "Name", ""))
-                    .child(readonly_setting_pair(
-                        "hotspot/operation",
-                        "Operation",
-                        "MOVE",
-                        "hotspot/shape",
-                        "Shape",
-                        "CIRCLE",
-                    ))
-                    .child(readonly_setting("hotspot/color", "Color", "338cf2ff"))
-                    .child(stat_text("Attached: edges 0 · faces 0"))
-                    .child(stat_text("Reference: none"))
-                    .child(disabled_setting_actions(
-                        "hotspot",
-                        &[
-                            ("attach-selection", "Attach Selection"),
-                            ("select-attached", "Select Attached"),
-                            ("pick-reference", "Pick Reference"),
-                            ("clear-reference", "Clear Reference"),
-                            ("add-at-cursor", "Add At Cursor"),
-                            ("delete-selected", "Delete Selected"),
-                        ],
-                    )),
-            ),
-            panel_section(
-                "Random Tools",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting(
-                        "random/fuzzy-offset",
-                        "Fuzzy offset strength [0...100]",
-                        "1",
-                    ))
-                    .child(stat_text("Random Surface Array"))
-                    .child(readonly_setting("random/copy-count", "Copy count", "12"))
-                    .child(readonly_setting_pair(
-                        "random/scale-fuzz",
-                        "Scale fuzz [0...100]",
-                        "0",
-                        "random/rotation-fuzz",
-                        "Rotation fuzz [0...100]",
-                        "0",
-                    ))
-                    .child(readonly_check(
-                        "random/align-normal",
-                        "Align to surface normal",
-                        true,
-                    )),
-            ),
-            panel_section(
-                "Planar Regularize / Surface Remesh",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting(
-                        "remesh/subdivisions",
-                        "Subdivisions",
-                        "12",
-                    ))
-                    .child(readonly_setting(
-                        "remesh/tolerance",
-                        "Planar / projection tolerance",
-                        "0.05",
-                    )),
-            ),
-            panel_section(
-                "Tutorials",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Mode: Idle · Step: 0/0"))
-                    .child(readonly_setting(
-                        "tutorials/lesson",
-                        "Tutorial",
-                        "01A. Full House Exterior",
-                    ))
-                    .child(readonly_setting(
-                        "tutorials/step",
-                        "Lesson",
-                        "01. Lines / Extrude-swipe",
-                    ))
-                    .child(disabled_setting_actions(
-                        "tutorials",
-                        &[
-                            ("record", "Record"),
-                            ("stop-recording", "Stop Rec"),
-                            ("play", "Play"),
-                            ("pause", "Pause"),
-                            ("stop", "Stop"),
-                        ],
-                    )),
-            ),
-            panel_section(
-                "Shader Settings",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(readonly_setting_pair(
-                        "shader/shadow-value",
-                        "Shadow value",
-                        "0.59",
-                        "shader/shadow-alpha",
-                        "Shadow alpha",
-                        "0.50",
-                    ))
-                    .child(readonly_setting_pair(
-                        "shader/directional-value",
-                        "Directional value",
-                        "0.73",
-                        "shader/directional-alpha",
-                        "Directional alpha",
-                        "1.00",
-                    ))
-                    .child(readonly_setting_pair(
-                        "shader/ambient-value",
-                        "Ambient value",
-                        "0.59",
-                        "shader/ambient-alpha",
-                        "Ambient alpha",
-                        "1.00",
-                    ))
-                    .child(readonly_setting_pair(
-                        "shader/specular-value",
-                        "Specular value",
-                        "0.20",
-                        "shader/specular-alpha",
-                        "Specular alpha",
-                        "0.95",
-                    ))
-                    .child(readonly_setting_pair(
-                        "shader/shadow-bias",
-                        "Shadow bias",
-                        "2500.00",
-                        "shader/normal-bias",
-                        "Normal bias",
-                        "5620.00",
-                    ))
-                    .child(readonly_check("shader/use-csm", "Use CSM", true))
-                    .child(readonly_check("shader/dither", "Dither Shadows", false)),
-            ),
-            panel_section(
-                "Help / About",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(5.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .text_sm()
-                    .text_color(rgb(0xc1cad4))
-                    .child("Meshcraft · GPUI shell with offscreen raylib viewport")
-                    .child("Desktop · Commands remain UI-independent"),
-            ),
-        ];
-        let right_panel = div()
-            .id("settings-inspector")
-            .w(px(330.))
-            .h_full()
-            .flex()
-            .flex_col()
-            .gap(px(7.))
-            .p(px(7.))
-            .bg(rgb(0x202730))
-            .overflow_y_scroll()
-            .child(selection_panel)
-            .child(panel_section(
-                "Object",
-                div()
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .text_sm()
-                    .child(if selection.objects == 0 {
-                        "No object selected".to_owned()
-                    } else {
-                        format!("{} object(s) selected", selection.objects)
-                    }),
-            ))
-            .child(object_panel)
-            .child(model_panel)
-            .child(ui_settings_panel)
-            .children(legacy_settings_panels)
-            .child(panel_section(
-                "Viewport & Guides",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .px(px(8.))
-                    .pb(px(7.))
-                    .child(stat_text("Snapping: geometry first, then workplane grid"))
-                    .child(stat_text(format!(
-                        "Permanent grid: {}",
-                        ui_preferences.show_permanent_grid
-                    )))
-                    .child(stat_text(format!(
-                        "Construction guides: {}",
-                        ui_preferences.show_construction_guides
-                    )))
-                    .child(stat_text("Right drag: orbit · Shift+right drag: pan"))
-                    .child(stat_text("Escape: cancel tool and clear selection/guides")),
-            ));
-
         let body = div()
             .flex()
             .flex_1()
@@ -3357,7 +2080,7 @@ impl Render for MeshcraftShell {
             .child(viewport)
             .child(right_panel);
         let status = div()
-            .h(px(26.))
+            .h(px(layout::STATUS_HEIGHT))
             .flex()
             .items_center()
             .gap(px(8.))
@@ -3372,66 +2095,87 @@ impl Render for MeshcraftShell {
                 |frame| format!("raylib frame {} · {:.1} ms", frame.sequence, frame.frame_ms),
             ));
 
-        let popup = self.open_menu.map(|menu| {
-            let commands = MeshcraftApp::command_catalog()
-                .into_iter()
-                .filter(|command| {
-                    command
-                        .presentation
-                        .menu_path
-                        .first()
-                        .is_some_and(|root| root == menu)
+        let popup = self.open_menu.and_then(|menu| {
+            let bounds = self.menu_bounds.lock().ok()?.get(menu).copied()?;
+            let catalog = MeshcraftApp::command_catalog();
+            let mut entries = layout::menu_items(menu)
+                .iter()
+                .map(|label| {
+                    let key = layout::menu_command_key(label);
+                    let command = ribbon_command_for_key(&key, &catalog).cloned();
+                    ((*label).to_owned(), command)
                 })
                 .collect::<Vec<_>>();
-            div()
-                .absolute()
-                .top(px(34.))
-                .left(px(menu_x(menu)))
-                .w(px(235.))
-                .max_h(px(640.))
-                .p(px(5.))
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .border_1()
-                .border_color(rgb(0x536477))
-                .bg(rgb(0x202832))
-                .shadow_lg()
-                .child(
-                    div()
-                        .px(px(7.))
-                        .py(px(4.))
-                        .text_xs()
-                        .text_color(rgb(0x95b9da))
-                        .child(menu),
-                )
-                .children(commands.into_iter().map(|command| {
-                    let id = command.id.as_str().to_owned();
-                    let title = command.presentation.menu_path.get(1).map_or_else(
-                        || command_label(&command).to_owned(),
-                        |group| format!("{group}  ›  {}", command_label(&command)),
-                    );
-                    let enabled = command_enabled(&self.session, &command);
-                    Button::new(command_button_id("menu-command", &command))
-                        .label(title)
-                        .small()
-                        .text()
-                        .disabled(!enabled)
-                        .on_mouse_down(
-                            gpui::MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                this.open_menu = None;
-                                this.dispatch(&id);
-                                cx.notify();
-                            }),
-                        )
-                }))
-                .into_any_element()
+            let bound_ids = entries
+                .iter()
+                .filter_map(|(_, command)| command.as_ref())
+                .map(|command| command.id.clone())
+                .collect::<Vec<_>>();
+            entries.extend(
+                catalog
+                    .into_iter()
+                    .filter(|command| {
+                        command
+                            .presentation
+                            .menu_path
+                            .first()
+                            .is_some_and(|root| root == menu)
+                            && !bound_ids.contains(&command.id)
+                    })
+                    .map(|command| (command_label(&command).to_owned(), Some(command))),
+            );
+            Some(
+                div()
+                    .id("menu-popup")
+                    .absolute()
+                    .top(bounds.origin.y + bounds.size.height + px(3.))
+                    .left(bounds.origin.x)
+                    .w(px(235.))
+                    .max_h(px(640.))
+                    .p(px(5.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .border_1()
+                    .border_color(rgb(0x536477))
+                    .bg(rgb(0x202832))
+                    .shadow_lg()
+                    .occlude()
+                    .overflow_y_scroll()
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.open_menu = None;
+                        cx.notify();
+                    }))
+                    .children(entries.into_iter().map(|(label, command)| {
+                        let button =
+                            Button::new(SharedString::from(format!("menu/{menu}/{label}")))
+                                .label(label)
+                                .small()
+                                .text();
+                        if let Some(command) = command {
+                            let id = command.id.as_str().to_owned();
+                            button
+                                .disabled(!command_enabled(&self.session, &command))
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.open_menu = None;
+                                        this.dispatch(&id);
+                                        cx.notify();
+                                    }),
+                                )
+                        } else {
+                            button.disabled(true)
+                        }
+                    }))
+                    .into_any_element(),
+            )
         });
 
         let command_palette = self.command_palette_open.then(|| {
             let commands = MeshcraftApp::command_catalog();
             div()
+                .id("command-palette")
                 .absolute()
                 .top(px(92.))
                 .left(px(330.))
@@ -3460,7 +2204,7 @@ impl Render for MeshcraftShell {
                         .text_color(rgb(0xa4b2c1))
                         .child("Choose a command. Ctrl+Shift+P or Escape closes this panel."),
                 )
-                .overflow_y_scrollbar()
+                .overflow_y_scroll()
                 .children(commands.into_iter().map(|command| {
                     let id = command.id.as_str().to_owned();
                     let enabled = command_enabled(&self.session, &command);
@@ -3505,24 +2249,6 @@ impl Render for MeshcraftShell {
     }
 }
 
-fn stat_text(text: impl Into<SharedString>) -> impl IntoElement {
-    div().text_sm().text_color(rgb(0xc1cad4)).child(text.into())
-}
-
-fn setting_value(label: &str, value: String) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgb(0x9faebb))
-                .child(label.to_owned()),
-        )
-        .child(div().px(px(6.)).py(px(4.)).bg(rgb(0x1c2229)).child(value))
-}
-
 pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp) {
     let mut renderer = RaylibWorker::start();
     let bridge = renderer.bridge.clone();
@@ -3561,10 +2287,11 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                     view_cx
                         .observe_window_bounds(
                             window,
-                            move |_view: &mut MeshcraftShell,
+                            move |view: &mut MeshcraftShell,
                                   window: &mut Window,
-                                  _cx: &mut Context<MeshcraftShell>| {
-                                publish_layout(&bridge_for_observer, window);
+                                  cx: &mut Context<MeshcraftShell>| {
+                                view.layout = publish_layout(&bridge_for_observer, window);
+                                cx.notify();
                             },
                         )
                         .detach();
@@ -3580,12 +2307,24 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
 
 #[cfg(test)]
 mod tests {
+    use super::layout::ribbon_groups;
     use super::{
         GridNormalAxis, OrbitCamera, SnapKind, ViewportBridge, ViewportLayout, grid_point_on_ray,
-        ribbon_command_for_key, ribbon_groups,
+        ribbon_command_for_key, viewport_physical_rect,
     };
     use crate::MeshcraftApp;
     use meshcraft_core::geometry::Vec3;
+
+    #[test]
+    fn viewport_bounds_match_the_tagged_shell_at_each_dpi() {
+        for scale in [1.0, 1.5, 2.0] {
+            let bounds = viewport_physical_rect(1882.0, 1043.0, scale);
+            assert_eq!(bounds.x, (230.0 * scale) as i32);
+            assert_eq!(bounds.y, (140.0 * scale) as i32);
+            assert_eq!(bounds.width, (1322.0 * scale) as u32);
+            assert_eq!(bounds.height, (877.0 * scale).round() as u32);
+        }
+    }
 
     #[test]
     fn experiment_ribbon_structure_and_command_bindings_are_preserved() {
