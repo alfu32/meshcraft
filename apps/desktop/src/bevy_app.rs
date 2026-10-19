@@ -20,7 +20,7 @@ use bevy::{
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
 };
 use eframe::egui;
-use meshcraft_core::commands::{CommandDescriptor, CommandPayload};
+use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
 use meshcraft_core::{
     document::{Document, GeometryBundle, Rgba8},
     geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
@@ -82,6 +82,9 @@ struct CommandPaletteQuery;
 struct CommandPaletteResult {
     slot: usize,
     command_id: Option<String>,
+    enabled: bool,
+    checked: Option<bool>,
+    disabled_reason: Option<String>,
 }
 
 #[derive(Component)]
@@ -343,6 +346,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             toggle_command_palette,
             handle_command_palette_keyboard,
             refresh_command_palette,
+            sync_command_palette_states,
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
@@ -1084,6 +1088,9 @@ fn setup_ui(
                                 CommandPaletteResult {
                                     slot,
                                     command_id: None,
+                                    enabled: false,
+                                    checked: None,
+                                    disabled_reason: None,
                                 },
                                 Node {
                                     width: Val::Percent(100.0),
@@ -1451,8 +1458,11 @@ fn handle_command_palette_keyboard(
             }
             KeyCode::Enter => {
                 if let Some(command_id) = palette.results.get(palette.selected_index).cloned() {
-                    session.dispatch_command(&command_id, &CommandPayload::default());
-                    palette.open = false;
+                    let dispatch =
+                        session.dispatch_command(&command_id, &CommandPayload::default());
+                    if dispatch.accepted {
+                        palette.open = false;
+                    }
                 }
             }
             _ => {
@@ -1548,6 +1558,124 @@ fn refresh_command_palette(
             label.0.clear();
         }
     }
+}
+
+fn sync_command_palette_states(
+    palette: Res<CommandPaletteState>,
+    catalog: Res<CommandCatalog>,
+    session: NonSend<MeshcraftApp>,
+    mut commands: Commands,
+    mut results: Query<(
+        Entity,
+        &mut CommandPaletteResult,
+        &mut Node,
+        &mut BackgroundColor,
+        Option<&Button>,
+    )>,
+    mut labels: Query<(&CommandPaletteResultLabel, &mut Text, &mut TextColor)>,
+) {
+    if !palette.open {
+        return;
+    }
+    let mut states_by_slot = std::collections::BTreeMap::new();
+    for (entity, mut result, mut node, mut background, button) in &mut results {
+        let Some(command_id) = result.command_id.clone() else {
+            continue;
+        };
+        let state = session.native_command_state(&command_id);
+        let entry_state = PaletteEntryState {
+            command_id: command_id.clone(),
+            state: state.clone(),
+        };
+        states_by_slot.insert(result.slot, entry_state);
+        if result.enabled != state.enabled
+            || result.checked != state.checked
+            || result.disabled_reason != state.disabled_reason
+        {
+            result.enabled = state.enabled;
+            result.checked = state.checked;
+            result.disabled_reason = state.disabled_reason;
+        }
+        if state.enabled {
+            if button.is_none() {
+                commands.entity(entity).insert(Button);
+            }
+            if node.display != Display::Flex {
+                node.display = Display::Flex;
+            }
+            let color = if result.slot == palette.selected_index || state.checked == Some(true) {
+                Color::srgb(0.12, 0.38, 0.62)
+            } else {
+                Color::srgb(0.22, 0.24, 0.28)
+            };
+            if background.0 != color {
+                background.0 = color;
+            }
+        } else {
+            if button.is_some() {
+                commands.entity(entity).remove::<Button>();
+            }
+            if node.display != Display::Flex {
+                node.display = Display::Flex;
+            }
+            let color = if result.slot == palette.selected_index {
+                Color::srgb(0.22, 0.23, 0.25)
+            } else {
+                Color::srgb(0.14, 0.15, 0.16)
+            };
+            if background.0 != color {
+                background.0 = color;
+            }
+        }
+    }
+    for (label_slot, mut label, mut color) in &mut labels {
+        let Some(entry) = states_by_slot.get(&label_slot.0) else {
+            continue;
+        };
+        let Some(command) = catalog
+            .0
+            .iter()
+            .find(|command| command.id.as_str() == entry.command_id)
+        else {
+            continue;
+        };
+        let shortcut = command
+            .shortcut
+            .as_ref()
+            .map(|shortcut| format!("  [{shortcut}]"))
+            .unwrap_or_default();
+        let active = if entry.state.checked == Some(true) {
+            "✓ "
+        } else {
+            ""
+        };
+        let disabled = entry
+            .state
+            .disabled_reason
+            .as_ref()
+            .map(|reason| format!("  — {reason}"))
+            .unwrap_or_default();
+        let text = format!(
+            "{active}{}{shortcut}{disabled}",
+            command.presentation.palette_path
+        );
+        if label.0 != text {
+            label.0 = text;
+        }
+        let text_color = if entry.state.enabled {
+            Color::WHITE
+        } else {
+            Color::srgb(0.58, 0.59, 0.61)
+        };
+        if color.0 != text_color {
+            color.0 = text_color;
+        }
+    }
+}
+
+struct PaletteEntryState {
+    command_id: String,
+    state: CommandState,
 }
 
 fn search_command_ids(
@@ -2558,18 +2686,22 @@ fn orbit_camera(
 #[cfg(test)]
 mod tests {
     use super::{
-        BevyImage, Button, DispatchCommand, LightingChannel, LightingSettings, NativeIconAtlas,
+        BevyImage, Button, CommandCatalog, CommandPaletteResult, CommandPaletteResultLabel,
+        CommandPaletteState, DispatchCommand, LightingChannel, LightingSettings, NativeIconAtlas,
         SceneDocument, ShadowFilter, TextureAtlasLayout, ToolbarCommandLabel, back_face_color,
         build_scene_meshes, create_native_icon_atlas, dispatch_palette_command,
         dispatch_toolbar_command, line_mesh, native_segment_intersects_rect,
         native_triangle_intersects_rect, scene_counts, search_command_ids,
-        sync_toolbar_button_states, triangle_mesh,
+        sync_command_palette_states, sync_toolbar_button_states, triangle_mesh,
     };
     use crate::MeshcraftApp;
     use bevy::{
         asset::Assets,
         mesh::{Mesh, VertexAttributeValues},
-        prelude::{App, BackgroundColor, Color, TextColor, Update, Vec2, Vec3},
+        prelude::{
+            App, BackgroundColor, Color, Display, Node, Text, TextColor, Update, Vec2, Vec3,
+            default,
+        },
         ui_widgets::Activate,
     };
     use meshcraft_core::commands::CommandPayload;
@@ -2816,6 +2948,91 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_marks_disabled_commands_and_shows_the_reason() {
+        let mut app = App::new();
+        app.insert_resource(CommandPaletteState {
+            open: true,
+            query: "push".to_owned(),
+            results: vec![
+                "tool.select".to_owned(),
+                "tool.builtin.push_pull".to_owned(),
+            ],
+            selected_index: 1,
+        })
+        .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
+        .insert_non_send(MeshcraftApp::new_native_session(
+            Document::new(),
+            "Ready".to_owned(),
+            None,
+        ))
+        .add_systems(Update, sync_command_palette_states);
+        let select = app
+            .world_mut()
+            .spawn((
+                Button,
+                CommandPaletteResult {
+                    slot: 0,
+                    command_id: Some("tool.select".to_owned()),
+                    enabled: false,
+                    checked: None,
+                    disabled_reason: None,
+                },
+                Node {
+                    display: Display::Flex,
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+        let push_pull = app
+            .world_mut()
+            .spawn((
+                Button,
+                CommandPaletteResult {
+                    slot: 1,
+                    command_id: Some("tool.builtin.push_pull".to_owned()),
+                    enabled: true,
+                    checked: None,
+                    disabled_reason: None,
+                },
+                Node {
+                    display: Display::Flex,
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+        let push_pull_label = app
+            .world_mut()
+            .spawn((
+                CommandPaletteResultLabel(1),
+                Text::new("Push/Pull"),
+                TextColor(Color::WHITE),
+            ))
+            .id();
+
+        app.update();
+
+        assert!(app.world().get::<Button>(select).is_some());
+        assert!(app.world().get::<Button>(push_pull).is_none());
+        let disabled = app.world().get::<CommandPaletteResult>(push_pull).unwrap();
+        assert!(!disabled.enabled);
+        assert!(
+            disabled
+                .disabled_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("select one or more faces"))
+        );
+        assert!(
+            app.world()
+                .get::<Text>(push_pull_label)
+                .unwrap()
+                .0
+                .contains("select one or more faces")
+        );
+    }
+
+    #[test]
     fn toolbar_and_palette_activation_dispatch_shared_commands() {
         let mut app = App::new();
         app.insert_resource(super::CommandPaletteState::default())
@@ -2835,6 +3052,9 @@ mod tests {
             .spawn(super::CommandPaletteResult {
                 slot: 0,
                 command_id: Some("tool.line".to_owned()),
+                enabled: true,
+                checked: None,
+                disabled_reason: None,
             })
             .id();
 
