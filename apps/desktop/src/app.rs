@@ -1832,6 +1832,8 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         "ui.update_preferences" => &[
             ("ui_text_scale", CommandValueType::Number),
             ("auto_collapse_toolbars", CommandValueType::Boolean),
+            ("accordion_settings_panels", CommandValueType::Boolean),
+            ("antialiasing_quality", CommandValueType::Integer),
             ("toolbar_icon_size", CommandValueType::Integer),
             ("show_permanent_grid", CommandValueType::Boolean),
             ("show_construction_guides", CommandValueType::Boolean),
@@ -1952,6 +1954,8 @@ struct Preferences {
     toolbar_visibility: BTreeMap<String, bool>,
     toolbar_positions: BTreeMap<String, [f32; 2]>,
     auto_collapse_toolbars: bool,
+    accordion_settings_panels: bool,
+    antialiasing_quality: u32,
     ui_text_scale: f32,
     toolbar_icon_size: u32,
     show_permanent_grid: bool,
@@ -1976,6 +1980,8 @@ struct Preferences {
 pub(crate) struct NativeUiPreferences {
     pub ui_text_scale: f32,
     pub auto_collapse_toolbars: bool,
+    pub accordion_settings_panels: bool,
+    pub antialiasing_quality: u32,
     pub toolbar_icon_size: u32,
     pub show_permanent_grid: bool,
     pub show_construction_guides: bool,
@@ -2014,6 +2020,8 @@ impl Default for Preferences {
                 .collect(),
             toolbar_positions: BTreeMap::new(),
             auto_collapse_toolbars: false,
+            accordion_settings_panels: false,
+            antialiasing_quality: 2,
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
             show_permanent_grid: true,
@@ -2174,6 +2182,8 @@ impl MeshcraftApp {
         NativeUiPreferences {
             ui_text_scale: self.preferences.ui_text_scale,
             auto_collapse_toolbars: self.preferences.auto_collapse_toolbars,
+            accordion_settings_panels: self.preferences.accordion_settings_panels,
+            antialiasing_quality: self.preferences.antialiasing_quality,
             toolbar_icon_size: self.preferences.toolbar_icon_size,
             show_permanent_grid: self.preferences.show_permanent_grid,
             show_construction_guides: self.preferences.show_construction_guides,
@@ -2200,6 +2210,14 @@ impl MeshcraftApp {
         let mut payload = CommandPayload::default();
         payload.values.extend([
             ("ui_text_scale".to_owned(), json!(preferences.ui_text_scale)),
+            (
+                "accordion_settings_panels".to_owned(),
+                json!(preferences.accordion_settings_panels),
+            ),
+            (
+                "antialiasing_quality".to_owned(),
+                json!(preferences.antialiasing_quality),
+            ),
             (
                 "auto_collapse_toolbars".to_owned(),
                 json!(preferences.auto_collapse_toolbars),
@@ -6337,6 +6355,10 @@ impl MeshcraftApp {
                 "auto_collapse_toolbars",
                 &mut preferences.auto_collapse_toolbars,
             ),
+            (
+                "accordion_settings_panels",
+                &mut preferences.accordion_settings_panels,
+            ),
             ("show_permanent_grid", &mut preferences.show_permanent_grid),
             (
                 "show_construction_guides",
@@ -6354,6 +6376,17 @@ impl MeshcraftApp {
                     Err(error) => return CommandResult::failed(error),
                 }
             }
+        }
+        if payload.values.contains_key("antialiasing_quality") {
+            preferences.antialiasing_quality = match payload_u32(payload, "antialiasing_quality", 2)
+            {
+                Ok(value) if value <= 3 => value,
+                _ => {
+                    return CommandResult::failed(
+                        "antialiasing_quality must be 0 (Off), 1 (Low), 2 (Medium), or 3 (High)",
+                    );
+                }
+            };
         }
         if let Some(value) = payload.values.get("grid_normal_axis") {
             preferences.grid_normal_axis = match value.as_str() {
@@ -8699,6 +8732,20 @@ impl MeshcraftApp {
         } else {
             unit_name
         };
+        let point = snap.map(|snap| snap.point).or_else(|| {
+            self.viewport
+                .screen_to_construction_plane(rect, screen_position)
+        });
+        let measurement = point
+            .map(|point| {
+                self.tool_reference_point().map_or_else(
+                    || point_feedback_text(&self.active_tool, point, unit_name),
+                    |reference| {
+                        vector_feedback_text(&self.active_tool, point - reference, unit_name)
+                    },
+                )
+            })
+            .unwrap_or_default();
         if let Some(ToolPreview::Array {
             copies,
             displacement,
@@ -8720,9 +8767,10 @@ impl MeshcraftApp {
             return Some(ToolFeedback {
                 screen_position,
                 text: format!(
-                    "Array preview: {} copies{}",
+                    "Array preview: {} copies{} | {}",
                     offsets.len(),
-                    if *capped { " (preview capped)" } else { "" }
+                    if *capped { " (preview capped)" } else { "" },
+                    measurement
                 ),
             });
         }
@@ -8733,9 +8781,10 @@ impl MeshcraftApp {
             return Some(ToolFeedback {
                 screen_position,
                 text: format!(
-                    "Rotational array preview: {} copies{}",
+                    "Rotational array preview: {} copies{} | {}",
                     transforms.len(),
-                    if *capped { " (preview capped)" } else { "" }
+                    if *capped { " (preview capped)" } else { "" },
+                    measurement
                 ),
             });
         }
@@ -8747,16 +8796,13 @@ impl MeshcraftApp {
             return Some(ToolFeedback {
                 screen_position,
                 text: format!(
-                    "Paint preview: #{:02x}{:02x}{:02x}{:02x}",
-                    color.red, color.green, color.blue, color.alpha
+                    "Paint preview: #{:02x}{:02x}{:02x}{:02x} | {}",
+                    color.red, color.green, color.blue, color.alpha, measurement
                 ),
             });
         }
 
-        let point = snap.map(|snap| snap.point).or_else(|| {
-            self.viewport
-                .screen_to_construction_plane(rect, screen_position)
-        })?;
+        let point = point?;
 
         if let Some(kind) = self.primitive_tool_state.active()
             && !self.primitive_tool_state.picks().is_empty()
@@ -8772,17 +8818,7 @@ impl MeshcraftApp {
             });
         }
 
-        let label = match self.active_tool.as_str() {
-            "Line" | "Construction Line" | "Rectangle" | "Surface Rect" | "Quad" | "Circle"
-            | "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
-            | "Line Offset" | "Push/Pull" | "Move" | "Rotate" | "Scale" | "Stretch"
-            | "Rotate 2" | "Stretch Scale" | "Rotate Stretch" | "Cuboid" | "Object Place"
-            | "Axis Guide" | "Grid Guide" | "Sphere" | "Cylinder" | "Cone" | "Pill" => {
-                self.active_tool.as_str()
-            }
-            "Mesh" => "Mesh",
-            _ => return None,
-        };
+        let label = self.active_tool.as_str();
         let reference = self.tool_reference_point();
 
         let displacement = match self.active_tool.as_str() {
@@ -8814,6 +8850,15 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if self.array_tool_state.active() {
+            return self.array_tool_state.points().last().copied();
+        }
+        if self.rotational_array_tool_state.active() {
+            return self.rotational_array_tool_state.points().last().copied();
+        }
+        if self.revolve_tool_state.active() {
+            return self.revolve_tool_state.axis_points().last().copied();
+        }
         match self.active_tool.as_str() {
             "Line" | "Construction Line" => self.drawing_tool.anchor(),
             "Rectangle" | "Surface Rect" | "Quad" | "Circle" => {
@@ -8847,12 +8892,16 @@ impl MeshcraftApp {
     fn icon_image(&self, name: Option<&str>, size: Vec2) -> Option<egui::Image<'static>> {
         let region = self.icon_regions.get(name?)?;
         let texture = self.icon_atlas.as_ref()?;
-        let atlas_size = 320.0;
+        let atlas_width = assets::ICON_ATLAS_WIDTH as f32;
+        let atlas_height = assets::ICON_ATLAS_HEIGHT as f32;
         let uv = egui::Rect::from_min_max(
-            egui::pos2(region.x as f32 / atlas_size, region.y as f32 / atlas_size),
             egui::pos2(
-                (region.x + region.width) as f32 / atlas_size,
-                (region.y + region.height) as f32 / atlas_size,
+                region.x as f32 / atlas_width,
+                region.y as f32 / atlas_height,
+            ),
+            egui::pos2(
+                (region.x + region.width) as f32 / atlas_width,
+                (region.y + region.height) as f32 / atlas_height,
             ),
         );
         Some(egui::Image::new((texture.id(), size)).uv(uv))
@@ -12143,6 +12192,53 @@ mod tests {
         let serialized = serde_json::to_string(&app.preferences).unwrap();
         let restored: Preferences = serde_json::from_str(&serialized).unwrap();
         assert_eq!(app.preferences, restored);
+    }
+
+    #[test]
+    fn settings_accordion_and_shader_quality_persist_without_changing_toolbars() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        let old_toolbar_behavior = app.preferences.auto_collapse_toolbars;
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("accordion_settings_panels".into(), json!(true));
+        payload
+            .values
+            .insert("antialiasing_quality".into(), json!(3));
+        assert!(
+            app.dispatch_command("ui.update_preferences", &payload)
+                .accepted
+        );
+        assert!(app.native_ui_preferences().accordion_settings_panels);
+        assert_eq!(app.native_ui_preferences().antialiasing_quality, 3);
+        assert_eq!(app.preferences.auto_collapse_toolbars, old_toolbar_behavior);
+        assert_eq!(app.document.revision(), revision);
+        let encoded = serde_json::to_string(&app.preferences).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Preferences>(&encoded).unwrap(),
+            app.preferences
+        );
+        let previous = app.preferences.clone();
+        payload
+            .values
+            .insert("antialiasing_quality".into(), json!(4));
+        payload
+            .values
+            .insert("accordion_settings_panels".into(), json!(false));
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.dispatch_command("ui.update_preferences", &payload)
+                .result
+                .completion
+        );
+        assert_eq!(
+            app.preferences, previous,
+            "invalid settings update must be atomic"
+        );
+        let legacy: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.accordion_settings_panels);
+        assert_eq!(legacy.antialiasing_quality, 2);
     }
 
     #[test]

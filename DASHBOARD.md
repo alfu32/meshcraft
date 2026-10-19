@@ -1,21 +1,22 @@
 # Dashboard
 
-Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
+Updated 2026-10-20. `docs/rewrite/tasks.json` is authoritative.
 
-**Counts:** Todo 28 · In progress 10 · Done 22 · Superseded 1 · Total 61
+**Counts:** Todo 27 · In progress 11 · Done 22 · Superseded 1 · Total 61
 
 ## Current in-progress tasks
 
 - **T05 — Implement sparse legacy DTO reading and model/history containers**: Finish sparse legacy DTO/model-history compatibility.
 - **T09 — Implement desktop document service and safe storage**: Complete safe desktop project storage/recovery.
 - **T16 — Implement reusable objects, placement and explode**: Finish reusable object editing and explode behavior.
+- **T17 — Complete GPUI inspectors, settings and preferences**: Editable model/UI controls, grid normal, normal/thick model line widths, persisted settings accordion and shader AA are wired. Toolbars remain expanded. Buttons keep text beside 419 transparent SVG icons. Broader inspector/domain acceptance remains open; see [T17](docs/rewrite/handoffs/T17.md).
 - **T21 — Port every copy and array state machine**: Complete the remaining array state machines and adapters.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
-- **T39 — Complete real-time lighting, shadows and view capture (#13)**: Implemented the raylib light-camera shadow pass, directional/ambient face shading, black authored lines, three-plane guides/local point field, grid-line snapping, reversed orbit and staged Escape. Original k3d SVG atlases now generate at build time and populate buttons. Validated with 231 desktop checks including the live GPU regression: separate ground/entity shadow receivers, shader compilation and black-line composition pass. The full GPUI shell builds/runs with generated icons. Lighting controls are session-local; capture, legacy lighting persistence and broader T39 quality acceptance remain open. See [T39](docs/rewrite/handoffs/T39.md).
-- **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Revalidate geometric preview/text feedback for the raylib viewport.
+- **T39 — Complete real-time lighting, shadows and view capture (#13)**: Implemented the raylib light-camera shadow pass, directional/ambient face shading, black authored lines, three-plane guides/local point field, grid-line snapping, reversed orbit and staged Escape. The extended transparent SVG atlas generates at build time. Tight light-camera clip bounds fix detached shadows (analytic ground projection IoU 0.937). GPU checks pass for ground/entity receivers, black model line widths and all three shader AA qualities; 233 regular desktop tests pass. The full GPUI shell builds/runs with generated icons. Lighting controls are session-local; capture, legacy lighting persistence and broader T39 quality acceptance remain open. See [T39](docs/rewrite/handoffs/T39.md).
+- **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Relative point/vector feedback now includes array stages, revolve and Paint; full interactive tool coverage remains open.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
 - **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: The raylib 6 offscreen proof renders at 1280×800 and presents frames through a regular GPUI image component, so GPUI overlays remain above the canvas. Release runs sustain 59–60 new images/sec; worker frame work is typically 4–12 ms, with occasional 18 ms samples. This meets the requested 25 FPS floor and 30–60 FPS target for the simple proof scene. The production gate remains open for live viewport input, resize/DPI behavior, and the dense-array workflow.
-- **T60 — Integrate GPUI and raylib desktop while preserving headless commands (#21, #25, high priority)**: Main now calls the actual `0.2.0` shell layout functions in `gpui_layout.rs`: original palette grouping/button sizes, 78-pixel ribbon, selection/object tables, paired model fields and all domain settings panels, matched against `docs/full_ui.png`. Supported controls bind to existing commands; unfinished controls remain disabled. The event-driven offscreen raylib image and model/session helpers are retained. Fixed zero session viewport bounds that ignored construction clicks, unified pointer/render layout dimensions, and kept menu/palette overlays out of normal layout with measured dropdown anchors. Live X11 checks confirm ribbon switching, settings scrolling, menu layering, two-point Line creation with feedback/count updates, and Undo outside the viewport. The latest run passes all 231 desktop checks (including the explicit GPU regression), the application build, formatting and the plan verifier. Screenshots and exact commands are in [the T60 handoff](docs/rewrite/handoffs/T60.md). Physical high-DPI, dense-array acceptance and remaining egui/eframe extraction stay open.
+- **T60 — Integrate GPUI and raylib desktop while preserving headless commands (#21, #25, high priority)**: Main now calls the actual `0.2.0` shell layout functions in `gpui_layout.rs`: original palette grouping/button sizes, labeled two-row ribbon, selection/object tables, paired model fields and all domain settings panels, matched against `docs/full_ui.png`. Supported controls bind to existing commands; unfinished controls remain disabled. The event-driven offscreen raylib image and model/session helpers are retained. Fixed zero session viewport bounds that ignored construction clicks, unified pointer/render layout dimensions, and kept menu/palette overlays out of normal layout with measured dropdown anchors. Live X11 checks confirm ribbon switching, settings scrolling, menu layering, two-point Line creation with feedback/count updates, and Undo outside the viewport. Palette scrolling now consumes input without zooming the canvas, and Delete routes to selection deletion outside text editors. The latest run passes 233 regular desktop tests plus the explicit GPU regression, the application build, formatting and the plan verifier. Screenshots and exact commands are in [the T60 handoff](docs/rewrite/handoffs/T60.md). Physical high-DPI, dense-array acceptance and remaining egui/eframe extraction stay open.
 
 ## Architecture change
 
@@ -44,7 +45,7 @@ The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Sc
 | T14 | Implement basic planar shape tools | Done |
 | T15 | Port transforms, stretch variants and painting | Done |
 | T16 | Implement reusable objects, placement and explode | In progress |
-| T17 | Complete GPUI inspectors, JSON-driven settings, preferences and command coverage | Todo |
+| T17 | Complete GPUI inspectors, JSON-driven settings, preferences and command coverage | In progress |
 | T18 | Implement dimensions, bitmap text and vector glyph text | Todo |
 | T19 | Implement paths, offsets, outlines and mesh creation | Done |
 | T20 | Implement region push/pull | Done |

@@ -7,7 +7,7 @@ pub(super) const LEFT_PANEL_WIDTH: f32 = 230.0;
 pub(super) const RIGHT_PANEL_WIDTH: f32 = 330.0;
 pub(super) const MENU_HEIGHT: f32 = 34.0;
 pub(super) const TAB_HEIGHT: f32 = 28.0;
-pub(super) const RIBBON_HEIGHT: f32 = 78.0;
+pub(super) const RIBBON_HEIGHT: f32 = 138.0;
 pub(super) const HEADER_HEIGHT: f32 = MENU_HEIGHT + TAB_HEIGHT + RIBBON_HEIGHT;
 pub(super) const STATUS_HEIGHT: f32 = 26.0;
 use gpui::{
@@ -67,57 +67,55 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         label: &'static str,
     ) -> Button {
         let command = ribbon_command_for_key(key, &self.catalog);
-        let icon = command
-            .and_then(|c| c.presentation.icon_key.as_deref())
-            .or_else(|| match key {
-                "open" => Some("file_open"),
-                "save" => Some("file_save"),
-                "undo" => Some("undo"),
-                "redo" => Some("redo"),
-                "delete" => Some("delete"),
-                "make-object" | "create-object" => Some("object_create"),
-                "explode" => Some("object_explode"),
-                "hotspot" => Some("hotspot"),
-                "axis-guide" => Some("grid_helper_axial"),
-                "grid-guide" => Some("grid_helper_planar"),
-                _ => None,
-            })
-            .and_then(crate::assets::gpui_icon);
-        let has_icon = icon.is_some();
+        let icon = crate::assets::gpui_icon(key).or_else(|| {
+            command
+                .and_then(|command| command.presentation.icon_key.as_deref())
+                .and_then(crate::assets::gpui_icon)
+        });
+        let icon_size = (self.shell.session.native_ui_preferences().toolbar_icon_size as f32
+            * 0.75)
+            .clamp(18., 32.);
         let button = Button::new(SharedString::from(format!("{namespace}/{key}")))
-            .when_some(icon, |button, icon| {
-                button.child(
-                    img(ImageSource::Render(icon))
-                        .size(px(22.))
-                        .bg(rgb(0xf4f5f6))
-                        .flex_none()
-                        .opacity(
-                            if command.is_some_and(|command| {
-                                command_enabled(&self.shell.session, command)
-                            }) {
-                                1.0
-                            } else {
-                                0.4
-                            },
-                        ),
-                )
-            })
-            .when(!has_icon, |button| button.label(label))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .w(px(80.))
+                    .min_w(px(0.))
+                    .when_some(icon, |row, icon| {
+                        row.child(
+                            img(ImageSource::Render(icon))
+                                .size(px(icon_size))
+                                .flex_none(),
+                        )
+                    })
+                    .child(
+                        div()
+                            .min_w(px(0.))
+                            .flex_1()
+                            .text_size(px(11.))
+                            .truncate()
+                            .child(label),
+                    ),
+            )
             .small()
+            .px(px(2.))
+            .h(px(
+                self.shell.session.native_ui_preferences().toolbar_icon_size as f32,
+            ))
             .ghost()
             .compact()
             .tooltip(format!("{label} · {key}"));
-        match key {
-            "flow-left-to-right" | "flow-top-to-down" => {
-                return button.on_click(self.cx.listener(move |this, _, _, cx| {
-                    this.update_ui_preference(
-                        "toolbar_flow_top_down",
-                        serde_json::json!(key == "flow-top-to-down"),
-                    );
-                    cx.notify();
-                }));
-            }
-            _ => {}
+        if key == "apply-model-settings" || key == "reset-model-settings" {
+            return button.on_click(self.cx.listener(move |this, _, window, cx| {
+                if key == "reset-model-settings" {
+                    super::settings::reset_model(this, window, cx);
+                } else {
+                    super::settings::apply_all(this, window, cx);
+                }
+                cx.notify();
+            }));
         }
         if let Some(command) = ribbon_command_for_key(key, &self.catalog) {
             let id = command.id.as_str().to_owned();
@@ -133,6 +131,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     }
 
     fn field(&mut self, label: &'static str, fallback: &'static str) -> gpui::AnyElement {
+        if let Some(editor) = super::settings::render_field(self.shell, label) {
+            return editor;
+        }
         let settings = self.shell.cached_document.model_settings();
         let preferences = self.shell.session.native_ui_preferences();
         let model_number = match label {
@@ -300,10 +301,15 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     fn check(&mut self, label: &'static str, fallback: bool) -> gpui::AnyElement {
         let preferences = self.shell.session.native_ui_preferences();
         let binding = match label {
-            "Auto-collapse toolbars" => {
-                Some(("auto_collapse_toolbars", preferences.auto_collapse_toolbars))
-            }
+            "Accordion settings panels" => Some((
+                "accordion_settings_panels",
+                preferences.accordion_settings_panels,
+            )),
             "Show permanent grid" => Some(("show_permanent_grid", preferences.show_permanent_grid)),
+            "Show construction guides" => Some((
+                "show_construction_guides",
+                preferences.show_construction_guides,
+            )),
             _ => None,
         };
         let checked = if label == "Shadows" {
@@ -859,7 +865,7 @@ fn palette(
     commands: &'static [(&'static str, &'static str)],
     bindings: &mut LayoutBindings<'_, '_, '_>,
 ) -> gpui::AnyElement {
-    (div()
+    div()
         .flex()
         .flex_col()
         .gap(px(5.))
@@ -878,10 +884,10 @@ fn palette(
             div().flex().flex_wrap().gap(px(3.)).children(
                 commands
                     .iter()
-                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(66.))),
+                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(96.))),
             ),
-        ))
-    .into_any_element()
+        )
+        .into_any_element()
 }
 
 fn ribbon_group(
@@ -893,8 +899,8 @@ fn ribbon_group(
     (div()
         .flex()
         .flex_col()
-        .flex_1()
-        .min_w(px(0.))
+        .flex_none()
+        .w(px((commands.len().div_ceil(2) as f32 * 99.) + 14.))
         .gap(px(4.))
         .px(px(7.))
         .py(px(4.))
@@ -911,7 +917,7 @@ fn ribbon_group(
             div().flex().flex_wrap().gap(px(3.)).children(
                 commands
                     .iter()
-                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(76.))),
+                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(96.))),
             ),
         ))
     .into_any_element()
@@ -922,6 +928,8 @@ pub(super) fn ribbon_content(
     bindings: &mut LayoutBindings<'_, '_, '_>,
 ) -> gpui::AnyElement {
     (div()
+        .id("ribbon-strip")
+        .overflow_x_scroll()
         .h(px(RIBBON_HEIGHT))
         .flex()
         .gap(px(3.))
@@ -966,7 +974,21 @@ fn setting_check(
     (bindings.check(label, checked)).into_any_element()
 }
 
-fn setting_section(title: &'static str, controls: impl IntoElement) -> impl IntoElement {
+fn setting_section(
+    title: &'static str,
+    controls: impl IntoElement,
+    bindings: &mut LayoutBindings<'_, '_, '_>,
+) -> gpui::AnyElement {
+    let accordion = bindings
+        .shell
+        .session
+        .native_ui_preferences()
+        .accordion_settings_panels;
+    let expanded = if accordion {
+        bindings.shell.open_settings_panel == Some(title)
+    } else {
+        !bindings.shell.collapsed_settings_panels.contains(title)
+    };
     div()
         .flex()
         .flex_col()
@@ -976,23 +998,47 @@ fn setting_section(title: &'static str, controls: impl IntoElement) -> impl Into
         .bg(rgb(0x343a42))
         .child(
             div()
+                .id(SharedString::from(format!("settings/section/{title}")))
                 .px(px(8.))
                 .py(px(5.))
                 .bg(rgb(0x24537a))
                 .text_sm()
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(rgb(0xe0ebf7))
-                .child(title),
+                .cursor_pointer()
+                .child(format!("{} {title}", if expanded { "▾" } else { "▸" }))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    bindings.cx.listener(move |this, _, _, cx| {
+                        if this
+                            .session
+                            .native_ui_preferences()
+                            .accordion_settings_panels
+                        {
+                            this.open_settings_panel = if this.open_settings_panel == Some(title) {
+                                None
+                            } else {
+                                Some(title)
+                            };
+                        } else if !this.collapsed_settings_panels.remove(title) {
+                            this.collapsed_settings_panels.insert(title);
+                        }
+                        cx.notify();
+                    }),
+                ),
         )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(7.))
-                .px(px(8.))
-                .pb(px(8.))
-                .child(controls),
-        )
+        .when(expanded, |section| {
+            section.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(7.))
+                    .px(px(8.))
+                    .pb(px(8.))
+                    .child(controls),
+            )
+        })
+        .into_any_element()
 }
 
 fn stat_row(
@@ -1222,6 +1268,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 stat_row("Dimensions / Texts", "0    0    ✓    ✓    □", bindings),
                 stat_row("Walls / Slabs / Stairs", "0    0    ✓    ✓    □", bindings),
             ]),
+            bindings,
         ))
         .child(setting_section(
             "Object",
@@ -1244,6 +1291,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Objects",
@@ -1266,6 +1314,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Model Settings",
@@ -1310,6 +1359,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "UI Settings",
@@ -1324,21 +1374,18 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "32 × 32",
                     bindings,
                 ))
-                .child(setting_check("Auto-collapse toolbars", false, bindings))
+                .child(setting_check("Accordion settings panels", false, bindings))
+                .child(setting_check("Show construction guides", true, bindings))
                 .child(setting_check("Show permanent grid", true, bindings))
                 .child(setting_field(
-                    "Grid normal / extent",
-                    "Y up / 20 steps",
+                    "Permanent grid normal",
+                    "Y (up, default)",
                     bindings,
                 ))
-                .child(command_row(
-                    "panel/ui-settings",
-                    &[
-                        ("flow-left-to-right", "Flow L→R"),
-                        ("flow-top-to-down", "Flow T→D"),
-                    ],
-                    bindings,
-                )),
+                .child(setting_field("Grid extent", "20", bindings))
+                .child(setting_field("Normal line width", "1.0", bindings))
+                .child(setting_field("Thick line width", "3.0", bindings)),
+            bindings,
         ))
         .child(setting_section(
             "Polyline & Vector Text",
@@ -1376,6 +1423,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Architecture — Walls / Slabs / Stairs / Frames",
@@ -1414,6 +1462,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "Exterior / interior / glazing",
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "HVAC Settings",
@@ -1448,6 +1497,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "Default material colors",
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Hotspot Settings",
@@ -1477,6 +1527,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Random Tools & Surface Remesh",
@@ -1505,6 +1556,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 ))
                 .child(setting_check("Align to surface normal", true, bindings))
                 .child(setting_field("Projection tolerance", "0.05", bindings)),
+            bindings,
         ))
         .child(setting_section(
             "Tutorials",
@@ -1534,6 +1586,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     ],
                     bindings,
                 )),
+            bindings,
         ))
         .child(setting_section(
             "Shader Settings",
@@ -1569,8 +1622,10 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "5620",
                     bindings,
                 ))
+                .child(setting_field("Antialiasing", "Medium", bindings))
                 .child(setting_check("Shadows", true, bindings))
                 .child(div().text_xs().child("2048² light-camera map · 3 × 3 PCF")),
+            bindings,
         ))
         .child(setting_section(
             "Help / About",
@@ -1582,6 +1637,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .text_color(rgb(0xa5adb7))
                 .child("Meshcraft")
                 .child("Desktop · Commands are headless and UI-independent"),
+            bindings,
         )))
     .into_any_element()
 }

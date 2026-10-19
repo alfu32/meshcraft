@@ -41,6 +41,8 @@ Acceptance: C17, C18, C23. This requirement is an initial desktop release gate.
 
 Selection exposes counts and appropriate entity controls: show/hide, lock, wireframe, color, text metadata, semantic architecture/HVAC fields. Object info exposes name/glue/edit state; objects expose placement/import/delete/xref management. Model settings include unit size/name, grid spacing, circle segments, snap radius and walkthrough tuning. Preserve defaults and allowed ranges from source; do not infer one shared panel model for all entity kinds. Field edits validate and commit transactions rather than causing a save on every invalid keystroke.
 
+**Current GPUI behavior requested by the user (#21).** Settings section headers collapse/expand their own content. The optional accordion preference keeps only one settings section open; it does not collapse toolbars. Keep toolbar labels alongside transparent, legible icons. Model/UI fields use editable controls with validated command-backed changes. UI Settings includes the permanent grid normal (X/Y/Z), grid extent, normal/thick model-segment pixel widths, text scale and toolbar size. Obsolete Flow L→R/T→D controls are omitted. Shader Settings provides GPU antialiasing at Low/Medium/High quality, plus Off. Command palette pointer/scroll input must not reach the viewport; Delete acts on the current selection outside focused text editors.
+
 Source: `K/ui/SketchUiOverlay.kt`, callback wiring `K/Main.kt:1038`, settings classes. Acceptance: C17, C22, C23.
 
 ### U04 Preferences, status, and feedback

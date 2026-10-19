@@ -20,6 +20,10 @@ mod helpers;
 mod layout;
 #[path = "gpui_lighting.rs"]
 mod lighting;
+#[path = "gpui_postprocess.rs"]
+mod postprocess;
+#[path = "gpui_settings.rs"]
+mod settings;
 
 use crate::MeshcraftApp;
 use crate::viewport::{
@@ -190,6 +194,9 @@ struct RenderScene {
     feedback: Option<ToolFeedback>,
     selection_rect: Option<([f32; 4], bool)>,
     grid_spacing: f64,
+    normal_line_width: f32,
+    thick_line_width: f32,
+    antialiasing: postprocess::Antialiasing,
     lighting: lighting::Lighting,
 }
 
@@ -210,6 +217,9 @@ impl Default for RenderScene {
             feedback: None,
             selection_rect: None,
             grid_spacing: 1.0,
+            normal_line_width: 1.0,
+            thick_line_width: 3.0,
+            antialiasing: postprocess::Antialiasing::default(),
             lighting: lighting::Lighting::default(),
         }
     }
@@ -376,6 +386,14 @@ fn render_loop(
             return;
         }
     };
+    let mut resolved = rl
+        .load_render_texture(&thread, size.0, size.1)
+        .expect("antialias target");
+    let mut resolve = postprocess::Resolve::new(&mut rl, &thread);
+    target.texture_mut().set_texture_filter(
+        &thread,
+        raylib::consts::TextureFilter::TEXTURE_FILTER_BILINEAR,
+    );
     let mut lighting = lighting::Renderer::new(&mut rl, &thread);
     let mut sequence = 0_u64;
     let mut rendered_revision = 0;
@@ -400,6 +418,13 @@ fn render_loop(
             match rl.load_render_texture(&thread, wanted.0, wanted.1) {
                 Ok(new_target) => {
                     target = new_target;
+                    target.texture_mut().set_texture_filter(
+                        &thread,
+                        raylib::consts::TextureFilter::TEXTURE_FILTER_BILINEAR,
+                    );
+                    resolved = rl
+                        .load_render_texture(&thread, wanted.0, wanted.1)
+                        .expect("resize antialias target");
                     size = wanted;
                 }
                 Err(error) => eprintln!("resize raylib viewport render target: {error}"),
@@ -421,7 +446,13 @@ fn render_loop(
             sequence,
             &mut lighting,
         );
-        let Some(image) = copy_target_to_gpui_image(&target) else {
+        let output = if scene.antialiasing == postprocess::Antialiasing::Off {
+            &target
+        } else {
+            resolve.draw(&mut rl, &thread, &target, &mut resolved, scene.antialiasing);
+            &resolved
+        };
+        let Some(image) = copy_target_to_gpui_image(output) else {
             eprintln!("could not copy raylib viewport target into a GPUI image");
             thread::sleep(Duration::from_millis(10));
             continue;
@@ -451,6 +482,7 @@ fn draw_offscreen_scene(
     lighting: &mut lighting::Renderer,
 ) {
     let position = orbit.position();
+    let target_height = target.height() as f32;
     let camera = Camera3D::perspective(
         ray_vec3(position),
         ray_vec3(orbit.target),
@@ -461,7 +493,7 @@ fn draw_offscreen_scene(
     drawing.clear_background(Color::new(224, 236, 247, 255));
     {
         let mut view = drawing.begin_mode3D(camera);
-        lighting.draw(&mut view, scene_data, position);
+        lighting.draw(&mut view, scene_data, orbit, target_height);
         if scene_data.grid_visible {
             draw_grid(
                 &mut view,
@@ -812,6 +844,9 @@ impl Render for RaylibCanvas {
 
 struct MeshcraftShell {
     focus: gpui::FocusHandle,
+    settings: settings::Editors,
+    open_settings_panel: Option<&'static str>,
+    collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
     bridge: ViewportBridge,
     viewport_canvas: Entity<RaylibCanvas>,
     session: MeshcraftApp,
@@ -843,6 +878,9 @@ impl MeshcraftShell {
         });
         let mut this = Self {
             focus: cx.focus_handle(),
+            settings: settings::Editors::default(),
+            open_settings_panel: Some("UI Settings"),
+            collapsed_settings_panels: Default::default(),
             camera: OrbitCamera::default(),
             layout: ViewportLayout::default(),
             active_ribbon_tab: "Home",
@@ -922,7 +960,10 @@ impl MeshcraftShell {
             feedback,
             selection_rect,
             grid_spacing: self.cached_document.model_settings().grid_size,
+            normal_line_width: preferences.normal_grid_width,
+            thick_line_width: preferences.thick_grid_width,
             lighting: self.lighting,
+            antialiasing: postprocess::Antialiasing::from_level(preferences.antialiasing_quality),
         });
     }
 
@@ -1047,6 +1088,7 @@ impl MeshcraftShell {
             "show_permanent_grid" => preferences.show_permanent_grid,
             "show_construction_guides" => preferences.show_construction_guides,
             "auto_collapse_toolbars" => preferences.auto_collapse_toolbars,
+            "accordion_settings_panels" => preferences.accordion_settings_panels,
             "toolbar_flow_top_down" => preferences.toolbar_flow_top_down,
             _ => return,
         };
@@ -1124,6 +1166,10 @@ impl MeshcraftShell {
         };
     }
 
+    pub(super) fn viewport_input_blocked(&self) -> bool {
+        self.command_palette_open || self.open_menu.is_some()
+    }
+
     fn pointer_down(
         &mut self,
         button: gpui::MouseButton,
@@ -1131,6 +1177,9 @@ impl MeshcraftShell {
         y: f32,
         modifiers: gpui::Modifiers,
     ) {
+        if self.viewport_input_blocked() {
+            return;
+        }
         if button == gpui::MouseButton::Right {
             self.camera_drag = Some((x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
@@ -1151,6 +1200,9 @@ impl MeshcraftShell {
     }
 
     fn pointer_move(&mut self, x: f32, y: f32, modifiers: gpui::Modifiers, right_down: bool) {
+        if self.viewport_input_blocked() {
+            return;
+        }
         if let Some((last_x, last_y)) = self.camera_drag {
             if right_down {
                 let dx = x - last_x;
@@ -1179,6 +1231,9 @@ impl MeshcraftShell {
     }
 
     fn pointer_up(&mut self, button: gpui::MouseButton, x: f32, y: f32) {
+        if self.viewport_input_blocked() {
+            return;
+        }
         if button == gpui::MouseButton::Right {
             self.camera_drag = None;
             return;
@@ -1300,12 +1355,41 @@ impl MeshcraftShell {
         } else if modifiers.control && modifiers.shift && key == "p" {
             self.command_palette_open = !self.command_palette_open;
             self.open_menu = None;
+        } else if self.command_palette_open || self.open_menu.is_some() {
+            return;
+        } else if key == "delete" {
+            self.dispatch("edit.delete_selection");
         } else if modifiers.control && key == "z" {
             self.dispatch("edit.undo");
         } else if modifiers.control && key == "y" {
             self.dispatch("edit.redo");
         }
     }
+}
+
+fn command_icon(command: &CommandDescriptor) -> Option<Arc<RenderImage>> {
+    command
+        .presentation
+        .icon_key
+        .as_deref()
+        .and_then(crate::assets::gpui_icon)
+        .or_else(|| crate::assets::gpui_icon(command.id.as_str()))
+}
+fn labeled_command(
+    label: impl Into<SharedString>,
+    icon: Option<Arc<RenderImage>>,
+) -> gpui::AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .w_full()
+        .min_w(px(0.))
+        .when_some(icon, |row, icon| {
+            row.child(img(ImageSource::Render(icon)).size(px(20.)).flex_none())
+        })
+        .child(div().flex_1().min_w(px(0.)).truncate().child(label.into()))
+        .into_any_element()
 }
 
 fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout {
@@ -1741,10 +1825,18 @@ impl Render for MeshcraftShell {
             window.remove_window();
         }
         self.layout = publish_layout(&self.bridge, window);
+        let rem = px(16.0 * self.session.native_ui_preferences().ui_text_scale);
+        if cx.global::<Theme>().font_size != rem {
+            cx.global_mut::<Theme>().font_size = rem;
+        }
+        if window.rem_size() != rem {
+            window.set_rem_size(rem);
+        }
         self.session.poll_native_host_work();
         if self.cached_document_revision != Some(self.session.document_revision()) {
             self.refresh_scene();
         }
+        settings::prepare(self, window, cx);
         let frame = self.bridge.latest_frame();
         if let Some(frame) = frame.as_ref() {
             self.last_sequence = frame.sequence;
@@ -1880,7 +1972,7 @@ impl Render for MeshcraftShell {
         let viewport_bridge_scroll =
             cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
                 let (x, y) = this.viewport_point(event.position, window);
-                if this.cursor_in_viewport(x, y) {
+                if !this.viewport_input_blocked() && this.cursor_in_viewport(x, y) {
                     let steps = match event.delta {
                         gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 80.0,
                         gpui::ScrollDelta::Lines(delta) => delta.y,
@@ -2013,7 +2105,10 @@ impl Render for MeshcraftShell {
                     .children(entries.into_iter().map(|(label, command)| {
                         let button =
                             Button::new(SharedString::from(format!("menu/{menu}/{label}")))
-                                .label(label)
+                                .child(labeled_command(
+                                    label,
+                                    command.as_ref().and_then(command_icon),
+                                ))
                                 .small()
                                 .text();
                         if let Some(command) = command {
@@ -2040,6 +2135,14 @@ impl Render for MeshcraftShell {
             let commands = MeshcraftApp::command_catalog();
             div()
                 .id("command-palette")
+                .occlude()
+                .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_mouse_down(gpui::MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.command_palette_open = false;
+                    cx.notify();
+                }))
                 .absolute()
                 .top(px(92.))
                 .left(px(330.))
@@ -2073,7 +2176,10 @@ impl Render for MeshcraftShell {
                     let id = command.id.as_str().to_owned();
                     let enabled = command_enabled(&self.session, &command);
                     Button::new(command_button_id("palette", &command))
-                        .label(command.presentation.palette_path)
+                        .child(labeled_command(
+                            command.presentation.palette_path.clone(),
+                            command_icon(&command),
+                        ))
                         .small()
                         .text()
                         .disabled(!enabled)
@@ -2095,7 +2201,14 @@ impl Render for MeshcraftShell {
             .flex_col()
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
-            .on_key_down(cx.listener(|this, event, _, cx| {
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.settings.active.is_some() {
+                    if event.keystroke.key == "escape" {
+                        this.settings.active = None;
+                        window.focus(&this.focus);
+                    }
+                    return;
+                }
                 this.shortcut(event);
                 cx.notify();
             }))
@@ -2146,7 +2259,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                     true
                 });
                 let bridge_for_view = bridge.clone();
-                cx.new(move |view_cx| {
+                let shell = cx.new(|view_cx| {
                     let bridge_for_observer = bridge_for_view.clone();
                     publish_layout(&bridge_for_view, window);
                     view_cx
@@ -2163,7 +2276,8 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                     let shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
                     window.focus(&shell.focus);
                     shell
-                })
+                });
+                cx.new(|cx| gpui_component::Root::new(shell, window, cx))
             },
         )
         .expect("open Meshcraft GPUI window");
@@ -2185,9 +2299,9 @@ mod tests {
         for scale in [1.0, 1.5, 2.0] {
             let bounds = viewport_physical_rect(1882.0, 1043.0, scale);
             assert_eq!(bounds.x, (230.0 * scale) as i32);
-            assert_eq!(bounds.y, (140.0 * scale) as i32);
+            assert_eq!(bounds.y, (200.0 * scale) as i32);
             assert_eq!(bounds.width, (1322.0 * scale) as u32);
-            assert_eq!(bounds.height, (877.0 * scale).round() as u32);
+            assert_eq!(bounds.height, (817.0 * scale).round() as u32);
         }
     }
 

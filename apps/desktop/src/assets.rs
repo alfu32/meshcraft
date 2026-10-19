@@ -4,7 +4,7 @@ use eframe::egui;
 
 const ICON_ATLAS_PNG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icons.32.png"));
 const ICON_MAPPING_CSV: &str = include_str!("../../../assets/tool-icons/icons.mapping.csv");
-const ICON_ATLAS_SIZE: u32 = 320;
+include!(concat!(env!("OUT_DIR"), "/icon_dimensions.rs"));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IconRegion {
@@ -21,7 +21,7 @@ pub fn icon_regions() -> BTreeMap<&'static str, IconRegion> {
 pub fn load_icon_atlas(context: &egui::Context) -> Option<egui::TextureHandle> {
     let rgba = image::load_from_memory(ICON_ATLAS_PNG).ok()?.to_rgba8();
     let (width, height) = rgba.dimensions();
-    if width != ICON_ATLAS_SIZE || height != ICON_ATLAS_SIZE {
+    if width != ICON_ATLAS_WIDTH || height != ICON_ATLAS_HEIGHT {
         return None;
     }
 
@@ -93,20 +93,15 @@ fn parse_icon_regions(mapping: &'static str) -> BTreeMap<&'static str, IconRegio
             let y0 = fields[6].trim().parse::<u32>().ok()?;
             let y1 = fields[7].trim().parse::<u32>().ok()?;
             if name.is_empty()
-                || x0 >= ICON_ATLAS_SIZE
-                || y0 >= ICON_ATLAS_SIZE
+                || x0 >= ICON_ATLAS_WIDTH
+                || y0 >= ICON_ATLAS_HEIGHT
                 || x1 < x0
                 || y1 < y0
-                || x1 > ICON_ATLAS_SIZE
-                || y1 > ICON_ATLAS_SIZE
+                || x1 >= ICON_ATLAS_WIDTH
+                || y1 >= ICON_ATLAS_HEIGHT
             {
                 return None;
             }
-
-            // The legacy CSV marks the final tile edge as 320, one past the
-            // last pixel in the 320 px atlas. Clamp that edge to pixel 319.
-            let x1 = x1.min(ICON_ATLAS_SIZE - 1);
-            let y1 = y1.min(ICON_ATLAS_SIZE - 1);
 
             Some((
                 name,
@@ -123,7 +118,25 @@ fn parse_icon_regions(mapping: &'static str) -> BTreeMap<&'static str, IconRegio
 
 #[cfg(test)]
 mod tests {
-    use super::{ICON_ATLAS_SIZE, icon_regions};
+    use super::{ICON_ATLAS_HEIGHT, ICON_ATLAS_WIDTH, icon_regions};
+
+    #[test]
+    fn every_catalog_command_has_a_named_vector_icon() {
+        let icons = icon_regions();
+        let missing = crate::MeshcraftApp::command_catalog()
+            .into_iter()
+            .filter(|command| {
+                !icons.contains_key(command.id.as_str())
+                    && !command
+                        .presentation
+                        .icon_key
+                        .as_deref()
+                        .is_some_and(|name| icons.contains_key(name))
+            })
+            .map(|command| command.id.as_str().to_owned())
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "missing command icons: {missing:?}");
+    }
 
     #[test]
     fn current_tool_icons_are_mapped_inside_the_atlas() {
@@ -140,8 +153,8 @@ mod tests {
                 .get(name)
                 .unwrap_or_else(|| panic!("missing icon {name}"));
             assert_eq!((region.width, region.height), (32, 32));
-            assert!(region.x + region.width <= ICON_ATLAS_SIZE);
-            assert!(region.y + region.height <= ICON_ATLAS_SIZE);
+            assert!(region.x + region.width <= ICON_ATLAS_WIDTH);
+            assert!(region.y + region.height <= ICON_ATLAS_HEIGHT);
         }
         assert!(regions.len() >= 80);
     }

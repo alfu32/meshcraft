@@ -119,6 +119,15 @@ impl Renderer {
             (self.radius * 2.6) as f32,
         );
         let light_vp;
+        let (old_near, old_far) = unsafe {
+            (
+                raylib::ffi::rlGetCullDistanceNear(),
+                raylib::ffi::rlGetCullDistanceFar(),
+            )
+        };
+        unsafe {
+            raylib::ffi::rlSetClipPlanes((self.radius * 0.5).max(0.01), self.radius * 3.5);
+        }
         {
             let mut drawing = rl.begin_texture_mode(thread, &mut self.map);
             drawing.clear_background(Color::WHITE);
@@ -141,6 +150,9 @@ impl Renderer {
             unsafe {
                 raylib::ffi::rlEnableBackfaceCulling();
             }
+        }
+        unsafe {
+            raylib::ffi::rlSetClipPlanes(old_near, old_far);
         }
         self.lit
             .set_shader_value_matrix(self.lit.get_shader_location("lightVP"), light_vp);
@@ -214,8 +226,10 @@ impl Renderer {
         &mut self,
         view: &mut (impl RaylibDraw3D + RaylibDraw),
         scene: &RenderScene,
-        eye: Vec3,
+        camera: OrbitCamera,
+        height: f32,
     ) {
+        let eye = camera.position();
         let settings = scene.lighting;
         let shader = &mut self.lit;
         shader.set_shader_value(
@@ -272,6 +286,9 @@ impl Renderer {
             raylib::ffi::rlDisableTexture();
             raylib::ffi::rlActiveTextureSlot(0);
         }
+        unsafe {
+            raylib::ffi::rlDisableBackfaceCulling();
+        }
         for face in &self.faces {
             if selected(&scene.selection, &face.target) {
                 for [a, b] in [
@@ -279,20 +296,42 @@ impl Renderer {
                     [face.points[1], face.points[2]],
                     [face.points[2], face.points[0]],
                 ] {
-                    view.draw_line3D(ray_vec3(a), ray_vec3(b), Color::new(240, 116, 43, 255));
+                    stroke(
+                        view,
+                        [a, b],
+                        Color::new(240, 116, 43, 255),
+                        scene.thick_line_width,
+                        camera,
+                        height,
+                    );
                 }
             }
         }
+        unsafe {
+            raylib::ffi::rlDisableBackfaceCulling();
+        }
         for edge in &self.edges {
-            view.draw_line3D(
-                ray_vec3(edge.points[0]),
-                ray_vec3(edge.points[1]),
-                if selected(&scene.selection, &edge.target) {
+            let selected = selected(&scene.selection, &edge.target);
+            stroke(
+                view,
+                edge.points,
+                if selected {
                     Color::new(245, 128, 46, 255)
                 } else {
                     Color::BLACK
                 },
+                if selected {
+                    scene.thick_line_width
+                } else {
+                    scene.normal_line_width
+                },
+                camera,
+                height,
             );
+        }
+        unsafe {
+            raylib::ffi::rlDrawRenderBatchActive();
+            raylib::ffi::rlEnableBackfaceCulling();
         }
         for vertex in &self.vertices {
             if selected(&scene.selection, &vertex.target) {
@@ -301,6 +340,45 @@ impl Renderer {
         }
     }
 }
+/// Pixel-width ribbons keep model line widths portable across OpenGL implementations.
+fn stroke(
+    view: &mut impl RaylibDraw3D,
+    [a, b]: [Vec3; 2],
+    color: Color,
+    width: f32,
+    camera: OrbitCamera,
+    height: f32,
+) {
+    let size = (height * 2., height);
+    let (Some(pa), Some(pb)) = (
+        project_point(camera, size, a),
+        project_point(camera, size, b),
+    ) else {
+        return;
+    };
+    let (dx, dy) = (f64::from(pb.0 - pa.0), f64::from(pb.1 - pa.1));
+    let length = dx.hypot(dy);
+    if length < 1.0e-6 {
+        return;
+    }
+    let eye = camera.position();
+    let forward = (camera.target - eye)
+        .try_normalized(1.0e-12)
+        .unwrap_or(Vec3::Z);
+    let right = forward
+        .cross(Vec3::Y)
+        .try_normalized(1.0e-12)
+        .unwrap_or(Vec3::X);
+    let up = right.cross(forward);
+    let side = (right * (-dy) - up * dx) / length;
+    let factor = f64::from(width) * (f64::from(camera.field_of_view).to_radians() * 0.5).tan()
+        / f64::from(height.max(1.));
+    let offset_a = side * ((a - eye).dot(forward) * factor);
+    let offset_b = side * ((b - eye).dot(forward) * factor);
+    triangle(view, [a - offset_a, b - offset_b, b + offset_b], color);
+    triangle(view, [a - offset_a, b + offset_b, a + offset_a], color);
+}
+
 fn selected(selection: &[SelectionTarget], target: &SelectionTarget) -> bool {
     selection.iter().any(|s| {
         s.occurrence == target.occurrence
@@ -393,6 +471,135 @@ mod tests {
             &mut renderer,
         );
         let unshadowed = super::super::copy_target_to_gpui_image(&target).unwrap();
+        let boxes = [
+            (Vec3::new(-3., 0., -3.), Vec3::new(3., 0.5, 3.)),
+            (Vec3::new(0., 0.5, 0.), Vec3::new(1.5, 2.5, 1.5)),
+            (Vec3::new(2., 1., -4.), Vec3::new(3., 2.5, -3.)),
+        ];
+        let hits_box = |origin: Vec3, direction: Vec3, min: Vec3, max: Vec3| -> Option<f64> {
+            let mut near = 0.0_f64;
+            let mut far = f64::INFINITY;
+            for (p, d, a, b) in [
+                (origin.x, direction.x, min.x, max.x),
+                (origin.y, direction.y, min.y, max.y),
+                (origin.z, direction.z, min.z, max.z),
+            ] {
+                if d.abs() < 1.0e-12 {
+                    if p < a || p > b {
+                        return None;
+                    } else {
+                        continue;
+                    }
+                }
+                let (a, b) = ((a - p) / d, (b - p) / d);
+                near = near.max(a.min(b));
+                far = far.min(a.max(b));
+                if near > far {
+                    return None;
+                }
+            }
+            Some(near)
+        };
+        let mut intersection = 0;
+        let mut union = 0;
+        for y in (30..480).step_by(2) {
+            for x in (0..640).step_by(2) {
+                let (origin, ray) = camera
+                    .ray(x as f32 + 0.5, y as f32 + 0.5, 640., 480.)
+                    .unwrap();
+                if ray.y >= -1.0e-9 {
+                    continue;
+                }
+                let depth = (-0.01 - origin.y) / ray.y;
+                if boxes
+                    .iter()
+                    .any(|(a, b)| hits_box(origin, ray, *a, *b).is_some_and(|d| d < depth))
+                {
+                    continue;
+                }
+                let point = origin + ray * depth;
+                let truth = boxes
+                    .iter()
+                    .any(|(a, b)| hits_box(point, scene.lighting.direction(), *a, *b).is_some());
+                let measured = i16::from(unshadowed.get_pixel(x, y)[1])
+                    - i16::from(shadowed.get_pixel(x, y)[1])
+                    > 8;
+                if truth || measured {
+                    union += 1;
+                }
+                if truth && measured {
+                    intersection += 1;
+                }
+            }
+        }
+        let iou = intersection as f64 / union as f64;
+        assert!(
+            iou > 0.90,
+            "ground shadow must align with analytic ray/box projection, IoU {iou:.3}"
+        );
+        println!("analytic ground shadow alignment IoU: {iou:.3}");
+
+        let thin = unshadowed
+            .pixels()
+            .filter(|p| p[0] < 8 && p[1] < 8 && p[2] < 8)
+            .count();
+        scene.normal_line_width = 3.0;
+        super::super::draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            0,
+            &mut renderer,
+        );
+        let thick = super::super::copy_target_to_gpui_image(&target).unwrap();
+        let thick_pixels = thick
+            .pixels()
+            .filter(|p| p[0] < 8 && p[1] < 8 && p[2] < 8)
+            .count();
+        assert!(
+            thick_pixels > thin * 3 / 2,
+            "model line width must affect actual pixels: {thin} vs {thick_pixels}"
+        );
+        let mut resolve = super::super::postprocess::Resolve::new(&mut rl, &thread);
+        assert!(
+            resolve.shader.get_shader_location("span") >= 0,
+            "FXAA shader must compile"
+        );
+        target.texture_mut().set_texture_filter(
+            &thread,
+            raylib::consts::TextureFilter::TEXTURE_FILTER_BILINEAR,
+        );
+        let mut antialiased = rl.load_render_texture(&thread, 640, 480).unwrap();
+        for quality in [
+            postprocess::Antialiasing::Low,
+            postprocess::Antialiasing::Medium,
+            postprocess::Antialiasing::High,
+        ] {
+            resolve.draw(&mut rl, &thread, &target, &mut antialiased, quality);
+            let image = super::super::copy_target_to_gpui_image(&antialiased).unwrap();
+            let changed = image
+                .pixels()
+                .zip(thick.pixels())
+                .filter(|(a, b)| (i16::from(a[1]) - i16::from(b[1])).abs() > 2)
+                .count();
+            let mean_error = image
+                .pixels()
+                .zip(thick.pixels())
+                .map(|(a, b)| (f64::from(a[1]) - f64::from(b[1])).abs())
+                .sum::<f64>()
+                / (640. * 480.);
+            assert!(
+                mean_error < 5.,
+                "FXAA must preserve orientation and flat shading: {mean_error}"
+            );
+            assert!(
+                changed > 100,
+                "shader antialiasing must smooth edges at {} quality, {changed} pixels",
+                quality.label()
+            );
+        }
         let darkened = shadowed
             .pixels()
             .zip(unshadowed.pixels())
