@@ -27,7 +27,9 @@ use bevy::{
     ui_widgets::{
         Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TextInput, TrackClick,
     },
-    window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
+    window::{
+        PrimaryWindow, RequestRedraw, WindowPlugin, WindowResizeConstraints, WindowResolution,
+    },
     winit::WinitSettings,
 };
 use eframe::egui;
@@ -5071,6 +5073,7 @@ fn native_viewport_pointer(
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut drag: ResMut<NativeSelectionDrag>,
     mut session: NonSendMut<MeshcraftApp>,
+    mut redraw: MessageWriter<RequestRedraw>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -5080,6 +5083,8 @@ fn native_viewport_pointer(
     };
     let camera_changed = camera_transform.is_changed();
     let camera_transform = &*camera_transform;
+    let document_revision_before = session.document_revision();
+    let selection_revision_before = session.native_selection_revision();
     let cursor = window.cursor_position();
     let window_size = Vec2::new(window.width(), window.height());
     let pointer_button_event = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
@@ -5299,6 +5304,15 @@ fn native_viewport_pointer(
                 ModelVec2::new(f64::from(position.x), f64::from(position.y)),
             );
         }
+    }
+
+    // Pointer mutations happen in PostUpdate, after the scene and selection GPU batches sync.
+    // In desktop idle mode, request another update so those batches reflect the click without
+    // requiring a follow-up mouse movement.
+    if session.document_revision() != document_revision_before
+        || session.native_selection_revision() != selection_revision_before
+    {
+        redraw.write(RequestRedraw);
     }
 }
 
