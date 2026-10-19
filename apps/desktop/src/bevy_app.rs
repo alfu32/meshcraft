@@ -2,7 +2,7 @@
 //!
 //! The document remains the source of truth. This module builds compact category-wide GPU batches
 //! from resolved geometry and refreshes them only after a document generation or revision change.
-//! Viewport picking and spatially incremental geometry updates remain migration work.
+//! Spatially incremental geometry updates remain migration work.
 
 use crate::MeshcraftApp;
 use bevy::{
@@ -40,6 +40,7 @@ struct SceneDocument {
     active_tool: String,
     selection_revision: u64,
     selected_objects: usize,
+    selected_vertices: usize,
     selected_faces: usize,
     selected_edges: usize,
     selection_targets: Vec<SelectionTarget>,
@@ -93,6 +94,30 @@ struct NativeToolbarDrag {
 
 #[derive(Component)]
 struct NativeInspectorPanel;
+
+#[derive(Component, Clone, Copy)]
+enum NativeInspectorText {
+    Selection {
+        generation: u64,
+        revision: u64,
+        selection_revision: u64,
+    },
+    Objects {
+        generation: u64,
+        revision: u64,
+    },
+    ModelSettings {
+        generation: u64,
+        revision: u64,
+    },
+    PolylineSettings {
+        generation: u64,
+        revision: u64,
+    },
+}
+
+#[derive(Component)]
+struct NativeModelSettingsEditorButton;
 
 #[derive(Resource, Default)]
 struct NativeToolsContextMenuState {
@@ -349,6 +374,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let generation = session.document_generation();
     let revision = session.document_revision();
     let (occurrences, triangles, segments) = scene_counts(&document);
+    let selection = session.native_selection_summary();
     let mut app = App::new();
     app.insert_resource(SceneDocument {
         document,
@@ -357,9 +383,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         status: session.status_text().to_owned(),
         active_tool: session.active_tool_label().to_owned(),
         selection_revision: session.native_selection_revision(),
-        selected_objects: 0,
-        selected_faces: 0,
-        selected_edges: 0,
+        selected_objects: selection.objects,
+        selected_vertices: selection.vertices,
+        selected_faces: selection.faces,
+        selected_edges: selection.edges,
         selection_targets: session.native_selection_targets(),
         occurrences,
         triangles,
@@ -414,7 +441,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
-            sync_scene_document,
+            (sync_scene_document, sync_native_settings_sections).chain(),
             sync_toolbar_button_states,
             sync_context_menu_command_states,
             update_scene_meshes,
@@ -1051,24 +1078,66 @@ fn setup_ui(
             BackgroundColor(Color::srgba(0.13, 0.14, 0.16, 0.94)),
         ))
         .with_children(|panel| {
-            inspector_section(
+            inspector_dynamic_section(
                 panel,
                 "Selection",
-                &format!(
-                    "Selected: {} object(s), {} face(s), {} edge(s)\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
-                    scene.selected_objects,
-                    scene.selected_faces,
-                    scene.selected_edges,
-                    scene.triangles,
-                    scene.segments,
-                    scene.occurrences
-                ),
+                selection_summary(&scene),
+                NativeInspectorText::Selection {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                    selection_revision: scene.selection_revision,
+                },
             );
             inspector_section(panel, "Object", "No object selected\nName");
-            inspector_section(panel, "Objects", &format!("{} object instances in the scene", scene.occurrences));
-            inspector_section(panel, "Model Settings", "Unit name  unit\nUnit size  1.0000\nGrid size  1.0000\nCircle segments  24\nSnap radius");
+            inspector_dynamic_section(
+                panel,
+                "Objects",
+                objects_summary(scene.occurrences),
+                NativeInspectorText::Objects {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                },
+            );
+            inspector_dynamic_section(
+                panel,
+                "Model Settings",
+                model_settings_summary(&scene.document),
+                NativeInspectorText::ModelSettings {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                },
+            );
+            panel
+                .spawn((
+                    Button,
+                    NativeModelSettingsEditorButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(26),
+                        align_items: AlignItems::Center,
+                        padding: UiRect::horizontal(px(7)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+                ))
+                .with_child((
+                    Text::new("Edit Model Settings…"),
+                    TextFont::from_font_size(13.0),
+                    TextColor::WHITE,
+                ))
+                .observe(open_native_model_settings_editor);
             inspector_section(panel, "UI Settings", "Text size  1x\nToolbar icon size  32 × 32\nPermanent grid  On\nPermanent grid normal  Y up\nGrid extent  20");
             inspector_section(panel, "Help / About", "Meshcraft · Bevy 0.20\nDesktop viewport · GPU rendering\nCommands: Ctrl+Shift+P");
+            inspector_dynamic_section(
+                panel,
+                "Polyline Settings",
+                polyline_settings_summary(&scene.document),
+                NativeInspectorText::PolylineSettings {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                },
+            );
+            inspector_section(panel, "Vector Text", "Text  TEXT\nSize  1.000\nTracking  0.100\nLine spacing  1.250\nGlyph source  embedded:alphabet");
             inspector_section(panel, "Architecture - Walls", "Wall thickness  0.200\nWall height  2.700\nInclination  0°\nExterior / interior color");
             inspector_section(panel, "Architecture - Slabs", "Slab thickness  0.200\nTop / bottom / side color");
             inspector_section(panel, "Architecture - Stairs", "Stair height  2.700\nSteps  14\nSupport thickness  0.200");
@@ -1393,6 +1462,131 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
     ));
     if title == "Selection" {
         body_text.insert(SelectionStatsText);
+    }
+}
+
+fn inspector_dynamic_section(
+    parent: &mut ChildSpawnerCommands,
+    title: &str,
+    body: String,
+    marker: NativeInspectorText,
+) {
+    parent.spawn((
+        Text::new(title.to_owned()),
+        TextFont::from_font_size(15.0),
+        TextColor(Color::srgb(0.84, 0.89, 0.94)),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(5)),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
+    ));
+    parent.spawn((
+        Text::new(body),
+        TextFont::from_font_size(13.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(7)),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.30, 0.31, 0.32)),
+        marker,
+    ));
+}
+
+fn model_settings_summary(document: &Document) -> String {
+    let settings = document.model_settings();
+    format!(
+        "Unit name\n{}\nUnit size\n{:.4}\nGrid size\n{:.4}\nCircle segments\n{}\nSnap radius\n{:.1} px",
+        settings.unit_name,
+        settings.unit_size,
+        settings.grid_size,
+        settings.circle_segments,
+        settings.snap_radius,
+    )
+}
+
+fn polyline_settings_summary(document: &Document) -> String {
+    let settings = document.model_settings();
+    format!(
+        "Arc max length\n{:.3}\nDouble line size\n{:.3}\nDouble line offset\n{:.3}",
+        settings.arc_max_length, settings.double_line_size, settings.double_line_offset,
+    )
+}
+
+fn objects_summary(occurrences: usize) -> String {
+    format!("{occurrences} object instances in the scene")
+}
+
+fn selection_summary(scene: &SceneDocument) -> String {
+    format!(
+        "Selected  Objects {}  Vertices {}  Faces {}  Edges {}\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
+        scene.selected_objects,
+        scene.selected_vertices,
+        scene.selected_faces,
+        scene.selected_edges,
+        scene.triangles,
+        scene.segments,
+        scene.occurrences
+    )
+}
+
+fn sync_native_settings_sections(
+    scene: Res<SceneDocument>,
+    mut sections: Query<(&mut Text, &mut NativeInspectorText)>,
+) {
+    for (mut text, mut marker) in &mut sections {
+        let summary = match *marker {
+            NativeInspectorText::Selection {
+                generation,
+                revision,
+                selection_revision,
+            } if generation != scene.generation
+                || revision != scene.revision
+                || selection_revision != scene.selection_revision =>
+            {
+                *marker = NativeInspectorText::Selection {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                    selection_revision: scene.selection_revision,
+                };
+                selection_summary(&scene)
+            }
+            NativeInspectorText::Objects {
+                generation,
+                revision,
+            } if generation != scene.generation || revision != scene.revision => {
+                *marker = NativeInspectorText::Objects {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                };
+                objects_summary(scene.occurrences)
+            }
+            NativeInspectorText::ModelSettings {
+                generation,
+                revision,
+            } if generation != scene.generation || revision != scene.revision => {
+                *marker = NativeInspectorText::ModelSettings {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                };
+                model_settings_summary(&scene.document)
+            }
+            NativeInspectorText::PolylineSettings {
+                generation,
+                revision,
+            } if generation != scene.generation || revision != scene.revision => {
+                *marker = NativeInspectorText::PolylineSettings {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                };
+                polyline_settings_summary(&scene.document)
+            }
+            _ => continue,
+        };
+        text.0 = summary;
     }
 }
 
@@ -1766,6 +1960,42 @@ fn open_command_palette(
     clear_palette_parameter_entry(&mut state);
     for mut palette in &mut palettes {
         palette.display = Display::Flex;
+    }
+}
+
+fn open_native_model_settings_editor(
+    event: On<Activate>,
+    buttons: Query<(), With<NativeModelSettingsEditorButton>>,
+    scene: Res<SceneDocument>,
+    mut palette: ResMut<CommandPaletteState>,
+    mut overlays: Query<&mut Node, With<CommandPaletteOverlay>>,
+) {
+    if !buttons.contains(event.entity) {
+        return;
+    }
+    let settings = scene.document.model_settings();
+    let parameters = serde_json::json!({
+        "unit_name": settings.unit_name,
+        "unit_size": settings.unit_size,
+        "grid_size": settings.grid_size,
+        "circle_segments": settings.circle_segments,
+        "snap_radius": settings.snap_radius,
+        "arc_max_length": settings.arc_max_length,
+        "double_line_size": settings.double_line_size,
+        "double_line_offset": settings.double_line_offset,
+    });
+    let Ok(parameter_json) = serde_json::to_string_pretty(&parameters) else {
+        return;
+    };
+    palette.open = true;
+    palette.query.clear();
+    palette.selected_index = 0;
+    clear_palette_parameter_entry(&mut palette);
+    begin_palette_parameter_entry(&mut palette, "model.update_settings");
+    palette.parameter_cursor = parameter_json.len().saturating_sub(1);
+    palette.parameter_json = parameter_json;
+    for mut overlay in &mut overlays {
+        overlay.display = Display::Flex;
     }
 }
 
@@ -2387,6 +2617,7 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
         let summary = session.native_selection_summary();
         scene.selection_revision = selection_revision;
         scene.selected_objects = summary.objects;
+        scene.selected_vertices = summary.vertices;
         scene.selected_faces = summary.faces;
         scene.selected_edges = summary.edges;
         scene.selection_targets = session.native_selection_targets();
@@ -2613,8 +2844,9 @@ fn refresh_status(
     }
     for mut stats in &mut selection_stats {
         stats.0 = format!(
-            "Selected: {} object(s), {} face(s), {} edge(s)\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
+            "Selected  Objects {}  Vertices {}  Faces {}  Edges {}\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
             scene.selected_objects,
+            scene.selected_vertices,
             scene.selected_faces,
             scene.selected_edges,
             scene.triangles,
@@ -3410,16 +3642,20 @@ fn orbit_camera(
 #[cfg(test)]
 mod tests {
     use super::{
-        BevyImage, Button, CommandCatalog, CommandPaletteParameterError,
+        BevyImage, Button, CommandCatalog, CommandPaletteOverlay, CommandPaletteParameterError,
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState, DispatchCommand,
-        LightingChannel, LightingSettings, NativeIconAtlas, NativeRightClickGesture, SceneDocument,
-        ShadowFilter, TextureAtlasLayout, back_face_color, build_scene_meshes,
+        LightingChannel, LightingSettings, NativeIconAtlas, NativeInspectorText,
+        NativeModelSettingsEditorButton, NativeRightClickGesture, SceneDocument,
+        SelectionStatsText, ShadowFilter, TextureAtlasLayout, back_face_color, build_scene_meshes,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
-        dispatch_toolbar_command, line_mesh, native_segment_intersects_rect,
-        native_triangle_intersects_rect, scene_counts, search_command_ids,
-        submit_palette_parameters, sync_command_palette_parameter_ui, sync_command_palette_states,
-        sync_toolbar_button_states, tool_context_groups, triangle_mesh, update_right_click_gesture,
+        dispatch_toolbar_command, line_mesh, model_settings_summary,
+        native_segment_intersects_rect, native_triangle_intersects_rect, objects_summary,
+        open_native_model_settings_editor, polyline_settings_summary, refresh_status, scene_counts,
+        search_command_ids, selection_summary, submit_palette_parameters,
+        sync_command_palette_parameter_ui, sync_command_palette_states,
+        sync_native_settings_sections, sync_toolbar_button_states, tool_context_groups,
+        triangle_mesh, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -3584,6 +3820,7 @@ mod tests {
             active_tool: "Select".to_owned(),
             selection_revision: 0,
             selected_objects: 0,
+            selected_vertices: 0,
             selected_faces: 0,
             selected_edges: 0,
             selection_targets: Vec::new(),
@@ -3885,6 +4122,232 @@ mod tests {
                 .is_some_and(|error| error.contains("JSON object"))
         );
         assert_eq!(0, session.document_revision());
+    }
+
+    #[test]
+    fn model_settings_inspector_opens_the_shared_settings_command_editor() {
+        let document = Document::new();
+        let revision = document.revision();
+        let (occurrences, triangles, segments) = scene_counts(&document);
+        let scene = SceneDocument {
+            document,
+            generation: 1,
+            revision,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            occurrences,
+            triangles,
+            segments,
+        };
+        let mut app = App::new();
+        app.insert_resource(scene)
+            .insert_resource(CommandPaletteState::default())
+            .add_observer(open_native_model_settings_editor);
+        app.world_mut().spawn((
+            CommandPaletteOverlay,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        let button = app.world_mut().spawn(NativeModelSettingsEditorButton).id();
+
+        app.world_mut().trigger(Activate { entity: button });
+
+        let palette = app.world().resource::<CommandPaletteState>();
+        assert!(palette.open);
+        assert_eq!(
+            Some("model.update_settings"),
+            palette.pending_command.as_deref()
+        );
+        let parameters: serde_json::Value =
+            serde_json::from_str(&palette.parameter_json).expect("valid settings payload");
+        assert_eq!(serde_json::json!("unit"), parameters["unit_name"]);
+        assert_eq!(serde_json::json!(1.0), parameters["grid_size"]);
+        assert_eq!(serde_json::json!(24), parameters["circle_segments"]);
+    }
+
+    #[test]
+    fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
+        let document = Document::new();
+        let initial_model_summary = model_settings_summary(&document);
+        let initial_polyline_summary = polyline_settings_summary(&document);
+        let (occurrences, triangles, segments) = scene_counts(&document);
+        let initial_objects_summary = objects_summary(occurrences);
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            revision: document.revision(),
+            document,
+            generation: 1,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            occurrences,
+            triangles,
+            segments,
+        })
+        .add_systems(Update, sync_native_settings_sections);
+        let model = app
+            .world_mut()
+            .spawn((
+                Text::new(initial_model_summary),
+                NativeInspectorText::ModelSettings {
+                    generation: 1,
+                    revision: 0,
+                },
+            ))
+            .id();
+        let polyline = app
+            .world_mut()
+            .spawn((
+                Text::new(initial_polyline_summary),
+                NativeInspectorText::PolylineSettings {
+                    generation: 1,
+                    revision: 0,
+                },
+            ))
+            .id();
+        let objects = app
+            .world_mut()
+            .spawn((
+                Text::new(initial_objects_summary),
+                NativeInspectorText::Objects {
+                    generation: 1,
+                    revision: 0,
+                },
+            ))
+            .id();
+        let initial_selection_summary = selection_summary(app.world().resource::<SceneDocument>());
+        let selection = app
+            .world_mut()
+            .spawn((
+                Text::new(initial_selection_summary),
+                NativeInspectorText::Selection {
+                    generation: 1,
+                    revision: 0,
+                    selection_revision: 0,
+                },
+            ))
+            .id();
+
+        app.update();
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            scene.selected_objects = 1;
+            scene.selected_vertices = 3;
+            scene.selected_faces = 4;
+            scene.selected_edges = 5;
+            scene.selection_revision = 2;
+        }
+        app.update();
+        assert!(
+            app.world()
+                .get::<Text>(selection)
+                .unwrap()
+                .0
+                .contains("Selected  Objects 1  Vertices 3  Faces 4  Edges 5")
+        );
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            let mut settings = scene.document.model_settings().clone();
+            settings.unit_name = "meter".to_owned();
+            settings.grid_size = 0.25;
+            settings.arc_max_length = 0.75;
+            scene.document.update_model_settings(settings).unwrap();
+            scene.occurrences = 18;
+            scene.revision = scene.document.revision();
+        }
+        app.update();
+
+        assert!(app.world().get::<Text>(model).unwrap().0.contains("meter"));
+        assert!(app.world().get::<Text>(model).unwrap().0.contains("0.2500"));
+        assert!(
+            app.world()
+                .get::<Text>(polyline)
+                .unwrap()
+                .0
+                .contains("0.750")
+        );
+        assert_eq!(
+            "18 object instances in the scene",
+            app.world().get::<Text>(objects).unwrap().0
+        );
+        assert!(
+            app.world()
+                .get::<Text>(selection)
+                .unwrap()
+                .0
+                .contains("Objects  18")
+        );
+
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            scene.document = Document::new();
+            scene.generation += 1;
+            scene.revision = scene.document.revision();
+            scene.occurrences = 0;
+        }
+        app.update();
+
+        assert!(app.world().get::<Text>(model).unwrap().0.contains("unit"));
+        assert!(app.world().get::<Text>(model).unwrap().0.contains("1.0000"));
+        assert!(
+            app.world()
+                .get::<Text>(polyline)
+                .unwrap()
+                .0
+                .contains("0.500")
+        );
+        assert_eq!(
+            "0 object instances in the scene",
+            app.world().get::<Text>(objects).unwrap().0
+        );
+    }
+
+    #[test]
+    fn selection_panel_reports_selected_vertices_and_model_totals() {
+        let document = Document::new();
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document,
+            generation: 1,
+            revision: 0,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 2,
+            selected_objects: 1,
+            selected_vertices: 3,
+            selected_faces: 4,
+            selected_edges: 5,
+            selection_targets: Vec::new(),
+            occurrences: 16,
+            triangles: 460,
+            segments: 524,
+        })
+        .add_systems(Update, refresh_status);
+        let stats = app
+            .world_mut()
+            .spawn((Text::new(String::new()), SelectionStatsText))
+            .id();
+
+        app.update();
+
+        let text = &app.world().get::<Text>(stats).unwrap().0;
+        assert!(text.contains("Selected  Objects 1  Vertices 3  Faces 4  Edges 5"));
+        assert!(text.contains("Triangles  460"));
+        assert!(text.contains("Edges  524"));
+        assert!(text.contains("Objects  16"));
     }
 
     #[test]
