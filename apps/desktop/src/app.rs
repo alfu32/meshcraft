@@ -61,6 +61,7 @@ use meshcraft_io::project::{
 };
 use meshcraft_io::project::{ImportedProject, LegacySnapshotAdapter};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::{self, OpenOptions};
@@ -377,6 +378,7 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
     ),
 ];
 const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
+    ("construction_points", &["hotspot.begin_placement"]),
     ("in_tool_operators", &["tool.select", "tool.distance"]),
     (
         "actions",
@@ -2168,13 +2170,6 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn native_toolbar_position_key(index: usize) -> Option<&'static str> {
-        LEGACY_TOOLBARS
-            .get(index)
-            .and_then(|(toolbar_id, _)| toolbar_id.strip_prefix("builtin_toolbar_"))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn native_ui_preferences(&self) -> NativeUiPreferences {
         NativeUiPreferences {
             ui_text_scale: self.preferences.ui_text_scale,
@@ -2197,6 +2192,78 @@ impl MeshcraftApp {
                 })
                 .collect(),
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_ui_preferences_payload(&self) -> CommandPayload {
+        let preferences = &self.preferences;
+        let mut payload = CommandPayload::default();
+        payload.values.extend([
+            ("ui_text_scale".to_owned(), json!(preferences.ui_text_scale)),
+            (
+                "auto_collapse_toolbars".to_owned(),
+                json!(preferences.auto_collapse_toolbars),
+            ),
+            (
+                "toolbar_icon_size".to_owned(),
+                json!(preferences.toolbar_icon_size),
+            ),
+            (
+                "show_permanent_grid".to_owned(),
+                json!(preferences.show_permanent_grid),
+            ),
+            (
+                "show_construction_guides".to_owned(),
+                json!(preferences.show_construction_guides),
+            ),
+            (
+                "grid_normal_axis".to_owned(),
+                json!(match preferences.grid_normal_axis {
+                    GridNormalAxis::X => "x",
+                    GridNormalAxis::Y => "y",
+                    GridNormalAxis::Z => "z",
+                }),
+            ),
+            ("grid_extent".to_owned(), json!(preferences.grid_extent)),
+            (
+                "normal_grid_width".to_owned(),
+                json!(preferences.normal_grid_width),
+            ),
+            (
+                "thick_grid_width".to_owned(),
+                json!(preferences.thick_grid_width),
+            ),
+            (
+                "toolbar_flow_top_down".to_owned(),
+                json!(preferences.toolbar_flow_top_down),
+            ),
+            (
+                "toolbars_visible".to_owned(),
+                json!(preferences.toolbars_visible),
+            ),
+            (
+                "toolbar_visibility".to_owned(),
+                json!(preferences.toolbar_visibility),
+            ),
+            (
+                "toolbar_positions".to_owned(),
+                json!(preferences.toolbar_positions),
+            ),
+            (
+                "walk_move_speed".to_owned(),
+                json!(preferences.walk_move_speed),
+            ),
+            (
+                "walk_jump_velocity".to_owned(),
+                json!(preferences.walk_jump_velocity),
+            ),
+            ("walk_gravity".to_owned(), json!(preferences.walk_gravity)),
+            (
+                "walk_height_adjust_speed".to_owned(),
+                json!(preferences.walk_height_adjust_speed),
+            ),
+        ]);
+        payload
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2247,6 +2314,14 @@ impl MeshcraftApp {
 
     pub fn document_generation(&self) -> u64 {
         self.document_generation
+    }
+
+    /// Polls asynchronous project operations and autosave work for hosts that do not use egui.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn poll_native_host_work(&mut self) {
+        self.poll_project_load();
+        self.poll_project_save();
+        let _ = self.poll_autosave(Instant::now());
     }
 
     pub fn status_text(&self) -> &str {
@@ -2525,6 +2600,15 @@ impl MeshcraftApp {
             kind: SnapKind::Free,
             screen_distance: 0.0,
         };
+        self.native_tool_feedback_for_snap(snap, screen_position)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_tool_feedback_for_snap(
+        &mut self,
+        snap: SnapResult,
+        screen_position: egui::Pos2,
+    ) -> (Option<ToolPreview>, Option<ToolFeedback>) {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ONE);
         let preview = self.tool_preview(rect, Some(screen_position), Some(snap));
         let feedback =
@@ -10234,37 +10318,10 @@ impl MeshcraftApp {
     }
 
     fn show_workspace(&mut self, ui: &mut egui::Ui) {
-        self.show_workspace_inner(ui, false);
+        self.show_workspace_inner(ui);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn show_native_bevy_workspace(&mut self, ui: &mut egui::Ui) {
-        self.show_workspace_inner(ui, true);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn native_bevy_viewport_rect(&self) -> [f32; 4] {
-        [
-            self.viewport_rect.left(),
-            self.viewport_rect.top(),
-            self.viewport_rect.width(),
-            self.viewport_rect.height(),
-        ]
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn native_command_palette_open(&self) -> bool {
-        self.command_palette_open
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn native_overlay_blocks_viewport_input(&self) -> bool {
-        self.command_palette_open
-            || self.recent_projects_dialog_open
-            || self.pending_replacement.is_some()
-    }
-
-    fn show_workspace_inner(&mut self, ui: &mut egui::Ui, bevy_viewport: bool) {
+    fn show_workspace_inner(&mut self, ui: &mut egui::Ui) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.poll_project_load();
@@ -10528,7 +10585,6 @@ impl MeshcraftApp {
         {
             self.run_command("tool.cycle.modification");
         } else if shortcuts_allowed
-            && !bevy_viewport
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -10550,7 +10606,6 @@ impl MeshcraftApp {
             }
             self.run_command("view.grid_guide");
         } else if shortcuts_allowed
-            && !bevy_viewport
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -10606,16 +10661,8 @@ impl MeshcraftApp {
 
         let mut viewport_response = None;
         ui.horizontal(|ui| {
-            if bevy_viewport {
-                let (rect, _) = ui.allocate_exact_size(
-                    Vec2::new(viewport_width, content_height),
-                    egui::Sense::hover(),
-                );
-                self.viewport_rect = rect;
-            } else {
-                viewport_response =
-                    Some(self.show_viewport(ui, Vec2::new(viewport_width, content_height)));
-            }
+            viewport_response =
+                Some(self.show_viewport(ui, Vec2::new(viewport_width, content_height)));
             if show_inspector {
                 ui.allocate_ui_with_layout(
                     Vec2::new(420.0, content_height),
@@ -11453,7 +11500,7 @@ mod tests {
                 );
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(&mut workspace_ui, |ui| app.show_native_bevy_workspace(ui));
+                    .show(&mut workspace_ui, |ui| app.show_workspace(ui));
             },
         );
         output.textures_delta.clear();
@@ -11462,7 +11509,7 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn native_bevy_workspace_renders_full_chrome_and_a_viewport() {
+    fn egui_workspace_renders_full_chrome_and_a_viewport() {
         let mut app = test_app();
         let context = egui::Context::default();
 
@@ -11858,6 +11905,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert!(command_ids("Point Construction").contains(&"tool.builtin.polyline"));
+        assert!(command_ids("Point Construction").contains(&"hotspot.begin_placement"));
         assert!(command_ids("Actions").contains(&"edit.undo"));
         assert!(command_ids("Modification").contains(&"tool.builtin.stretch"));
         assert!(command_ids("Rendering").contains(&"render.raytrace"));

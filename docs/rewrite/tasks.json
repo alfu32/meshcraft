@@ -2895,7 +2895,7 @@
     },
     {
       "id": "T60",
-      "title": "Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority)",
+      "title": "Integrate GPUI and raylib desktop while preserving headless commands (#21, #25, high priority)",
       "phase": "desktop",
       "dependencies": [
         "T07",

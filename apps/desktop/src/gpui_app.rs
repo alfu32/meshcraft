@@ -1,0 +1,2736 @@
+//! GPUI desktop shell with a raylib RenderTexture presented as a normal GPUI image.
+//!
+//! The model/session stays on the GPUI thread. The raylib worker receives immutable scene
+//! snapshots and owns its OpenGL context, render target, camera and frame readback.
+
+use std::{
+    slice,
+    sync::{
+        Arc, Condvar, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+use crate::MeshcraftApp;
+use crate::viewport::{
+    ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapKind, SnapResult, ToolFeedback,
+    ToolPreview,
+};
+use eframe::egui;
+use gpui::{
+    App, Application, Context, Entity, ImageSource, Render, RenderImage, SharedString,
+    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
+    img, prelude::*, px, rgb, size,
+};
+use gpui_component::{
+    Disableable, Sizable, Theme, ThemeMode,
+    button::{Button, ButtonVariants},
+    scroll::ScrollableElement,
+};
+use image::{Frame, ImageBuffer, Rgba};
+use meshcraft_core::{
+    commands::{CommandDescriptor, CommandPayload, CommandValueType},
+    document::{Document, ModelSettings, Rgba8, VertexId},
+    geometry::{Vec2 as ModelVec2, Vec3},
+    selection::{SelectedEntity, SelectionMode, SelectionTarget},
+};
+use raylib::{
+    consts::PixelFormat,
+    prelude::{
+        Camera3D, Color, RaylibDraw, RaylibDraw3D, RaylibMode3DExt, RaylibRenderTexture2D,
+        RaylibTexture2D, RaylibTextureModeExt, RenderTexture2D, TraceLogLevel,
+        Vector3 as RayVector3,
+    },
+};
+use serde_json::{Value, json};
+
+const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+const MENU_NAMES: &[&str] = &[
+    "File",
+    "Edit",
+    "View",
+    "Insert",
+    "Format",
+    "Draw",
+    "Dimension",
+    "Modify",
+    "Objects",
+    "Tools",
+    "Render",
+    "Window",
+    "Help",
+];
+const RIBBON_TABS: &[&str] = &[
+    "Home",
+    "Construction",
+    "Modify",
+    "Arrays",
+    "Architecture",
+    "Inspect",
+    "View",
+    "Settings",
+];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct ViewportLayout {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OrbitCamera {
+    target: Vec3,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+    field_of_view: f32,
+}
+
+impl Default for OrbitCamera {
+    fn default() -> Self {
+        Self {
+            target: Vec3::new(0.0, 0.0, 0.0),
+            yaw: 45.0_f32.to_radians(),
+            pitch: 28.0_f32.to_radians(),
+            distance: 15.0,
+            field_of_view: 45.0,
+        }
+    }
+}
+
+impl OrbitCamera {
+    fn orbit_by_drag(&mut self, dx: f32, dy: f32) {
+        self.yaw += dx * 0.005;
+        self.pitch = (self.pitch - dy * 0.005).clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
+    }
+
+    fn position(self) -> Vec3 {
+        let horizontal = self.distance * self.pitch.cos();
+        self.target
+            + Vec3::new(
+                f64::from(horizontal * self.yaw.sin()),
+                self.distance as f64 * self.pitch.sin() as f64,
+                f64::from(horizontal * self.yaw.cos()),
+            )
+    }
+
+    fn ray(self, x: f32, y: f32, width: f32, height: f32) -> Option<(Vec3, Vec3)> {
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+        let position = self.position();
+        let forward = (self.target - position).try_normalized(1.0e-12)?;
+        let right = forward.cross(Vec3::Y).try_normalized(1.0e-12)?;
+        let up = right.cross(forward).try_normalized(1.0e-12)?;
+        let scale = (self.field_of_view.to_radians() * 0.5).tan() as f64;
+        let aspect = f64::from(width / height);
+        let ndc_x = (2.0 * f64::from(x) / f64::from(width) - 1.0) * aspect * scale;
+        let ndc_y = (1.0 - 2.0 * f64::from(y) / f64::from(height)) * scale;
+        let direction = (forward + right * ndc_x + up * ndc_y).try_normalized(1.0e-12)?;
+        Some((position, direction))
+    }
+
+    fn fit(&mut self, document: &Document) {
+        let Ok(occurrences) = document.scene_geometry_refs() else {
+            return;
+        };
+        let mut minimum = Vec3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+        let mut maximum = Vec3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut found = false;
+        for occurrence in occurrences {
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            for vertex in geometry.vertices.values() {
+                let point = resolved.world_transform.transform_point(vertex.position);
+                minimum.x = minimum.x.min(point.x);
+                minimum.y = minimum.y.min(point.y);
+                minimum.z = minimum.z.min(point.z);
+                maximum.x = maximum.x.max(point.x);
+                maximum.y = maximum.y.max(point.y);
+                maximum.z = maximum.z.max(point.z);
+                found = true;
+            }
+        }
+        if found {
+            self.target = (minimum + maximum) * 0.5;
+            self.distance = (maximum - minimum).length().max(3.0) as f32 * 1.6;
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RenderScene {
+    document: Arc<Document>,
+    grid_visible: bool,
+    grid_normal_axis: String,
+    grid_extent: i32,
+    selection: Vec<SelectionTarget>,
+    guides: Vec<ConstructionGuide>,
+    guides_visible: bool,
+    active_tool: String,
+    cursor: Option<SnapResult>,
+    cursor_axes: Option<[Vec3; 3]>,
+    preview: Option<ToolPreview>,
+    feedback: Option<ToolFeedback>,
+    selection_rect: Option<([f32; 4], bool)>,
+    grid_spacing: f64,
+}
+
+impl Default for RenderScene {
+    fn default() -> Self {
+        Self {
+            document: Arc::new(Document::new()),
+            grid_visible: true,
+            grid_normal_axis: "y".to_owned(),
+            grid_extent: 32,
+            selection: Vec::new(),
+            guides: Vec::new(),
+            guides_visible: true,
+            active_tool: "Select".to_owned(),
+            cursor: None,
+            cursor_axes: None,
+            preview: None,
+            feedback: None,
+            selection_rect: None,
+            grid_spacing: 1.0,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ViewFrame {
+    image: Arc<RenderImage>,
+    sequence: u64,
+    frame_ms: f32,
+}
+
+#[derive(Clone)]
+struct ViewportBridge {
+    layout: Arc<Mutex<ViewportLayout>>,
+    camera: Arc<Mutex<OrbitCamera>>,
+    scene: Arc<RwLock<Arc<RenderScene>>>,
+    frame: Arc<Mutex<Option<ViewFrame>>>,
+    redraw: Arc<(Mutex<u64>, Condvar)>,
+}
+
+impl ViewportBridge {
+    fn new() -> Self {
+        Self {
+            layout: Arc::new(Mutex::new(ViewportLayout::default())),
+            camera: Arc::new(Mutex::new(OrbitCamera::default())),
+            scene: Arc::new(RwLock::new(Arc::new(RenderScene::default()))),
+            frame: Arc::new(Mutex::new(None)),
+            redraw: Arc::new((Mutex::new(1), Condvar::new())),
+        }
+    }
+
+    fn publish_layout(&self, layout: ViewportLayout) {
+        if let Ok(mut current) = self.layout.lock() {
+            if *current == layout {
+                return;
+            }
+            *current = layout;
+        }
+        self.request_redraw();
+    }
+
+    fn publish_camera(&self, camera: OrbitCamera) {
+        if let Ok(mut current) = self.camera.lock() {
+            if *current == camera {
+                return;
+            }
+            *current = camera;
+        }
+        self.request_redraw();
+    }
+
+    fn publish_scene(&self, scene: RenderScene) {
+        if let Ok(mut current) = self.scene.write() {
+            *current = Arc::new(scene);
+        }
+        self.request_redraw();
+    }
+
+    fn request_redraw(&self) {
+        let (revision, changed) = &*self.redraw;
+        if let Ok(mut revision) = revision.lock() {
+            *revision = revision.wrapping_add(1);
+            changed.notify_one();
+        }
+    }
+
+    fn latest_frame(&self) -> Option<ViewFrame> {
+        self.frame.lock().ok().and_then(|frame| frame.clone())
+    }
+}
+
+#[derive(Clone)]
+struct ShutdownSignal {
+    stop: Arc<AtomicBool>,
+    finished: Arc<(Mutex<bool>, Condvar)>,
+    redraw: Arc<(Mutex<u64>, Condvar)>,
+}
+
+impl ShutdownSignal {
+    fn stop_and_wait(&self) {
+        self.stop.store(true, Ordering::Release);
+        self.redraw.1.notify_all();
+        let (finished, changed) = &*self.finished;
+        let Ok(finished) = finished.lock() else {
+            return;
+        };
+        let _finished = changed.wait_while(finished, |finished| !*finished);
+    }
+}
+
+struct RenderThreadGuard(Arc<(Mutex<bool>, Condvar)>);
+
+impl Drop for RenderThreadGuard {
+    fn drop(&mut self) {
+        let (finished, changed) = &*self.0;
+        if let Ok(mut finished) = finished.lock() {
+            *finished = true;
+            changed.notify_all();
+        }
+    }
+}
+
+struct RaylibWorker {
+    bridge: ViewportBridge,
+    shutdown: ShutdownSignal,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl RaylibWorker {
+    fn start() -> Self {
+        let bridge = ViewportBridge::new();
+        let worker_bridge = bridge.clone();
+        let shutdown = ShutdownSignal {
+            stop: Arc::new(AtomicBool::new(false)),
+            finished: Arc::new((Mutex::new(false), Condvar::new())),
+            redraw: bridge.redraw.clone(),
+        };
+        let worker_stop = shutdown.stop.clone();
+        let worker_finished = shutdown.finished.clone();
+        let thread = thread::Builder::new()
+            .name("meshcraft-raylib-offscreen".into())
+            .spawn(move || render_loop(worker_bridge, worker_stop, worker_finished))
+            .expect("start raylib offscreen renderer");
+        Self {
+            bridge,
+            shutdown,
+            thread: Some(thread),
+        }
+    }
+
+    fn stop(&mut self) {
+        self.shutdown.stop_and_wait();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for RaylibWorker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn render_loop(
+    bridge: ViewportBridge,
+    stop: Arc<AtomicBool>,
+    finished: Arc<(Mutex<bool>, Condvar)>,
+) {
+    let _finished = RenderThreadGuard(finished);
+    let (mut rl, thread) = raylib::init()
+        .log_level(TraceLogLevel::LOG_WARNING)
+        .size(640, 480)
+        .title("Meshcraft offscreen renderer")
+        .hidden()
+        .build();
+    rl.set_target_fps(60);
+    let mut size = (640_u32, 480_u32);
+    let mut target = match rl.load_render_texture(&thread, size.0, size.1) {
+        Ok(target) => target,
+        Err(error) => {
+            eprintln!("create raylib viewport render target: {error}");
+            return;
+        }
+    };
+    let mut sequence = 0_u64;
+    let mut rendered_revision = 0;
+
+    while !stop.load(Ordering::Acquire) && !rl.window_should_close() {
+        let (revision, changed) = &*bridge.redraw;
+        let Ok(revision) = revision.lock() else {
+            break;
+        };
+        let next_revision = match changed.wait_while(revision, |revision| {
+            *revision == rendered_revision && !stop.load(Ordering::Acquire)
+        }) {
+            Ok(revision) if !stop.load(Ordering::Acquire) => *revision,
+            _ => break,
+        };
+        rendered_revision = next_revision;
+
+        let frame_start = Instant::now();
+        let layout = bridge.layout.lock().map(|value| *value).unwrap_or_default();
+        let wanted = (layout.width.max(1), layout.height.max(1));
+        if wanted != size {
+            match rl.load_render_texture(&thread, wanted.0, wanted.1) {
+                Ok(new_target) => {
+                    target = new_target;
+                    size = wanted;
+                }
+                Err(error) => eprintln!("resize raylib viewport render target: {error}"),
+            }
+        }
+        let camera = bridge.camera.lock().map(|value| *value).unwrap_or_default();
+        let scene = bridge
+            .scene
+            .read()
+            .map(|value| Arc::clone(&value))
+            .unwrap_or_else(|_| Arc::new(RenderScene::default()));
+        draw_offscreen_scene(&mut rl, &thread, &mut target, camera, &scene, sequence);
+        let Some(image) = copy_target_to_gpui_image(&target) else {
+            eprintln!("could not copy raylib viewport target into a GPUI image");
+            thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        sequence = sequence.saturating_add(1);
+        if let Ok(mut current) = bridge.frame.lock() {
+            *current = Some(ViewFrame {
+                image: Arc::new(RenderImage::new(vec![Frame::new(image)])),
+                sequence,
+                frame_ms: frame_start.elapsed().as_secs_f32() * 1_000.0,
+            });
+        }
+        let elapsed = frame_start.elapsed();
+        if elapsed < FRAME_INTERVAL {
+            thread::sleep(FRAME_INTERVAL - elapsed);
+        }
+    }
+}
+
+fn draw_offscreen_scene(
+    rl: &mut raylib::RaylibHandle,
+    thread: &raylib::RaylibThread,
+    target: &mut RenderTexture2D,
+    orbit: OrbitCamera,
+    scene_data: &RenderScene,
+    sequence: u64,
+) {
+    let position = orbit.position();
+    let camera = Camera3D::perspective(
+        ray_vec3(position),
+        ray_vec3(orbit.target),
+        RayVector3::new(0.0, 1.0, 0.0),
+        orbit.field_of_view,
+    );
+    let mut drawing = rl.begin_texture_mode(thread, target);
+    drawing.clear_background(Color::new(224, 236, 247, 255));
+    {
+        let mut view = drawing.begin_mode3D(camera);
+        if scene_data.grid_visible {
+            draw_grid(
+                &mut view,
+                scene_data.grid_spacing,
+                scene_data.grid_extent,
+                &scene_data.grid_normal_axis,
+            );
+        }
+        draw_document(&mut view, scene_data, position);
+        if scene_data.guides_visible {
+            draw_guides(&mut view, &scene_data.guides);
+        }
+        if let (Some(cursor), Some(axes)) = (scene_data.cursor, scene_data.cursor_axes) {
+            draw_cursor(&mut view, cursor, axes);
+        }
+        if let Some(preview) = scene_data.preview.as_ref() {
+            draw_preview(&mut view, preview);
+        }
+    }
+    let label = format!(
+        "{} · scene {} · frame {}",
+        scene_data.active_tool,
+        scene_data.document.revision(),
+        sequence
+    );
+    drawing.draw_text(&label, 14, 12, 16, Color::new(34, 48, 62, 255));
+    if let Some(feedback) = scene_data.feedback.as_ref() {
+        drawing.draw_text(
+            &feedback.text,
+            feedback.screen_position.x.round() as i32 + 14,
+            feedback.screen_position.y.round() as i32 + 14,
+            16,
+            Color::new(32, 51, 68, 255),
+        );
+    }
+    if let Some((rect, crossing)) = scene_data.selection_rect {
+        let fill = if crossing {
+            Color::new(27, 176, 132, 56)
+        } else {
+            Color::new(40, 125, 230, 48)
+        };
+        let outline = if crossing {
+            Color::new(25, 170, 125, 255)
+        } else {
+            Color::new(36, 112, 225, 255)
+        };
+        let x = rect[0].min(rect[2]) as i32;
+        let y = rect[1].min(rect[3]) as i32;
+        let width = (rect[2] - rect[0]).abs() as i32;
+        let height = (rect[3] - rect[1]).abs() as i32;
+        drawing.draw_rectangle(x, y, width, height, fill);
+        drawing.draw_rectangle_lines(x, y, width, height, outline);
+    }
+}
+
+fn draw_grid(scene: &mut impl RaylibDraw3D, spacing: f64, extent: i32, normal_axis: &str) {
+    let spacing = if spacing.is_finite() && spacing > 0.0 {
+        spacing as f32
+    } else {
+        1.0
+    };
+    let extent = extent.clamp(1, 1000);
+    let minor = Color::new(142, 160, 176, 255);
+    let major = Color::new(97, 119, 139, 255);
+    for step in -extent..=extent {
+        let coordinate = step as f32 * spacing;
+        let color = if step % 5 == 0 { major } else { minor };
+        match normal_axis {
+            "x" => {
+                scene.draw_line3D(
+                    RayVector3::new(0.0, -(extent as f32) * spacing, coordinate),
+                    RayVector3::new(0.0, extent as f32 * spacing, coordinate),
+                    color,
+                );
+                scene.draw_line3D(
+                    RayVector3::new(0.0, coordinate, -(extent as f32) * spacing),
+                    RayVector3::new(0.0, coordinate, extent as f32 * spacing),
+                    color,
+                );
+            }
+            "z" => {
+                scene.draw_line3D(
+                    RayVector3::new(-(extent as f32) * spacing, coordinate, 0.0),
+                    RayVector3::new(extent as f32 * spacing, coordinate, 0.0),
+                    color,
+                );
+                scene.draw_line3D(
+                    RayVector3::new(coordinate, -(extent as f32) * spacing, 0.0),
+                    RayVector3::new(coordinate, extent as f32 * spacing, 0.0),
+                    color,
+                );
+            }
+            _ => {
+                scene.draw_line3D(
+                    RayVector3::new(-(extent as f32) * spacing, 0.0, coordinate),
+                    RayVector3::new(extent as f32 * spacing, 0.0, coordinate),
+                    color,
+                );
+                scene.draw_line3D(
+                    RayVector3::new(coordinate, 0.0, -(extent as f32) * spacing),
+                    RayVector3::new(coordinate, 0.0, extent as f32 * spacing),
+                    color,
+                );
+            }
+        }
+    }
+    let axis_origin = match normal_axis {
+        "x" => RayVector3::new(0.0, 0.0, 0.0),
+        "z" => RayVector3::new(0.0, 0.0, 0.01),
+        _ => RayVector3::new(0.0, 0.01, 0.0),
+    };
+    let (red_end, blue_end) = match normal_axis {
+        "x" => (
+            RayVector3::new(axis_origin.x, axis_origin.y + 40.0 * spacing, axis_origin.z),
+            RayVector3::new(axis_origin.x, axis_origin.y, axis_origin.z + 40.0 * spacing),
+        ),
+        "z" => (
+            RayVector3::new(axis_origin.x + 40.0 * spacing, axis_origin.y, axis_origin.z),
+            RayVector3::new(axis_origin.x, axis_origin.y + 40.0 * spacing, axis_origin.z),
+        ),
+        _ => (
+            RayVector3::new(axis_origin.x + 40.0 * spacing, axis_origin.y, axis_origin.z),
+            RayVector3::new(axis_origin.x, axis_origin.y, axis_origin.z + 40.0 * spacing),
+        ),
+    };
+    scene.draw_line3D(axis_origin, red_end, Color::new(198, 76, 70, 255));
+    scene.draw_line3D(axis_origin, blue_end, Color::new(68, 117, 186, 255));
+}
+
+fn draw_document(scene: &mut impl RaylibDraw3D, render: &RenderScene, camera_position: Vec3) {
+    let Ok(occurrences) = render.document.scene_geometry_refs() else {
+        return;
+    };
+    for occurrence in occurrences {
+        let Some(resolved) = render.document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let Some(geometry) = render.document.effective_geometry(&occurrence) else {
+            continue;
+        };
+        let occurrence_selected = render.selection.iter().any(|target| {
+            target.occurrence == occurrence && target.entity == SelectedEntity::Occurrence
+        });
+        for triangle in geometry.triangles.values() {
+            let Some(points) = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference))
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let [a, b, c] = [points[0], points[1], points[2]]
+                .map(|point| resolved.world_transform.transform_point(point));
+            let selected = occurrence_selected
+                || render.selection.iter().any(|target| {
+                    target.occurrence == occurrence
+                        && target.entity == SelectedEntity::Triangle(triangle.id)
+                });
+            let normal = (b - a)
+                .cross(c - a)
+                .try_normalized(1.0e-12)
+                .unwrap_or(Vec3::Y);
+            let to_camera = (camera_position - (a + b + c) / 3.0)
+                .try_normalized(1.0e-12)
+                .unwrap_or(Vec3::Y);
+            let front = normal.dot(to_camera) >= 0.0;
+            let color = if selected {
+                Color::new(242, 151, 61, triangle.color.alpha)
+            } else {
+                shaded_face_color(triangle.color, front)
+            };
+            scene.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), color);
+            if selected {
+                let edge = Color::new(240, 116, 43, 255);
+                scene.draw_line3D(ray_vec3(a), ray_vec3(b), edge);
+                scene.draw_line3D(ray_vec3(b), ray_vec3(c), edge);
+                scene.draw_line3D(ray_vec3(c), ray_vec3(a), edge);
+            }
+        }
+        for segment in geometry.segments.values() {
+            let [Some(a), Some(b)] = segment
+                .endpoints
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            let a = resolved.world_transform.transform_point(a);
+            let b = resolved.world_transform.transform_point(b);
+            let selected = occurrence_selected
+                || render.selection.iter().any(|target| {
+                    target.occurrence == occurrence
+                        && target.entity == SelectedEntity::Segment(segment.id)
+                });
+            let color = if selected {
+                Color::new(245, 128, 46, 255)
+            } else {
+                ray_color(segment.color)
+            };
+            scene.draw_line3D(ray_vec3(a), ray_vec3(b), color);
+        }
+        for vertex in geometry.vertices.values() {
+            let selected = occurrence_selected
+                || render.selection.iter().any(|target| {
+                    target.occurrence == occurrence
+                        && target.entity == SelectedEntity::Vertex(vertex.id)
+                });
+            if selected {
+                let point = resolved.world_transform.transform_point(vertex.position);
+                scene.draw_sphere(ray_vec3(point), 0.06, Color::new(227, 57, 49, 255));
+            }
+        }
+    }
+}
+
+fn shaded_face_color(color: Rgba8, front: bool) -> Color {
+    let factor = if front { 0.94 } else { 0.72 };
+    let blue_bias = if front { 0.0 } else { 8.0 };
+    Color::new(
+        (f32::from(color.red) * factor).round() as u8,
+        (f32::from(color.green) * factor).round() as u8,
+        (f32::from(color.blue) * factor + blue_bias)
+            .min(255.0)
+            .round() as u8,
+        color.alpha,
+    )
+}
+
+fn ray_color(color: Rgba8) -> Color {
+    Color::new(color.red, color.green, color.blue, color.alpha)
+}
+fn ray_vec3(point: Vec3) -> RayVector3 {
+    RayVector3::new(point.x as f32, point.y as f32, point.z as f32)
+}
+
+fn draw_guides(scene: &mut impl RaylibDraw3D, guides: &[ConstructionGuide]) {
+    const GUIDE_LENGTH: f32 = 64.0;
+    for guide in guides {
+        let origin = ray_vec3(guide.origin);
+        let axes = [
+            ray_vec3(guide.axis_u),
+            ray_vec3(guide.axis_v),
+            ray_vec3(guide.axis_w),
+        ];
+        let colors = [
+            Color::new(196, 74, 67, 255),
+            Color::new(57, 151, 96, 255),
+            Color::new(62, 112, 194, 255),
+        ];
+        for (axis, color) in axes.iter().copied().zip(colors) {
+            let end_a = RayVector3::new(
+                origin.x - axis.x * GUIDE_LENGTH,
+                origin.y - axis.y * GUIDE_LENGTH,
+                origin.z - axis.z * GUIDE_LENGTH,
+            );
+            let end_b = RayVector3::new(
+                origin.x + axis.x * GUIDE_LENGTH,
+                origin.y + axis.y * GUIDE_LENGTH,
+                origin.z + axis.z * GUIDE_LENGTH,
+            );
+            scene.draw_line3D(end_a, end_b, color);
+        }
+        if guide.kind == ConstructionGuideKind::Grid {
+            let spacing = 1.0_f32;
+            for step in -12..=12 {
+                let offset = step as f32 * spacing;
+                let u = axes[0];
+                let v = axes[1];
+                let start_u = RayVector3::new(
+                    origin.x - u.x * 12.0 + v.x * offset,
+                    origin.y - u.y * 12.0 + v.y * offset,
+                    origin.z - u.z * 12.0 + v.z * offset,
+                );
+                let end_u = RayVector3::new(
+                    origin.x + u.x * 12.0 + v.x * offset,
+                    origin.y + u.y * 12.0 + v.y * offset,
+                    origin.z + u.z * 12.0 + v.z * offset,
+                );
+                let start_v = RayVector3::new(
+                    origin.x - v.x * 12.0 + u.x * offset,
+                    origin.y - v.y * 12.0 + u.y * offset,
+                    origin.z - v.z * 12.0 + u.z * offset,
+                );
+                let end_v = RayVector3::new(
+                    origin.x + v.x * 12.0 + u.x * offset,
+                    origin.y + v.y * 12.0 + u.y * offset,
+                    origin.z + v.z * 12.0 + u.z * offset,
+                );
+                let color = if step % 5 == 0 {
+                    Color::new(94, 119, 144, 210)
+                } else {
+                    Color::new(146, 164, 180, 180)
+                };
+                scene.draw_line3D(start_u, end_u, color);
+                scene.draw_line3D(start_v, end_v, color);
+            }
+        }
+    }
+}
+
+fn draw_cursor(scene: &mut impl RaylibDraw3D, cursor: SnapResult, axes: [Vec3; 3]) {
+    let origin = ray_vec3(cursor.point);
+    let colors = [
+        Color::new(217, 69, 62, 255),
+        Color::new(51, 155, 94, 255),
+        Color::new(58, 112, 204, 255),
+    ];
+    for (axis, color) in axes.into_iter().zip(colors) {
+        let tip = cursor.point + axis * 0.65;
+        scene.draw_line3D(origin, ray_vec3(tip), color);
+    }
+    scene.draw_sphere(origin, 0.055, Color::new(55, 66, 78, 255));
+}
+
+fn draw_preview(scene: &mut impl RaylibDraw3D, preview: &ToolPreview) {
+    let mut edges = Vec::<[Vec3; 2]>::new();
+    let mut triangles = Vec::<([Vec3; 3], Rgba8)>::new();
+    match preview {
+        ToolPreview::Point { position } => {
+            scene.draw_sphere(ray_vec3(*position), 0.075, Color::new(235, 128, 38, 255));
+        }
+        ToolPreview::Cuboid(cuboid) => {
+            let p = cuboid.origin;
+            let d = cuboid.dimensions;
+            let points = [
+                p,
+                p + Vec3::new(d.x, 0.0, 0.0),
+                p + Vec3::new(d.x, d.y, 0.0),
+                p + Vec3::new(0.0, d.y, 0.0),
+                p + Vec3::new(0.0, 0.0, d.z),
+                p + Vec3::new(d.x, 0.0, d.z),
+                p + d,
+                p + Vec3::new(0.0, d.y, d.z),
+            ];
+            for [a, b] in [
+                [0, 1],
+                [1, 2],
+                [2, 3],
+                [3, 0],
+                [4, 5],
+                [5, 6],
+                [6, 7],
+                [7, 4],
+                [0, 4],
+                [1, 5],
+                [2, 6],
+                [3, 7],
+            ] {
+                edges.push([points[a], points[b]]);
+            }
+        }
+        ToolPreview::Line { start, end } => edges.push([*start, *end]),
+        ToolPreview::PlanarShape {
+            outline, closed, ..
+        }
+        | ToolPreview::Polyline { outline, closed } => add_path_edges(&mut edges, outline, *closed),
+        ToolPreview::Transform { edges: source }
+        | ToolPreview::LineOffset { edges: source, .. } => edges.extend(source.iter().copied()),
+        ToolPreview::Array {
+            edges: source,
+            copies,
+            displacement,
+        } => {
+            for copy in 1..=*copies {
+                edges.extend(source.iter().map(|[a, b]| {
+                    [
+                        *a + *displacement * copy as f64,
+                        *b + *displacement * copy as f64,
+                    ]
+                }));
+            }
+        }
+        ToolPreview::ArrayOffsets {
+            edges: source,
+            offsets,
+            ..
+        } => {
+            for offset in offsets {
+                edges.extend(source.iter().map(|[a, b]| [*a + *offset, *b + *offset]));
+            }
+        }
+        ToolPreview::ArrayTransforms {
+            edges: source,
+            transforms,
+            ..
+        } => {
+            for transform in transforms {
+                edges.extend(
+                    source.iter().map(|[a, b]| {
+                        [transform.transform_point(*a), transform.transform_point(*b)]
+                    }),
+                );
+            }
+        }
+        ToolPreview::PushPull {
+            edges: source,
+            triangles: faces,
+        }
+        | ToolPreview::Primitive {
+            edges: source,
+            triangles: faces,
+        } => {
+            edges.extend(source.iter().copied());
+            triangles.extend(faces.iter().copied());
+        }
+        ToolPreview::Paint {
+            edges: source,
+            triangles: faces,
+            color,
+        } => {
+            edges.extend(source.iter().copied());
+            triangles.extend(faces.iter().copied().map(|triangle| (triangle, *color)));
+        }
+    }
+    let color = Color::new(235, 118, 38, 255);
+    for [a, b] in edges {
+        scene.draw_line3D(ray_vec3(a), ray_vec3(b), color);
+    }
+    for ([a, b, c], face_color) in triangles {
+        scene.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), ray_color(face_color));
+    }
+}
+
+fn add_path_edges(edges: &mut Vec<[Vec3; 2]>, points: &[Vec3], closed: bool) {
+    edges.extend(points.windows(2).map(|pair| [pair[0], pair[1]]));
+    if closed && points.len() > 2 {
+        edges.push([points[points.len() - 1], points[0]]);
+    }
+}
+
+fn copy_target_to_gpui_image(
+    target: &impl RaylibRenderTexture2D,
+) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+    let image = target.texture().load_image().ok()?;
+    let width = u32::try_from(image.width()).ok()?;
+    let height = u32::try_from(image.height()).ok()?;
+    if image.format() != PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 {
+        return None;
+    }
+    let bytes = usize::try_from(width.checked_mul(height)?.checked_mul(4)?).ok()?;
+    // Raylib's texture readback owns a tightly packed RGBA buffer until the image is dropped.
+    let rgba = unsafe { slice::from_raw_parts(image.data().cast::<u8>(), bytes) };
+    let mut bgra = rgba.to_vec();
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    let mut output = ImageBuffer::from_raw(width, height, bgra)?;
+    image::imageops::flip_vertical_in_place(&mut output);
+    Some(output)
+}
+
+#[derive(Clone, Copy)]
+struct PointerPick {
+    origin: Vec3,
+    direction: Vec3,
+    radius: f64,
+    point: Vec3,
+    snap: SnapResult,
+}
+
+#[derive(Clone, Copy)]
+struct SelectionGesture {
+    start: (f32, f32),
+    modifiers: egui::Modifiers,
+}
+
+struct RaylibCanvas {
+    bridge: ViewportBridge,
+    frame_watch_started: bool,
+}
+
+impl Render for RaylibCanvas {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.frame_watch_started {
+            self.frame_watch_started = true;
+            let bridge = self.bridge.clone();
+            let initial_sequence = bridge.latest_frame().map_or(0, |frame| frame.sequence);
+            cx.spawn_in(window, async move |canvas, cx| {
+                let mut last_sequence = initial_sequence;
+                loop {
+                    gpui::Timer::after(Duration::from_millis(16)).await;
+                    let sequence = bridge.latest_frame().map_or(0, |frame| frame.sequence);
+                    if sequence > last_sequence {
+                        last_sequence = sequence;
+                        if canvas.update(cx, |_, cx| cx.notify()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            })
+            .detach();
+        }
+        match self.bridge.latest_frame() {
+            Some(frame) => img(ImageSource::Render(frame.image.clone()))
+                .size_full()
+                .into_any_element(),
+            None => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(0x334155))
+                .child("Starting raylib viewport…")
+                .into_any_element(),
+        }
+    }
+}
+
+struct MeshcraftShell {
+    bridge: ViewportBridge,
+    viewport_canvas: Entity<RaylibCanvas>,
+    session: MeshcraftApp,
+    camera: OrbitCamera,
+    layout: ViewportLayout,
+    active_ribbon_tab: &'static str,
+    open_menu: Option<&'static str>,
+    cached_document_revision: Option<u64>,
+    cached_document: Arc<Document>,
+    cursor_local: Option<(f32, f32)>,
+    cursor_snap: Option<SnapResult>,
+    last_pick: Option<PointerPick>,
+    camera_drag: Option<(f32, f32)>,
+    selection_gesture: Option<SelectionGesture>,
+    selection_cursor: Option<(f32, f32)>,
+    command_palette_open: bool,
+    close_requested: bool,
+    last_sequence: u64,
+}
+
+impl MeshcraftShell {
+    fn new(bridge: ViewportBridge, session: MeshcraftApp, cx: &mut Context<Self>) -> Self {
+        let viewport_canvas = cx.new(|_| RaylibCanvas {
+            bridge: bridge.clone(),
+            frame_watch_started: false,
+        });
+        let mut this = Self {
+            camera: OrbitCamera::default(),
+            layout: ViewportLayout::default(),
+            active_ribbon_tab: "Home",
+            open_menu: None,
+            cached_document_revision: None,
+            cached_document: Arc::new(session.document_snapshot()),
+            cursor_local: None,
+            cursor_snap: None,
+            last_pick: None,
+            camera_drag: None,
+            selection_gesture: None,
+            selection_cursor: None,
+            command_palette_open: false,
+            close_requested: false,
+            last_sequence: 0,
+            bridge,
+            viewport_canvas,
+            session,
+        };
+        this.camera.fit(&this.session.document_snapshot());
+        this.bridge.publish_camera(this.camera);
+        this.refresh_scene();
+        this
+    }
+
+    fn refresh_scene(&mut self) {
+        let revision = self.session.document_revision();
+        if self.cached_document_revision != Some(revision) {
+            self.cached_document = Arc::new(self.session.document_snapshot());
+            self.cached_document_revision = Some(revision);
+        }
+        let (preview, feedback, cursor_axes) = match (self.cursor_snap, self.cursor_local) {
+            (Some(snap), Some((x, y))) => {
+                self.session.set_native_cursor_snap(Some(snap));
+                let axes = self.session.native_cursor_axes(snap);
+                let (preview, feedback) = self
+                    .session
+                    .native_tool_feedback_for_snap(snap, egui::Pos2::new(x, y));
+                (preview, feedback, axes)
+            }
+            _ => {
+                self.session.set_native_cursor_snap(None);
+                (None, None, None)
+            }
+        };
+        let preferences = self.session.native_ui_preferences();
+        let selection_rect = self
+            .selection_gesture
+            .and_then(|gesture| self.selection_cursor.map(|cursor| (gesture, cursor)))
+            .map(|(gesture, cursor)| {
+                (
+                    [gesture.start.0, gesture.start.1, cursor.0, cursor.1],
+                    cursor.0 < gesture.start.0,
+                )
+            });
+        self.bridge.publish_scene(RenderScene {
+            document: Arc::clone(&self.cached_document),
+            grid_visible: preferences.show_permanent_grid,
+            grid_normal_axis: match preferences.grid_normal_axis {
+                GridNormalAxis::X => "x",
+                GridNormalAxis::Y => "y",
+                GridNormalAxis::Z => "z",
+            }
+            .to_owned(),
+            grid_extent: preferences.grid_extent as i32,
+            selection: self.session.native_selection_targets(),
+            guides: self.session.native_construction_guides().to_vec(),
+            guides_visible: self.session.native_guides_visible(),
+            active_tool: self.session.active_tool_label().to_owned(),
+            cursor: self.cursor_snap,
+            cursor_axes,
+            preview,
+            feedback,
+            selection_rect,
+            grid_spacing: self.cached_document.model_settings().grid_size,
+        });
+    }
+
+    fn update_pointer(&mut self, x: f32, y: f32) {
+        self.cursor_local = Some((x, y));
+        let Some((origin, direction)) =
+            self.camera
+                .ray(x, y, self.layout.width as f32, self.layout.height as f32)
+        else {
+            self.cursor_snap = None;
+            self.last_pick = None;
+            self.refresh_scene();
+            return;
+        };
+        let settings = self.cached_document.model_settings();
+        let world_per_pixel = (self.camera.distance as f64
+            * (self.camera.field_of_view.to_radians() * 0.5).tan() as f64
+            * 2.0)
+            / f64::from(self.layout.height.max(1));
+        let radius = (world_per_pixel * settings.snap_radius).max(settings.grid_size * 0.015);
+        let geometry_snap = self
+            .session
+            .native_snap_point_on_ray(origin, direction, radius);
+        let preferences = self.session.native_ui_preferences();
+        let (point, snap) = geometry_snap
+            .map(|snap| (snap.point, snap))
+            .or_else(|| {
+                grid_point_on_ray(
+                    origin,
+                    direction,
+                    settings.grid_size,
+                    preferences.grid_normal_axis,
+                )
+            })
+            .map_or((None, None), |(point, snap)| (Some(point), Some(snap)));
+        self.cursor_snap = snap;
+        self.last_pick = point.zip(snap).map(|(point, snap)| PointerPick {
+            origin,
+            direction,
+            radius,
+            point,
+            snap,
+        });
+        self.refresh_scene();
+    }
+
+    fn dispatch(&mut self, id: &str) {
+        let Some(command) = MeshcraftApp::command_catalog()
+            .into_iter()
+            .find(|command| command.id.as_str() == id)
+        else {
+            return;
+        };
+        let payload = if id == "ui.update_preferences" {
+            self.session.native_ui_preferences_payload()
+        } else {
+            command_default_payload(&command, &self.cached_document)
+        };
+        self.dispatch_payload(id, &payload);
+    }
+
+    fn dispatch_payload(&mut self, id: &str, payload: &CommandPayload) {
+        let dispatch = self.session.dispatch_command(id, payload);
+        if dispatch.accepted {
+            match id {
+                "app.quit" => self.close_requested = true,
+                "view.camera.reset" => {
+                    self.camera = OrbitCamera::default();
+                    self.bridge.publish_camera(self.camera);
+                }
+                "view.frame_document" => {
+                    self.camera.fit(&self.session.document_snapshot());
+                    self.bridge.publish_camera(self.camera);
+                }
+                _ => {}
+            }
+        }
+        self.session.poll_native_host_work();
+        self.refresh_scene();
+    }
+
+    fn update_model_number(&mut self, field: &str, delta: f64) {
+        let mut settings = self.cached_document.model_settings().clone();
+        match field {
+            "unit_size" => settings.unit_size = (settings.unit_size + delta).max(0.001),
+            "grid_size" => settings.grid_size = (settings.grid_size + delta).max(0.001),
+            "circle_segments" => {
+                settings.circle_segments = (f64::from(settings.circle_segments) + delta)
+                    .round()
+                    .clamp(3.0, 256.0) as u32;
+            }
+            "snap_radius" => {
+                settings.snap_radius = (settings.snap_radius + delta).clamp(0.0, 128.0)
+            }
+            "arc_max_length" => {
+                settings.arc_max_length = (settings.arc_max_length + delta).max(0.001)
+            }
+            "double_line_size" => {
+                settings.double_line_size = (settings.double_line_size + delta).max(0.001)
+            }
+            "double_line_offset" => settings.double_line_offset += delta,
+            _ => return,
+        }
+        self.dispatch_payload("model.update_settings", &model_settings_payload(&settings));
+    }
+
+    fn update_ui_preference(&mut self, field: &str, value: Value) {
+        let mut payload = self.session.native_ui_preferences_payload();
+        payload.values.insert(field.to_owned(), value);
+        self.dispatch_payload("ui.update_preferences", &payload);
+    }
+
+    fn toggle_ui_preference(&mut self, field: &str) {
+        let preferences = self.session.native_ui_preferences();
+        let current = match field {
+            "show_permanent_grid" => preferences.show_permanent_grid,
+            "show_construction_guides" => preferences.show_construction_guides,
+            "auto_collapse_toolbars" => preferences.auto_collapse_toolbars,
+            "toolbar_flow_top_down" => preferences.toolbar_flow_top_down,
+            _ => return,
+        };
+        self.update_ui_preference(field, Value::Bool(!current));
+    }
+
+    fn adjust_ui_preference(&mut self, field: &str, delta: i32) {
+        let preferences = self.session.native_ui_preferences();
+        match field {
+            "grid_extent" => {
+                let value = (preferences.grid_extent as i32 + delta).clamp(1, 1000) as u32;
+                self.update_ui_preference(field, json!(value));
+            }
+            "toolbar_icon_size" => {
+                let sizes = [24_u32, 32, 40, 48];
+                let current = sizes
+                    .iter()
+                    .position(|size| *size == preferences.toolbar_icon_size)
+                    .unwrap_or(1) as i32;
+                let index = (current + delta).clamp(0, sizes.len() as i32 - 1) as usize;
+                self.update_ui_preference(field, json!(sizes[index]));
+            }
+            "ui_text_scale" => {
+                let value = (preferences.ui_text_scale + delta as f32 * 0.1).clamp(0.5, 2.0);
+                self.update_ui_preference(field, json!(value));
+            }
+            _ => {}
+        }
+    }
+
+    fn viewport_point(&self, position: gpui::Point<gpui::Pixels>, window: &Window) -> (f32, f32) {
+        let scale = window.scale_factor();
+        (
+            (f32::from(position.x) - 230.0) * scale,
+            (f32::from(position.y) - 140.0) * scale,
+        )
+    }
+
+    fn toggle_menu(&mut self, menu: &'static str) {
+        self.open_menu = if self.open_menu == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
+    }
+
+    fn pointer_down(
+        &mut self,
+        button: gpui::MouseButton,
+        x: f32,
+        y: f32,
+        modifiers: gpui::Modifiers,
+    ) {
+        if button == gpui::MouseButton::Right {
+            self.camera_drag = Some((x, y));
+        } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
+            self.update_pointer(x, y);
+            self.selection_gesture = Some(SelectionGesture {
+                start: (x, y),
+                modifiers: egui::Modifiers {
+                    alt: modifiers.alt,
+                    ctrl: modifiers.control,
+                    shift: modifiers.shift,
+                    mac_cmd: modifiers.platform,
+                    command: modifiers.secondary(),
+                },
+            });
+            self.selection_cursor = Some((x, y));
+            self.refresh_scene();
+        }
+    }
+
+    fn pointer_move(&mut self, x: f32, y: f32, modifiers: gpui::Modifiers, right_down: bool) {
+        if let Some((last_x, last_y)) = self.camera_drag {
+            if right_down {
+                let dx = x - last_x;
+                let dy = y - last_y;
+                if modifiers.shift {
+                    self.pan_camera(dx, dy);
+                } else {
+                    self.camera.orbit_by_drag(dx, dy);
+                    self.bridge.publish_camera(self.camera);
+                }
+                self.camera_drag = Some((x, y));
+            } else {
+                self.camera_drag = None;
+            }
+        }
+        if let Some(gesture) = self.selection_gesture.as_mut() {
+            self.selection_cursor = Some((x, y));
+            let dx = x - gesture.start.0;
+            let dy = y - gesture.start.1;
+            if dx.abs() + dy.abs() > 3.0 {
+                // Keep the original corner. The release handler determines window/crossing
+                // direction from the unnormalized endpoints.
+            }
+        }
+        self.update_pointer(x, y);
+    }
+
+    fn pointer_up(&mut self, button: gpui::MouseButton, x: f32, y: f32) {
+        if button == gpui::MouseButton::Right {
+            self.camera_drag = None;
+            return;
+        }
+        if button != gpui::MouseButton::Left {
+            return;
+        }
+        let Some(gesture) = self.selection_gesture.take() else {
+            return;
+        };
+        self.selection_cursor = None;
+        let start = gesture.start;
+        let dx = x - start.0;
+        let dy = y - start.1;
+        if self.session.active_tool_label() == "Select" && (dx * dx + dy * dy).sqrt() >= 4.0 {
+            let crossing = dx < 0.0;
+            let targets = selection_region(
+                &self.cached_document,
+                self.camera,
+                (self.layout.width as f32, self.layout.height as f32),
+                start,
+                (x, y),
+                crossing,
+            );
+            let mode = if gesture.modifiers.ctrl || gesture.modifiers.mac_cmd {
+                SelectionMode::Remove
+            } else if gesture.modifiers.shift {
+                SelectionMode::Add
+            } else {
+                SelectionMode::Replace
+            };
+            self.session
+                .apply_native_selection_region(targets, crossing, mode);
+        } else if let Some(pick) = self.last_pick {
+            if self.session.active_tool_label() == "Select" {
+                let mut target =
+                    self.session
+                        .pick_native_target(pick.origin, pick.direction, pick.radius);
+                if gesture.modifiers.alt
+                    && let Some(target) = target.as_mut()
+                    && !target.occurrence.is_scene_root()
+                {
+                    target.entity = SelectedEntity::Occurrence;
+                }
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |value| value.as_millis() as u64);
+                self.session.handle_native_selection_click(
+                    target,
+                    gesture.modifiers,
+                    now,
+                    ModelVec2::new(f64::from(x), f64::from(y)),
+                );
+            } else {
+                let target =
+                    self.session
+                        .pick_native_target(pick.origin, pick.direction, pick.radius);
+                self.session
+                    .handle_native_world_pick(pick.point, Some(pick.snap), target);
+            }
+        }
+        self.session.poll_native_host_work();
+        self.refresh_scene();
+    }
+
+    fn cursor_in_viewport(&self, x: f32, y: f32) -> bool {
+        x >= 0.0 && y >= 0.0 && x < self.layout.width as f32 && y < self.layout.height as f32
+    }
+
+    fn pan_camera(&mut self, dx: f32, dy: f32) {
+        let position = self.camera.position();
+        let forward = (self.camera.target - position)
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::new(0.0, -1.0, 0.0));
+        let right = forward
+            .cross(Vec3::Y)
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::X);
+        let up = right
+            .cross(forward)
+            .try_normalized(1.0e-12)
+            .unwrap_or(Vec3::Y);
+        let scale = f64::from(self.camera.distance * 0.0025);
+        let delta = (right * (-f64::from(dx)) + up * f64::from(dy)) * scale;
+        self.camera.target += delta;
+        self.bridge.publish_camera(self.camera);
+    }
+
+    fn zoom_camera(&mut self, steps: f32) {
+        self.camera.distance = (self.camera.distance * (-steps * 0.12).exp()).clamp(0.25, 1.0e6);
+        self.bridge.publish_camera(self.camera);
+    }
+
+    fn shortcut(&mut self, event: &gpui::KeyDownEvent) {
+        let key = event.keystroke.key.to_ascii_lowercase();
+        let modifiers = event.keystroke.modifiers;
+        if key == "escape" {
+            self.open_menu = None;
+            self.command_palette_open = false;
+            self.camera_drag = None;
+            self.selection_gesture = None;
+            self.selection_cursor = None;
+            self.session.handle_native_escape();
+            self.cursor_snap = None;
+            self.last_pick = None;
+            self.refresh_scene();
+        } else if modifiers.control && modifiers.shift && key == "p" {
+            self.command_palette_open = !self.command_palette_open;
+            self.open_menu = None;
+        } else if modifiers.control && key == "z" {
+            self.dispatch("edit.undo");
+        } else if modifiers.control && key == "y" {
+            self.dispatch("edit.redo");
+        }
+    }
+}
+
+fn grid_point_on_ray(
+    origin: Vec3,
+    direction: Vec3,
+    grid_size: f64,
+    normal_axis: GridNormalAxis,
+) -> Option<(Vec3, SnapResult)> {
+    let (origin_normal, direction_normal) = match normal_axis {
+        GridNormalAxis::X => (origin.x, direction.x),
+        GridNormalAxis::Y => (origin.y, direction.y),
+        GridNormalAxis::Z => (origin.z, direction.z),
+    };
+    if direction_normal.abs() <= 1.0e-10 || !grid_size.is_finite() || grid_size <= 0.0 {
+        return None;
+    }
+    let distance = -origin_normal / direction_normal;
+    if !distance.is_finite() || distance < 0.0 {
+        return None;
+    }
+    let hit = origin + direction * distance;
+    let point = match normal_axis {
+        GridNormalAxis::X => Vec3::new(
+            0.0,
+            (hit.y / grid_size).round() * grid_size,
+            (hit.z / grid_size).round() * grid_size,
+        ),
+        GridNormalAxis::Y => Vec3::new(
+            (hit.x / grid_size).round() * grid_size,
+            0.0,
+            (hit.z / grid_size).round() * grid_size,
+        ),
+        GridNormalAxis::Z => Vec3::new(
+            (hit.x / grid_size).round() * grid_size,
+            (hit.y / grid_size).round() * grid_size,
+            0.0,
+        ),
+    };
+    let normal = match normal_axis {
+        GridNormalAxis::X => Vec3::X,
+        GridNormalAxis::Y => Vec3::Y,
+        GridNormalAxis::Z => Vec3::new(0.0, 0.0, 1.0),
+    };
+    Some((
+        point,
+        SnapResult {
+            point,
+            normal,
+            kind: SnapKind::Grid,
+            screen_distance: 0.0,
+        },
+    ))
+}
+
+fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout {
+    const LEFT_PANEL: f32 = 230.0;
+    const RIGHT_PANEL: f32 = 330.0;
+    const HEADER: f32 = 140.0;
+    const STATUS: f32 = 26.0;
+    ViewportLayout {
+        x: (LEFT_PANEL * scale).round() as i32,
+        y: (HEADER * scale).round() as i32,
+        width: ((width - LEFT_PANEL - RIGHT_PANEL).max(1.0) * scale)
+            .round()
+            .max(1.0) as u32,
+        height: ((height - HEADER - STATUS).max(1.0) * scale)
+            .round()
+            .max(1.0) as u32,
+        scale,
+    }
+}
+
+fn publish_layout(bridge: &ViewportBridge, window: &Window) {
+    let bounds = window.bounds();
+    let scale = window.scale_factor();
+    let layout = viewport_physical_rect(
+        f32::from(bounds.size.width) / scale,
+        f32::from(bounds.size.height) / scale,
+        scale,
+    );
+    bridge.publish_layout(layout);
+}
+
+fn selection_region(
+    document: &Document,
+    camera: OrbitCamera,
+    size: (f32, f32),
+    start: (f32, f32),
+    end: (f32, f32),
+    crossing: bool,
+) -> Vec<SelectionTarget> {
+    let region = [
+        start.0.min(end.0),
+        start.1.min(end.1),
+        start.0.max(end.0),
+        start.1.max(end.1),
+    ];
+    let mut selected = Vec::new();
+    let Ok(occurrences) = document.scene_geometry_refs() else {
+        return selected;
+    };
+    for occurrence in occurrences {
+        let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let Some(geometry) = document.effective_geometry(&occurrence) else {
+            continue;
+        };
+        let mut projected_vertices =
+            std::collections::BTreeMap::<VertexId, Option<(f32, f32)>>::new();
+        for vertex in geometry.vertices.values() {
+            projected_vertices.insert(
+                vertex.id,
+                project_point(
+                    camera,
+                    size,
+                    resolved.world_transform.transform_point(vertex.position),
+                ),
+            );
+        }
+        let object_points = projected_vertices
+            .values()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        if !occurrence.is_scene_root() && !object_points.is_empty() {
+            let bounds = projected_bounds(&object_points);
+            let selected_object = if crossing {
+                rects_intersect(bounds, region)
+            } else {
+                rect_contains(region, bounds[0], bounds[1])
+                    && rect_contains(region, bounds[2], bounds[3])
+            };
+            if selected_object {
+                selected.push(SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Occurrence,
+                });
+                continue;
+            }
+        }
+        for segment in geometry.segments.values() {
+            let [Some(a), Some(b)] = segment.endpoints.map(|reference| {
+                geometry.vertex_position(reference).and_then(|point| {
+                    project_point(
+                        camera,
+                        size,
+                        resolved.world_transform.transform_point(point),
+                    )
+                })
+            }) else {
+                continue;
+            };
+            let hit = if crossing {
+                segment_intersects_rect(a, b, region)
+            } else {
+                rect_contains(region, a.0, a.1) && rect_contains(region, b.0, b.1)
+            };
+            if hit {
+                selected.push(SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Segment(segment.id),
+                });
+            }
+        }
+        for triangle in geometry.triangles.values() {
+            let Some(points) = triangle
+                .vertices
+                .map(|reference| {
+                    geometry.vertex_position(reference).and_then(|point| {
+                        project_point(
+                            camera,
+                            size,
+                            resolved.world_transform.transform_point(point),
+                        )
+                    })
+                })
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let hit = if crossing {
+                triangle_intersects_rect([points[0], points[1], points[2]], region)
+            } else {
+                points
+                    .iter()
+                    .all(|point| rect_contains(region, point.0, point.1))
+            };
+            if hit {
+                selected.push(SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Triangle(triangle.id),
+                });
+            }
+        }
+    }
+    selected
+}
+
+fn project_point(camera: OrbitCamera, size: (f32, f32), point: Vec3) -> Option<(f32, f32)> {
+    let position = camera.position();
+    let forward = (camera.target - position).try_normalized(1.0e-12)?;
+    let right = forward.cross(Vec3::Y).try_normalized(1.0e-12)?;
+    let up = right.cross(forward).try_normalized(1.0e-12)?;
+    let relative = point - position;
+    let depth = relative.dot(forward);
+    if depth <= 1.0e-6 {
+        return None;
+    }
+    let tangent = (camera.field_of_view.to_radians() * 0.5).tan() as f64;
+    let aspect = f64::from(size.0 / size.1.max(1.0));
+    let x = relative.dot(right) / (depth * tangent * aspect);
+    let y = relative.dot(up) / (depth * tangent);
+    Some((
+        ((x + 1.0) * 0.5 * f64::from(size.0)) as f32,
+        ((1.0 - y) * 0.5 * f64::from(size.1)) as f32,
+    ))
+}
+
+fn projected_bounds(points: &[(f32, f32)]) -> [f32; 4] {
+    [
+        points
+            .iter()
+            .map(|point| point.0)
+            .fold(f32::INFINITY, f32::min),
+        points
+            .iter()
+            .map(|point| point.1)
+            .fold(f32::INFINITY, f32::min),
+        points
+            .iter()
+            .map(|point| point.0)
+            .fold(f32::NEG_INFINITY, f32::max),
+        points
+            .iter()
+            .map(|point| point.1)
+            .fold(f32::NEG_INFINITY, f32::max),
+    ]
+}
+
+fn rect_contains(rect: [f32; 4], x: f32, y: f32) -> bool {
+    x >= rect[0] && x <= rect[2] && y >= rect[1] && y <= rect[3]
+}
+fn rects_intersect(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1]
+}
+
+fn segment_intersects_rect(a: (f32, f32), b: (f32, f32), rect: [f32; 4]) -> bool {
+    if rect_contains(rect, a.0, a.1) || rect_contains(rect, b.0, b.1) {
+        return true;
+    }
+    let corners = [
+        (rect[0], rect[1]),
+        (rect[2], rect[1]),
+        (rect[2], rect[3]),
+        (rect[0], rect[3]),
+    ];
+    (0..4).any(|index| segments_intersect(a, b, corners[index], corners[(index + 1) % 4]))
+}
+
+fn segments_intersect(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> bool {
+    fn orient(a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> f32 {
+        (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+    }
+    let ab_c = orient(a, b, c);
+    let ab_d = orient(a, b, d);
+    let cd_a = orient(c, d, a);
+    let cd_b = orient(c, d, b);
+    ab_c * ab_d <= 0.0 && cd_a * cd_b <= 0.0
+}
+
+fn triangle_intersects_rect(triangle: [(f32, f32); 3], rect: [f32; 4]) -> bool {
+    triangle
+        .iter()
+        .any(|point| rect_contains(rect, point.0, point.1))
+        || (0..4).any(|index| {
+            let a = (
+                if index < 2 { rect[0] } else { rect[2] },
+                if index == 0 || index == 3 {
+                    rect[1]
+                } else {
+                    rect[3]
+                },
+            );
+            point_in_triangle(a, triangle)
+        })
+        || (0..3)
+            .any(|index| segment_intersects_rect(triangle[index], triangle[(index + 1) % 3], rect))
+}
+
+fn point_in_triangle(point: (f32, f32), triangle: [(f32, f32); 3]) -> bool {
+    let [a, b, c] = triangle;
+    let ab = (b.0 - a.0) * (point.1 - a.1) - (b.1 - a.1) * (point.0 - a.0);
+    let bc = (c.0 - b.0) * (point.1 - b.1) - (c.1 - b.1) * (point.0 - b.0);
+    let ca = (a.0 - c.0) * (point.1 - c.1) - (a.1 - c.1) * (point.0 - c.0);
+    (ab >= 0.0 && bc >= 0.0 && ca >= 0.0) || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0)
+}
+
+fn model_settings_payload(settings: &ModelSettings) -> CommandPayload {
+    let mut payload = CommandPayload::default();
+    if let Ok(Value::Object(values)) = serde_json::to_value(settings) {
+        payload.values = values.into_iter().collect();
+    }
+    payload
+}
+
+fn command_default_payload(command: &CommandDescriptor, document: &Document) -> CommandPayload {
+    let mut payload = CommandPayload::default();
+    match command.id.as_str() {
+        "geometry.add_cuboid" => {
+            payload
+                .values
+                .insert("dimensions".into(), json!([2.0, 2.0, 2.0]));
+            payload
+                .values
+                .insert("origin".into(), json!([0.0, 0.0, 0.0]));
+            return payload;
+        }
+        "model.update_settings" => return model_settings_payload(document.model_settings()),
+        "object.array_selection" => {
+            payload.values.insert("count".into(), json!(2));
+            payload.values.insert("spacing".into(), json!(2.0));
+        }
+        "object.create_from_selection" => {
+            payload.values.insert("name".into(), json!("Object"));
+        }
+        "paint.set_color" => {
+            payload.values.insert("red".into(), json!(210));
+            payload.values.insert("green".into(), json!(210));
+            payload.values.insert("blue".into(), json!(210));
+            payload.values.insert("alpha".into(), json!(255));
+        }
+        _ => {}
+    }
+    for parameter in &command.parameters {
+        if payload.values.contains_key(&parameter.name) || !parameter.required {
+            continue;
+        }
+        let value = match parameter.value_type {
+            CommandValueType::Boolean => Value::Bool(false),
+            CommandValueType::Integer => json!(1),
+            CommandValueType::Number => json!(1.0),
+            CommandValueType::String => Value::String(String::new()),
+            CommandValueType::Array => Value::Array(Vec::new()),
+            CommandValueType::Object => Value::Object(Default::default()),
+            CommandValueType::Any => Value::Null,
+        };
+        payload.values.insert(parameter.name.clone(), value);
+    }
+    payload
+}
+
+fn command_button_id(area: &str, command: &CommandDescriptor) -> SharedString {
+    format!("{area}/{}", command.id.as_str()).into()
+}
+
+fn command_enabled(session: &MeshcraftApp, command: &CommandDescriptor) -> bool {
+    session.native_command_state(command.id.as_str()).enabled
+        && !matches!(
+            command.id.as_str(),
+            "object.delete_unused_definition" | "selection.update_display" | "view.camera.set_pose"
+        )
+}
+
+fn command_label(command: &CommandDescriptor) -> &str {
+    command.label.rsplit("> ").next().unwrap_or(&command.label)
+}
+
+fn ribbon_command_matches(tab: &str, command: &CommandDescriptor) -> bool {
+    let id = command.id.as_str();
+    match tab {
+        "Construction" => {
+            id.starts_with("tool.") || id.starts_with("geometry.") || id.starts_with("entity.")
+        }
+        "Modify" => {
+            id.starts_with("transform.")
+                || id.starts_with("selection.")
+                || id.starts_with("tool.")
+                || id.starts_with("geometry.")
+        }
+        "Arrays" => id.contains("array") || id.contains("spread"),
+        "Architecture" => ["wall", "slab", "stair", "frame", "hvac", "pipe", "duct"]
+            .iter()
+            .any(|needle| id.contains(needle)),
+        "Inspect" => {
+            id.starts_with("selection.")
+                || id.contains("dimension")
+                || id.contains("measure")
+                || id.contains("hotspot")
+        }
+        "View" => id.starts_with("view.") || id.starts_with("render."),
+        "Settings" => id.starts_with("model.") || id.starts_with("ui.") || id.contains("settings"),
+        _ => {
+            id.starts_with("file.")
+                || id.starts_with("edit.")
+                || id.starts_with("tool.")
+                || id.starts_with("object.")
+                || id.starts_with("view.")
+        }
+    }
+}
+
+fn menu_x(menu: &str) -> f32 {
+    let mut x = 74.0;
+    for name in MENU_NAMES {
+        if *name == menu {
+            return x;
+        }
+        x += name.len() as f32 * 7.7 + 24.0;
+    }
+    x
+}
+
+fn panel_section(title: impl Into<SharedString>, body: impl IntoElement) -> impl IntoElement {
+    let title = title.into();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .border_1()
+        .border_color(rgb(0x46515e))
+        .bg(rgb(0x28313b))
+        .child(
+            div()
+                .px(px(8.))
+                .py(px(5.))
+                .bg(rgb(0x285477))
+                .text_sm()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(rgb(0xe6f0f9))
+                .child(title),
+        )
+        .child(body)
+}
+
+impl Render for MeshcraftShell {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.close_requested {
+            window.remove_window();
+        }
+        self.session.poll_native_host_work();
+        if self.cached_document_revision != Some(self.session.document_revision()) {
+            self.refresh_scene();
+        }
+        let frame = self.bridge.latest_frame();
+        if let Some(frame) = frame.as_ref() {
+            self.last_sequence = frame.sequence;
+        }
+
+        let menu_bar = div()
+            .h(px(34.))
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .px(px(8.))
+            .bg(rgb(0x171b22))
+            .child(
+                div()
+                    .mr(px(7.))
+                    .text_lg()
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(rgb(0xe8eff7))
+                    .child("Meshcraft"),
+            )
+            .children(MENU_NAMES.iter().copied().map(|menu| {
+                let active = self.open_menu == Some(menu);
+                let button = Button::new(SharedString::from(format!("menu/{menu}")))
+                    .label(menu)
+                    .xsmall()
+                    .text()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.toggle_menu(menu);
+                            cx.notify();
+                        }),
+                    );
+                if active { button.primary() } else { button }
+            }))
+            .child(div().flex_1())
+            .child(
+                Button::new("commands/open")
+                    .label("Commands  Ctrl+Shift+P")
+                    .small()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.command_palette_open = !this.command_palette_open;
+                            this.open_menu = None;
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .ml(px(8.))
+                    .text_xs()
+                    .text_color(rgb(0x9db0c4))
+                    .child("GPUI · raylib 6"),
+            );
+
+        let ribbon_tabs = div()
+            .h(px(28.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .px(px(8.))
+            .bg(rgb(0x222a34))
+            .children(RIBBON_TABS.iter().copied().map(|tab| {
+                let active = self.active_ribbon_tab == tab;
+                let button = Button::new(SharedString::from(format!("ribbon-tab/{tab}")))
+                    .label(tab)
+                    .small()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.active_ribbon_tab = tab;
+                            this.open_menu = None;
+                            cx.notify();
+                        }),
+                    );
+                if active {
+                    button.primary()
+                } else {
+                    button.ghost()
+                }
+            }));
+
+        let ribbon_commands = MeshcraftApp::command_catalog()
+            .into_iter()
+            .filter(|command| ribbon_command_matches(self.active_ribbon_tab, command))
+            .collect::<Vec<_>>();
+        let ribbon = div()
+            .h(px(78.))
+            .flex()
+            .items_start()
+            .gap(px(4.))
+            .px(px(7.))
+            .py(px(5.))
+            .bg(rgb(0x202833))
+            .overflow_x_scrollbar()
+            .children(ribbon_commands.into_iter().map(|command| {
+                let id = command.id.as_str().to_owned();
+                let label = command_label(&command).to_owned();
+                let enabled = command_enabled(&self.session, &command);
+                let tooltip = command.presentation.palette_path.clone();
+                Button::new(command_button_id("ribbon", &command))
+                    .label(label)
+                    .small()
+                    .compact()
+                    .tooltip(tooltip)
+                    .disabled(!enabled)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.dispatch(&id);
+                        cx.notify();
+                    }))
+            }));
+
+        let toolbar_visibility = self.session.native_toolbar_visibility();
+        let toolbar_groups = MeshcraftApp::native_toolbar_catalog()
+            .into_iter()
+            .zip(toolbar_visibility)
+            .filter_map(|(group, visible)| visible.then_some(group));
+        let left_panel = div()
+            .id("tool-palettes")
+            .w(px(230.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .p(px(7.))
+            .bg(rgb(0x202730))
+            .overflow_y_scroll()
+            .children(toolbar_groups.map(|(title, commands)| {
+                panel_section(
+                    title,
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(3.))
+                        .px(px(5.))
+                        .pb(px(6.))
+                        .children(commands.into_iter().map(|command| {
+                            let id = command.id.as_str().to_owned();
+                            let label = command_label(&command).to_owned();
+                            let enabled = command_enabled(&self.session, &command);
+                            let tooltip = command.presentation.palette_path.clone();
+                            Button::new(command_button_id("toolbar", &command))
+                                .label(label)
+                                .small()
+                                .compact()
+                                .tooltip(tooltip)
+                                .disabled(!enabled)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.dispatch(&id);
+                                    cx.notify();
+                                }))
+                        })),
+                )
+                .into_any_element()
+            }));
+
+        let viewport_bridge_down_left =
+            cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                let (x, y) = this.viewport_point(event.position, window);
+                this.pointer_down(event.button, x, y, event.modifiers);
+                cx.notify();
+            });
+        let viewport_bridge_move = cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            let (x, y) = this.viewport_point(event.position, window);
+            this.pointer_move(
+                x,
+                y,
+                event.modifiers,
+                event.pressed_button == Some(gpui::MouseButton::Right),
+            );
+            cx.notify();
+        });
+        let viewport_bridge_up_left =
+            cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                let (x, y) = this.viewport_point(event.position, window);
+                this.pointer_up(event.button, x, y);
+                cx.notify();
+            });
+        let viewport_bridge_scroll =
+            cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                let (x, y) = this.viewport_point(event.position, window);
+                if this.cursor_in_viewport(x, y) {
+                    let steps = match event.delta {
+                        gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 80.0,
+                        gpui::ScrollDelta::Lines(delta) => delta.y,
+                    };
+                    this.zoom_camera(steps);
+                    cx.notify();
+                }
+            });
+        let viewport = div()
+            .id("meshcraft-viewport")
+            .relative()
+            .flex_1()
+            .min_w(px(0.))
+            .h_full()
+            .overflow_hidden()
+            .bg(rgb(0xe0ecf7))
+            .child(self.viewport_canvas.clone())
+            .on_mouse_down(gpui::MouseButton::Left, viewport_bridge_down_left)
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    let (x, y) = this.viewport_point(event.position, window);
+                    this.pointer_down(event.button, x, y, event.modifiers);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(viewport_bridge_move)
+            .on_mouse_up(gpui::MouseButton::Left, viewport_bridge_up_left)
+            .on_mouse_up(
+                gpui::MouseButton::Right,
+                cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                    let (x, y) = this.viewport_point(event.position, window);
+                    this.pointer_up(event.button, x, y);
+                    cx.notify();
+                }),
+            )
+            .on_scroll_wheel(viewport_bridge_scroll)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(10.))
+                    .left(px(12.))
+                    .px(px(9.))
+                    .py(px(5.))
+                    .rounded(px(3.))
+                    .bg(rgb(0xf4f7fa))
+                    .text_sm()
+                    .text_color(rgb(0x27394b))
+                    .child(format!(
+                        "{} · right-drag orbit · Shift+right-drag pan · wheel zoom",
+                        self.session.active_tool_label()
+                    )),
+            );
+
+        let selection = self.session.native_selection_summary();
+        let selected_objects = self.session.native_top_level_occurrences();
+        let settings = self.cached_document.model_settings().clone();
+        let selection_panel = panel_section(
+            "Selection",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .px(px(8.))
+                .pb(px(7.))
+                .child(stat_text(
+                    "Type                         T    S    D    M    W",
+                ))
+                .child(stat_text(format!(
+                    "Edges                         {}",
+                    selection.edges
+                )))
+                .child(stat_text(format!(
+                    "Faces                         {}",
+                    selection.faces
+                )))
+                .child(stat_text(format!(
+                    "Vertices                      {}",
+                    selection.vertices
+                )))
+                .child(stat_text(format!(
+                    "Objects                       {}",
+                    selection.objects
+                )))
+                .children(selection.counts_by_kind.iter().map(|(kind, count)| {
+                    stat_text(format!("{kind:?}                         {count}"))
+                })),
+        );
+        let object_panel = panel_section(
+            "Objects",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(5.))
+                .px(px(8.))
+                .pb(px(7.))
+                .child(stat_text(format!(
+                    "{} object instances in the active scene",
+                    selected_objects.len()
+                )))
+                .children(selected_objects.into_iter().map(|occurrence| {
+                    let name = self
+                        .cached_document
+                        .resolve_occurrence(&occurrence)
+                        .map(|resolved| resolved.definition.name.clone())
+                        .unwrap_or_else(|| "Object".to_owned());
+                    let occurrence_for_click = occurrence.clone();
+                    Button::new(SharedString::from(format!(
+                        "objects/{}",
+                        occurrence
+                            .path
+                            .iter()
+                            .map(|id| id.0.to_string())
+                            .collect::<Vec<_>>()
+                            .join("-")
+                    )))
+                    .label(name)
+                    .small()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let _ = this
+                            .session
+                            .select_native_object_from_inspector(&occurrence_for_click, false);
+                        this.refresh_scene();
+                        cx.notify();
+                    }))
+                }))
+                .child(
+                    Button::new("objects/create-from-selection")
+                        .label("Create Object from Selection")
+                        .small()
+                        .disabled(
+                            !self
+                                .session
+                                .native_command_state("object.create_from_selection")
+                                .enabled,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.dispatch("object.create_from_selection");
+                            cx.notify();
+                        })),
+                ),
+        );
+
+        let model_values = [
+            ("unit_size", "Unit size", settings.unit_size, 0.1),
+            ("grid_size", "Grid size", settings.grid_size, 0.1),
+            (
+                "circle_segments",
+                "Circle segments",
+                f64::from(settings.circle_segments),
+                1.0,
+            ),
+            ("snap_radius", "Snap radius", settings.snap_radius, 1.0),
+            (
+                "arc_max_length",
+                "Arc max length",
+                settings.arc_max_length,
+                0.05,
+            ),
+            (
+                "double_line_size",
+                "Double line size",
+                settings.double_line_size,
+                0.1,
+            ),
+            (
+                "double_line_offset",
+                "Double line offset",
+                settings.double_line_offset,
+                0.1,
+            ),
+        ];
+        let ui_preferences = self.session.native_ui_preferences();
+        let current_grid_axis = match ui_preferences.grid_normal_axis {
+            GridNormalAxis::X => "x",
+            GridNormalAxis::Y => "y",
+            GridNormalAxis::Z => "z",
+        };
+        let preference_adjust_row = |field: &'static str, label: String| {
+            let decrease_field = field;
+            let increase_field = field;
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(div().flex_1().text_sm().child(label))
+                .child(
+                    Button::new(SharedString::from(format!(
+                        "settings/ui.update_preferences/{field}/decrease"
+                    )))
+                    .label("−")
+                    .xsmall()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.adjust_ui_preference(decrease_field, -1);
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!(
+                        "settings/ui.update_preferences/{field}/increase"
+                    )))
+                    .label("+")
+                    .xsmall()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.adjust_ui_preference(increase_field, 1);
+                        cx.notify();
+                    })),
+                )
+        };
+        let model_panel = panel_section(
+            "Model Settings",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(5.))
+                .px(px(8.))
+                .pb(px(7.))
+                .child(setting_value("Unit name", settings.unit_name.clone()))
+                .children(model_values.into_iter().map(|(field, title, value, step)| {
+                    let decrease_field = field;
+                    let increase_field = field;
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .child(format!("{title}: {value:.3}")),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("settings/{field}/decrease")))
+                                .label("−")
+                                .xsmall()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.update_model_number(decrease_field, -step);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("settings/{field}/increase")))
+                                .label("+")
+                                .xsmall()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.update_model_number(increase_field, step);
+                                    cx.notify();
+                                })),
+                        )
+                }))
+                .child(stat_text(
+                    "Settings are applied through model.update_settings",
+                )),
+        );
+        let ui_settings_panel = panel_section(
+            "UI Settings",
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(5.))
+                .px(px(8.))
+                .pb(px(7.))
+                .child(
+                    Button::new("settings/ui.update_preferences/show_permanent_grid")
+                        .label(format!(
+                            "Permanent grid: {}",
+                            if ui_preferences.show_permanent_grid {
+                                "On"
+                            } else {
+                                "Off"
+                            }
+                        ))
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_ui_preference("show_permanent_grid");
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("settings/ui.update_preferences/show_construction_guides")
+                        .label(format!(
+                            "Construction guides: {}",
+                            if ui_preferences.show_construction_guides {
+                                "On"
+                            } else {
+                                "Off"
+                            }
+                        ))
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_ui_preference("show_construction_guides");
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("settings/ui.update_preferences/auto_collapse_toolbars")
+                        .label(format!(
+                            "Auto-collapse palettes: {}",
+                            if ui_preferences.auto_collapse_toolbars {
+                                "On"
+                            } else {
+                                "Off"
+                            }
+                        ))
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_ui_preference("auto_collapse_toolbars");
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("settings/ui.update_preferences/toolbar_flow_top_down")
+                        .label(format!(
+                            "Palette flow: {}",
+                            if ui_preferences.toolbar_flow_top_down {
+                                "Top to bottom"
+                            } else {
+                                "Left to right"
+                            }
+                        ))
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_ui_preference("toolbar_flow_top_down");
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .child(format!("Grid normal: {current_grid_axis}")),
+                        )
+                        .children(["x", "y", "z"].into_iter().map(|axis| {
+                            let button = Button::new(SharedString::from(format!(
+                                "settings/ui.update_preferences/grid_normal_axis/{axis}"
+                            )))
+                            .label(axis.to_uppercase())
+                            .xsmall();
+                            let button = if current_grid_axis == axis {
+                                button.primary()
+                            } else {
+                                button.ghost()
+                            };
+                            button.on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_ui_preference("grid_normal_axis", json!(axis));
+                                cx.notify();
+                            }))
+                        })),
+                )
+                .child(preference_adjust_row(
+                    "ui_text_scale",
+                    format!("UI text scale: {:.1}x", ui_preferences.ui_text_scale),
+                ))
+                .child(preference_adjust_row(
+                    "toolbar_icon_size",
+                    format!("Toolbar icon size: {} px", ui_preferences.toolbar_icon_size),
+                ))
+                .child(preference_adjust_row(
+                    "grid_extent",
+                    format!("Grid extent: {} steps", ui_preferences.grid_extent),
+                )),
+        );
+        let right_panel = div()
+            .id("settings-inspector")
+            .w(px(330.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .p(px(7.))
+            .bg(rgb(0x202730))
+            .overflow_y_scroll()
+            .child(selection_panel)
+            .child(panel_section(
+                "Object",
+                div()
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .text_sm()
+                    .child(if selection.objects == 0 {
+                        "No object selected".to_owned()
+                    } else {
+                        format!("{} object(s) selected", selection.objects)
+                    }),
+            ))
+            .child(object_panel)
+            .child(model_panel)
+            .child(ui_settings_panel)
+            .child(panel_section(
+                "Viewport & Guides",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Snapping: geometry first, then workplane grid"))
+                    .child(stat_text(format!(
+                        "Permanent grid: {}",
+                        ui_preferences.show_permanent_grid
+                    )))
+                    .child(stat_text(format!(
+                        "Construction guides: {}",
+                        ui_preferences.show_construction_guides
+                    )))
+                    .child(stat_text("Right drag: orbit · Shift+right drag: pan"))
+                    .child(stat_text("Escape: cancel tool and clear selection/guides")),
+            ));
+
+        let body = div()
+            .flex()
+            .flex_1()
+            .min_h(px(0.))
+            .child(left_panel)
+            .child(viewport)
+            .child(right_panel);
+        let status = div()
+            .h(px(26.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(9.))
+            .bg(rgb(0x171b22))
+            .text_xs()
+            .text_color(rgb(0xb7c3d0))
+            .child(self.session.status_text().to_owned())
+            .child(div().flex_1())
+            .child(frame.map_or_else(
+                || "Viewport starting".to_owned(),
+                |frame| format!("raylib frame {} · {:.1} ms", frame.sequence, frame.frame_ms),
+            ));
+
+        let popup = self.open_menu.map(|menu| {
+            let commands = MeshcraftApp::command_catalog()
+                .into_iter()
+                .filter(|command| {
+                    command
+                        .presentation
+                        .menu_path
+                        .first()
+                        .is_some_and(|root| root == menu)
+                })
+                .collect::<Vec<_>>();
+            div()
+                .absolute()
+                .top(px(34.))
+                .left(px(menu_x(menu)))
+                .w(px(235.))
+                .max_h(px(640.))
+                .p(px(5.))
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .border_1()
+                .border_color(rgb(0x536477))
+                .bg(rgb(0x202832))
+                .shadow_lg()
+                .child(
+                    div()
+                        .px(px(7.))
+                        .py(px(4.))
+                        .text_xs()
+                        .text_color(rgb(0x95b9da))
+                        .child(menu),
+                )
+                .children(commands.into_iter().map(|command| {
+                    let id = command.id.as_str().to_owned();
+                    let title = command.presentation.menu_path.get(1).map_or_else(
+                        || command_label(&command).to_owned(),
+                        |group| format!("{group}  ›  {}", command_label(&command)),
+                    );
+                    let enabled = command_enabled(&self.session, &command);
+                    Button::new(command_button_id("menu-command", &command))
+                        .label(title)
+                        .small()
+                        .text()
+                        .disabled(!enabled)
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.open_menu = None;
+                                this.dispatch(&id);
+                                cx.notify();
+                            }),
+                        )
+                }))
+                .into_any_element()
+        });
+
+        let command_palette = self.command_palette_open.then(|| {
+            let commands = MeshcraftApp::command_catalog();
+            div()
+                .absolute()
+                .top(px(92.))
+                .left(px(330.))
+                .right(px(370.))
+                .max_h(px(650.))
+                .p(px(10.))
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .border_1()
+                .border_color(rgb(0x60768a))
+                .bg(rgb(0x1e2630))
+                .shadow_lg()
+                .child(
+                    div()
+                        .px(px(7.))
+                        .py(px(5.))
+                        .text_lg()
+                        .child("Command Palette"),
+                )
+                .child(
+                    div()
+                        .px(px(7.))
+                        .pb(px(5.))
+                        .text_sm()
+                        .text_color(rgb(0xa4b2c1))
+                        .child("Choose a command. Ctrl+Shift+P or Escape closes this panel."),
+                )
+                .overflow_y_scrollbar()
+                .children(commands.into_iter().map(|command| {
+                    let id = command.id.as_str().to_owned();
+                    let enabled = command_enabled(&self.session, &command);
+                    Button::new(command_button_id("palette", &command))
+                        .label(command.presentation.palette_path)
+                        .small()
+                        .text()
+                        .disabled(!enabled)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.command_palette_open = false;
+                            this.dispatch(&id);
+                            cx.notify();
+                        }))
+                }))
+                .into_any_element()
+        });
+
+        let mut root = div()
+            .id("meshcraft-shell")
+            .size_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .bg(rgb(0x1b2027))
+            .text_color(rgb(0xe3e8ee))
+            .on_key_down(cx.listener(|this, event, _, cx| {
+                this.shortcut(event);
+                cx.notify();
+            }))
+            .child(menu_bar)
+            .child(ribbon_tabs)
+            .child(ribbon)
+            .child(body)
+            .child(status);
+        if let Some(popup) = popup {
+            root = root.child(popup);
+        }
+        if let Some(command_palette) = command_palette {
+            root = root.child(command_palette);
+        }
+        root
+    }
+}
+
+fn stat_text(text: impl Into<SharedString>) -> impl IntoElement {
+    div().text_sm().text_color(rgb(0xc1cad4)).child(text.into())
+}
+
+fn setting_value(label: &str, value: String) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(0x9faebb))
+                .child(label.to_owned()),
+        )
+        .child(div().px(px(6.)).py(px(4.)).bg(rgb(0x1c2229)).child(value))
+}
+
+pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp) {
+    let mut renderer = RaylibWorker::start();
+    let bridge = renderer.bridge.clone();
+    let shutdown = renderer.shutdown.clone();
+    Application::new().run(move |cx: &mut App| {
+        gpui_component::init(cx);
+        Theme::change(ThemeMode::Dark, None, cx);
+        let requested_size = size(px(window_size[0]), px(window_size[1]));
+        let centered = WindowBounds::centered(requested_size, cx);
+        let bounds = if maximized {
+            match centered {
+                WindowBounds::Windowed(bounds) => WindowBounds::Maximized(bounds),
+                other => other,
+            }
+        } else {
+            centered
+        };
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(bounds),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Meshcraft".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            move |window, cx| {
+                window.on_window_should_close(cx, move |_, _| {
+                    shutdown.stop_and_wait();
+                    true
+                });
+                let bridge_for_view = bridge.clone();
+                cx.new(move |view_cx| {
+                    let bridge_for_observer = bridge_for_view.clone();
+                    publish_layout(&bridge_for_view, window);
+                    view_cx
+                        .observe_window_bounds(
+                            window,
+                            move |_view: &mut MeshcraftShell,
+                                  window: &mut Window,
+                                  _cx: &mut Context<MeshcraftShell>| {
+                                publish_layout(&bridge_for_observer, window);
+                            },
+                        )
+                        .detach();
+                    MeshcraftShell::new(bridge_for_view, session, view_cx)
+                })
+            },
+        )
+        .expect("open Meshcraft GPUI window");
+        cx.activate(true);
+    });
+    renderer.stop();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GridNormalAxis, OrbitCamera, SnapKind, ViewportBridge, ViewportLayout, grid_point_on_ray,
+    };
+    use meshcraft_core::geometry::Vec3;
+
+    #[test]
+    fn grid_snap_intersects_each_configured_workplane() {
+        let origin = Vec3::new(3.0, 4.0, 5.0);
+        let direction = Vec3::new(-1.0, -1.0, -1.0);
+        let cases = [
+            (GridNormalAxis::X, Vec3::new(0.0, 1.0, 2.0)),
+            (GridNormalAxis::Y, Vec3::new(-1.0, 0.0, 1.0)),
+            (GridNormalAxis::Z, Vec3::new(-2.0, -1.0, 0.0)),
+        ];
+
+        for (axis, expected) in cases {
+            let (point, snap) = grid_point_on_ray(origin, direction, 1.0, axis).unwrap();
+            assert_eq!(point, expected);
+            assert_eq!(snap.point, expected);
+            assert_eq!(snap.kind, SnapKind::Grid);
+        }
+    }
+
+    #[test]
+    fn grid_snap_ignores_rays_parallel_to_the_workplane() {
+        assert!(
+            grid_point_on_ray(
+                Vec3::new(1.0, 2.0, 3.0),
+                Vec3::new(0.0, 0.0, 1.0),
+                1.0,
+                GridNormalAxis::Y,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn vertical_orbit_drag_uses_the_reversed_y_direction() {
+        let mut camera = OrbitCamera::default();
+        let original_pitch = camera.pitch;
+        let original_yaw = camera.yaw;
+
+        camera.orbit_by_drag(12.0, 10.0);
+
+        assert!(camera.pitch < original_pitch);
+        assert!(camera.yaw > original_yaw);
+    }
+
+    #[test]
+    fn viewport_redraws_only_when_camera_or_layout_changes() {
+        let bridge = ViewportBridge::new();
+        let initial_revision = *bridge.redraw.0.lock().unwrap();
+
+        bridge.publish_layout(ViewportLayout::default());
+        bridge.publish_camera(OrbitCamera::default());
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), initial_revision);
+
+        let layout = ViewportLayout {
+            x: 10,
+            y: 20,
+            width: 640,
+            height: 480,
+            scale: 1.0,
+        };
+        bridge.publish_layout(layout);
+        bridge.publish_layout(layout);
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), initial_revision + 1);
+
+        let mut camera = OrbitCamera::default();
+        camera.orbit_by_drag(1.0, 1.0);
+        bridge.publish_camera(camera);
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), initial_revision + 2);
+    }
+}

@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::document::Document;
 #[cfg(not(target_arch = "wasm32"))]
-use meshcraft_desktop::{MeshcraftApp, bevy_app::run_native};
+use meshcraft_desktop::{MeshcraftApp, gpui_app::run_native};
 use meshcraft_io::project::{ImportedProject, read_project};
 use std::{env, ffi::OsString, fs, path::PathBuf};
 
