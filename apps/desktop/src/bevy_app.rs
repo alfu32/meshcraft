@@ -4,7 +4,9 @@
 //! from resolved geometry and refreshes them only after a document generation or revision change.
 //! Spatially incremental geometry updates remain migration work.
 
-use crate::viewport::{ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapResult};
+use crate::viewport::{
+    ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapResult, ToolPreview,
+};
 use crate::{MeshcraftApp, NativeUiPreferences};
 use bevy::{
     asset::RenderAssetUsages,
@@ -15,6 +17,7 @@ use bevy::{
     light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
     mesh::{Mesh, PrimitiveTopology},
     pbr::StandardMaterial,
+    picking::Pickable,
     picking::hover::Hovered,
     prelude::*,
     render::render_resource::{Extent3d, Face, TextureDimension, TextureFormat},
@@ -25,6 +28,7 @@ use bevy::{
         Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TextInput, TrackClick,
     },
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
+    winit::WinitSettings,
 };
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
@@ -433,6 +437,9 @@ struct SelectionWindowLabel;
 struct NativeCursorDot;
 
 #[derive(Component)]
+struct NativeToolFeedback;
+
+#[derive(Component)]
 struct NativeSelectedVertexDotLayer;
 
 #[derive(Component)]
@@ -616,9 +623,21 @@ struct NativeViewportOverlay {
     cursor_snap: Option<SnapResult>,
     cursor_axes: Option<[ModelVec3; 3]>,
     cursor_screen: Option<Vec2>,
+    last_pointer_position: Option<Vec2>,
+    last_window_size: Vec2,
+    feedback_edges: Vec<[ModelVec3; 2]>,
+    feedback_text: Option<String>,
+    feedback_screen: Option<Vec2>,
     guides: Vec<ConstructionGuide>,
     guides_visible: bool,
     grid_size: f64,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct NativePointerInvalidation<'w> {
+    scene: Res<'w, SceneDocument>,
+    selection_display: Res<'w, NativeSelectionDisplayState>,
+    ui_preferences: Res<'w, NativeUiPreferencesState>,
 }
 
 impl NativeViewportOverlay {
@@ -705,6 +724,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         pitch: 0.55,
     })
     .insert_resource(StartupWindowState { maximized })
+    .insert_resource(WinitSettings::desktop_app())
     .insert_non_send(session)
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
@@ -774,6 +794,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             draw_native_viewport_overlays,
             sync_native_selected_vertex_dots,
             sync_native_cursor_dot,
+            sync_native_tool_feedback,
         )
             .chain()
             .after(TransformSystems::Propagate),
@@ -1608,6 +1629,7 @@ fn setup_ui(
                         Text::new(title),
                         TextFont::from_font_size(12.0),
                         TextColor(Color::WHITE),
+                        Pickable::IGNORE,
                     ));
                 toolbar
                     .spawn((NativeToolbarItems { item_count }, Node {
@@ -1777,6 +1799,7 @@ fn setup_ui(
                     Text::new("Apply Model Settings"),
                     TextFont::from_font_size(12.0),
                     TextColor(Color::WHITE),
+                    Pickable::IGNORE,
                 ))
                 .observe(apply_native_model_settings);
             panel
@@ -1798,6 +1821,7 @@ fn setup_ui(
                     Text::new("Edit as JSON…"),
                     TextFont::from_font_size(13.0),
                     TextColor::WHITE,
+                    Pickable::IGNORE,
                 ))
                 .observe(open_native_model_settings_editor);
             spawn_native_ui_settings(panel, &ui_preferences);
@@ -1832,6 +1856,7 @@ fn setup_ui(
                     Text::new("Apply Polyline Settings"),
                     TextFont::from_font_size(12.0),
                     TextColor(Color::WHITE),
+                    Pickable::IGNORE,
                 ))
                 .observe(apply_native_polyline_settings);
             inspector_section(panel, "Vector Text", "Text  TEXT\nSize  1.000\nTracking  0.100\nLine spacing  1.250\nGlyph source  embedded:alphabet");
@@ -1874,6 +1899,7 @@ fn setup_ui(
                     TextFont::from_font_size(13.0),
                     TextColor::WHITE,
                     ShadowFilterLabel,
+                    Pickable::IGNORE,
                 ))
                 .observe(cycle_shadow_filter);
             panel
@@ -1896,6 +1922,7 @@ fn setup_ui(
                     TextFont::from_font_size(13.0),
                     TextColor::WHITE,
                     CsmLabel,
+                    Pickable::IGNORE,
                 ))
                 .observe(toggle_csm);
         });
@@ -1918,6 +1945,7 @@ fn setup_ui(
             Text::new("Commands  Ctrl+Shift+P"),
             TextFont::from_font_size(14.0),
             TextColor::WHITE,
+            Pickable::IGNORE,
         ))
         .observe(open_command_palette);
         root.spawn((
@@ -2021,6 +2049,7 @@ fn setup_ui(
                                 TextFont::from_font_size(12.0),
                                 TextColor::WHITE,
                                 CommandPaletteResultLabel(slot),
+                                Pickable::IGNORE,
                             ))
                             .observe(dispatch_palette_command);
                     }
@@ -2038,6 +2067,7 @@ fn setup_ui(
                 padding: UiRect::all(px(3)),
                 ..default()
             },
+            Pickable::IGNORE,
             BackgroundColor(Color::srgba(0.12, 0.42, 0.74, 0.12)),
             BorderColor::all(Color::srgb(0.14, 0.46, 0.92)),
             SelectionWindowOverlay,
@@ -2047,6 +2077,7 @@ fn setup_ui(
             TextFont::from_font_size(11.0),
             TextColor(Color::srgb(0.14, 0.46, 0.92)),
             SelectionWindowLabel,
+            Pickable::IGNORE,
         ));
         root.spawn((
             Node {
@@ -2132,6 +2163,7 @@ fn setup_ui(
                         Text::new(command.label.clone()),
                         TextFont::from_font_size(12.0),
                         TextColor(Color::WHITE),
+                        Pickable::IGNORE,
                     ))
                     .observe(dispatch_context_menu_command);
                 }
@@ -2139,6 +2171,7 @@ fn setup_ui(
         });
         root.spawn((
             NativeSelectedVertexDotLayer,
+            Pickable::IGNORE,
             Node {
                 position_type: PositionType::Absolute,
                 left: px(0),
@@ -2150,6 +2183,7 @@ fn setup_ui(
         ));
         root.spawn((
             NativeCursorDot,
+            Pickable::IGNORE,
             Node {
                 position_type: PositionType::Absolute,
                 left: px(0),
@@ -2163,6 +2197,22 @@ fn setup_ui(
             },
             BackgroundColor(Color::WHITE),
             BorderColor::all(Color::BLACK),
+        ));
+        root.spawn((
+            NativeToolFeedback,
+            Pickable::IGNORE,
+            Node {
+                position_type: PositionType::Absolute,
+                display: Display::None,
+                padding: UiRect::axes(px(7), px(4)),
+                max_width: px(300),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.06, 0.08, 0.10, 0.92)),
+            BorderColor::all(Color::srgb(0.3, 0.72, 0.95)),
+            Text::new(""),
+            TextFont::from_font_size(12.0),
+            TextColor(Color::WHITE),
         ));
     });
 }
@@ -2389,6 +2439,7 @@ fn spawn_native_ui_settings(parent: &mut ChildSpawnerCommands, state: &NativeUiP
             Text::new("Apply UI Settings"),
             TextFont::from_font_size(12.0),
             TextColor(Color::WHITE),
+            Pickable::IGNORE,
         ))
         .observe(apply_native_ui_preferences);
 
@@ -2503,6 +2554,7 @@ fn spawn_native_ui_setting_toggle(
             TextFont::from_font_size(12.0),
             TextColor(Color::WHITE),
             NativeUiSettingToggleLabel(field),
+            Pickable::IGNORE,
         ))
         .observe(toggle_native_ui_setting);
 }
@@ -2575,6 +2627,7 @@ fn spawn_native_ui_choice_button(
             TextFont::from_font_size(11.0),
             TextColor(Color::WHITE),
             NativeUiSettingChoiceLabel(choice),
+            Pickable::IGNORE,
         ))
         .observe(update_native_ui_setting_choice);
 }
@@ -2609,6 +2662,7 @@ fn spawn_native_object_rows(parent: &mut ChildSpawnerCommands, scene: &SceneDocu
                 Text::new(entry.name.clone()),
                 TextFont::from_font_size(13.0),
                 TextColor(Color::WHITE),
+                Pickable::IGNORE,
             ))
             .observe(select_native_object_row);
     }
@@ -2843,6 +2897,7 @@ fn spawn_native_selection_toggle(
         TextFont::from_font_size(12.0),
         TextColor(Color::WHITE),
         NativeSelectionToggleLabel { kind, property },
+        Pickable::IGNORE,
     ))
     .observe(dispatch_native_selection_display_toggle);
 }
@@ -3044,6 +3099,7 @@ fn spawn_tool_button(
                             index,
                         },
                     ),
+                    Pickable::IGNORE,
                     NativeToolbarIcon,
                     Node {
                         width: px(icon_size - 4.0),
@@ -3056,6 +3112,7 @@ fn spawn_tool_button(
                     Text::new(command.label.chars().take(2).collect::<String>()),
                     TextFont::from_font_size(9.0),
                     TextColor::WHITE,
+                    Pickable::IGNORE,
                 ));
             }
         })
@@ -3069,7 +3126,10 @@ fn sync_native_toolbar_visibility(
     let visibility = session.native_toolbar_visibility();
     for (toolbar, mut node) in &mut toolbars {
         let shown = visibility.get(toolbar.index).copied().unwrap_or(false);
-        node.display = if shown { Display::Flex } else { Display::None };
+        let display = if shown { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
@@ -3112,9 +3172,15 @@ fn sync_native_ui_preference_presentation(
     let Ok(window) = windows.single() else {
         return;
     };
+    let window_size = Vec2::new(window.width(), window.height());
+    let resized = toolbars
+        .iter()
+        .any(|(toolbar, _)| toolbar.window_size != window_size);
+    if !preferences.is_changed() && !resized {
+        return;
+    }
     let icon_size = preferences.value.toolbar_icon_size;
     let max_toolbar_width = (window.width() - 370.0).clamp(220.0, 620.0);
-    let window_size = Vec2::new(window.width(), window.height());
     let max_vertical_rows = ((window.height() - 150.0) / icon_size as f32)
         .floor()
         .max(1.0) as usize;
@@ -3138,8 +3204,14 @@ fn sync_native_ui_preference_presentation(
             toolbar.height = dimensions.y;
             toolbar.icon_size = icon_size;
             toolbar.flow_top_down = preferences.value.toolbar_flow_top_down;
-            node.width = px(toolbar.width);
-            node.height = px(toolbar.height);
+            let width = px(toolbar.width);
+            if node.width != width {
+                node.width = width;
+            }
+            let height = px(toolbar.height);
+            if node.height != height {
+                node.height = height;
+            }
         }
         let saved_position = preferences
             .value
@@ -3148,38 +3220,62 @@ fn sync_native_ui_preference_presentation(
             .copied()
             .flatten();
         restore_native_toolbar_position(&mut toolbar, &mut node, saved_position, window_size);
-        node.left = match node.left {
+        let left = match node.left {
             Val::Px(left) => px(left.clamp(0.0, (window.width() - toolbar.width).max(0.0))),
             other => other,
         };
-        node.top = match node.top {
+        if node.left != left {
+            node.left = left;
+        }
+        let top = match node.top {
             Val::Px(top) => px(top.clamp(0.0, (window.height() - toolbar.height).max(0.0))),
             other => other,
         };
+        if node.top != top {
+            node.top = top;
+        }
         toolbar.window_size = window_size;
         toolbar.preferences_revision = preferences.revision;
     }
     for mut node in &mut toolbar_buttons {
-        node.width = px(icon_size as f32 - 1.0);
-        node.height = px(icon_size as f32 - 1.0);
+        let width = px(icon_size as f32 - 1.0);
+        if node.width != width {
+            node.width = width;
+        }
+        let height = px(icon_size as f32 - 1.0);
+        if node.height != height {
+            node.height = height;
+        }
     }
     for mut node in &mut toolbar_icons {
-        node.width = px(icon_size as f32 - 4.0);
-        node.height = px(icon_size as f32 - 4.0);
+        let width = px(icon_size as f32 - 4.0);
+        if node.width != width {
+            node.width = width;
+        }
+        let height = px(icon_size as f32 - 4.0);
+        if node.height != height {
+            node.height = height;
+        }
     }
     for (items, mut node) in &mut toolbar_items {
-        node.flex_direction = if preferences.value.toolbar_flow_top_down {
+        let flex_direction = if preferences.value.toolbar_flow_top_down {
             FlexDirection::Column
         } else {
             FlexDirection::Row
         };
+        if node.flex_direction != flex_direction {
+            node.flex_direction = flex_direction;
+        }
         let rows = if preferences.value.toolbar_flow_top_down {
             items.item_count.min(max_vertical_rows).max(1)
         } else {
             let columns = (((max_toolbar_width - 12.0) / icon_size as f32).floor() as usize).max(1);
             items.item_count.div_ceil(columns)
         };
-        node.height = px(rows as f32 * icon_size as f32);
+        let height = px(rows as f32 * icon_size as f32);
+        if node.height != height {
+            node.height = height;
+        }
     }
 }
 
@@ -3233,7 +3329,9 @@ fn sync_native_inspector_visibility(
         Display::None
     };
     for mut inspector in &mut inspectors {
-        inspector.display = display;
+        if inspector.display != display {
+            inspector.display = display;
+        }
     }
 }
 
@@ -3255,13 +3353,22 @@ fn sync_native_context_menu_ui(
         .y
         .clamp(0.0, (window_size.y - 460.0).max(0.0));
     for mut menu in &mut menus {
-        menu.display = if context_menu.open {
+        let display = if context_menu.open {
             Display::Flex
         } else {
             Display::None
         };
-        menu.left = px(left);
-        menu.top = px(top);
+        if menu.display != display {
+            menu.display = display;
+        }
+        let left = px(left);
+        if menu.left != left {
+            menu.left = left;
+        }
+        let top = px(top);
+        if menu.top != top {
+            menu.top = top;
+        }
     }
 }
 
@@ -3493,6 +3600,7 @@ fn dispatch_context_menu_command(
 fn sync_context_menu_command_states(
     mut commands: Commands,
     session: NonSend<MeshcraftApp>,
+    scene: Res<SceneDocument>,
     mut buttons: Query<(
         Entity,
         &ContextMenuCommand,
@@ -3500,22 +3608,31 @@ fn sync_context_menu_command_states(
         &mut BackgroundColor,
     )>,
 ) {
+    if !scene.is_changed() {
+        return;
+    }
     for (entity, command, button, mut background) in &mut buttons {
         let state = session.native_command_state(&command.0);
         if state.enabled {
             if button.is_none() {
                 commands.entity(entity).insert(Button);
             }
-            background.0 = if state.checked == Some(true) {
+            let color = if state.checked == Some(true) {
                 Color::srgb(0.12, 0.38, 0.62)
             } else {
                 Color::srgb(0.20, 0.22, 0.26)
             };
+            if background.0 != color {
+                background.0 = color;
+            }
         } else {
             if button.is_some() {
                 commands.entity(entity).remove::<Button>();
             }
-            background.0 = Color::srgb(0.14, 0.15, 0.16);
+            let color = Color::srgb(0.14, 0.15, 0.16);
+            if background.0 != color {
+                background.0 = color;
+            }
         }
     }
 }
@@ -3885,10 +4002,18 @@ fn sync_native_object_name_input(
     scene: Res<SceneDocument>,
     input_focus: Res<InputFocus>,
     mut commands: Commands,
-    mut names: Query<(Entity, &mut EditableText, &mut NativeObjectNameInput)>,
-    mut rename_buttons: Query<(Entity, &mut BackgroundColor), With<NativeRenameObjectButton>>,
+    mut names: Query<(
+        Entity,
+        &mut EditableText,
+        &mut NativeObjectNameInput,
+        Has<InteractionDisabled>,
+    )>,
+    mut rename_buttons: Query<
+        (Entity, &mut BackgroundColor, Has<InteractionDisabled>),
+        With<NativeRenameObjectButton>,
+    >,
 ) {
-    if let Ok((entity, mut name, mut state)) = names.single_mut() {
+    if let Ok((entity, mut name, mut state, disabled)) = names.single_mut() {
         let selection_changed = state.selection_revision != scene.selection_revision
             || state.definition_id != scene.selected_object_definition_id;
         let document_changed =
@@ -3902,20 +4027,30 @@ fn sync_native_object_name_input(
             state.selection_revision = scene.selection_revision;
             state.definition_id = scene.selected_object_definition_id;
         }
-        if scene.selected_object_definition_id.is_some() {
+        if scene.selected_object_definition_id.is_some() && disabled {
             commands.entity(entity).remove::<InteractionDisabled>();
-        } else {
+        } else if scene.selected_object_definition_id.is_none() && !disabled {
             commands.entity(entity).insert(InteractionDisabled);
         }
     }
     let enabled = scene.selected_object_definition_id.is_some();
-    for (entity, mut background) in &mut rename_buttons {
+    for (entity, mut background, disabled) in &mut rename_buttons {
         if enabled {
-            commands.entity(entity).remove::<InteractionDisabled>();
-            background.0 = Color::srgb(0.22, 0.24, 0.28);
+            if disabled {
+                commands.entity(entity).remove::<InteractionDisabled>();
+            }
+            let color = Color::srgb(0.22, 0.24, 0.28);
+            if background.0 != color {
+                background.0 = color;
+            }
         } else {
-            commands.entity(entity).insert(InteractionDisabled);
-            background.0 = Color::srgb(0.14, 0.15, 0.16);
+            if !disabled {
+                commands.entity(entity).insert(InteractionDisabled);
+            }
+            let color = Color::srgb(0.14, 0.15, 0.16);
+            if background.0 != color {
+                background.0 = color;
+            }
         }
     }
 }
@@ -3941,11 +4076,14 @@ fn sync_native_object_list(
         let selected = scene.selection_targets.iter().any(|target| {
             target.entity == SelectedEntity::Occurrence && target.occurrence == row.occurrence
         });
-        background.0 = if selected {
+        let color = if selected {
             Color::srgb(0.12, 0.38, 0.62)
         } else {
             Color::srgb(0.23, 0.24, 0.25)
         };
+        if background.0 != color {
+            background.0 = color;
+        }
     }
 }
 
@@ -3965,11 +4103,14 @@ fn toggle_command_palette(
         }
     }
     for mut palette in &mut palettes {
-        palette.display = if state.open {
+        let display = if state.open {
             Display::Flex
         } else {
             Display::None
         };
+        if palette.display != display {
+            palette.display = display;
+        }
     }
 }
 
@@ -4079,11 +4220,14 @@ fn handle_command_palette_keyboard(
         }
     }
     for mut overlay in &mut overlays {
-        overlay.display = if palette.open {
+        let display = if palette.open {
             Display::Flex
         } else {
             Display::None
         };
+        if overlay.display != display {
+            overlay.display = display;
+        }
     }
 }
 
@@ -4209,7 +4353,9 @@ fn sync_command_palette_parameter_ui(
 ) {
     let Some(command_id) = palette.pending_command.as_deref() else {
         for mut panel in &mut panels {
-            panel.display = Display::None;
+            if panel.display != Display::None {
+                panel.display = Display::None;
+            }
         }
         return;
     };
@@ -4244,15 +4390,25 @@ fn sync_command_palette_parameter_ui(
         &palette.parameter_json[cursor..]
     );
     for mut panel in &mut panels {
-        panel.display = Display::Flex;
+        if panel.display != Display::Flex {
+            panel.display = Display::Flex;
+        }
     }
     for (mut text, hint, input, error) in &mut texts {
         if hint.is_some() {
-            text.0 = format!("{command_id} parameters · {schema}");
+            let next = format!("{command_id} parameters · {schema}");
+            if text.0 != next {
+                text.0 = next;
+            }
         } else if input.is_some() {
-            text.0 = parameter_text.clone();
+            if text.0 != parameter_text {
+                text.0 = parameter_text.clone();
+            }
         } else if error.is_some() {
-            text.0 = palette.parameter_error.clone().unwrap_or_default();
+            let next = palette.parameter_error.clone().unwrap_or_default();
+            if text.0 != next {
+                text.0 = next;
+            }
         }
     }
 }
@@ -4287,6 +4443,9 @@ fn route_native_guide_shortcuts(
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut session: NonSendMut<MeshcraftApp>,
 ) {
+    if !keyboard.just_pressed(KeyCode::KeyG) && !keyboard.just_pressed(KeyCode::KeyT) {
+        return;
+    }
     if input_focus.get().is_some()
         || palette.open
         || context_menu.open
@@ -4898,7 +5057,7 @@ fn refresh_status(scene: Res<SceneDocument>, mut labels: Query<&mut Text, With<S
 #[allow(clippy::type_complexity)]
 fn native_viewport_pointer(
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, Ref<GlobalTransform>), With<Camera3d>>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -4906,7 +5065,7 @@ fn native_viewport_pointer(
     orbit: Res<OrbitCamera>,
     mut context_menu: ResMut<NativeToolsContextMenuState>,
     mut right_click: ResMut<NativeRightClickGesture>,
-    scene: Res<SceneDocument>,
+    invalidation: NativePointerInvalidation,
     mut overlay: ResMut<NativeViewportOverlay>,
     toolbar_drag: Res<NativeToolbarDrag>,
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
@@ -4919,10 +5078,33 @@ fn native_viewport_pointer(
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
     };
+    let camera_changed = camera_transform.is_changed();
+    let camera_transform = &*camera_transform;
     let cursor = window.cursor_position();
+    let window_size = Vec2::new(window.width(), window.height());
+    let pointer_button_event = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+        .into_iter()
+        .any(|button| mouse.just_pressed(button) || mouse.just_released(button));
+    let pointer_inputs_changed = overlay.last_pointer_position != cursor
+        || overlay.last_window_size != window_size
+        || camera_changed
+        || invalidation.scene.is_changed()
+        || invalidation.selection_display.is_changed()
+        || invalidation.ui_preferences.is_changed()
+        || palette.is_changed()
+        || context_menu.is_changed()
+        || toolbar_drag.is_changed()
+        || pointer_button_event
+        || keyboard.get_just_pressed().next().is_some()
+        || drag.start.is_some();
+    if !pointer_inputs_changed {
+        return;
+    }
+    overlay.last_pointer_position = cursor;
+    overlay.last_window_size = window_size;
     overlay.guides = session.native_construction_guides().to_vec();
     overlay.guides_visible = session.native_guides_visible();
-    overlay.grid_size = scene.document.model_settings().grid_size;
+    overlay.grid_size = invalidation.scene.document.model_settings().grid_size;
     if palette.open {
         overlay.clear_cursor();
         drag.start = None;
@@ -5014,16 +5196,36 @@ fn native_viewport_pointer(
                 hover_snap = Some(snap);
                 hover_pick = Some((origin, direction, radius));
                 session.set_native_cursor_snap(Some(snap));
+                let screen_position = egui::Pos2::new(position.x, position.y);
+                let (preview, feedback) =
+                    session.native_tool_feedback_at(snap.point, screen_position);
+                overlay.feedback_edges = preview
+                    .as_ref()
+                    .map(native_tool_preview_edges)
+                    .unwrap_or_default();
+                overlay.feedback_text = feedback.as_ref().map(|feedback| feedback.text.clone());
+                overlay.feedback_screen = feedback.map(|feedback| {
+                    Vec2::new(feedback.screen_position.x, feedback.screen_position.y)
+                });
             } else {
                 overlay.clear_cursor();
+                overlay.feedback_edges.clear();
+                overlay.feedback_text = None;
+                overlay.feedback_screen = None;
                 session.set_native_cursor_snap(None);
             }
         } else {
             overlay.clear_cursor();
+            overlay.feedback_edges.clear();
+            overlay.feedback_text = None;
+            overlay.feedback_screen = None;
             session.set_native_cursor_snap(None);
         }
     } else {
         overlay.clear_cursor();
+        overlay.feedback_edges.clear();
+        overlay.feedback_text = None;
+        overlay.feedback_screen = None;
     }
     if mouse.just_pressed(MouseButton::Left)
         && let Some(position) =
@@ -5100,11 +5302,152 @@ fn native_viewport_pointer(
     }
 }
 
+fn native_tool_preview_edges(preview: &ToolPreview) -> Vec<[ModelVec3; 2]> {
+    let mut edges = Vec::new();
+    match preview {
+        ToolPreview::Point { position } => {
+            let radius = 0.08;
+            for axis in [ModelVec3::X, ModelVec3::Y, ModelVec3::Z] {
+                edges.push([*position - axis * radius, *position + axis * radius]);
+            }
+        }
+        ToolPreview::Cuboid(cuboid) => {
+            let [x, y, z] = [
+                cuboid.dimensions.x,
+                cuboid.dimensions.y,
+                cuboid.dimensions.z,
+            ];
+            let corners = [
+                ModelVec3::new(0.0, 0.0, 0.0),
+                ModelVec3::new(x, 0.0, 0.0),
+                ModelVec3::new(x, y, 0.0),
+                ModelVec3::new(0.0, y, 0.0),
+                ModelVec3::new(0.0, 0.0, z),
+                ModelVec3::new(x, 0.0, z),
+                ModelVec3::new(x, y, z),
+                ModelVec3::new(0.0, y, z),
+            ]
+            .map(|point| point + cuboid.origin);
+            for (start, end) in [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
+            ] {
+                edges.push([corners[start], corners[end]]);
+            }
+        }
+        ToolPreview::Line { start, end } => edges.push([*start, *end]),
+        ToolPreview::PlanarShape {
+            outline, closed, ..
+        }
+        | ToolPreview::Polyline { outline, closed } => {
+            edges.extend(outline.windows(2).map(|pair| [pair[0], pair[1]]));
+            if *closed && outline.len() > 2 {
+                edges.push([*outline.last().unwrap(), outline[0]]);
+            }
+        }
+        ToolPreview::Transform { edges: source }
+        | ToolPreview::LineOffset { edges: source, .. } => edges.extend(source.iter().copied()),
+        ToolPreview::Array {
+            edges: source,
+            copies,
+            displacement,
+        } => {
+            edges.extend(source.iter().copied());
+            for index in 1..=*copies {
+                let offset = *displacement * index as f64;
+                edges.extend(
+                    source
+                        .iter()
+                        .map(|[start, end]| [*start + offset, *end + offset]),
+                );
+            }
+        }
+        ToolPreview::ArrayOffsets {
+            edges: source,
+            offsets,
+            ..
+        } => {
+            edges.extend(source.iter().copied());
+            for offset in offsets {
+                edges.extend(
+                    source
+                        .iter()
+                        .map(|[start, end]| [*start + *offset, *end + *offset]),
+                );
+            }
+        }
+        ToolPreview::ArrayTransforms {
+            edges: source,
+            transforms,
+            ..
+        } => {
+            edges.extend(source.iter().copied());
+            for transform in transforms {
+                edges.extend(source.iter().map(|[start, end]| {
+                    [
+                        transform.transform_point(*start),
+                        transform.transform_point(*end),
+                    ]
+                }));
+            }
+        }
+        ToolPreview::PushPull {
+            edges: source,
+            triangles,
+        }
+        | ToolPreview::Primitive {
+            edges: source,
+            triangles,
+        } => {
+            edges.extend(source.iter().copied());
+            for (triangle, _) in triangles {
+                extend_triangle_edges(&mut edges, *triangle);
+            }
+        }
+        ToolPreview::Paint {
+            edges: source,
+            triangles,
+            ..
+        } => {
+            edges.extend(source.iter().copied());
+            for triangle in triangles {
+                extend_triangle_edges(&mut edges, *triangle);
+            }
+        }
+    }
+    edges
+}
+
+fn extend_triangle_edges(edges: &mut Vec<[ModelVec3; 2]>, triangle: [ModelVec3; 3]) {
+    edges.extend([
+        [triangle[0], triangle[1]],
+        [triangle[1], triangle[2]],
+        [triangle[2], triangle[0]],
+    ]);
+}
+
 fn draw_native_viewport_overlays(
     mut gizmos: Gizmos,
     overlay: Res<NativeViewportOverlay>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 ) {
+    let preview_color = Color::srgb(1.0, 0.58, 0.18);
+    for [start, end] in &overlay.feedback_edges {
+        if let (Some(start), Some(end)) = (to_bevy_vec3(*start), to_bevy_vec3(*end)) {
+            gizmos.line(start, end, preview_color);
+        }
+    }
+
     if let Some(snap) = overlay.cursor_snap
         && let Some(axes) = overlay.cursor_axes
         && let Some(origin) = to_bevy_vec3(snap.point)
@@ -5220,11 +5563,53 @@ fn sync_native_cursor_dot(
 ) {
     for mut node in &mut dots {
         if let Some(position) = overlay.cursor_screen {
-            node.display = Display::Flex;
-            node.left = px(position.x - 3.5);
-            node.top = px(position.y - 3.5);
-        } else {
+            let left = px(position.x - 3.5);
+            let top = px(position.y - 3.5);
+            if node.display != Display::Flex {
+                node.display = Display::Flex;
+            }
+            if node.left != left {
+                node.left = left;
+            }
+            if node.top != top {
+                node.top = top;
+            }
+        } else if node.display != Display::None {
             node.display = Display::None;
+        }
+    }
+}
+
+fn sync_native_tool_feedback(
+    overlay: Res<NativeViewportOverlay>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut feedback: Query<(&mut Node, &mut Text), With<NativeToolFeedback>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    for (mut node, mut text) in &mut feedback {
+        let (Some(content), Some(position)) =
+            (overlay.feedback_text.as_deref(), overlay.feedback_screen)
+        else {
+            if node.display != Display::None {
+                node.display = Display::None;
+            }
+            continue;
+        };
+        let left = px((position.x + 12.0).clamp(0.0, (window.width() - 310.0).max(0.0)));
+        let top = px((position.y + 12.0).clamp(0.0, (window.height() - 48.0).max(0.0)));
+        if node.display != Display::Flex {
+            node.display = Display::Flex;
+        }
+        if node.left != left {
+            node.left = left;
+        }
+        if node.top != top {
+            node.top = top;
+        }
+        if text.0 != content {
+            text.0 = content.to_owned();
         }
     }
 }
@@ -5233,8 +5618,8 @@ fn sync_native_selected_vertex_dots(
     mut commands: Commands,
     scene: Res<SceneDocument>,
     selection_display: Res<NativeSelectionDisplayState>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    windows: Query<Ref<Window>, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, Ref<GlobalTransform>), With<Camera3d>>,
     layers: Query<Entity, With<NativeSelectedVertexDotLayer>>,
     mut dots: Query<(Entity, &NativeSelectedVertexDot, &mut Node)>,
 ) {
@@ -5243,6 +5628,15 @@ fn sync_native_selected_vertex_dots(
     else {
         return;
     };
+    if !scene.is_changed()
+        && !selection_display.is_changed()
+        && !window.is_changed()
+        && !camera_transform.is_changed()
+    {
+        return;
+    }
+    let window = &*window;
+    let camera_transform = &*camera_transform;
     let positions: Vec<Vec2> = if selection_display.policy.can_draw(SelectionKind::Vertex) {
         scene
             .selected_vertex_positions
@@ -5264,14 +5658,23 @@ fn sync_native_selected_vertex_dots(
     for (index, position) in positions.iter().copied().enumerate() {
         if let Some(entity) = existing.get(&index) {
             if let Ok((_, _, mut node)) = dots.get_mut(*entity) {
-                node.display = Display::Flex;
-                node.left = px(position.x - 3.0);
-                node.top = px(position.y - 3.0);
+                if node.display != Display::Flex {
+                    node.display = Display::Flex;
+                }
+                let left = px(position.x - 3.0);
+                if node.left != left {
+                    node.left = left;
+                }
+                let top = px(position.y - 3.0);
+                if node.top != top {
+                    node.top = top;
+                }
             }
         } else {
             commands.entity(layer).with_children(|layer| {
                 layer.spawn((
                     NativeSelectedVertexDot(index),
+                    Pickable::IGNORE,
                     Node {
                         position_type: PositionType::Absolute,
                         left: px(position.x - 3.0),
@@ -5718,7 +6121,9 @@ fn refresh_selection_window(
 ) {
     let Some(start) = drag.start else {
         for (mut node, _, _) in &mut overlays {
-            node.display = Display::None;
+            if node.display != Display::None {
+                node.display = Display::None;
+            }
         }
         return;
     };
@@ -5739,17 +6144,40 @@ fn refresh_selection_window(
         )
     };
     for (mut node, mut background, mut border) in &mut overlays {
-        node.display = Display::Flex;
-        node.left = px(min.x);
-        node.top = px(min.y);
-        node.width = px((max.x - min.x).max(2.0));
-        node.height = px((max.y - min.y).max(2.0));
-        background.0 = fill;
-        *border = BorderColor::all(outline);
+        let left = px(min.x);
+        let top = px(min.y);
+        let width = px((max.x - min.x).max(2.0));
+        let height = px((max.y - min.y).max(2.0));
+        if node.display != Display::Flex {
+            node.display = Display::Flex;
+        }
+        if node.left != left {
+            node.left = left;
+        }
+        if node.top != top {
+            node.top = top;
+        }
+        if node.width != width {
+            node.width = width;
+        }
+        if node.height != height {
+            node.height = height;
+        }
+        if background.0 != fill {
+            background.0 = fill;
+        }
+        let next_border = BorderColor::all(outline);
+        if *border != next_border {
+            *border = next_border;
+        }
     }
     for (mut text, mut color) in &mut labels {
-        text.0 = label.to_owned();
-        color.0 = outline;
+        if text.0 != label {
+            text.0 = label.to_owned();
+        }
+        if color.0 != outline {
+            color.0 = outline;
+        }
     }
 }
 
@@ -5878,18 +6306,23 @@ fn orbit_camera(
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut orbit: ResMut<OrbitCamera>,
 ) {
+    let zoom = scroll.to_lines(&scroll_conversion).delta.y;
+    let orbiting =
+        buttons.pressed(MouseButton::Right) && right_click.dragged && motion.delta != Vec2::ZERO;
+    if !orbiting && zoom == 0.0 {
+        return;
+    }
     let over_ui = ui_interactions
         .iter()
         .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
     if palette.open || context_menu.open || over_ui {
         return;
     }
-    if buttons.pressed(MouseButton::Right) && right_click.dragged {
+    if orbiting {
         orbit.yaw -= motion.delta.x * 0.006;
         orbit.pitch = (orbit.pitch + motion.delta.y * 0.006)
             .clamp(-89.0_f32.to_radians(), 89.0_f32.to_radians());
     }
-    let zoom = scroll.to_lines(&scroll_conversion).delta.y;
     if zoom != 0.0 {
         orbit.distance = (orbit.distance * (-zoom * 0.12).exp()).clamp(0.1, 100_000.0);
     }
@@ -5899,7 +6332,11 @@ fn orbit_camera(
         orbit.distance * orbit.pitch.sin(),
         horizontal * orbit.yaw.cos(),
     );
-    **camera = Transform::from_translation(orbit.target + offset).looking_at(orbit.target, Vec3::Y);
+    let updated =
+        Transform::from_translation(orbit.target + offset).looking_at(orbit.target, Vec3::Y);
+    if **camera != updated {
+        **camera = updated;
+    }
 }
 
 #[cfg(test)]
@@ -5909,31 +6346,36 @@ mod tests {
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState,
         ConstructionGuideKind, DispatchCommand, EditContext, GridNormalAxis, InputFocus,
-        LightingChannel, LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
-        NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
-        NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
-        NativeObjectListRow, NativeObjectNameInput, NativePermanentGrid,
+        LightingChannel, LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorPanel,
+        NativeInspectorText, NativeModelSettingField, NativeModelSettingsApplyButton,
+        NativeModelSettingsEditorButton, NativeModelSettingsInput, NativeObjectListClick,
+        NativeObjectListContainer, NativeObjectListRow, NativeObjectNameInput, NativePermanentGrid,
         NativePolylineSettingsApplyButton, NativeRenameObjectButton, NativeRightClickGesture,
-        NativeSelectionDisplayProperty, NativeSelectionDisplayState, NativeSelectionDisplayToggle,
-        NativeSelectionToggleLabel, NativeSelectionValue, NativeSelectionValueLabel,
-        NativeToolbarDrag, NativeToolbarWindow, NativeToolsContextMenuState, NativeUiInteraction,
-        NativeUiPreferencesState, NativeUiSettingChoice, NativeUiSettingChoiceButton,
-        NativeUiSettingInput, NativeUiSettingInputField, NativeUiSettingToggleButton,
-        NativeUiSettingToggleField, NativeUiSettingsApplyButton, NativeViewportOverlay,
-        SceneDocument, ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings,
-        apply_native_polyline_settings, apply_native_ui_preferences, back_face_color,
-        build_scene_meshes_with_policy, command_payload_from_json, create_native_icon_atlas,
-        dispatch_palette_command, dispatch_toolbar_command, line_mesh, native_model_setting_fields,
-        native_object_entries, native_polyline_setting_fields, native_segment_intersects_rect,
-        native_toolbar_dimensions, native_toolbar_position, native_triangle_intersects_rect,
-        object_selection_summary, objects_summary, open_native_model_settings_editor,
-        oriented_grid_lines, persist_native_toolbar_position, rename_selected_native_object,
+        NativeSelectedVertexDotLayer, NativeSelectionDisplayProperty, NativeSelectionDisplayState,
+        NativeSelectionDisplayToggle, NativeSelectionDrag, NativeSelectionToggleLabel,
+        NativeSelectionValue, NativeSelectionValueLabel, NativeToolbarButton, NativeToolbarDrag,
+        NativeToolbarIcon, NativeToolbarItems, NativeToolbarWindow, NativeToolsContextMenuRoot,
+        NativeToolsContextMenuState, NativeUiInteraction, NativeUiPreferencesState,
+        NativeUiSettingChoice, NativeUiSettingChoiceButton, NativeUiSettingInput,
+        NativeUiSettingInputField, NativeUiSettingToggleButton, NativeUiSettingToggleField,
+        NativeUiSettingsApplyButton, NativeViewportOverlay, Pickable, SceneDocument,
+        SelectionWindowOverlay, ShadowFilter, SnapResult, TextureAtlasLayout, ToolPreview,
+        ToolbarCatalog, apply_native_model_settings, apply_native_polyline_settings,
+        apply_native_ui_preferences, back_face_color, build_scene_meshes_with_policy,
+        command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
+        dispatch_toolbar_command, line_mesh, native_model_setting_fields, native_object_entries,
+        native_polyline_setting_fields, native_segment_intersects_rect, native_toolbar_dimensions,
+        native_toolbar_position, native_triangle_intersects_rect, object_selection_summary,
+        objects_summary, open_native_model_settings_editor, oriented_grid_lines,
+        persist_native_toolbar_position, refresh_selection_window, rename_selected_native_object,
         restore_native_toolbar_position, route_native_guide_shortcuts, scene_counts,
         search_command_ids, select_native_object_row, selected_object_info,
-        selected_vertex_positions, submit_palette_parameters, sync_command_palette_parameter_ui,
-        sync_command_palette_states, sync_native_cursor_dot, sync_native_model_settings_inputs,
-        sync_native_object_list, sync_native_selection_table, sync_native_settings_sections,
-        sync_native_ui_preference_presentation, sync_toolbar_button_states,
+        selected_vertex_positions, setup_ui, submit_palette_parameters,
+        sync_command_palette_parameter_ui, sync_command_palette_states,
+        sync_native_context_menu_ui, sync_native_cursor_dot, sync_native_inspector_visibility,
+        sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
+        sync_native_settings_sections, sync_native_toolbar_visibility,
+        sync_native_ui_preference_presentation, sync_toolbar_button_states, toggle_command_palette,
         toggle_native_ui_setting, tool_context_groups, triangle_mesh, update_native_permanent_grid,
         update_native_ui_setting_choice, update_right_click_gesture,
     };
@@ -5941,15 +6383,25 @@ mod tests {
     use bevy::{
         asset::Assets,
         mesh::{Mesh, VertexAttributeValues},
+        picking::{
+            backend::HitData,
+            events::Pointer,
+            events::PointerClick,
+            pointer::{Location, PointerButton, PointerId},
+        },
         prelude::{
-            App, BackgroundColor, ButtonInput, Color, Display, Gizmo, GizmoAsset, GizmoLineConfig,
-            KeyCode, Node, Text, TextColor, Update, Val, Vec2, Vec3, Visibility, default,
+            App, BackgroundColor, ButtonInput, Changed, Color, Display, Gizmo, GizmoAsset,
+            GizmoLineConfig, KeyCode, Node, Query, ResMut, Resource, Startup, Text, TextColor,
+            Update, Val, Vec2, Vec3, Visibility, With, default,
         },
         text::EditableText,
         time::Time,
         ui::Pressed,
-        ui_widgets::Activate,
+        ui::UiScale,
+        ui_widgets::{Activate, ButtonPlugin},
+        window::{PrimaryWindow, Window},
     };
+    use bevy_ecs::schedule::IntoScheduleConfigs;
     use meshcraft_core::commands::CommandPayload;
     use meshcraft_core::{
         document::Document,
@@ -7717,6 +8169,235 @@ mod tests {
     }
 
     #[test]
+    fn clicking_pressed_toolbar_button_dispatches_its_command() {
+        let mut app = App::new();
+        app.add_plugins(ButtonPlugin)
+            .insert_resource(CommandPaletteState::default())
+            .insert_non_send(MeshcraftApp::new_native_session(
+                Document::new(),
+                "Ready".to_owned(),
+                None,
+            ));
+        let button = app
+            .world_mut()
+            .spawn((Button, Pressed, DispatchCommand("tool.line".to_owned())))
+            .observe(dispatch_toolbar_command)
+            .id();
+        let pointer = Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: bevy::camera::NormalizedRenderTarget::None {
+                    width: 1,
+                    height: 1,
+                },
+                position: Vec2::ZERO,
+            },
+        );
+        let hit = HitData::new(button, 0.0, None, None);
+
+        app.world_mut().trigger(PointerClick {
+            entity: button,
+            pointer,
+            button: PointerButton::Primary,
+            hit,
+            duration: std::time::Duration::ZERO,
+            count: 1,
+        });
+        app.world_mut().flush();
+
+        assert_eq!(
+            "Line",
+            app.world().non_send::<MeshcraftApp>().active_tool_label()
+        );
+    }
+
+    #[derive(Resource, Default)]
+    struct ChangedNodeCount(usize);
+
+    fn count_changed_nodes(mut count: ResMut<ChangedNodeCount>, nodes: Query<(), Changed<Node>>) {
+        count.0 = nodes.iter().count();
+    }
+
+    #[test]
+    fn idle_native_ui_does_not_rewrite_unchanged_node_styles() {
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let preferences = NativeUiPreferencesState {
+            value: session.native_ui_preferences(),
+            revision: 0,
+        };
+        let toolbar_display = if session
+            .native_toolbar_visibility()
+            .first()
+            .copied()
+            .unwrap_or(false)
+        {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        let inspector_display = if session.native_panels_visible() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        let mut app = App::new();
+        app.insert_non_send(session)
+            .insert_resource(CommandPaletteState::default())
+            .insert_resource(preferences)
+            .insert_resource(CommandCatalog(Vec::new()))
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .insert_resource(UiScale::default())
+            .insert_resource(NativeToolsContextMenuState::default())
+            .insert_resource(NativeSelectionDrag::default())
+            .insert_resource(NativeViewportOverlay::default())
+            .insert_resource(ChangedNodeCount::default())
+            .add_systems(
+                Update,
+                (
+                    sync_native_toolbar_visibility,
+                    sync_native_inspector_visibility,
+                    sync_native_context_menu_ui,
+                    sync_native_ui_preference_presentation,
+                    sync_command_palette_parameter_ui,
+                    toggle_command_palette,
+                    sync_native_cursor_dot,
+                    refresh_selection_window,
+                    count_changed_nodes,
+                )
+                    .chain(),
+            );
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        app.world_mut().spawn((
+            NativeToolbarWindow {
+                index: 0,
+                width: 100.0,
+                height: 100.0,
+                default_position: Vec2::ZERO,
+                saved_position: None,
+                window_size: Vec2::ZERO,
+                item_count: 0,
+                preferences_revision: 0,
+                icon_size: 32,
+                flow_top_down: false,
+            },
+            Node {
+                display: toolbar_display,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((
+            NativeInspectorPanel,
+            Node {
+                display: inspector_display,
+                ..default()
+            },
+        ));
+        app.world_mut()
+            .spawn((NativeToolbarButton, Node::default()));
+        app.world_mut().spawn((NativeToolbarIcon, Node::default()));
+        app.world_mut()
+            .spawn((NativeToolbarItems { item_count: 12 }, Node::default()));
+        app.world_mut().spawn((
+            CommandPaletteOverlay,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((
+            NativeToolsContextMenuRoot,
+            Node {
+                display: Display::None,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((
+            CommandPaletteParameterPanel,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((
+            NativeCursorDot,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((
+            SelectionWindowOverlay,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            bevy::ui::BorderColor::all(Color::NONE),
+        ));
+
+        app.update();
+        app.update();
+
+        assert_eq!(0, app.world().resource::<ChangedNodeCount>().0);
+    }
+
+    #[test]
+    fn full_window_vertex_marker_layer_passes_pointer_picking_through() {
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let preferences = session.native_ui_preferences();
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document: Document::new(),
+            generation: 0,
+            revision: 0,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
+            occurrences: 0,
+            triangles: 0,
+            segments: 0,
+        })
+        .insert_resource(NativeSelectionDisplayState {
+            policy: SelectionDisplayPolicy::default(),
+            render_revision: 0,
+        })
+        .insert_resource(NativeUiPreferencesState {
+            value: preferences,
+            revision: 0,
+        })
+        .insert_resource(LightingSettings::default())
+        .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
+        .insert_resource(ToolbarCatalog(MeshcraftApp::native_toolbar_catalog()))
+        .insert_resource(Assets::<BevyImage>::default())
+        .insert_resource(Assets::<TextureAtlasLayout>::default())
+        .add_systems(Startup, setup_ui);
+
+        app.update();
+
+        let layer_pickable = {
+            let world = app.world_mut();
+            let mut layers =
+                world.query_filtered::<&Pickable, With<NativeSelectedVertexDotLayer>>();
+            *layers
+                .single(world)
+                .expect("UI setup creates the marker layer")
+        };
+        assert_eq!(Pickable::IGNORE, layer_pickable);
+    }
+
+    #[test]
     fn activating_a_parameterized_palette_command_opens_its_editor() {
         let mut app = App::new();
         app.insert_resource(super::CommandPaletteState {
@@ -7754,6 +8435,41 @@ mod tests {
             0,
             app.world().non_send::<MeshcraftApp>().document_revision()
         );
+    }
+
+    #[test]
+    fn native_array_feedback_includes_each_preview_copy() {
+        let source = vec![[ModelVec3::ZERO, ModelVec3::X]];
+        let preview = ToolPreview::Array {
+            edges: source,
+            copies: 2,
+            displacement: ModelVec3::Z,
+        };
+
+        let edges = super::native_tool_preview_edges(&preview);
+
+        assert_eq!(3, edges.len());
+        assert_eq!([ModelVec3::Z, ModelVec3::X + ModelVec3::Z], edges[1]);
+        assert_eq!(
+            [ModelVec3::Z * 2.0, ModelVec3::X + ModelVec3::Z * 2.0],
+            edges[2]
+        );
+    }
+
+    #[test]
+    fn native_primitive_feedback_includes_edges_from_preview_faces() {
+        let triangle = [ModelVec3::ZERO, ModelVec3::X, ModelVec3::Y];
+        let preview = ToolPreview::Primitive {
+            edges: Vec::new(),
+            triangles: vec![(triangle, meshcraft_core::document::Rgba8::WHITE)],
+        };
+
+        let edges = super::native_tool_preview_edges(&preview);
+
+        assert_eq!(3, edges.len());
+        assert_eq!([ModelVec3::ZERO, ModelVec3::X], edges[0]);
+        assert_eq!([ModelVec3::X, ModelVec3::Y], edges[1]);
+        assert_eq!([ModelVec3::Y, ModelVec3::ZERO], edges[2]);
     }
 
     fn attribute_len(mesh: &Mesh, name: MeshVertexAttribute) -> usize {

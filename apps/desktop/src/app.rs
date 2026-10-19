@@ -2514,6 +2514,25 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_tool_feedback_at(
+        &mut self,
+        point: Vec3,
+        screen_position: egui::Pos2,
+    ) -> (Option<ToolPreview>, Option<ToolFeedback>) {
+        let snap = SnapResult {
+            point,
+            normal: Vec3::Y,
+            kind: SnapKind::Free,
+            screen_distance: 0.0,
+        };
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ONE);
+        let preview = self.tool_preview(rect, Some(screen_position), Some(snap));
+        let feedback =
+            self.tool_feedback(rect, Some(screen_position), Some(snap), preview.as_ref());
+        (preview, feedback)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn native_construction_guides(&self) -> &[ConstructionGuide] {
         &self.guides
     }
