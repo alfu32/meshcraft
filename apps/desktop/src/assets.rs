@@ -18,6 +18,11 @@ pub fn icon_regions() -> BTreeMap<&'static str, IconRegion> {
     parse_icon_regions(ICON_MAPPING_CSV)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn icon_atlas_png() -> &'static [u8] {
+    ICON_ATLAS_PNG
+}
+
 pub fn load_icon_atlas(context: &egui::Context) -> Option<egui::TextureHandle> {
     let rgba = image::load_from_memory(ICON_ATLAS_PNG).ok()?.to_rgba8();
     let (width, height) = rgba.dimensions();

@@ -7,13 +7,14 @@
 use crate::MeshcraftApp;
 use bevy::{
     asset::RenderAssetUsages,
+    image::{Image as BevyImage, TextureAtlas, TextureAtlasLayout},
     input::keyboard::KeyboardInput,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollPixelsPerLine},
     light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
     mesh::{Mesh, PrimitiveTopology},
     pbr::StandardMaterial,
     prelude::*,
-    render::render_resource::Face,
+    render::render_resource::{Extent3d, Face, TextureDimension, TextureFormat},
     transform::TransformSystems,
     ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
@@ -45,46 +46,6 @@ struct SceneDocument {
     segments: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Component)]
-enum ToolKind {
-    Select,
-    Line,
-    Rectangle,
-    Move,
-    Copy,
-    Rotate,
-    Extrude,
-    Array,
-}
-
-impl ToolKind {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Select => "Select",
-            Self::Line => "Line",
-            Self::Rectangle => "Rectangle",
-            Self::Move => "Move",
-            Self::Copy => "Copy",
-            Self::Rotate => "Rotate 3D",
-            Self::Extrude => "Extrude",
-            Self::Array => "Array",
-        }
-    }
-
-    const fn command_id(self) -> &'static str {
-        match self {
-            Self::Select => "tool.select",
-            Self::Line => "tool.line",
-            Self::Rectangle => "tool.rectangle",
-            Self::Move => "tool.builtin.move",
-            Self::Copy => "edit.copy_selection",
-            Self::Rotate => "tool.builtin.rotate",
-            Self::Extrude => "tool.builtin.push_pull",
-            Self::Array => "object.array_selection",
-        }
-    }
-}
-
 #[derive(Resource, Default)]
 struct CommandPaletteState {
     open: bool,
@@ -96,8 +57,20 @@ struct CommandPaletteState {
 #[derive(Resource)]
 struct CommandCatalog(Vec<CommandDescriptor>);
 
+#[derive(Resource)]
+struct ToolbarCatalog(Vec<(String, Vec<CommandDescriptor>)>);
+
+struct NativeIconAtlas {
+    image: Handle<BevyImage>,
+    layout: Handle<TextureAtlasLayout>,
+    indices: std::collections::BTreeMap<String, usize>,
+}
+
 #[derive(Component)]
 struct DispatchCommand(String);
+
+#[derive(Component)]
+struct ToolbarCommandLabel(String);
 
 #[derive(Component)]
 struct CommandPaletteOverlay;
@@ -335,6 +308,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     })
     .insert_resource(ClearColor(Color::srgb(0.78, 0.86, 0.94)))
     .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
+    .insert_resource(ToolbarCatalog(MeshcraftApp::native_toolbar_catalog()))
     .insert_resource(CommandPaletteState::default())
     .insert_resource(NativeSelectionDrag::default())
     .insert_resource(RenderedSelectionRevision(0))
@@ -373,6 +347,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             update_slider_thumbs,
             apply_lighting_settings,
             sync_scene_document,
+            sync_toolbar_button_states,
             update_scene_meshes,
             update_selection_meshes,
             refresh_status,
@@ -404,6 +379,45 @@ fn scene_counts(document: &Document) -> (usize, usize, usize) {
         }
     }
     (occurrences.len().saturating_sub(1), triangles, segments)
+}
+
+fn create_native_icon_atlas(
+    images: &mut Assets<BevyImage>,
+    atlas_layouts: &mut Assets<TextureAtlasLayout>,
+) -> NativeIconAtlas {
+    let rgba = image::load_from_memory(crate::assets::icon_atlas_png())
+        .expect("embedded toolbar icon atlas is a valid image")
+        .to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let dimensions = UVec2::new(width, height);
+    let mut layout = TextureAtlasLayout::new_empty(dimensions);
+    let mut indices = std::collections::BTreeMap::new();
+    for (name, region) in crate::assets::icon_regions() {
+        if region.x + region.width > width || region.y + region.height > height {
+            continue;
+        }
+        let index = layout.add_texture(URect {
+            min: UVec2::new(region.x, region.y),
+            max: UVec2::new(region.x + region.width, region.y + region.height),
+        });
+        indices.insert(name.to_owned(), index);
+    }
+    let image = images.add(BevyImage::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rgba.into_raw(),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    ));
+    NativeIconAtlas {
+        image,
+        layout: atlas_layouts.add(layout),
+        indices,
+    }
 }
 
 fn setup_scene(
@@ -820,7 +834,11 @@ fn setup_ui(
     scene: Res<SceneDocument>,
     lighting: Res<LightingSettings>,
     catalog: Res<CommandCatalog>,
+    toolbars: Res<ToolbarCatalog>,
+    mut images: ResMut<Assets<BevyImage>>,
+    mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
+    let icon_atlas = create_native_icon_atlas(&mut images, &mut atlas_layouts);
     let root = commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -865,20 +883,16 @@ fn setup_ui(
                 top: px(62),
                 left: px(10),
                 width: px(250),
+                bottom: px(38),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(7),
+                overflow: Overflow::scroll_y(),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.10, 0.12, 0.15, 0.92)),
         ))
         .with_children(|toolbar| {
-            for (title, tools) in [
-                ("Point Construction", &[ToolKind::Line, ToolKind::Rectangle][..]),
-                ("Actions", &[ToolKind::Select, ToolKind::Copy][..]),
-                ("Modification", &[ToolKind::Move, ToolKind::Rotate][..]),
-                ("Entity Construction", &[ToolKind::Extrude][..]),
-                ("Spatial Arrays", &[ToolKind::Array][..]),
-            ] {
+            for (title, registered_commands) in &toolbars.0 {
                 toolbar
                     .spawn((
                         Node {
@@ -906,18 +920,12 @@ fn setup_ui(
                                 ..default()
                             })
                             .with_children(|buttons| {
-                                for tool in tools {
-                                    spawn_tool_button(buttons, tool.label(), *tool);
+                                for command in registered_commands {
+                                    spawn_tool_button(buttons, command, &icon_atlas);
                                 }
                             });
                     });
             }
-            toolbar.spawn((
-                Text::new("Camera · right-drag orbit · wheel zoom"),
-                TextFont::from_font_size(12.0),
-                TextColor(Color::srgb(0.72, 0.80, 0.89)),
-                Node { padding: UiRect::all(px(5)), ..default() },
-            ));
         });
         root.spawn((
             Node {
@@ -1243,26 +1251,106 @@ fn spawn_lighting_slider(parent: &mut ChildSpawnerCommands, channel: LightingCha
         });
 }
 
-fn spawn_tool_button(parent: &mut ChildSpawnerCommands, label: &'static str, tool: ToolKind) {
+fn spawn_tool_button(
+    parent: &mut ChildSpawnerCommands,
+    command: &CommandDescriptor,
+    icon_atlas: &NativeIconAtlas,
+) {
+    let command_id = command.id.as_str().to_owned();
+    let icon_index = command
+        .presentation
+        .icon_key
+        .as_ref()
+        .and_then(|key| icon_atlas.indices.get(key))
+        .copied();
     parent
         .spawn((
             Button,
-            DispatchCommand(tool.command_id().to_owned()),
+            DispatchCommand(command_id.clone()),
             Node {
                 width: px(112),
-                height: px(27),
+                height: px(36),
+                flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
-                padding: UiRect::horizontal(px(7)),
+                column_gap: px(5),
+                padding: UiRect::horizontal(px(4)),
                 ..default()
             },
             BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
         ))
-        .with_child((
-            Text::new(label),
-            TextFont::from_font_size(12.0),
-            TextColor::WHITE,
-        ))
+        .with_children(|button| {
+            if let Some(index) = icon_index {
+                button.spawn((
+                    ImageNode::from_atlas_image(
+                        icon_atlas.image.clone(),
+                        TextureAtlas {
+                            layout: icon_atlas.layout.clone(),
+                            index,
+                        },
+                    ),
+                    Node {
+                        width: px(28),
+                        height: px(28),
+                        ..default()
+                    },
+                ));
+            }
+            button.spawn((
+                Text::new(command.label.clone()),
+                TextFont::from_font_size(11.0),
+                TextColor::WHITE,
+                ToolbarCommandLabel(command_id),
+            ));
+        })
         .observe(dispatch_toolbar_command);
+}
+
+fn sync_toolbar_button_states(
+    scene: Res<SceneDocument>,
+    mut commands: Commands,
+    session: NonSend<MeshcraftApp>,
+    mut buttons: Query<(
+        Entity,
+        &DispatchCommand,
+        Option<&Button>,
+        &mut BackgroundColor,
+    )>,
+    mut labels: Query<(&ToolbarCommandLabel, &mut TextColor)>,
+) {
+    if !scene.is_changed() {
+        return;
+    }
+    let mut states = std::collections::BTreeMap::new();
+    for (entity, command, button, mut background) in &mut buttons {
+        let state = session.native_command_state(&command.0);
+        states.insert(
+            command.0.clone(),
+            (state.enabled, state.checked == Some(true)),
+        );
+        if state.enabled {
+            if button.is_none() {
+                commands.entity(entity).insert(Button);
+            }
+            background.0 = if state.checked == Some(true) {
+                Color::srgb(0.12, 0.38, 0.62)
+            } else {
+                Color::srgb(0.22, 0.24, 0.28)
+            };
+        } else {
+            if button.is_some() {
+                commands.entity(entity).remove::<Button>();
+            }
+            background.0 = Color::srgb(0.14, 0.15, 0.16);
+        }
+    }
+    for (label, mut color) in &mut labels {
+        let enabled = states.get(&label.0).is_some_and(|(enabled, _)| *enabled);
+        color.0 = if enabled {
+            Color::WHITE
+        } else {
+            Color::srgb(0.48, 0.49, 0.51)
+        };
+    }
 }
 
 fn dispatch_toolbar_command(
@@ -2470,15 +2558,18 @@ fn orbit_camera(
 #[cfg(test)]
 mod tests {
     use super::{
-        LightingChannel, LightingSettings, ShadowFilter, back_face_color, build_scene_meshes,
-        dispatch_palette_command, dispatch_toolbar_command, line_mesh,
-        native_segment_intersects_rect, native_triangle_intersects_rect, scene_counts,
-        search_command_ids, triangle_mesh,
+        BevyImage, Button, DispatchCommand, LightingChannel, LightingSettings, NativeIconAtlas,
+        SceneDocument, ShadowFilter, TextureAtlasLayout, ToolbarCommandLabel, back_face_color,
+        build_scene_meshes, create_native_icon_atlas, dispatch_palette_command,
+        dispatch_toolbar_command, line_mesh, native_segment_intersects_rect,
+        native_triangle_intersects_rect, scene_counts, search_command_ids,
+        sync_toolbar_button_states, triangle_mesh,
     };
     use crate::MeshcraftApp;
     use bevy::{
+        asset::Assets,
         mesh::{Mesh, VertexAttributeValues},
-        prelude::{App, Update, Vec2, Vec3},
+        prelude::{App, BackgroundColor, Color, TextColor, Update, Vec2, Vec3},
         ui_widgets::Activate,
     };
     use meshcraft_core::commands::CommandPayload;
@@ -2620,6 +2711,89 @@ mod tests {
             Vec2::new(3.0, 5.0),
             region
         ));
+    }
+
+    #[test]
+    fn native_toolbar_disables_unavailable_commands_and_marks_active_tools() {
+        let document = Document::new();
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document: document.clone(),
+            generation: 0,
+            revision: 0,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            occurrences: 0,
+            triangles: 0,
+            segments: 0,
+        })
+        .insert_non_send(MeshcraftApp::new_native_session(
+            document,
+            "Ready".to_owned(),
+            None,
+        ))
+        .add_systems(Update, sync_toolbar_button_states);
+        let select = app
+            .world_mut()
+            .spawn((
+                Button,
+                DispatchCommand("tool.select".to_owned()),
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+        let push_pull = app
+            .world_mut()
+            .spawn((
+                Button,
+                DispatchCommand("tool.builtin.push_pull".to_owned()),
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+        let push_pull_label = app
+            .world_mut()
+            .spawn((
+                ToolbarCommandLabel("tool.builtin.push_pull".to_owned()),
+                TextColor(Color::WHITE),
+            ))
+            .id();
+
+        app.update();
+
+        assert!(app.world().get::<Button>(select).is_some());
+        assert_eq!(
+            Color::srgb(0.12, 0.38, 0.62),
+            app.world().get::<BackgroundColor>(select).unwrap().0
+        );
+        assert!(app.world().get::<Button>(push_pull).is_none());
+        assert_eq!(
+            Color::srgb(0.48, 0.49, 0.51),
+            app.world().get::<TextColor>(push_pull_label).unwrap().0
+        );
+    }
+
+    #[test]
+    fn native_toolbar_atlas_uses_the_embedded_legacy_icon_mapping() {
+        let mut images = Assets::<BevyImage>::default();
+        let mut layouts = Assets::<TextureAtlasLayout>::default();
+
+        let atlas: NativeIconAtlas = create_native_icon_atlas(&mut images, &mut layouts);
+
+        assert!(images.get(&atlas.image).is_some());
+        let layout = layouts
+            .get(&atlas.layout)
+            .expect("registered texture atlas");
+        assert!(layout.len() >= 80);
+        for key in ["select", "construction_line", "revolve", "hvac_plumbing"] {
+            assert!(
+                atlas.indices.contains_key(key),
+                "missing toolbar icon {key}"
+            );
+        }
     }
 
     #[test]

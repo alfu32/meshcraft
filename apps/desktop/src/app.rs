@@ -2053,6 +2053,34 @@ impl MeshcraftApp {
             .collect()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_toolbar_catalog() -> Vec<(String, Vec<CommandDescriptor>)> {
+        let catalog = Self::command_catalog();
+        LEGACY_TOOLBARS
+            .iter()
+            .map(|(toolbar_id, title)| {
+                let stem = toolbar_id
+                    .strip_prefix("builtin_toolbar_")
+                    .expect("legacy toolbar identifiers use the built-in prefix");
+                let commands = legacy_toolbar_command_ids(stem)
+                    .iter()
+                    .filter_map(|id| {
+                        catalog
+                            .iter()
+                            .find(|command| command.id.as_str() == id)
+                            .cloned()
+                    })
+                    .collect();
+                ((*title).to_owned(), commands)
+            })
+            .collect()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_command_state(&self, id: &str) -> CommandState {
+        self.query_command_state(id)
+    }
+
     pub fn command_job_result(&self, job_id: &str) -> Option<&CommandResult> {
         self.job_results.get(job_id)
     }
@@ -11186,6 +11214,41 @@ mod tests {
             position,
         );
         assert!(app.selection.summary().faces >= 2);
+    }
+
+    #[test]
+    fn native_toolbar_catalog_matches_legacy_groups_and_command_states() {
+        let groups = MeshcraftApp::native_toolbar_catalog();
+        assert_eq!(13, groups.len());
+        let command_ids = |group: &str| {
+            groups
+                .iter()
+                .find(|(title, _)| title == group)
+                .unwrap_or_else(|| panic!("missing toolbar group {group}"))
+                .1
+                .iter()
+                .map(|command| command.id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert!(command_ids("Point Construction").contains(&"tool.builtin.polyline"));
+        assert!(command_ids("Actions").contains(&"edit.undo"));
+        assert!(command_ids("Modification").contains(&"tool.builtin.stretch"));
+        assert!(command_ids("Rendering").contains(&"render.raytrace"));
+        assert!(command_ids("Architecture").contains(&"tool.builtin.arch_wall"));
+        assert!(command_ids("HVAC").contains(&"tool.builtin.hvac_plumbing"));
+
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        assert!(session.native_command_state("tool.line").enabled);
+        assert!(
+            !session
+                .native_command_state("tool.builtin.push_pull")
+                .enabled
+        );
+        assert!(
+            !session
+                .native_command_state("tool.builtin.object_cut")
+                .enabled
+        );
     }
 
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {
