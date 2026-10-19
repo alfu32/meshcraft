@@ -16,6 +16,8 @@ Use egui for the native desktop application shell, hosted in the Bevy 0.20 windo
 
 Use one native window, one winit event loop and Bevy's WGPU device. Bevy renders the custom 3D scene into the center viewport. egui owns the surrounding menus, toolbars, panels and dialogs and renders above the scene through the integration plugin. The egui layout's central content rectangle is the contract for the Bevy camera viewport: convert its logical points to physical pixels using the active scale factor and update camera viewport/projection on layout, resize and DPI changes. If plugin ordering makes the central scissor path impractical, the spike may prove a Bevy render-to-texture surface displayed in egui; do not introduce a second independent renderer/window without recording a new decision.
 
+Compatibility spike status (2026-10-19): the desktop pins `bevy_egui 0.43.1` with Bevy 0.20 and currently renders a searchable command catalog window. The plugin uses egui 0.36, while eframe remains on egui 0.37 for the existing shared/WASM shell; this duplicate-version arrangement is temporary and must be removed as components migrate. Startup and compile are verified, but the floating window is not the final layout and the center viewport mapping is not implemented yet.
+
 egui owns application presentation only:
 
 - Menus, grouped toolbars, searchable command palette, dockable/scrollable inspectors, settings forms, object list, dialogs, status and feedback.

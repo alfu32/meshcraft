@@ -2834,7 +2834,7 @@
         "C40/C17/C23 pass with interactive and visual evidence; 2,000-entity measurements and click-to-visible-selection latency are recorded against T00/#18."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/decisions/ADR-05-ui-architecture.md",
         "docs/rewrite/architecture.md",

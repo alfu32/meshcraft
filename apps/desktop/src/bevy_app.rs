@@ -32,6 +32,7 @@ use bevy::{
     },
     winit::WinitSettings,
 };
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui as native_egui};
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
 use meshcraft_core::{
@@ -133,6 +134,17 @@ struct CommandPaletteState {
 
 #[derive(Resource)]
 struct CommandCatalog(Vec<CommandDescriptor>);
+
+#[derive(Resource, Default)]
+struct NativeEguiInputCapture {
+    pointer_over_ui: bool,
+    keyboard_captured: bool,
+}
+
+#[derive(Resource, Default)]
+struct NativeEguiSearch {
+    query: String,
+}
 
 #[derive(Resource)]
 struct ToolbarCatalog(Vec<(String, Vec<CommandDescriptor>)>);
@@ -640,6 +652,7 @@ struct NativePointerInvalidation<'w> {
     scene: Res<'w, SceneDocument>,
     selection_display: Res<'w, NativeSelectionDisplayState>,
     ui_preferences: Res<'w, NativeUiPreferencesState>,
+    egui_capture: Res<'w, NativeEguiInputCapture>,
 }
 
 impl NativeViewportOverlay {
@@ -712,6 +725,8 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         render_revision: 0,
     })
     .insert_resource(CommandPaletteState::default())
+    .insert_resource(NativeEguiInputCapture::default())
+    .insert_resource(NativeEguiSearch::default())
     .insert_resource(NativeSelectionDrag::default())
     .insert_resource(NativeToolbarDrag::default())
     .insert_resource(NativeToolsContextMenuState::default())
@@ -741,7 +756,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         }),
         ..default()
     }))
+    .add_plugins(EguiPlugin::default())
     .add_systems(Startup, (setup_scene, setup_ui, apply_window_state))
+    .add_systems(EguiPrimaryContextPass, native_egui_shell)
     .add_systems(
         Update,
         (
@@ -802,6 +819,91 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             .after(TransformSystems::Propagate),
     );
     app.run();
+}
+
+fn native_egui_shell(
+    mut contexts: EguiContexts,
+    commands: Res<CommandCatalog>,
+    scene: Res<SceneDocument>,
+    mut search: ResMut<NativeEguiSearch>,
+    mut capture: ResMut<NativeEguiInputCapture>,
+    mut session: NonSendMut<MeshcraftApp>,
+) -> Result {
+    let context = contexts.ctx_mut()?;
+    let mut requested_command = None;
+
+    native_egui::Window::new("Meshcraft · Commands")
+        .anchor(
+            native_egui::Align2::RIGHT_TOP,
+            native_egui::vec2(-12.0, 12.0),
+        )
+        .default_width(310.0)
+        .default_height(540.0)
+        .resizable(true)
+        .show(context, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong("Meshcraft");
+                ui.label("Bevy model viewport");
+            });
+            ui.label(format!("{}  ·  {}", scene.status, scene.active_tool));
+            ui.separator();
+            ui.heading("Command catalog");
+            ui.label("Search and launch commands from the shared registry.");
+            ui.add_space(6.0);
+            ui.text_edit_singleline(&mut search.query);
+            ui.separator();
+            ui.label(format!(
+                "Scene: {} instances · {} faces · {} lines",
+                scene.occurrences, scene.triangles, scene.segments
+            ));
+            ui.label(format!(
+                "Selection: {} object(s), {} face(s), {} edge(s)",
+                scene.selected_objects, scene.selected_faces, scene.selected_edges
+            ));
+            ui.add_space(8.0);
+
+            native_egui::ScrollArea::vertical().show(ui, |ui| {
+                let query = search.query.to_lowercase();
+                for command in &commands.0 {
+                    let matches = query.trim().is_empty()
+                        || command.label.to_lowercase().contains(&query)
+                        || command.id.as_str().contains(&query)
+                        || command.category.to_lowercase().contains(&query);
+                    if !matches {
+                        continue;
+                    }
+                    let state = session.native_command_state(command.id.as_str());
+                    let missing_parameters = !command.parameters.is_empty();
+                    let response = ui.add_enabled(
+                        state.enabled && !missing_parameters,
+                        native_egui::Button::new(&command.label),
+                    );
+                    if missing_parameters {
+                        response.clone().on_hover_text(
+                            "This command needs parameters; parameter forms are not migrated yet.",
+                        );
+                    } else if !state.enabled {
+                        if let Some(reason) = state.disabled_reason.as_deref() {
+                            response.clone().on_hover_text(reason);
+                        }
+                    }
+                    if response.clicked() {
+                        requested_command = Some(command.id.to_string());
+                    }
+                }
+            });
+        });
+
+    if let Some(command_id) = requested_command {
+        let result = session.dispatch_command(&command_id, &CommandPayload::default());
+        if result.accepted {
+            info!("egui dispatched {command_id}");
+        }
+    }
+
+    capture.pointer_over_ui = context.is_pointer_over_egui();
+    capture.keyboard_captured = context.egui_wants_keyboard_input();
+    Ok(())
 }
 
 #[derive(Resource)]
@@ -5086,6 +5188,15 @@ fn native_viewport_pointer(
     let document_revision_before = session.document_revision();
     let selection_revision_before = session.native_selection_revision();
     let cursor = window.cursor_position();
+    if invalidation.egui_capture.pointer_over_ui {
+        overlay.clear_cursor();
+        drag.start = None;
+        *right_click = NativeRightClickGesture::default();
+        return;
+    }
+    if invalidation.egui_capture.keyboard_captured {
+        return;
+    }
     let window_size = Vec2::new(window.width(), window.height());
     let pointer_button_event = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
         .into_iter()
