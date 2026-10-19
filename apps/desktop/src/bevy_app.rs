@@ -145,6 +145,7 @@ struct NativeToolbarWindow {
     index: usize,
     width: f32,
     height: f32,
+    window_size: Vec2,
     item_count: usize,
     preferences_revision: u64,
     icon_size: u32,
@@ -158,6 +159,7 @@ struct NativeToolbarDragHandle(usize);
 struct NativeToolbarDrag {
     active_index: Option<usize>,
     last_cursor: Option<Vec2>,
+    moved: bool,
 }
 
 #[derive(Component)]
@@ -1486,16 +1488,23 @@ fn setup_ui(
         });
         let max_toolbar_width = (window_size.x - 370.0).clamp(220.0, 620.0);
         let icon_size = ui_preferences.value.toolbar_icon_size as f32;
-        let toolbar_columns = (((max_toolbar_width - 12.0) / icon_size).floor() as usize).max(1);
+        let max_vertical_rows = ((window_size.y - 150.0) / icon_size)
+            .floor()
+            .max(1.0) as usize;
         let mut toolbar_left = 10.0;
         let mut toolbar_top = 62.0;
         let mut toolbar_column_width: f32 = 0.0;
         for (index, (title, registered_commands)) in toolbars.0.iter().enumerate() {
             let item_count = registered_commands.len().max(1);
-            let rows = item_count.div_ceil(toolbar_columns);
-            let width = (item_count.min(toolbar_columns) as f32 * icon_size + 12.0)
-                .min(max_toolbar_width);
-            let height = 25.0 + rows as f32 * icon_size;
+            let dimensions = native_toolbar_dimensions(
+                item_count,
+                icon_size,
+                max_toolbar_width,
+                max_vertical_rows,
+                ui_preferences.value.toolbar_flow_top_down,
+            );
+            let width = dimensions.x;
+            let height = dimensions.y;
             if toolbar_top + height > window_size.y - 36.0 && toolbar_top > 62.0 {
                 toolbar_left += toolbar_column_width + 8.0;
                 toolbar_top = 62.0;
@@ -1506,11 +1515,24 @@ fn setup_ui(
                 toolbar_top = (toolbar_top + height + 5.0).min(window_size.y - height - 36.0);
                 toolbar_column_width = 0.0;
             }
+            let restored_position = ui_preferences
+                .value
+                .toolbar_positions
+                .get(index)
+                .copied()
+                .flatten();
+            let toolbar_position = native_toolbar_position(
+                Vec2::new(toolbar_left, toolbar_top),
+                restored_position,
+                window_size,
+                Vec2::new(width, height),
+            );
             root.spawn((
                 NativeToolbarWindow {
                     index,
                     width,
                     height,
+                    window_size,
                     item_count,
                     preferences_revision: ui_preferences.revision,
                     icon_size: ui_preferences.value.toolbar_icon_size,
@@ -1520,8 +1542,8 @@ fn setup_ui(
                 Hovered::default(),
                 Node {
                     position_type: PositionType::Absolute,
-                    left: px(toolbar_left),
-                    top: px(toolbar_top),
+                    left: px(toolbar_position.x),
+                    top: px(toolbar_position.y),
                     width: px(width),
                     height: px(height),
                     padding: UiRect::all(px(3)),
@@ -3033,40 +3055,42 @@ fn sync_native_ui_preference_presentation(
     };
     let icon_size = preferences.value.toolbar_icon_size;
     let max_toolbar_width = (window.width() - 370.0).clamp(220.0, 620.0);
+    let window_size = Vec2::new(window.width(), window.height());
     let max_vertical_rows = ((window.height() - 150.0) / icon_size as f32)
         .floor()
         .max(1.0) as usize;
     for (mut toolbar, mut node) in &mut toolbars {
-        if toolbar.preferences_revision == preferences.revision {
+        let resized = toolbar.window_size != window_size;
+        if toolbar.preferences_revision == preferences.revision && !resized {
             continue;
         }
-        if toolbar.icon_size != icon_size
+        if resized
+            || toolbar.icon_size != icon_size
             || toolbar.flow_top_down != preferences.value.toolbar_flow_top_down
         {
-            let (columns, rows) = if preferences.value.toolbar_flow_top_down {
-                let rows = toolbar.item_count.min(max_vertical_rows).max(1);
-                (toolbar.item_count.div_ceil(rows), rows)
-            } else {
-                let columns =
-                    (((max_toolbar_width - 12.0) / icon_size as f32).floor() as usize).max(1);
-                (columns, toolbar.item_count.div_ceil(columns))
-            };
-            toolbar.width = (toolbar.item_count.min(columns) as f32 * icon_size as f32 + 12.0)
-                .min(max_toolbar_width);
-            toolbar.height = 25.0 + rows as f32 * icon_size as f32;
+            let dimensions = native_toolbar_dimensions(
+                toolbar.item_count,
+                icon_size as f32,
+                max_toolbar_width,
+                max_vertical_rows,
+                preferences.value.toolbar_flow_top_down,
+            );
+            toolbar.width = dimensions.x;
+            toolbar.height = dimensions.y;
             toolbar.icon_size = icon_size;
             toolbar.flow_top_down = preferences.value.toolbar_flow_top_down;
             node.width = px(toolbar.width);
             node.height = px(toolbar.height);
-            node.left = match node.left {
-                Val::Px(left) => px(left.clamp(0.0, (window.width() - toolbar.width).max(0.0))),
-                other => other,
-            };
-            node.top = match node.top {
-                Val::Px(top) => px(top.clamp(0.0, (window.height() - toolbar.height).max(0.0))),
-                other => other,
-            };
         }
+        node.left = match node.left {
+            Val::Px(left) => px(left.clamp(0.0, (window.width() - toolbar.width).max(0.0))),
+            other => other,
+        };
+        node.top = match node.top {
+            Val::Px(top) => px(top.clamp(0.0, (window.height() - toolbar.height).max(0.0))),
+            other => other,
+        };
+        toolbar.window_size = window_size;
         toolbar.preferences_revision = preferences.revision;
     }
     for mut node in &mut toolbar_buttons {
@@ -3169,6 +3193,7 @@ fn drag_native_toolbars(
     windows: Query<&Window, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut drag: ResMut<NativeToolbarDrag>,
+    mut session: NonSendMut<MeshcraftApp>,
     handles: Query<(&NativeToolbarDragHandle, Has<Pressed>)>,
     mut toolbars: Query<(&NativeToolbarWindow, &mut Node)>,
 ) {
@@ -3181,6 +3206,7 @@ fn drag_native_toolbars(
             .iter()
             .find_map(|(handle, pressed)| pressed.then_some(handle.0));
         drag.last_cursor = cursor;
+        drag.moved = false;
     }
     if mouse.pressed(MouseButton::Left)
         && let (Some(index), Some(position), Some(previous)) =
@@ -3202,14 +3228,79 @@ fn drag_native_toolbars(
                     px((left + delta.x).clamp(0.0, (window.width() - toolbar.width).max(0.0)));
                 node.top =
                     px((top + delta.y).clamp(0.0, (window.height() - toolbar.height).max(0.0)));
+                drag.moved = true;
             }
         }
         drag.last_cursor = Some(position);
     }
     if mouse.just_released(MouseButton::Left) {
+        if drag.moved
+            && let Some(index) = drag.active_index
+            && let Some((left, top)) = toolbars.iter().find_map(|(toolbar, node)| {
+                if toolbar.index != index {
+                    return None;
+                }
+                match (node.left, node.top) {
+                    (Val::Px(left), Val::Px(top)) => Some((left, top)),
+                    _ => None,
+                }
+            })
+        {
+            persist_native_toolbar_position(&mut session, index, left, top);
+        }
         drag.active_index = None;
         drag.last_cursor = None;
+        drag.moved = false;
     }
+}
+
+fn native_toolbar_position(
+    default_position: Vec2,
+    restored_position: Option<[f32; 2]>,
+    window_size: Vec2,
+    toolbar_size: Vec2,
+) -> Vec2 {
+    let max_x = (window_size.x - toolbar_size.x).max(0.0);
+    let max_y = (window_size.y - toolbar_size.y).max(0.0);
+    let restored = restored_position
+        .filter(|position| position.iter().all(|coordinate| coordinate.is_finite()))
+        .map(|[x, y]| Vec2::new(x, y))
+        .unwrap_or(default_position);
+    Vec2::new(restored.x.clamp(0.0, max_x), restored.y.clamp(0.0, max_y))
+}
+
+fn native_toolbar_dimensions(
+    item_count: usize,
+    icon_size: f32,
+    max_width: f32,
+    max_vertical_rows: usize,
+    flow_top_down: bool,
+) -> Vec2 {
+    let (columns, rows) = if flow_top_down {
+        let rows = item_count.min(max_vertical_rows).max(1);
+        (item_count.div_ceil(rows), rows)
+    } else {
+        let columns = (((max_width - 12.0) / icon_size).floor() as usize).max(1);
+        (columns, item_count.div_ceil(columns))
+    };
+    Vec2::new(
+        (item_count.min(columns) as f32 * icon_size + 12.0).min(max_width),
+        25.0 + rows as f32 * icon_size,
+    )
+}
+
+fn persist_native_toolbar_position(session: &mut MeshcraftApp, index: usize, left: f32, top: f32) {
+    let Some(key) = MeshcraftApp::native_toolbar_position_key(index) else {
+        return;
+    };
+    let mut positions = serde_json::Map::new();
+    positions.insert(key.to_owned(), serde_json::json!([left, top]));
+    let mut payload = CommandPayload::default();
+    payload.values.insert(
+        "toolbar_positions".to_owned(),
+        serde_json::Value::Object(positions),
+    );
+    session.dispatch_command("ui.update_preferences", &payload);
 }
 
 fn sync_toolbar_button_states(
@@ -5738,15 +5829,16 @@ mod tests {
         build_oriented_grid_mesh, build_scene_meshes_with_policy, command_payload_from_json,
         create_native_icon_atlas, dispatch_palette_command, dispatch_toolbar_command, line_mesh,
         native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
-        native_segment_intersects_rect, native_triangle_intersects_rect, object_selection_summary,
-        objects_summary, open_native_model_settings_editor, rename_selected_native_object,
-        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
-        selected_object_info, selected_vertex_positions, submit_palette_parameters,
-        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
-        sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
-        sync_native_settings_sections, sync_toolbar_button_states, toggle_native_ui_setting,
-        tool_context_groups, triangle_mesh, update_native_ui_setting_choice,
-        update_right_click_gesture,
+        native_segment_intersects_rect, native_toolbar_dimensions, native_toolbar_position,
+        native_triangle_intersects_rect, object_selection_summary, objects_summary,
+        open_native_model_settings_editor, persist_native_toolbar_position,
+        rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
+        search_command_ids, select_native_object_row, selected_object_info,
+        selected_vertex_positions, submit_palette_parameters, sync_command_palette_parameter_ui,
+        sync_command_palette_states, sync_native_cursor_dot, sync_native_model_settings_inputs,
+        sync_native_object_list, sync_native_selection_table, sync_native_settings_sections,
+        sync_toolbar_button_states, toggle_native_ui_setting, tool_context_groups, triangle_mesh,
+        update_native_ui_setting_choice, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -5835,6 +5927,49 @@ mod tests {
         assert!(hidden_objects.front_faces.is_none());
         assert!(hidden_objects.segments.is_none());
         assert!(hidden_objects.face_wireframe.is_none());
+    }
+
+    #[test]
+    fn dragged_toolbar_positions_use_shared_preferences_and_restore_within_window() {
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        assert_eq!(
+            Some("construction_points"),
+            MeshcraftApp::native_toolbar_position_key(0)
+        );
+        persist_native_toolbar_position(&mut session, 0, 132.0, 84.0);
+        assert_eq!(
+            Some([132.0, 84.0]),
+            session.native_ui_preferences().toolbar_positions[0]
+        );
+
+        let default = Vec2::new(10.0, 62.0);
+        let window = Vec2::new(800.0, 600.0);
+        let toolbar = Vec2::new(200.0, 100.0);
+        assert_eq!(
+            default,
+            native_toolbar_position(default, None, window, toolbar)
+        );
+        assert_eq!(
+            Vec2::new(600.0, 500.0),
+            native_toolbar_position(default, Some([900.0, 700.0]), window, toolbar)
+        );
+        assert_eq!(
+            default,
+            native_toolbar_position(default, Some([f32::NAN, 20.0]), window, toolbar,)
+        );
+        assert_eq!(
+            Vec2::new(300.0, 89.0),
+            native_toolbar_dimensions(12, 32.0, 320.0, 4, false)
+        );
+        assert_eq!(
+            Vec2::new(108.0, 153.0),
+            native_toolbar_dimensions(12, 32.0, 320.0, 4, true)
+        );
+        assert_eq!(
+            Vec2::new(204.0, 169.0),
+            native_toolbar_dimensions(12, 48.0, 220.0, 3, false)
+        );
     }
 
     #[test]

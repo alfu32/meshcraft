@@ -1840,6 +1840,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("toolbar_flow_top_down", CommandValueType::Boolean),
             ("toolbars_visible", CommandValueType::Boolean),
             ("toolbar_visibility", CommandValueType::Object),
+            ("toolbar_positions", CommandValueType::Object),
             ("walk_move_speed", CommandValueType::Number),
             ("walk_jump_velocity", CommandValueType::Number),
             ("walk_gravity", CommandValueType::Number),
@@ -1947,6 +1948,7 @@ struct Preferences {
     profile: UiProfile,
     toolbars_visible: bool,
     toolbar_visibility: BTreeMap<String, bool>,
+    toolbar_positions: BTreeMap<String, [f32; 2]>,
     auto_collapse_toolbars: bool,
     ui_text_scale: f32,
     toolbar_icon_size: u32,
@@ -1980,6 +1982,7 @@ pub(crate) struct NativeUiPreferences {
     pub normal_grid_width: f32,
     pub thick_grid_width: f32,
     pub toolbar_flow_top_down: bool,
+    pub toolbar_positions: Vec<Option<[f32; 2]>>,
 }
 
 fn deserialize_grid_normal_axis<'de, D>(deserializer: D) -> Result<GridNormalAxis, D::Error>
@@ -2007,6 +2010,7 @@ impl Default for Preferences {
                         .map(|stem| (stem.to_owned(), true))
                 })
                 .collect(),
+            toolbar_positions: BTreeMap::new(),
             auto_collapse_toolbars: false,
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
@@ -2164,6 +2168,13 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_toolbar_position_key(index: usize) -> Option<&'static str> {
+        LEGACY_TOOLBARS
+            .get(index)
+            .and_then(|(toolbar_id, _)| toolbar_id.strip_prefix("builtin_toolbar_"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn native_ui_preferences(&self) -> NativeUiPreferences {
         NativeUiPreferences {
             ui_text_scale: self.preferences.ui_text_scale,
@@ -2176,6 +2187,15 @@ impl MeshcraftApp {
             normal_grid_width: self.preferences.normal_grid_width,
             thick_grid_width: self.preferences.thick_grid_width,
             toolbar_flow_top_down: self.preferences.toolbar_flow_top_down,
+            toolbar_positions: LEGACY_TOOLBARS
+                .iter()
+                .map(|(toolbar_id, _)| {
+                    toolbar_id
+                        .strip_prefix("builtin_toolbar_")
+                        .and_then(|stem| self.preferences.toolbar_positions.get(stem))
+                        .copied()
+                })
+                .collect(),
         }
     }
 
@@ -6283,6 +6303,41 @@ impl MeshcraftApp {
                     ));
                 };
                 preferences.toolbar_visibility.insert(stem.clone(), shown);
+            }
+        }
+        if let Some(positions) = payload.values.get("toolbar_positions") {
+            let Some(positions) = positions.as_object() else {
+                return CommandResult::failed(
+                    "toolbar_positions must be an object of [x, y] pairs",
+                );
+            };
+            for (stem, value) in positions {
+                if !LEGACY_TOOLBARS
+                    .iter()
+                    .any(|(id, _)| id.strip_prefix("builtin_toolbar_") == Some(stem.as_str()))
+                {
+                    return CommandResult::failed(format!(
+                        "toolbar_positions contains unknown toolbar {stem:?}"
+                    ));
+                }
+                let Some(pair) = value.as_array().filter(|pair| pair.len() == 2) else {
+                    return CommandResult::failed(format!(
+                        "toolbar_positions.{stem} must be a two-number [x, y] pair"
+                    ));
+                };
+                let (Some(x), Some(y)) = (pair[0].as_f64(), pair[1].as_f64()) else {
+                    return CommandResult::failed(format!(
+                        "toolbar_positions.{stem} must contain numeric coordinates"
+                    ));
+                };
+                if !(0.0..=100_000.0).contains(&x) || !(0.0..=100_000.0).contains(&y) {
+                    return CommandResult::failed(format!(
+                        "toolbar_positions.{stem} coordinates must be between 0 and 100000"
+                    ));
+                }
+                preferences
+                    .toolbar_positions
+                    .insert(stem.clone(), [x as f32, y as f32]);
             }
         }
         self.preferences = preferences;
@@ -11943,6 +11998,62 @@ mod tests {
         let serialized = serde_json::to_string(&app.preferences).unwrap();
         let restored: Preferences = serde_json::from_str(&serialized).unwrap();
         assert_eq!(app.preferences, restored);
+    }
+
+    #[test]
+    fn toolbar_positions_persist_and_invalid_layout_updates_are_atomic() {
+        let mut app = test_app();
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "toolbar_positions".to_owned(),
+            json!({"actions": [132.5, 84.25], "camera": [900.0, 41.0]}),
+        );
+        assert!(
+            app.dispatch_command("ui.update_preferences", &payload)
+                .accepted
+        );
+        assert_eq!(
+            Some(&[132.5, 84.25]),
+            app.preferences.toolbar_positions.get("actions")
+        );
+        assert_eq!(
+            Some(&[900.0, 41.0]),
+            app.preferences.toolbar_positions.get("camera")
+        );
+        assert_eq!(
+            Some([132.5, 84.25]),
+            app.native_ui_preferences().toolbar_positions[1]
+        );
+
+        let serialized = serde_json::to_string(&app.preferences).unwrap();
+        let restored: Preferences = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(app.preferences, restored);
+        let legacy: Preferences = serde_json::from_value(json!({
+            "toolbar_visibility": {"actions": false}
+        }))
+        .unwrap();
+        assert!(legacy.toolbar_positions.is_empty());
+
+        let previous = app.preferences.clone();
+        for invalid in [
+            json!({"unknown": [10.0, 20.0]}),
+            json!({"actions": [-1.0, 20.0]}),
+            json!({"actions": [10.0]}),
+            json!({"actions": ["10", 20.0]}),
+        ] {
+            let mut payload = CommandPayload::default();
+            payload
+                .values
+                .insert("toolbar_positions".to_owned(), invalid.clone());
+            assert_eq!(
+                meshcraft_core::commands::CommandCompletion::Failed,
+                app.dispatch_command("ui.update_preferences", &payload)
+                    .result
+                    .completion,
+                "invalid toolbar position payload should fail: {invalid}"
+            );
+            assert_eq!(previous, app.preferences);
+        }
     }
 
     #[test]
