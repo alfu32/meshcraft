@@ -463,7 +463,7 @@ fn orbit_camera(camera: &mut Camera3D, dx_pixels: f32, dy_pixels: f32) {
     let mut yaw = offset_x.atan2(offset_z);
     let mut pitch = offset_y.atan2((offset_x * offset_x + offset_z * offset_z).sqrt());
     yaw -= dx_pixels * ORBIT_SENSITIVITY;
-    pitch = (pitch - dy_pixels * ORBIT_SENSITIVITY).clamp(-MAX_PITCH, MAX_PITCH);
+    pitch = (pitch + dy_pixels * ORBIT_SENSITIVITY).clamp(-MAX_PITCH, MAX_PITCH);
 
     let horizontal_radius = radius * pitch.cos();
     camera.position = Vector3::new(
@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn vertical_orbit_delta_pitches_around_the_fixed_target() {
+    fn downward_orbit_delta_pitches_up_around_the_fixed_target() {
         let mut camera = Camera3D::perspective(
             Vector3::new(8.0, 7.0, 8.0),
             Vector3::new(0.0, 0.8, 0.0),
@@ -572,7 +572,7 @@ mod tests {
         orbit_camera(&mut camera, 0.0, 80.0);
 
         assert_eq!(camera.target, target);
-        assert!((camera.position.y - initial_y).abs() > 1e-3);
+        assert!(camera.position.y > initial_y);
         assert!((distance(camera.position, camera.target) - initial_radius).abs() < 1e-4);
     }
 
