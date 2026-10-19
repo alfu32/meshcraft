@@ -21,7 +21,7 @@
     "Source behavior wins; document deliberate improvements and unsupported subsets.",
     "T46 ratifies normalized object ownership, identity, layouts and migration before T02/T03/T05/T16 contracts harden.",
     "Later JavaScriptCore plugins are required final-product work, isolated from initial desktop and browser release gates; no Groovy/JVM or developer CLI/TUI prerequisite.",
-    "T59 proves GPUI/raylib-rs native viewport hosting without CPU framebuffer readback before desktop cutover; T60 removes retired Bevy/egui code only after replacement acceptance passes."
+    "T59 qualifies GPUI/raylib-rs viewport presentation and frame timing, with offscreen RenderTexture-to-GPUI-image as the current candidate; T60 removes retired Bevy/egui code only after replacement acceptance passes."
   ],
   "tasks": [
     {
@@ -2825,7 +2825,7 @@
       ],
       "done": [
         "Issue #20 is closed as wont-fix after the architecture changed; the egui/Bevy prototype is not the target desktop stack.",
-        "The new GPUI + raylib-rs direction and its native-surface proof gate are specified in ADR-06, UI-3D_renderer.md and T59."
+        "The new GPUI + raylib-rs direction and its viewport-presentation proof gate are specified in ADR-06, UI-3D_renderer.md and T59."
       ],
       "tool_ids": [],
       "status": "superseded",
@@ -2873,16 +2873,16 @@
       ],
       "slices": [
         "Pin a minimal GPUI host and raylib-rs renderer prototype only after recording the exact toolchain/platform/backend; keep the proof isolated from the production shell.",
-        "Render a live raylib frame in the GPUI viewport rectangle without continuous GPU-to-CPU pixel readback; reject CPU frame-copy paths.",
+        "Compare native-child hosting with raylib RenderTexture2D presented through a normal GPUI image component; the selected path must preserve GPUI overlay stacking and sustain at least 25 FPS (target 30–60) at actual viewport resolution.",
         "Activate the textual menu and ribbon navigation with populated menu lists and tab-specific command groups; keep the command entries/buttons visibly disabled until their behavior is migrated.",
-        "Verify resize/DPI mapping, clipping, focus, pointer and keyboard ownership, event-loop/render-thread rules, window close and resource destruction on the target Linux session.",
+        "Verify resize/DPI mapping, clipping and z-order, focus, pointer and keyboard ownership, latest-frame backpressure, event-loop/render-thread rules, window close and resource destruction on the target Linux session.",
         "Define the versioned, framework-neutral viewport input/event and scene snapshot/delta contract; high-frequency camera/pointer state remains local to the viewport.",
         "Record measured behavior, dependency revisions, limitations and a go/no-go result before the full migration proceeds."
       ],
       "done": [
-        "A live raylib-rs canvas is correctly presented inside GPUI bounds with no per-frame CPU framebuffer readback.",
+        "A live raylib-rs canvas is correctly presented inside GPUI bounds; an offscreen-image path meets the 25 FPS minimum and 30–60 FPS target while GPUI menus and overlays compose above it.",
         "Text menus open populated disabled command lists, ribbon tabs switch populated command groups, and all command buttons remain disabled in the stack proof.",
-        "Viewport input, focus, resize/DPI, clipping and shutdown pass on the explicitly recorded target Linux window backend.",
+        "Viewport input, focus, resize/DPI, clipping/z-order and shutdown pass on the explicitly recorded target Linux window backend, including the dense-array frame budget.",
         "The renderer/session boundary is typed and framework-neutral; core and commands do not depend on UI or GPU crates.",
         "Dependency versions and reproducible proof commands are recorded; Windows/macOS support is not claimed without separate verification."
       ],

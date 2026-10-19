@@ -1,6 +1,6 @@
 # Implementation and agent handoff plan
 
-`tasks.json` is the authoritative task registry: 61 tasks, with explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. The accepted desktop stack is GPUI + raylib-rs; T58 and issue #20 are superseded, and high-priority T59/T60 track the new stack proof and removal of the retired implementation (#21). T59 is the current implementation gate: prove a native raylib viewport inside GPUI without per-frame CPU readback and keep command/session APIs renderer-neutral. Preserve all headless commands and the normalized object model. The supplied recordings capture large object-array construction and subsequent orbit/zoom/selection work; the second shows an unresponsive legacy app. C41 makes this workflow a stress regression. Existing task IDs remain stable, and T46 is still an early gate despite its appended number.
+`tasks.json` is the authoritative task registry: 61 tasks, with explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. The accepted desktop stack is GPUI + raylib-rs; T58 and issue #20 are superseded, and high-priority T59/T60 track the new stack proof and removal of the retired implementation (#21). T59 is the current implementation gate: qualify the offscreen raylib render-texture path presented as a normal GPUI image at 25 FPS minimum (target 30–60), while keeping command/session APIs renderer-neutral. A 1280×800 release proof receives 59–60 new images/sec; dense-scene behavior remains to be checked. Preserve all headless commands and the normalized object model. The supplied recordings capture large object-array construction and subsequent orbit/zoom/selection work; the second shows an unresponsive legacy app. C41 makes this workflow a stress regression. Existing task IDs remain stable, and T46 is still an early gate despite its appended number.
 
 ## Delivery scope
 
@@ -15,7 +15,7 @@ T46 uses [object-model.md](object-model.md) and its measured fixture evidence to
 | Milestone | Tasks / ready work | Demonstration required |
 | --- | --- | --- |
 | M0: evidence and normalized contracts | T00/T01, then T46 before T02–T06 | Fixture/oracle and stack proof; owner/identity/layout/migration decision; f64 math, normalized document/IDs, undo, sparse reader, shared commands |
-| M0a: replacement viewport integration | T59 before T60 | GPUI hosts live raylib-rs rendering in the actual viewport bounds without CPU framebuffer readback; input, DPI/resize and shutdown are verified |
+| M0a: replacement viewport integration | T59 before T60 | GPUI presents live raylib-rs rendering in the actual viewport bounds with normal UI stacking and at least 25 FPS (target 30–60); input, DPI/resize and shutdown are verified |
 | M1: working desktop shell | T07–T12, T08 menus, T09 storage, T60 | Open/display/save a fixture, navigate, snap, select, and drive headless commands from GPUI with correct focus |
 | M2: everyday direct modeling | T13–T20, T36, T39, T41 as dependencies allow | Draw/mesh/annotate/extrude/transform/paint/group, all relevant panels, common interchange, reliable menu/button/automation parity |
 | M3: advanced modeling | T21–T27 | Every array variant, cutting, sections/intersections, sweeps/revolve, primitives, mechanical and object booleans |
@@ -136,7 +136,7 @@ At each milestone, run `python3 docs/rewrite/scripts/verify_plan.py` for handoff
 | Sparse defaults/zero axes and historical shape ambiguity | T00/T05 | Loads appear successful but models collapse or metadata disappears |
 | Polygon clipping/holes/JTS replacement | T01/T02 | Cutting/domain tools each need incompatible ad-hoc fixes |
 | New menus change focus and viewport mapping | T59/T08 | Wrong picks, leaked shortcuts, duplicate commits and broken captures |
-| raylib cannot render inside GPUI without readback or broken event ownership | T59 | Window/context mismatch forces a platform-specific bridge; do not build a CPU-copy production path |
+| raylib-to-GPUI image transfer misses frame budget or leaks stale frames | T59/T44 | Keep a latest-frame mailbox, test full viewport resolution and dense-array load, and revisit GPU interop only if the 25 FPS floor fails |
 | Large array operation stalls the UI or viewport | T59/T60/T21/T44 | Dense modeling workflow becomes unusable; preserve command progress and keep camera/input responsive |
 | Prototype/instance/local axes and override identity | T03/T16/T32 | Shared instances corrupt each other; hotspots/xrefs cannot round-trip |
 | No-op overrides/copied child trees become canonical Rust state | T46 before T02/T03/T05 | Repeated geometry/hierarchy survives the rewrite and leaks into the public plugin API |
