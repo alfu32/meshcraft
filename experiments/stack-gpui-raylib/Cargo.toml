@@ -1,0 +1,17 @@
+[package]
+name = "stack-gpui-raylib-proof"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "x11"] }
+raylib = "=6.0.0"
+raw-window-handle = "=0.6.2"
+x11rb = "=0.13.2"
+
+[patch.crates-io]
+# xattr 0.2.3 refers to libc::ENOATTR on Linux, where the equivalent is ENODATA.
+xattr = { path = "vendor/xattr" }

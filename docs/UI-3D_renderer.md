@@ -22,6 +22,12 @@ The viewport boundary uses renderer-neutral snapshots/deltas and typed input/eve
 
 Preserve the editor interaction contract: select mesh entities, objects or mixed selections before choosing an operator; staged points snap to both existing geometry and the construction grid; left-to-right windows select fully contained projections while right-to-left windows include intersecting projections; clicking a selected entity toggles it off; double/triple-click selection expands connected/coplanar elements; entering an object instance edits its shared definition. Escape aborts the active tool, clears selection (or guides when selection is empty), and returns to Select. Geometry creation writes directly to the active scene graph. Keep planar construction, 3D modification, distinct linear/planar/spatial and rotational/helical arrays, and hotspot-attached operations in the shared command/session model.
 
+### Renderer-neutral viewport protocol
+
+Version 1 input events carry `{ protocol_version: u16, sequence: u64, event }`. `event` uses semantic values independent of GPUI and raylib: `OrbitDelta { dx_pixels: f32, dy_pixels: f32 }`, `ZoomSteps { steps: f32 }`, and `ResetCamera`. The viewport validates the version and monotonically increasing sequence before applying an event. Camera motion and pointer previews stay local; semantic tool actions and committed edits go through the headless session API.
+
+Initial scene transfer uses `ViewportSceneSnapshotV1 { model_revision: u64, active_definition_id, entities }`. Each entity has a stable entity ID, optional parent occurrence and definition IDs, a local-to-parent 4×4 f64 transform, geometry payload (f64 positions and indexed faces/lines), and render style. Follow-up `ViewportSceneDeltaV1 { base_revision: u64, revision: u64, upsert, remove }` applies stable-ID entity changes. The renderer accepts a delta only when `base_revision` equals its current revision; otherwise it requests a replacement snapshot. Full snapshots are for initial load/recovery, never camera motion or pointer movement. Selection/hover/preview state is transmitted separately from immutable geometry revisions.
+
 ## raylib integration gate
 
 raylib-rs normally owns an OpenGL window/context. GPUI does not provide a general cross-platform API for importing arbitrary raylib/OpenGL textures into its compositor. A continuous GPU→CPU framebuffer readback followed by GPUI image upload is rejected for the production viewport because it adds bandwidth, copies and interaction latency.
