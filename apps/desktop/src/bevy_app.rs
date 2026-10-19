@@ -122,10 +122,6 @@ enum NativeInspectorText {
         generation: u64,
         revision: u64,
     },
-    ModelSettings {
-        generation: u64,
-        revision: u64,
-    },
     PolylineSettings {
         generation: u64,
         revision: u64,
@@ -139,6 +135,43 @@ enum NativeInspectorText {
 
 #[derive(Component)]
 struct NativeModelSettingsEditorButton;
+
+#[derive(Component)]
+struct NativeModelSettingsApplyButton;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NativeModelSettingField {
+    UnitName,
+    UnitSize,
+    GridSize,
+    CircleSegments,
+    SnapRadius,
+    ArcMaxLength,
+    DoubleLineSize,
+    DoubleLineOffset,
+}
+
+impl NativeModelSettingField {
+    fn key(self) -> &'static str {
+        match self {
+            Self::UnitName => "unit_name",
+            Self::UnitSize => "unit_size",
+            Self::GridSize => "grid_size",
+            Self::CircleSegments => "circle_segments",
+            Self::SnapRadius => "snap_radius",
+            Self::ArcMaxLength => "arc_max_length",
+            Self::DoubleLineSize => "double_line_size",
+            Self::DoubleLineOffset => "double_line_offset",
+        }
+    }
+}
+
+#[derive(Component)]
+struct NativeModelSettingsInput {
+    generation: u64,
+    revision: u64,
+    field: NativeModelSettingField,
+}
 
 #[derive(Component)]
 struct NativeRenameObjectButton;
@@ -532,6 +565,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             (
                 sync_scene_document,
                 sync_native_settings_sections,
+                sync_native_model_settings_inputs,
                 sync_native_object_name_input,
                 sync_native_object_list,
             )
@@ -1354,15 +1388,38 @@ fn setup_ui(
                     BackgroundColor(Color::srgb(0.18, 0.19, 0.20)),
                 ))
                 .with_children(|rows| spawn_native_object_rows(rows, &scene));
-            inspector_dynamic_section(
-                panel,
-                "Model Settings",
-                model_settings_summary(&scene.document),
-                NativeInspectorText::ModelSettings {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                },
-            );
+            inspector_header(panel, "Model Settings");
+            for (field, label, value) in native_model_setting_fields(&scene.document) {
+                spawn_native_model_setting_input(
+                    panel,
+                    scene.generation,
+                    scene.revision,
+                    field,
+                    label,
+                    value,
+                );
+            }
+            panel
+                .spawn((
+                    Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
+                    NativeModelSettingsApplyButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(27),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.17, 0.37, 0.29)),
+                ))
+                .with_child((
+                    Text::new("Apply Model Settings"),
+                    TextFont::from_font_size(12.0),
+                    TextColor(Color::WHITE),
+                ))
+                .observe(apply_native_model_settings);
             panel
                 .spawn((
                     Button,
@@ -1379,7 +1436,7 @@ fn setup_ui(
                     BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
                 ))
                 .with_child((
-                    Text::new("Edit Model Settings…"),
+                    Text::new("Edit as JSON…"),
                     TextFont::from_font_size(13.0),
                     TextColor::WHITE,
                 ))
@@ -1756,12 +1813,7 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
     }
 }
 
-fn inspector_dynamic_section(
-    parent: &mut ChildSpawnerCommands,
-    title: &str,
-    body: String,
-    marker: NativeInspectorText,
-) {
+fn inspector_header(parent: &mut ChildSpawnerCommands, title: &str) {
     parent.spawn((
         Text::new(title.to_owned()),
         TextFont::from_font_size(15.0),
@@ -1773,6 +1825,15 @@ fn inspector_dynamic_section(
         },
         BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
     ));
+}
+
+fn inspector_dynamic_section(
+    parent: &mut ChildSpawnerCommands,
+    title: &str,
+    body: String,
+    marker: NativeInspectorText,
+) {
+    inspector_header(parent, title);
     parent.spawn((
         Text::new(body),
         TextFont::from_font_size(13.0),
@@ -1784,6 +1845,97 @@ fn inspector_dynamic_section(
         },
         BackgroundColor(Color::srgb(0.30, 0.31, 0.32)),
         marker,
+    ));
+}
+
+fn native_model_setting_fields(
+    document: &Document,
+) -> [(NativeModelSettingField, &'static str, String); 8] {
+    let settings = document.model_settings();
+    [
+        (
+            NativeModelSettingField::UnitName,
+            "Unit name",
+            settings.unit_name.clone(),
+        ),
+        (
+            NativeModelSettingField::UnitSize,
+            "Unit size",
+            format!("{:.4}", settings.unit_size),
+        ),
+        (
+            NativeModelSettingField::GridSize,
+            "Grid size",
+            format!("{:.4}", settings.grid_size),
+        ),
+        (
+            NativeModelSettingField::CircleSegments,
+            "Circle segments",
+            settings.circle_segments.to_string(),
+        ),
+        (
+            NativeModelSettingField::SnapRadius,
+            "Snap radius",
+            format!("{:.1}", settings.snap_radius),
+        ),
+        (
+            NativeModelSettingField::ArcMaxLength,
+            "Arc max length",
+            format!("{:.3}", settings.arc_max_length),
+        ),
+        (
+            NativeModelSettingField::DoubleLineSize,
+            "Double line size",
+            format!("{:.3}", settings.double_line_size),
+        ),
+        (
+            NativeModelSettingField::DoubleLineOffset,
+            "Double line offset",
+            format!("{:.3}", settings.double_line_offset),
+        ),
+    ]
+}
+
+fn spawn_native_model_setting_input(
+    parent: &mut ChildSpawnerCommands,
+    generation: u64,
+    revision: u64,
+    field: NativeModelSettingField,
+    label: &str,
+    value: String,
+) {
+    parent.spawn((
+        Text::new(label.to_owned()),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::left(px(4)),
+            ..default()
+        },
+    ));
+    parent.spawn((
+        TextInput,
+        EditableText::new(value),
+        TextCursorStyle::default(),
+        NativeUiInteraction,
+        Hovered::default(),
+        NativeModelSettingsInput {
+            generation,
+            revision,
+            field,
+        },
+        Node {
+            width: Val::Percent(100.0),
+            height: px(26),
+            padding: UiRect::horizontal(px(6)),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.16, 0.17, 0.18)),
+        BorderColor::all(Color::srgb(0.08, 0.08, 0.08)),
+        TextFont::from_font_size(13.0),
+        TextColor(Color::WHITE),
     ));
 }
 
@@ -1820,18 +1972,6 @@ fn spawn_native_object_rows(parent: &mut ChildSpawnerCommands, scene: &SceneDocu
             ))
             .observe(select_native_object_row);
     }
-}
-
-fn model_settings_summary(document: &Document) -> String {
-    let settings = document.model_settings();
-    format!(
-        "Unit name\n{}\nUnit size\n{:.4}\nGrid size\n{:.4}\nCircle segments\n{}\nSnap radius\n{:.1} px",
-        settings.unit_name,
-        settings.unit_size,
-        settings.grid_size,
-        settings.circle_segments,
-        settings.snap_radius,
-    )
 }
 
 fn polyline_settings_summary(document: &Document) -> String {
@@ -1904,16 +2044,6 @@ fn sync_native_settings_sections(
                     revision: scene.revision,
                 };
                 objects_summary(scene.occurrences)
-            }
-            NativeInspectorText::ModelSettings {
-                generation,
-                revision,
-            } if generation != scene.generation || revision != scene.revision => {
-                *marker = NativeInspectorText::ModelSettings {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                };
-                model_settings_summary(&scene.document)
             }
             NativeInspectorText::PolylineSettings {
                 generation,
@@ -2342,6 +2472,37 @@ fn open_native_model_settings_editor(
     }
 }
 
+fn apply_native_model_settings(
+    event: On<Activate>,
+    buttons: Query<(), With<NativeModelSettingsApplyButton>>,
+    inputs: Query<(&NativeModelSettingsInput, &EditableText)>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if !buttons.contains(event.entity) {
+        return;
+    }
+    let mut payload = CommandPayload::default();
+    for (input, editor) in &inputs {
+        let source = editor.value().to_string();
+        let value = match input.field {
+            NativeModelSettingField::UnitName => serde_json::json!(source),
+            NativeModelSettingField::CircleSegments => source.parse::<u64>().map_or_else(
+                |_| serde_json::json!(source),
+                |value| serde_json::json!(value),
+            ),
+            _ => source.parse::<f64>().map_or_else(
+                |_| serde_json::json!(source),
+                |value| serde_json::json!(value),
+            ),
+        };
+        payload.values.insert(input.field.key().to_owned(), value);
+    }
+    if payload.values.len() != 8 {
+        return;
+    }
+    session.dispatch_command("model.update_settings", &payload);
+}
+
 fn rename_selected_native_object(
     event: On<Activate>,
     buttons: Query<(), With<NativeRenameObjectButton>>,
@@ -2355,6 +2516,30 @@ fn rename_selected_native_object(
         return;
     };
     let _ = session.rename_native_selected_object(&name.value().to_string());
+}
+
+fn sync_native_model_settings_inputs(
+    scene: Res<SceneDocument>,
+    input_focus: Res<InputFocus>,
+    mut inputs: Query<(Entity, &mut EditableText, &mut NativeModelSettingsInput)>,
+) {
+    for (entity, mut editor, mut state) in &mut inputs {
+        let generation_changed = state.generation != scene.generation;
+        let revision_changed = state.revision != scene.revision;
+        if !generation_changed && (!revision_changed || input_focus.get() == Some(entity)) {
+            continue;
+        }
+        let Some((_, _, value)) = native_model_setting_fields(&scene.document)
+            .into_iter()
+            .find(|(field, _, _)| *field == state.field)
+        else {
+            continue;
+        };
+        editor.editor_mut().set_text(&value);
+        editor.queue_edit(TextEdit::TextEnd(false));
+        state.generation = scene.generation;
+        state.revision = scene.revision;
+    }
 }
 
 fn select_native_object_row(
@@ -4379,21 +4564,23 @@ mod tests {
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState,
         ConstructionGuideKind, DispatchCommand, EditContext, InputFocus, LightingChannel,
         LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
-        NativeModelSettingsEditorButton, NativeObjectListClick, NativeObjectListContainer,
+        NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
+        NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
         NativeObjectListRow, NativeObjectNameInput, NativeRenameObjectButton,
         NativeRightClickGesture, NativeToolbarDrag, NativeToolsContextMenuState,
         NativeUiInteraction, NativeViewportOverlay, SceneDocument, SelectionStatsText,
-        ShadowFilter, SnapResult, TextureAtlasLayout, back_face_color, build_scene_meshes,
-        command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
-        dispatch_toolbar_command, line_mesh, model_settings_summary, native_object_entries,
-        native_segment_intersects_rect, native_triangle_intersects_rect, object_selection_summary,
-        objects_summary, open_native_model_settings_editor, polyline_settings_summary,
-        refresh_status, rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
-        search_command_ids, select_native_object_row, selected_object_info,
-        selected_vertex_positions, selection_summary, submit_palette_parameters,
-        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
-        sync_native_object_list, sync_native_settings_sections, sync_toolbar_button_states,
-        tool_context_groups, triangle_mesh, update_right_click_gesture,
+        ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings, back_face_color,
+        build_scene_meshes, command_payload_from_json, create_native_icon_atlas,
+        dispatch_palette_command, dispatch_toolbar_command, line_mesh, native_model_setting_fields,
+        native_object_entries, native_segment_intersects_rect, native_triangle_intersects_rect,
+        object_selection_summary, objects_summary, open_native_model_settings_editor,
+        polyline_settings_summary, refresh_status, rename_selected_native_object,
+        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
+        selected_object_info, selected_vertex_positions, selection_summary,
+        submit_palette_parameters, sync_command_palette_parameter_ui, sync_command_palette_states,
+        sync_native_cursor_dot, sync_native_model_settings_inputs, sync_native_object_list,
+        sync_native_settings_sections, sync_toolbar_button_states, tool_context_groups,
+        triangle_mesh, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -4929,6 +5116,198 @@ mod tests {
     }
 
     #[test]
+    fn native_model_settings_apply_is_atomic_undoable_and_validated() {
+        let document = Document::new();
+        let mut session =
+            MeshcraftApp::new_native_session(document.clone(), "Ready".to_owned(), None);
+        let mut app = App::new();
+        app.insert_non_send(session)
+            .add_observer(apply_native_model_settings);
+        let mut grid_input = None;
+        for (field, _, _) in native_model_setting_fields(&document) {
+            let value = match field {
+                NativeModelSettingField::UnitName => "meter",
+                NativeModelSettingField::UnitSize => "0.01",
+                NativeModelSettingField::GridSize => "0.25",
+                NativeModelSettingField::CircleSegments => "48",
+                NativeModelSettingField::SnapRadius => "24",
+                NativeModelSettingField::ArcMaxLength => "0.75",
+                NativeModelSettingField::DoubleLineSize => "2.0",
+                NativeModelSettingField::DoubleLineOffset => "-0.3",
+            };
+            let entity = app
+                .world_mut()
+                .spawn((
+                    NativeModelSettingsInput {
+                        generation: 1,
+                        revision: document.revision(),
+                        field,
+                    },
+                    EditableText::new(value),
+                ))
+                .id();
+            if field == NativeModelSettingField::GridSize {
+                grid_input = Some(entity);
+            }
+        }
+        let button = app.world_mut().spawn(NativeModelSettingsApplyButton).id();
+
+        app.world_mut().trigger(Activate { entity: button });
+
+        session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        let settings = session.document_snapshot().model_settings().clone();
+        assert_eq!("meter", settings.unit_name);
+        assert_eq!(0.01, settings.unit_size);
+        assert_eq!(0.25, settings.grid_size);
+        assert_eq!(48, settings.circle_segments);
+        assert_eq!(24.0, settings.snap_radius);
+        assert_eq!(0.75, settings.arc_max_length);
+        assert_eq!(2.0, settings.double_line_size);
+        assert_eq!(-0.3, settings.double_line_offset);
+        assert!(session.native_command_state("edit.undo").enabled);
+        session.dispatch_command("edit.undo", &CommandPayload::default());
+        assert_eq!(
+            document.model_settings(),
+            session.document_snapshot().model_settings()
+        );
+        let revision_after_undo = session.document_revision();
+        app.insert_non_send(session);
+
+        let grid_input = grid_input.expect("the grid-size input was created");
+        app.world_mut()
+            .get_mut::<EditableText>(grid_input)
+            .expect("grid-size input remains in the inspector")
+            .editor_mut()
+            .set_text("0.0");
+        app.world_mut().trigger(Activate { entity: button });
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert_eq!(revision_after_undo, session.document_revision());
+        assert_eq!(
+            document.model_settings(),
+            session.document_snapshot().model_settings()
+        );
+        assert!(
+            session
+                .status_text()
+                .contains("grid size must be finite and positive")
+        );
+    }
+
+    #[test]
+    fn native_model_settings_inputs_refresh_and_preserve_the_focused_draft() {
+        let mut document = Document::new();
+        let mut settings = document.model_settings().clone();
+        settings.unit_name = "meters".to_owned();
+        settings.grid_size = 2.5;
+        document
+            .update_model_settings(settings)
+            .expect("model settings are valid");
+        let revision = document.revision();
+        let (occurrences, triangles, segments) = scene_counts(&document);
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document,
+            generation: 2,
+            revision,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
+            occurrences,
+            triangles,
+            segments,
+        })
+        .insert_resource(InputFocus::default())
+        .add_systems(Update, sync_native_model_settings_inputs);
+        let grid = app
+            .world_mut()
+            .spawn((
+                EditableText::new("draft grid"),
+                NativeModelSettingsInput {
+                    generation: 2,
+                    revision: 0,
+                    field: NativeModelSettingField::GridSize,
+                },
+            ))
+            .id();
+        let unit = app
+            .world_mut()
+            .spawn((
+                EditableText::new("unit"),
+                NativeModelSettingsInput {
+                    generation: 2,
+                    revision: 0,
+                    field: NativeModelSettingField::UnitName,
+                },
+            ))
+            .id();
+        *app.world_mut().resource_mut::<InputFocus>() = InputFocus::from_entity(grid);
+
+        app.update();
+
+        assert_eq!(
+            "draft grid",
+            app.world()
+                .get::<EditableText>(grid)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+        assert_eq!(
+            "meters",
+            app.world()
+                .get::<EditableText>(unit)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+
+        *app.world_mut().resource_mut::<InputFocus>() = InputFocus::default();
+        app.update();
+        assert_eq!(
+            "2.5000",
+            app.world()
+                .get::<EditableText>(grid)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+
+        *app.world_mut().resource_mut::<InputFocus>() = InputFocus::from_entity(grid);
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            scene.document = Document::new();
+            scene.generation += 1;
+            scene.revision = scene.document.revision();
+        }
+        app.update();
+        assert_eq!(
+            "1.0000",
+            app.world()
+                .get::<EditableText>(grid)
+                .unwrap()
+                .value()
+                .to_string()
+        );
+    }
+
+    #[test]
     fn native_g_and_t_shortcuts_place_guides_at_the_cached_cursor() {
         for (key, expected_kind) in [
             (KeyCode::KeyG, ConstructionGuideKind::Grid),
@@ -5283,7 +5662,6 @@ mod tests {
     #[test]
     fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
         let document = Document::new();
-        let initial_model_summary = model_settings_summary(&document);
         let initial_polyline_summary = polyline_settings_summary(&document);
         let (occurrences, triangles, segments) = scene_counts(&document);
         let initial_objects_summary = objects_summary(occurrences);
@@ -5310,16 +5688,6 @@ mod tests {
             segments,
         })
         .add_systems(Update, sync_native_settings_sections);
-        let model = app
-            .world_mut()
-            .spawn((
-                Text::new(initial_model_summary),
-                NativeInspectorText::ModelSettings {
-                    generation: 1,
-                    revision: 0,
-                },
-            ))
-            .id();
         let polyline = app
             .world_mut()
             .spawn((
@@ -5382,8 +5750,6 @@ mod tests {
         }
         app.update();
 
-        assert!(app.world().get::<Text>(model).unwrap().0.contains("meter"));
-        assert!(app.world().get::<Text>(model).unwrap().0.contains("0.2500"));
         assert!(
             app.world()
                 .get::<Text>(polyline)
@@ -5412,8 +5778,6 @@ mod tests {
         }
         app.update();
 
-        assert!(app.world().get::<Text>(model).unwrap().0.contains("unit"));
-        assert!(app.world().get::<Text>(model).unwrap().0.contains("1.0000"));
         assert!(
             app.world()
                 .get::<Text>(polyline)
