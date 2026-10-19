@@ -31,11 +31,11 @@ use bevy::{
     window::{
         PrimaryWindow, RequestRedraw, WindowPlugin, WindowResizeConstraints, WindowResolution,
     },
-    winit::WinitSettings,
+    winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent},
 };
 use bevy_egui::{
-    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass, PrimaryEguiContext,
-    egui as native_egui,
+    EguiContexts, EguiFullOutput, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass,
+    PrimaryEguiContext, egui as native_egui,
 };
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
@@ -46,6 +46,11 @@ use meshcraft_core::{
         EditContext, SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionMode,
         SelectionTarget,
     },
+};
+use std::{
+    sync::mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 #[derive(Resource)]
@@ -761,7 +766,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         pitch: 0.55,
     })
     .insert_resource(StartupWindowState { maximized })
-    .insert_resource(WinitSettings::desktop_app())
+    .insert_resource(WinitSettings {
+        focused_mode: UpdateMode::reactive(Duration::MAX),
+        unfocused_mode: UpdateMode::reactive_low_power(Duration::MAX),
+    })
     .insert_non_send(session)
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
@@ -783,6 +791,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             setup_scene,
             (setup_ui, disable_legacy_bevy_chrome).chain(),
             apply_window_state,
+            setup_native_egui_redraw_timer,
         ),
     )
     .add_systems(EguiPrimaryContextPass, native_egui_shell)
@@ -812,6 +821,12 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             .chain()
             .after(TransformSystems::Propagate)
             .after(EguiPostUpdateSet::EndPass),
+    )
+    .add_systems(
+        PostUpdate,
+        schedule_native_egui_delayed_redraw
+            .after(EguiPostUpdateSet::EndPass)
+            .before(EguiPostUpdateSet::ProcessOutput),
     );
     app.run();
 }
@@ -859,6 +874,108 @@ fn native_egui_shell(
     capture.keyboard_captured =
         context.egui_wants_keyboard_input() || session.native_overlay_blocks_viewport_input();
     Ok(())
+}
+
+enum NativeRedrawTimerCommand {
+    Schedule(Instant),
+    Cancel,
+    Shutdown,
+}
+
+#[derive(Resource)]
+struct NativeEguiRedrawTimer {
+    sender: Sender<NativeRedrawTimerCommand>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl NativeEguiRedrawTimer {
+    fn new(wake: impl Fn() + Send + 'static) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let worker = thread::Builder::new()
+            .name("meshcraft-egui-redraw-timer".to_owned())
+            .spawn(move || run_native_redraw_timer(receiver, wake))
+            .expect("could not start the egui redraw timer");
+        Self {
+            sender,
+            worker: Some(worker),
+        }
+    }
+
+    fn schedule(&self, delay: Duration) {
+        let command = if delay.is_zero() || delay == Duration::MAX {
+            NativeRedrawTimerCommand::Cancel
+        } else if let Some(deadline) = Instant::now().checked_add(delay) {
+            NativeRedrawTimerCommand::Schedule(deadline)
+        } else {
+            NativeRedrawTimerCommand::Cancel
+        };
+        let _ = self.sender.send(command);
+    }
+}
+
+impl Drop for NativeEguiRedrawTimer {
+    fn drop(&mut self) {
+        let _ = self.sender.send(NativeRedrawTimerCommand::Shutdown);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn run_native_redraw_timer(receiver: Receiver<NativeRedrawTimerCommand>, wake: impl Fn()) {
+    let mut deadline: Option<Instant> = None;
+    loop {
+        let command = if let Some(scheduled) = deadline {
+            match receiver.recv_timeout(scheduled.saturating_duration_since(Instant::now())) {
+                Ok(command) => command,
+                Err(RecvTimeoutError::Timeout) => {
+                    deadline = None;
+                    wake();
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match receiver.recv() {
+                Ok(command) => command,
+                Err(_) => break,
+            }
+        };
+        match command {
+            NativeRedrawTimerCommand::Schedule(next) => deadline = Some(next),
+            NativeRedrawTimerCommand::Cancel => deadline = None,
+            NativeRedrawTimerCommand::Shutdown => break,
+        }
+    }
+}
+
+fn setup_native_egui_redraw_timer(
+    event_loop_proxy: Res<EventLoopProxyWrapper>,
+    mut commands: Commands,
+) {
+    let proxy = (**event_loop_proxy).clone();
+    commands.insert_resource(NativeEguiRedrawTimer::new(move || {
+        let _ = proxy.send_event(WinitUserEvent::WakeUp);
+    }));
+}
+
+fn native_egui_repaint_delay(output: Option<&native_egui::FullOutput>) -> Option<Duration> {
+    output
+        .and_then(|output| output.viewport_output.get(&native_egui::ViewportId::ROOT))
+        .map(|viewport| viewport.repaint_delay)
+        .filter(|delay| !delay.is_zero() && *delay != Duration::MAX)
+}
+
+fn schedule_native_egui_delayed_redraw(
+    outputs: Query<&EguiFullOutput, With<PrimaryEguiContext>>,
+    timer: Res<NativeEguiRedrawTimer>,
+) {
+    let delay = outputs
+        .iter()
+        .filter_map(|output| native_egui_repaint_delay(output.0.as_ref()))
+        .min()
+        .unwrap_or(Duration::MAX);
+    timer.schedule(delay);
 }
 
 fn map_native_egui_viewport(
@@ -6576,7 +6693,7 @@ mod tests {
         ToolPreview, ToolbarCatalog, apply_native_model_settings, apply_native_polyline_settings,
         apply_native_ui_preferences, back_face_color, build_scene_meshes_with_policy,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
-        dispatch_toolbar_command, line_mesh, native_egui_viewport_physical_rect,
+        dispatch_toolbar_command, line_mesh, native_egui, native_egui_viewport_physical_rect,
         native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
         native_segment_intersects_rect, native_toolbar_dimensions, native_toolbar_position,
         native_triangle_intersects_rect, native_viewport_contains, object_selection_summary,
@@ -6625,6 +6742,7 @@ mod tests {
             SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionMode, SelectionTarget,
         },
     };
+    use std::time::Duration;
 
     #[test]
     fn scene_meshes_contain_front_back_faces_edges_and_grid() {
@@ -7040,6 +7158,48 @@ mod tests {
         assert!(meshes.front_faces.is_some());
         assert!(meshes.back_faces.is_some());
         assert_eq!(scene_counts(&rendered_document), (1, 12, 12));
+    }
+
+    #[test]
+    fn native_egui_delayed_repaint_uses_the_requested_deadline() {
+        let context = native_egui::Context::default();
+        let delay = (0..4).find_map(|_| {
+            let output = context.run_ui(native_egui::RawInput::default(), |ui| {
+                ui.ctx().request_repaint_after(Duration::from_secs(60));
+            });
+            let delay = super::native_egui_repaint_delay(Some(&output));
+            output.drop_without_applying_deltas();
+            delay
+        });
+        assert!(delay.is_some_and(|delay| {
+            delay > Duration::from_secs(59) && delay <= Duration::from_secs(60)
+        }));
+    }
+
+    #[test]
+    fn native_egui_without_delayed_repaint_does_not_schedule_a_poll() {
+        let output =
+            native_egui::Context::default().run_ui(native_egui::RawInput::default(), |_| {});
+        let delay = super::native_egui_repaint_delay(Some(&output));
+        output.drop_without_applying_deltas();
+        assert_eq!(None, delay);
+    }
+
+    #[test]
+    fn native_egui_redraw_timer_wakes_once_and_cancels_pending_deadlines() {
+        let (wake_sender, wake_receiver) = std::sync::mpsc::channel();
+        let timer = super::NativeEguiRedrawTimer::new(move || {
+            let _ = wake_sender.send(());
+        });
+        timer.schedule(Duration::from_millis(25));
+        assert!(wake_receiver.recv_timeout(Duration::from_secs(1)).is_ok());
+
+        timer.schedule(Duration::from_millis(25));
+        timer.schedule(Duration::MAX);
+        assert!(matches!(
+            wake_receiver.recv_timeout(Duration::from_millis(75)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
     }
 
     #[test]
