@@ -145,6 +145,8 @@ struct NativeToolbarWindow {
     index: usize,
     width: f32,
     height: f32,
+    default_position: Vec2,
+    saved_position: Option<[f32; 2]>,
     window_size: Vec2,
     item_count: usize,
     preferences_revision: u64,
@@ -1545,6 +1547,7 @@ fn setup_ui(
                 toolbar_top = (toolbar_top + height + 5.0).min(window_size.y - height - 36.0);
                 toolbar_column_width = 0.0;
             }
+            let default_position = Vec2::new(toolbar_left, toolbar_top);
             let restored_position = ui_preferences
                 .value
                 .toolbar_positions
@@ -1552,7 +1555,7 @@ fn setup_ui(
                 .copied()
                 .flatten();
             let toolbar_position = native_toolbar_position(
-                Vec2::new(toolbar_left, toolbar_top),
+                default_position,
                 restored_position,
                 window_size,
                 Vec2::new(width, height),
@@ -1562,6 +1565,8 @@ fn setup_ui(
                     index,
                     width,
                     height,
+                    default_position,
+                    saved_position: restored_position,
                     window_size,
                     item_count,
                     preferences_revision: ui_preferences.revision,
@@ -3068,14 +3073,38 @@ fn sync_native_toolbar_visibility(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn sync_native_ui_preference_presentation(
     preferences: Res<NativeUiPreferencesState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
     mut toolbars: Query<(&mut NativeToolbarWindow, &mut Node)>,
-    mut toolbar_buttons: Query<&mut Node, With<NativeToolbarButton>>,
-    mut toolbar_icons: Query<&mut Node, With<NativeToolbarIcon>>,
-    mut toolbar_items: Query<(&NativeToolbarItems, &mut Node)>,
+    mut toolbar_buttons: Query<
+        &mut Node,
+        (
+            With<NativeToolbarButton>,
+            Without<NativeToolbarWindow>,
+            Without<NativeToolbarIcon>,
+            Without<NativeToolbarItems>,
+        ),
+    >,
+    mut toolbar_icons: Query<
+        &mut Node,
+        (
+            With<NativeToolbarIcon>,
+            Without<NativeToolbarWindow>,
+            Without<NativeToolbarButton>,
+            Without<NativeToolbarItems>,
+        ),
+    >,
+    mut toolbar_items: Query<
+        (&NativeToolbarItems, &mut Node),
+        (
+            Without<NativeToolbarWindow>,
+            Without<NativeToolbarButton>,
+            Without<NativeToolbarIcon>,
+        ),
+    >,
 ) {
     if (ui_scale.0 - preferences.value.ui_text_scale).abs() > f32::EPSILON {
         ui_scale.0 = preferences.value.ui_text_scale;
@@ -3112,6 +3141,13 @@ fn sync_native_ui_preference_presentation(
             node.width = px(toolbar.width);
             node.height = px(toolbar.height);
         }
+        let saved_position = preferences
+            .value
+            .toolbar_positions
+            .get(toolbar.index)
+            .copied()
+            .flatten();
+        restore_native_toolbar_position(&mut toolbar, &mut node, saved_position, window_size);
         node.left = match node.left {
             Val::Px(left) => px(left.clamp(0.0, (window.width() - toolbar.width).max(0.0))),
             other => other,
@@ -3307,6 +3343,26 @@ fn native_toolbar_position(
         .map(|[x, y]| Vec2::new(x, y))
         .unwrap_or(default_position);
     Vec2::new(restored.x.clamp(0.0, max_x), restored.y.clamp(0.0, max_y))
+}
+
+fn restore_native_toolbar_position(
+    toolbar: &mut NativeToolbarWindow,
+    node: &mut Node,
+    saved_position: Option<[f32; 2]>,
+    window_size: Vec2,
+) {
+    if toolbar.saved_position == saved_position {
+        return;
+    }
+    let position = native_toolbar_position(
+        toolbar.default_position,
+        saved_position,
+        window_size,
+        Vec2::new(toolbar.width, toolbar.height),
+    );
+    node.left = px(position.x);
+    node.top = px(position.y);
+    toolbar.saved_position = saved_position;
 }
 
 fn native_toolbar_dimensions(
@@ -5860,7 +5916,7 @@ mod tests {
         NativePolylineSettingsApplyButton, NativeRenameObjectButton, NativeRightClickGesture,
         NativeSelectionDisplayProperty, NativeSelectionDisplayState, NativeSelectionDisplayToggle,
         NativeSelectionToggleLabel, NativeSelectionValue, NativeSelectionValueLabel,
-        NativeToolbarDrag, NativeToolsContextMenuState, NativeUiInteraction,
+        NativeToolbarDrag, NativeToolbarWindow, NativeToolsContextMenuState, NativeUiInteraction,
         NativeUiPreferencesState, NativeUiSettingChoice, NativeUiSettingChoiceButton,
         NativeUiSettingInput, NativeUiSettingInputField, NativeUiSettingToggleButton,
         NativeUiSettingToggleField, NativeUiSettingsApplyButton, NativeViewportOverlay,
@@ -5872,12 +5928,13 @@ mod tests {
         native_toolbar_dimensions, native_toolbar_position, native_triangle_intersects_rect,
         object_selection_summary, objects_summary, open_native_model_settings_editor,
         oriented_grid_lines, persist_native_toolbar_position, rename_selected_native_object,
-        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
-        selected_object_info, selected_vertex_positions, submit_palette_parameters,
-        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
-        sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
-        sync_native_settings_sections, sync_toolbar_button_states, toggle_native_ui_setting,
-        tool_context_groups, triangle_mesh, update_native_permanent_grid,
+        restore_native_toolbar_position, route_native_guide_shortcuts, scene_counts,
+        search_command_ids, select_native_object_row, selected_object_info,
+        selected_vertex_positions, submit_palette_parameters, sync_command_palette_parameter_ui,
+        sync_command_palette_states, sync_native_cursor_dot, sync_native_model_settings_inputs,
+        sync_native_object_list, sync_native_selection_table, sync_native_settings_sections,
+        sync_native_ui_preference_presentation, sync_toolbar_button_states,
+        toggle_native_ui_setting, tool_context_groups, triangle_mesh, update_native_permanent_grid,
         update_native_ui_setting_choice, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
@@ -6005,6 +6062,49 @@ mod tests {
             Vec2::new(204.0, 169.0),
             native_toolbar_dimensions(12, 48.0, 220.0, 3, false)
         );
+    }
+
+    #[test]
+    fn native_ui_preference_presentation_starts_without_conflicting_queries() {
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let mut app = App::new();
+        app.insert_resource(NativeUiPreferencesState {
+            value: session.native_ui_preferences(),
+            revision: 0,
+        });
+        app.insert_resource(bevy::ui::UiScale::default());
+        app.world_mut()
+            .spawn((bevy::window::Window::default(), bevy::window::PrimaryWindow));
+        app.add_systems(Update, sync_native_ui_preference_presentation);
+
+        app.update();
+    }
+
+    #[test]
+    fn clearing_saved_toolbar_positions_restores_the_default_layout() {
+        let mut toolbar = NativeToolbarWindow {
+            index: 0,
+            width: 200.0,
+            height: 100.0,
+            default_position: Vec2::new(10.0, 62.0),
+            saved_position: Some([400.0, 300.0]),
+            window_size: Vec2::new(800.0, 600.0),
+            item_count: 5,
+            preferences_revision: 1,
+            icon_size: 32,
+            flow_top_down: false,
+        };
+        let mut node = Node {
+            left: Val::Px(400.0),
+            top: Val::Px(300.0),
+            ..default()
+        };
+
+        restore_native_toolbar_position(&mut toolbar, &mut node, None, Vec2::new(800.0, 600.0));
+
+        assert_eq!(Val::Px(10.0), node.left);
+        assert_eq!(Val::Px(62.0), node.top);
+        assert_eq!(None, toolbar.saved_position);
     }
 
     #[test]
