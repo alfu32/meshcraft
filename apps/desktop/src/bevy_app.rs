@@ -14,13 +14,16 @@ use bevy::{
     pbr::StandardMaterial,
     prelude::*,
     render::render_resource::Face,
+    transform::TransformSystems,
     ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
 };
+use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload};
 use meshcraft_core::{
     document::{Document, GeometryBundle, Rgba8},
-    geometry::Vec3 as ModelVec3,
+    geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
+    selection::{EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionTarget},
 };
 
 const GRID_EXTENT: i32 = 40;
@@ -32,6 +35,11 @@ struct SceneDocument {
     revision: u64,
     status: String,
     active_tool: String,
+    selection_revision: u64,
+    selected_objects: usize,
+    selected_faces: usize,
+    selected_edges: usize,
+    selection_targets: Vec<SelectionTarget>,
     occurrences: usize,
     triangles: usize,
     segments: usize,
@@ -105,6 +113,21 @@ struct CommandPaletteResult {
 
 #[derive(Component)]
 struct CommandPaletteResultLabel(usize);
+
+#[derive(Resource, Default)]
+struct NativeSelectionDrag {
+    start: Option<Vec2>,
+    current: Vec2,
+}
+
+#[derive(Component)]
+struct SelectionWindowOverlay;
+
+#[derive(Component)]
+struct SelectionWindowLabel;
+
+#[derive(Component)]
+struct SelectionStatsText;
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 struct LightingSettings {
@@ -261,12 +284,22 @@ struct SceneMeshEntities {
     front_faces: Option<Entity>,
     back_faces: Option<Entity>,
     segments: Option<Entity>,
+    selected_faces: Option<Entity>,
+    selected_edges: Option<Entity>,
 }
 
 #[derive(Resource)]
 struct RenderedSceneRevision {
     generation: u64,
     revision: u64,
+}
+
+#[derive(Resource)]
+struct RenderedSelectionRevision(u64);
+
+struct SelectionMeshes {
+    faces: Option<Mesh>,
+    edges: Option<Mesh>,
 }
 
 struct SceneMeshes {
@@ -291,6 +324,11 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         revision,
         status: session.status_text().to_owned(),
         active_tool: session.active_tool_label().to_owned(),
+        selection_revision: session.native_selection_revision(),
+        selected_objects: 0,
+        selected_faces: 0,
+        selected_edges: 0,
+        selection_targets: session.native_selection_targets(),
         occurrences,
         triangles,
         segments,
@@ -298,6 +336,8 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(ClearColor(Color::srgb(0.78, 0.86, 0.94)))
     .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
     .insert_resource(CommandPaletteState::default())
+    .insert_resource(NativeSelectionDrag::default())
+    .insert_resource(RenderedSelectionRevision(0))
     .insert_resource(LightingSettings::default())
     .insert_resource(OrbitCamera {
         target: Vec3::ZERO,
@@ -324,6 +364,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .add_systems(
         Update,
         (
+            route_native_escape,
             orbit_camera,
             toggle_command_palette,
             handle_command_palette_keyboard,
@@ -333,9 +374,16 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             apply_lighting_settings,
             sync_scene_document,
             update_scene_meshes,
+            update_selection_meshes,
             refresh_status,
         )
             .chain(),
+    )
+    .add_systems(
+        PostUpdate,
+        (native_viewport_pointer, refresh_selection_window)
+            .chain()
+            .after(TransformSystems::Propagate),
     );
     app.run();
 }
@@ -887,10 +935,19 @@ fn setup_ui(
             BackgroundColor(Color::srgba(0.13, 0.14, 0.16, 0.94)),
         ))
         .with_children(|panel| {
-            inspector_section(panel, "Selection", &format!(
-                "Triangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
-                scene.triangles, scene.segments, scene.occurrences
-            ));
+            inspector_section(
+                panel,
+                "Selection",
+                &format!(
+                    "Selected: {} object(s), {} face(s), {} edge(s)\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
+                    scene.selected_objects,
+                    scene.selected_faces,
+                    scene.selected_edges,
+                    scene.triangles,
+                    scene.segments,
+                    scene.occurrences
+                ),
+            );
             inspector_section(panel, "Object", "No object selected\nName");
             inspector_section(panel, "Objects", &format!("{} object instances in the scene", scene.occurrences));
             inspector_section(panel, "Model Settings", "Unit name  unit\nUnit size  1.0000\nGrid size  1.0000\nCircle segments  24\nSnap radius");
@@ -1043,6 +1100,28 @@ fn setup_ui(
         root.spawn((
             Node {
                 position_type: PositionType::Absolute,
+                display: Display::None,
+                left: px(0),
+                top: px(0),
+                width: px(0),
+                height: px(0),
+                border: UiRect::all(px(2)),
+                padding: UiRect::all(px(3)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.12, 0.42, 0.74, 0.12)),
+            BorderColor::all(Color::srgb(0.14, 0.46, 0.92)),
+            SelectionWindowOverlay,
+        ))
+        .with_child((
+            Text::new("Window"),
+            TextFont::from_font_size(11.0),
+            TextColor(Color::srgb(0.14, 0.46, 0.92)),
+            SelectionWindowLabel,
+        ));
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
                 left: px(0),
                 right: px(0),
                 bottom: px(0),
@@ -1076,7 +1155,7 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
         },
         BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
     ));
-    parent.spawn((
+    let mut body_text = parent.spawn((
         Text::new(body.to_owned()),
         TextFont::from_font_size(13.0),
         TextColor(Color::WHITE),
@@ -1087,6 +1166,9 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
         },
         BackgroundColor(Color::srgb(0.30, 0.31, 0.32)),
     ));
+    if title == "Selection" {
+        body_text.insert(SelectionStatsText);
+    }
 }
 
 fn spawn_lighting_slider(parent: &mut ChildSpawnerCommands, channel: LightingChannel, value: f32) {
@@ -1242,9 +1324,6 @@ fn toggle_command_palette(
             state.selected_index = 0;
         }
     }
-    if state.open && keyboard.just_pressed(KeyCode::Escape) {
-        state.open = false;
-    }
     for mut palette in &mut palettes {
         palette.display = if state.open {
             Display::Flex
@@ -1259,6 +1338,7 @@ fn handle_command_palette_keyboard(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut palette: ResMut<CommandPaletteState>,
     mut session: NonSendMut<MeshcraftApp>,
+    mut overlays: Query<&mut Node, With<CommandPaletteOverlay>>,
 ) {
     let control = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
     let alt = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
@@ -1267,7 +1347,7 @@ fn handle_command_palette_keyboard(
             continue;
         }
         match event.key_code {
-            KeyCode::Escape => palette.open = false,
+            KeyCode::Escape => {}
             KeyCode::Backspace => {
                 palette.query.pop();
                 palette.selected_index = 0;
@@ -1296,6 +1376,30 @@ fn handle_command_palette_keyboard(
                 }
             }
         }
+    }
+    for mut overlay in &mut overlays {
+        overlay.display = if palette.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+}
+
+fn route_native_escape(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut palette: ResMut<CommandPaletteState>,
+    mut drag: ResMut<NativeSelectionDrag>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if !keyboard.just_pressed(KeyCode::Escape) {
+        return;
+    }
+    drag.start = None;
+    if palette.open {
+        palette.open = false;
+    } else {
+        session.handle_native_escape();
     }
 }
 
@@ -1433,6 +1537,15 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
     if scene.active_tool != active_tool {
         scene.active_tool = active_tool.to_owned();
     }
+    let selection_revision = session.native_selection_revision();
+    if scene.selection_revision != selection_revision {
+        let summary = session.native_selection_summary();
+        scene.selection_revision = selection_revision;
+        scene.selected_objects = summary.objects;
+        scene.selected_faces = summary.faces;
+        scene.selected_edges = summary.edges;
+        scene.selection_targets = session.native_selection_targets();
+    }
 }
 
 fn update_scene_meshes(
@@ -1497,6 +1610,117 @@ fn update_scene_meshes(
     rendered_revision.revision = scene.revision;
 }
 
+fn update_selection_meshes(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    mut rendered_revision: ResMut<RenderedSelectionRevision>,
+    mut entities: ResMut<SceneMeshEntities>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if rendered_revision.0 == scene.selection_revision {
+        return;
+    }
+    let selected = build_selection_meshes(&scene.document, &scene.selection_targets);
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.selected_faces,
+        selected.faces,
+        StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            base_color: Color::WHITE,
+            cull_mode: None,
+            ..default()
+        },
+        false,
+    );
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.selected_edges,
+        selected.edges,
+        StandardMaterial {
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        },
+        false,
+    );
+    rendered_revision.0 = scene.selection_revision;
+}
+
+fn build_selection_meshes(document: &Document, selection: &[SelectionTarget]) -> SelectionMeshes {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut colors = Vec::new();
+    let mut line_positions = Vec::new();
+    let mut line_colors = Vec::new();
+    let highlight = [1.0, 0.34, 0.015, 0.48];
+    let edge_highlight = [1.0, 0.24, 0.015, 1.0];
+
+    for target in selection {
+        let (Some(resolved), Some(geometry)) = (
+            document.resolve_occurrence(&target.occurrence),
+            document.effective_geometry(&target.occurrence),
+        ) else {
+            continue;
+        };
+        let include_all = matches!(target.entity, SelectedEntity::Occurrence);
+        if include_all || matches!(target.entity, SelectedEntity::Triangle(_)) {
+            for triangle in geometry.triangles.values().filter(|triangle| {
+                include_all || target.entity == SelectedEntity::Triangle(triangle.id)
+            }) {
+                let [Some(a), Some(b), Some(c)] = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                else {
+                    continue;
+                };
+                let [a, b, c] =
+                    [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                let Some(normal) = (b - a).cross(c - a).try_normalized(1.0e-12) else {
+                    continue;
+                };
+                for point in [a, b, c] {
+                    let Some(point) = to_bevy_vec3(point + normal * 0.003) else {
+                        continue;
+                    };
+                    positions.push(point.to_array());
+                    normals.push(to_bevy_vec3(normal).unwrap_or(Vec3::Y).to_array());
+                    colors.push(highlight);
+                }
+            }
+        }
+        if include_all || matches!(target.entity, SelectedEntity::Segment(_)) {
+            for segment in geometry.segments.values().filter(|segment| {
+                include_all || target.entity == SelectedEntity::Segment(segment.id)
+            }) {
+                let (Some(start), Some(end)) = (
+                    geometry.vertex_position(segment.endpoints[0]),
+                    geometry.vertex_position(segment.endpoints[1]),
+                ) else {
+                    continue;
+                };
+                let [Some(start), Some(end)] = [start, end]
+                    .map(|point| to_bevy_vec3(resolved.world_transform.transform_point(point)))
+                else {
+                    continue;
+                };
+                line_positions.extend([start.to_array(), end.to_array()]);
+                line_colors.extend([edge_highlight, edge_highlight]);
+            }
+        }
+    }
+    SelectionMeshes {
+        faces: triangle_mesh(positions, normals, colors),
+        edges: line_mesh(line_positions, line_colors),
+    }
+}
+
 fn replace_scene_batch(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -1531,12 +1755,577 @@ fn replace_scene_batch(
     }
 }
 
-fn refresh_status(scene: Res<SceneDocument>, mut labels: Query<&mut Text, With<StatusText>>) {
+fn refresh_status(
+    scene: Res<SceneDocument>,
+    mut labels: Query<&mut Text, (With<StatusText>, Without<SelectionStatsText>)>,
+    mut selection_stats: Query<&mut Text, (With<SelectionStatsText>, Without<StatusText>)>,
+) {
     if !scene.is_changed() {
         return;
     }
     for mut label in &mut labels {
         label.0 = format!("{}  |  {}", scene.status, scene.active_tool);
+    }
+    for mut stats in &mut selection_stats {
+        stats.0 = format!(
+            "Selected: {} object(s), {} face(s), {} edge(s)\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
+            scene.selected_objects,
+            scene.selected_faces,
+            scene.selected_edges,
+            scene.triangles,
+            scene.segments,
+            scene.occurrences
+        );
+    }
+}
+
+// Bevy system parameters are injected independently by the ECS scheduler.
+#[allow(clippy::too_many_arguments)]
+fn native_viewport_pointer(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    palette: Res<CommandPaletteState>,
+    orbit: Res<OrbitCamera>,
+    mut drag: ResMut<NativeSelectionDrag>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = cameras.single() else {
+        return;
+    };
+    if palette.open {
+        drag.start = None;
+        return;
+    }
+    let cursor = window.cursor_position();
+    if mouse.just_pressed(MouseButton::Left)
+        && let Some(position) =
+            cursor.filter(|position| native_viewport_contains(window, *position))
+    {
+        if session.active_tool_label() == "Select" {
+            drag.start = Some(position);
+            drag.current = position;
+        } else if let Ok(ray) = camera.viewport_to_world(camera_transform, position) {
+            let origin = ModelVec3::new(
+                f64::from(ray.origin.x),
+                f64::from(ray.origin.y),
+                f64::from(ray.origin.z),
+            );
+            let direction = ray.direction.as_vec3();
+            let direction = ModelVec3::new(
+                f64::from(direction.x),
+                f64::from(direction.y),
+                f64::from(direction.z),
+            );
+            let radius = native_pick_radius(orbit.distance, window.height());
+            let target = session.pick_native_target(origin, direction, radius);
+            let snap = session.native_snap_point_on_ray(origin, direction, radius);
+            let (point, snap) = snap
+                .map_or_else(
+                    || {
+                        native_grid_pick(
+                            ray,
+                            session.document_snapshot().model_settings().grid_size,
+                        )
+                    },
+                    |snap| Some((snap.point, Some(snap))),
+                )
+                .unzip();
+            if let Some(point) = point {
+                session.handle_native_world_pick(point, snap.flatten(), target);
+            }
+        }
+    }
+
+    if drag.start.is_some()
+        && let Some(position) = cursor
+    {
+        drag.current = position;
+    }
+    if mouse.just_released(MouseButton::Left)
+        && let Some(start) = drag.start.take()
+    {
+        let end = cursor.unwrap_or(drag.current);
+        if (end - start).length() >= 4.0 {
+            let modifiers = native_modifiers(&keyboard);
+            let crossing = end.x < start.x && !modifiers.alt;
+            let targets = native_selection_region(
+                session.document_snapshot(),
+                camera,
+                camera_transform,
+                SelectionRegion {
+                    start,
+                    end,
+                    crossing,
+                },
+                &session.native_edit_context(),
+                &session.native_selection_display_policy(),
+            );
+            let mode = selection_mode(modifiers, None);
+            session.apply_native_selection_region(targets, crossing, mode);
+        } else if let Some(position) = cursor
+            && let Ok(ray) = camera.viewport_to_world(camera_transform, position)
+        {
+            let origin = ModelVec3::new(
+                f64::from(ray.origin.x),
+                f64::from(ray.origin.y),
+                f64::from(ray.origin.z),
+            );
+            let direction = ray.direction.as_vec3();
+            let direction = ModelVec3::new(
+                f64::from(direction.x),
+                f64::from(direction.y),
+                f64::from(direction.z),
+            );
+            let radius = native_pick_radius(orbit.distance, window.height());
+            let mut target = session.pick_native_target(origin, direction, radius);
+            let modifiers = native_modifiers(&keyboard);
+            if modifiers.alt
+                && let Some(target) = &mut target
+                && !target.occurrence.is_scene_root()
+            {
+                target.entity = SelectedEntity::Occurrence;
+            }
+            let now_millis = (time.elapsed_secs_f64() * 1000.0).max(0.0) as u64;
+            session.handle_native_selection_click(
+                target,
+                modifiers,
+                now_millis,
+                ModelVec2::new(f64::from(position.x), f64::from(position.y)),
+            );
+        }
+    }
+}
+
+fn native_viewport_contains(window: &Window, position: Vec2) -> bool {
+    position.x >= 270.0
+        && position.x <= window.width() - 350.0
+        && position.y >= 58.0
+        && position.y <= window.height() - 32.0
+}
+
+fn native_modifiers(keyboard: &ButtonInput<KeyCode>) -> egui::Modifiers {
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+    let alt = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
+    let mac_cmd = keyboard.pressed(KeyCode::SuperLeft) || keyboard.pressed(KeyCode::SuperRight);
+    egui::Modifiers {
+        alt,
+        ctrl,
+        shift,
+        mac_cmd,
+        command: ctrl || mac_cmd,
+    }
+}
+
+fn selection_mode(modifiers: egui::Modifiers, target_is_selected: Option<bool>) -> SelectionMode {
+    if modifiers.ctrl || modifiers.mac_cmd {
+        SelectionMode::Remove
+    } else if modifiers.shift {
+        SelectionMode::Add
+    } else if target_is_selected == Some(true) {
+        SelectionMode::Remove
+    } else {
+        SelectionMode::Replace
+    }
+}
+
+fn native_pick_radius(distance: f32, viewport_height: f32) -> f64 {
+    if !distance.is_finite() || !viewport_height.is_finite() || viewport_height <= 0.0 {
+        return 0.1;
+    }
+    (f64::from(distance) * 2.0 * f64::from(22.5_f32.to_radians().tan()) * 7.0
+        / f64::from(viewport_height))
+    .clamp(0.01, 0.75)
+}
+
+fn native_grid_pick(
+    ray: Ray3d,
+    grid_size: f64,
+) -> Option<(ModelVec3, Option<crate::viewport::SnapResult>)> {
+    if !grid_size.is_finite() || grid_size <= 0.0 {
+        return None;
+    }
+    let origin = ModelVec3::new(
+        f64::from(ray.origin.x),
+        f64::from(ray.origin.y),
+        f64::from(ray.origin.z),
+    );
+    let direction = ray.direction.as_vec3();
+    let direction = ModelVec3::new(
+        f64::from(direction.x),
+        f64::from(direction.y),
+        f64::from(direction.z),
+    );
+    if direction.y.abs() <= 1.0e-12 {
+        return None;
+    }
+    let distance = -origin.y / direction.y;
+    if !distance.is_finite() || distance < 0.0 {
+        return None;
+    }
+    let intersection = origin + direction * distance;
+    let point = ModelVec3::new(
+        (intersection.x / grid_size).round() * grid_size,
+        0.0,
+        (intersection.z / grid_size).round() * grid_size,
+    );
+    let snap = crate::viewport::SnapResult {
+        point,
+        normal: ModelVec3::Y,
+        kind: crate::viewport::SnapKind::Grid,
+        screen_distance: 0.0,
+    };
+    Some((point, Some(snap)))
+}
+
+#[derive(Clone, Copy)]
+struct SelectionRegion {
+    start: Vec2,
+    end: Vec2,
+    crossing: bool,
+}
+
+fn native_selection_region(
+    document: Document,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    selection_region: SelectionRegion,
+    context: &EditContext,
+    policy: &meshcraft_core::selection::SelectionDisplayPolicy,
+) -> Vec<SelectionTarget> {
+    let SelectionRegion {
+        start,
+        end,
+        crossing,
+    } = selection_region;
+    let min = start.min(end);
+    let max = start.max(end);
+    let region = [min, max];
+    let Ok(occurrences) = document.scene_geometry_refs() else {
+        return Vec::new();
+    };
+    let mut projected = Vec::new();
+    let mut subtree_points =
+        std::collections::BTreeMap::<meshcraft_core::document::OccurrenceRef, Vec<Vec2>>::new();
+
+    for occurrence in occurrences {
+        if !native_context_contains(&document, context, &occurrence) {
+            continue;
+        }
+        let (Some(resolved), Some(geometry)) = (
+            document.resolve_occurrence(&occurrence),
+            document.effective_geometry(&occurrence),
+        ) else {
+            continue;
+        };
+        let mut item = ProjectedGeometry {
+            points: Vec::new(),
+            vertices: Vec::new(),
+            segments: Vec::new(),
+            triangles: Vec::new(),
+        };
+        for (id, vertex) in &geometry.vertices {
+            let world = resolved.world_transform.transform_point(vertex.position);
+            if let Some(point) = project_native_point(camera, camera_transform, world) {
+                item.points.push(point);
+                item.vertices.push((
+                    point,
+                    SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity: SelectedEntity::Vertex(*id),
+                    },
+                ));
+            }
+        }
+        for segment in geometry.segments.values() {
+            let [Some(a), Some(b)] = segment
+                .endpoints
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            let [Some(a), Some(b)] = [a, b].map(|point| {
+                project_native_point(
+                    camera,
+                    camera_transform,
+                    resolved.world_transform.transform_point(point),
+                )
+            }) else {
+                continue;
+            };
+            item.points.extend([a, b]);
+            item.segments.push((
+                [a, b],
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Segment(segment.id),
+                },
+            ));
+        }
+        for triangle in geometry.triangles.values() {
+            let [Some(a), Some(b), Some(c)] = triangle
+                .vertices
+                .map(|reference| geometry.vertex_position(reference))
+            else {
+                continue;
+            };
+            let [Some(a), Some(b), Some(c)] = [a, b, c].map(|point| {
+                project_native_point(
+                    camera,
+                    camera_transform,
+                    resolved.world_transform.transform_point(point),
+                )
+            }) else {
+                continue;
+            };
+            item.points.extend([a, b, c]);
+            item.triangles.push((
+                [a, b, c],
+                SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::Triangle(triangle.id),
+                },
+            ));
+        }
+        if !occurrence.is_scene_root() {
+            for length in 1..=occurrence.path.len() {
+                let ancestor = meshcraft_core::document::OccurrenceRef {
+                    path: occurrence.path[..length].to_vec(),
+                };
+                subtree_points
+                    .entry(ancestor)
+                    .or_default()
+                    .extend(item.points.iter().copied());
+            }
+        }
+        projected.push(item);
+    }
+
+    let mut selected = std::collections::BTreeSet::new();
+    if policy.can_select(SelectionKind::Object) {
+        for (occurrence, points) in subtree_points {
+            if points.is_empty() {
+                continue;
+            }
+            let contained = points
+                .iter()
+                .all(|point| native_rect_contains(region, *point));
+            let intersects = projected_bounds_intersect(&points, region);
+            if (crossing && intersects) || (!crossing && contained) {
+                selected.insert(SelectionTarget {
+                    occurrence,
+                    entity: SelectedEntity::Occurrence,
+                });
+            }
+        }
+    }
+    for item in projected {
+        if policy.can_select(SelectionKind::Vertex) {
+            selected.extend(
+                item.vertices
+                    .into_iter()
+                    .filter(|(point, _)| native_rect_contains(region, *point))
+                    .map(|(_, target)| target),
+            );
+        }
+        if policy.can_select(SelectionKind::Edge) {
+            selected.extend(
+                item.segments
+                    .into_iter()
+                    .filter(|(points, _)| {
+                        if crossing {
+                            native_segment_intersects_rect(points[0], points[1], region)
+                        } else {
+                            points
+                                .iter()
+                                .all(|point| native_rect_contains(region, *point))
+                        }
+                    })
+                    .map(|(_, target)| target),
+            );
+        }
+        if policy.can_select(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe {
+            selected.extend(
+                item.triangles
+                    .into_iter()
+                    .filter(|(points, _)| {
+                        native_triangle_intersects_rect(*points, region, crossing)
+                    })
+                    .map(|(_, target)| target),
+            );
+        }
+    }
+    selected.into_iter().collect()
+}
+
+struct ProjectedGeometry {
+    points: Vec<Vec2>,
+    vertices: Vec<(Vec2, SelectionTarget)>,
+    segments: Vec<([Vec2; 2], SelectionTarget)>,
+    triangles: Vec<([Vec2; 3], SelectionTarget)>,
+}
+
+fn native_context_contains(
+    document: &Document,
+    context: &EditContext,
+    occurrence: &meshcraft_core::document::OccurrenceRef,
+) -> bool {
+    match context {
+        EditContext::Document => true,
+        EditContext::Occurrence(scope) => occurrence.path.starts_with(&scope.path),
+        EditContext::Definition(definition) if occurrence.is_scene_root() => {
+            *definition == Document::SCENE_ROOT_DEFINITION_ID
+        }
+        EditContext::Definition(definition) => document
+            .resolve_occurrence(occurrence)
+            .is_some_and(|resolved| resolved.definition.id == *definition),
+    }
+}
+
+fn project_native_point(
+    camera: &Camera,
+    transform: &GlobalTransform,
+    point: ModelVec3,
+) -> Option<Vec2> {
+    let world = to_bevy_vec3(point)?;
+    let projected = camera.world_to_viewport_with_depth(transform, world).ok()?;
+    (projected.z > 0.0 && projected.truncate().is_finite()).then_some(projected.truncate())
+}
+
+fn native_rect_contains(region: [Vec2; 2], point: Vec2) -> bool {
+    point.x >= region[0].x
+        && point.x <= region[1].x
+        && point.y >= region[0].y
+        && point.y <= region[1].y
+}
+
+fn projected_bounds_intersect(points: &[Vec2], region: [Vec2; 2]) -> bool {
+    if points.is_empty() {
+        return false;
+    }
+    let min = points
+        .iter()
+        .copied()
+        .reduce(Vec2::min)
+        .unwrap_or(Vec2::ZERO);
+    let max = points
+        .iter()
+        .copied()
+        .reduce(Vec2::max)
+        .unwrap_or(Vec2::ZERO);
+    min.x <= region[1].x && max.x >= region[0].x && min.y <= region[1].y && max.y >= region[0].y
+}
+
+fn native_segment_intersects_rect(a: Vec2, b: Vec2, region: [Vec2; 2]) -> bool {
+    if native_rect_contains(region, a) || native_rect_contains(region, b) {
+        return true;
+    }
+    let delta = b - a;
+    let mut low = 0.0_f32;
+    let mut high = 1.0_f32;
+    for (p, q) in [
+        (-delta.x, a.x - region[0].x),
+        (delta.x, region[1].x - a.x),
+        (-delta.y, a.y - region[0].y),
+        (delta.y, region[1].y - a.y),
+    ] {
+        if p.abs() <= f32::EPSILON {
+            if q < 0.0 {
+                return false;
+            }
+            continue;
+        }
+        let ratio = q / p;
+        if p < 0.0 {
+            low = low.max(ratio);
+        } else {
+            high = high.min(ratio);
+        }
+        if low > high {
+            return false;
+        }
+    }
+    true
+}
+
+fn native_triangle_intersects_rect(points: [Vec2; 3], region: [Vec2; 2], crossing: bool) -> bool {
+    if !crossing {
+        return points
+            .iter()
+            .all(|point| native_rect_contains(region, *point));
+    }
+    points
+        .iter()
+        .any(|point| native_rect_contains(region, *point))
+        || (0..3).any(|index| {
+            native_segment_intersects_rect(points[index], points[(index + 1) % 3], region)
+        })
+        || [
+            region[0],
+            Vec2::new(region[1].x, region[0].y),
+            region[1],
+            Vec2::new(region[0].x, region[1].y),
+        ]
+        .into_iter()
+        .any(|corner| native_point_in_triangle(corner, points))
+}
+
+fn native_point_in_triangle(point: Vec2, triangle: [Vec2; 3]) -> bool {
+    let cross = |a: Vec2, b: Vec2, c: Vec2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    let a = cross(triangle[0], triangle[1], point);
+    let b = cross(triangle[1], triangle[2], point);
+    let c = cross(triangle[2], triangle[0], point);
+    (a >= 0.0 && b >= 0.0 && c >= 0.0) || (a <= 0.0 && b <= 0.0 && c <= 0.0)
+}
+
+fn refresh_selection_window(
+    drag: Res<NativeSelectionDrag>,
+    mut overlays: Query<
+        (&mut Node, &mut BackgroundColor, &mut BorderColor),
+        With<SelectionWindowOverlay>,
+    >,
+    mut labels: Query<(&mut Text, &mut TextColor), With<SelectionWindowLabel>>,
+) {
+    let Some(start) = drag.start else {
+        for (mut node, _, _) in &mut overlays {
+            node.display = Display::None;
+        }
+        return;
+    };
+    let min = start.min(drag.current);
+    let max = start.max(drag.current);
+    let crossing = drag.current.x < start.x;
+    let (fill, outline, label) = if crossing {
+        (
+            Color::srgba(0.05, 0.72, 0.48, 0.14),
+            Color::srgb(0.04, 0.68, 0.42),
+            "Crossing",
+        )
+    } else {
+        (
+            Color::srgba(0.12, 0.42, 0.74, 0.12),
+            Color::srgb(0.14, 0.46, 0.92),
+            "Window",
+        )
+    };
+    for (mut node, mut background, mut border) in &mut overlays {
+        node.display = Display::Flex;
+        node.left = px(min.x);
+        node.top = px(min.y);
+        node.width = px((max.x - min.x).max(2.0));
+        node.height = px((max.y - min.y).max(2.0));
+        background.0 = fill;
+        *border = BorderColor::all(outline);
+    }
+    for (mut text, mut color) in &mut labels {
+        text.0 = label.to_owned();
+        color.0 = outline;
     }
 }
 
@@ -1682,13 +2471,14 @@ fn orbit_camera(
 mod tests {
     use super::{
         LightingChannel, LightingSettings, ShadowFilter, back_face_color, build_scene_meshes,
-        dispatch_palette_command, dispatch_toolbar_command, line_mesh, scene_counts,
+        dispatch_palette_command, dispatch_toolbar_command, line_mesh,
+        native_segment_intersects_rect, native_triangle_intersects_rect, scene_counts,
         search_command_ids, triangle_mesh,
     };
     use crate::MeshcraftApp;
     use bevy::{
         mesh::{Mesh, VertexAttributeValues},
-        prelude::{App, Update, Vec3},
+        prelude::{App, Update, Vec2, Vec3},
         ui_widgets::Activate,
     };
     use meshcraft_core::commands::CommandPayload;
@@ -1789,6 +2579,47 @@ mod tests {
         assert!(meshes.front_faces.is_some());
         assert!(meshes.back_faces.is_some());
         assert_eq!(scene_counts(&rendered_document), (1, 12, 12));
+    }
+
+    #[test]
+    fn native_selector_windows_distinguish_containment_from_crossing() {
+        let region = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 10.0)];
+        let contained_triangle = [
+            Vec2::new(2.0, 2.0),
+            Vec2::new(8.0, 2.0),
+            Vec2::new(5.0, 8.0),
+        ];
+        let crossing_triangle = [
+            Vec2::new(-5.0, 1.0),
+            Vec2::new(15.0, 1.0),
+            Vec2::new(5.0, 16.0),
+        ];
+
+        assert!(native_triangle_intersects_rect(
+            contained_triangle,
+            region,
+            false
+        ));
+        assert!(native_triangle_intersects_rect(
+            contained_triangle,
+            region,
+            true
+        ));
+        assert!(!native_triangle_intersects_rect(
+            crossing_triangle,
+            region,
+            false
+        ));
+        assert!(native_triangle_intersects_rect(
+            crossing_triangle,
+            region,
+            true
+        ));
+        assert!(native_segment_intersects_rect(
+            Vec2::new(-2.0, 5.0),
+            Vec2::new(3.0, 5.0),
+            region
+        ));
     }
 
     #[test]

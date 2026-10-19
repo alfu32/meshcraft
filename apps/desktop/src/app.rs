@@ -2093,6 +2093,258 @@ impl MeshcraftApp {
         &self.active_tool
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn handle_native_selection_click(
+        &mut self,
+        target: Option<SelectionTarget>,
+        modifiers: egui::Modifiers,
+        at_millis: u64,
+        screen_position: meshcraft_core::geometry::Vec2,
+    ) {
+        if self.active_tool != "Select" {
+            self.selection_click_tracker.reset();
+            return;
+        }
+        let click_count = self
+            .selection_click_tracker
+            .record(at_millis, screen_position);
+        if click_count >= 3
+            && let Some(target) = target.as_ref()
+        {
+            let connected = self.connected_selection_component(target);
+            self.selection.apply(connected, SelectionMode::Replace);
+            self.status = format!(
+                "{} Connected entity/entities selected.",
+                self.selection.summary().total()
+            );
+            return;
+        }
+        if click_count == 2
+            && !modifiers.shift
+            && !modifiers.ctrl
+            && !modifiers.mac_cmd
+            && let Some(target) = target.as_ref()
+        {
+            if let Some(group) = self.editable_group_ancestor(target) {
+                self.selection
+                    .set_context(EditContext::Occurrence(group.clone()));
+                self.selection_click_tracker.reset();
+                self.status = format!("Editing object instance at path {:?}.", group.path);
+                return;
+            }
+            match &target.entity {
+                SelectedEntity::Occurrence => {
+                    self.selection
+                        .set_context(EditContext::Occurrence(target.occurrence.clone()));
+                    self.selection_click_tracker.reset();
+                    self.status = format!(
+                        "Editing object instance at path {:?}.",
+                        target.occurrence.path
+                    );
+                    return;
+                }
+                SelectedEntity::Triangle(_) => {
+                    let coplanar = self.coplanar_faces(target);
+                    self.selection.apply(coplanar, SelectionMode::Replace);
+                    self.status = format!(
+                        "{} Coplanar face(s) selected.",
+                        self.selection.summary().faces
+                    );
+                    return;
+                }
+                SelectedEntity::Segment(_) => {
+                    let connected = self.connected_line_segments(target);
+                    self.selection.apply(connected, SelectionMode::Replace);
+                    self.status = format!(
+                        "{} Connected line segment(s) selected.",
+                        self.selection.summary().edges
+                    );
+                    return;
+                }
+                _ => {}
+            }
+        }
+        let mode = if modifiers.ctrl || modifiers.mac_cmd {
+            SelectionMode::Remove
+        } else if modifiers.shift {
+            SelectionMode::Add
+        } else if target
+            .as_ref()
+            .is_some_and(|target| self.selection.selected().contains(target))
+        {
+            SelectionMode::Remove
+        } else {
+            SelectionMode::Replace
+        };
+        self.selection.apply(target, mode);
+        let summary = self.selection.summary();
+        self.status = if summary.total() == 0 {
+            "Selection cleared.".to_owned()
+        } else {
+            format!(
+                "Selected {} object(s), {} face(s), {} edge(s), {} vertex/vertices.",
+                summary.objects, summary.faces, summary.edges, summary.vertices
+            )
+        };
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn apply_native_selection_region(
+        &mut self,
+        targets: Vec<SelectionTarget>,
+        crossing: bool,
+        mode: SelectionMode,
+    ) {
+        self.selection.apply(targets, mode);
+        let summary = self.selection.summary();
+        self.status = format!(
+            "{} selection: {} object(s), {} face(s), {} edge(s), {} vertex/vertices.",
+            if crossing { "Crossing" } else { "Window" },
+            summary.objects,
+            summary.faces,
+            summary.edges,
+            summary.vertices,
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn handle_native_world_pick(
+        &mut self,
+        point: Vec3,
+        snap: Option<SnapResult>,
+        target: Option<SelectionTarget>,
+    ) {
+        if !point.is_finite() {
+            self.status = "World pointer needs finite coordinates.".to_owned();
+            return;
+        }
+        if self.active_tool == "Paint" {
+            self.paint_native_target(target);
+            return;
+        }
+        self.handle_viewport_click_at_point(
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::ZERO),
+            egui::Pos2::ZERO,
+            snap,
+            Some(point),
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn paint_native_target(&mut self, target: Option<SelectionTarget>) {
+        let Some(target) = target else {
+            self.status = "Paint: click a visible edge or face.".to_owned();
+            return;
+        };
+        if !matches!(
+            target.entity,
+            SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+        ) {
+            self.status = "Paint applies to edges and faces.".to_owned();
+            return;
+        }
+        let mut target_selection = SelectionSession::default();
+        target_selection.set_context(self.selection.context.clone());
+        target_selection.select(target);
+        let color = self.current_paint_color;
+        match self.commit_document_edit("Paint entity", |document| {
+            modeling_transforms::paint_selection(document, &target_selection, color)
+        }) {
+            Ok(report) => {
+                self.status = format!(
+                    "Painted {} edge(s) and {} face(s).",
+                    report.painted_segments, report.painted_triangles
+                );
+            }
+            Err(error) => self.status = error,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn handle_native_escape(&mut self) {
+        self.handle_escape();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_edit_context(&self) -> EditContext {
+        self.selection.context.clone()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_selection_display_policy(&self) -> SelectionDisplayPolicy {
+        self.selection_display_policy.clone()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_selection_revision(&self) -> u64 {
+        self.selection.revision()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_selection_summary(&self) -> meshcraft_core::selection::SelectionSummary {
+        self.selection.summary()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_selection_targets(&self) -> Vec<SelectionTarget> {
+        self.selection.selected().iter().cloned().collect()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn pick_native_target(
+        &mut self,
+        origin: Vec3,
+        direction: Vec3,
+        radius: f64,
+    ) -> Option<SelectionTarget> {
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
+        self.viewport.pick_selection_target_on_ray(
+            &self.document,
+            origin,
+            direction,
+            radius,
+            scope,
+            &self.selection_display_policy,
+        )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_snap_for_target(
+        &self,
+        target: &SelectionTarget,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<SnapResult> {
+        self.viewport
+            .snap_selection_target_on_ray(&self.document, target, origin, direction)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_snap_point_on_ray(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        radius: f64,
+    ) -> Option<SnapResult> {
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
+        self.viewport.snap_point_on_ray(
+            &self.document,
+            origin,
+            direction,
+            radius,
+            scope,
+            &self.selection_display_policy,
+        )
+    }
+
     pub fn current_project_path(&self) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -10883,6 +11135,57 @@ mod tests {
         assert!(app.selection.selected().is_empty());
         assert!(app.guides.is_empty());
         assert_eq!(None, app.drawing_tool.anchor());
+    }
+
+    #[test]
+    fn native_selector_toggles_selected_entities_and_keeps_multiclick_rules() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("cube", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let triangle = *app
+            .document
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let target = SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::Triangle(triangle),
+        };
+        let position = meshcraft_core::geometry::Vec2::new(40.0, 50.0);
+
+        app.handle_native_selection_click(
+            Some(target.clone()),
+            egui::Modifiers::default(),
+            100,
+            position,
+        );
+        assert_eq!(1, app.selection.selected().len());
+        app.handle_native_selection_click(
+            Some(target.clone()),
+            egui::Modifiers::default(),
+            600,
+            position,
+        );
+        assert!(app.selection.selected().is_empty());
+
+        app.handle_native_selection_click(
+            Some(target.clone()),
+            egui::Modifiers::default(),
+            1_000,
+            position,
+        );
+        app.handle_native_selection_click(
+            Some(target),
+            egui::Modifiers::default(),
+            1_200,
+            position,
+        );
+        assert!(app.selection.summary().faces >= 2);
     }
 
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {

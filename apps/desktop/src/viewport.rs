@@ -2587,6 +2587,399 @@ impl Viewport {
         self.pick_selection_target_for_kind(rect, document, position, scope, policy, None)
     }
 
+    /// Picks a model entity along a host-provided world ray, for native renderers that own
+    /// their camera and viewport input.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn pick_selection_target_on_ray(
+        &mut self,
+        document: &Document,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+        radius: f64,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+    ) -> Option<SelectionTarget> {
+        if !ray_origin.is_finite() || !radius.is_finite() || radius < 0.0 {
+            return None;
+        }
+        let direction = ray_direction.try_normalized(1.0e-12)?;
+        let occurrences = document.scene_geometry_refs().ok()?;
+        let mut nearest_face_depth = None::<f64>;
+        let mut nearest = None::<(f64, u8, SelectionTarget)>;
+
+        for occurrence in &occurrences {
+            if !scope.contains(document, occurrence) {
+                continue;
+            }
+            let (Some(resolved), Some(geometry)) = (
+                document.resolve_occurrence(occurrence),
+                document.effective_geometry(occurrence),
+            ) else {
+                continue;
+            };
+            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    if let Some(depth) = ray_triangle_distance(
+                        ray_origin,
+                        direction,
+                        resolved.world_transform.transform_point(a),
+                        resolved.world_transform.transform_point(b),
+                        resolved.world_transform.transform_point(c),
+                    ) {
+                        nearest_face_depth =
+                            Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
+                    }
+                }
+            }
+        }
+
+        for occurrence in &occurrences {
+            if !scope.contains(document, occurrence) {
+                continue;
+            }
+            let (Some(resolved), Some(geometry)) = (
+                document.resolve_occurrence(occurrence),
+                document.effective_geometry(occurrence),
+            ) else {
+                continue;
+            };
+
+            if policy.can_select(SelectionKind::Vertex) {
+                for (vertex_id, vertex) in &geometry.vertices {
+                    let point = resolved.world_transform.transform_point(vertex.position);
+                    let depth = (point - ray_origin).dot(direction);
+                    if depth < 0.0 || nearest_face_depth.is_some_and(|face| depth > face + radius) {
+                        continue;
+                    }
+                    let closest = ray_origin + direction * depth;
+                    if (point - closest).length() <= radius {
+                        consider_ray_selection_hit(
+                            &mut nearest,
+                            depth,
+                            0,
+                            SelectionTarget {
+                                occurrence: occurrence.clone(),
+                                entity: SelectedEntity::Vertex(*vertex_id),
+                            },
+                        );
+                    }
+                }
+            }
+
+            if policy.can_select(SelectionKind::Edge) {
+                for segment in geometry.segments.values() {
+                    let (Some(start), Some(end)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let start = resolved.world_transform.transform_point(start);
+                    let end = resolved.world_transform.transform_point(end);
+                    let Some((depth, miss_distance)) =
+                        ray_segment_distance(ray_origin, direction, start, end)
+                    else {
+                        continue;
+                    };
+                    if depth < 0.0
+                        || miss_distance > radius
+                        || nearest_face_depth.is_some_and(|face| depth > face + radius)
+                    {
+                        continue;
+                    }
+                    consider_ray_selection_hit(
+                        &mut nearest,
+                        depth,
+                        1,
+                        SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Segment(segment.id),
+                        },
+                    );
+                }
+            }
+
+            if policy.can_select(SelectionKind::Face)
+                && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let Some(depth) = ray_triangle_distance(
+                        ray_origin,
+                        direction,
+                        resolved.world_transform.transform_point(a),
+                        resolved.world_transform.transform_point(b),
+                        resolved.world_transform.transform_point(c),
+                    ) else {
+                        continue;
+                    };
+                    consider_ray_selection_hit(
+                        &mut nearest,
+                        depth,
+                        2,
+                        SelectionTarget {
+                            occurrence: occurrence.clone(),
+                            entity: SelectedEntity::Triangle(triangle.id),
+                        },
+                    );
+                }
+            }
+        }
+
+        if let Some((_, _, target)) = nearest {
+            return Some(target);
+        }
+
+        for occurrence in occurrences {
+            if occurrence.is_scene_root()
+                || !scope.contains(document, &occurrence)
+                || !policy.can_select(SelectionKind::Object)
+            {
+                continue;
+            }
+            let Some(bounds) = self.derived.world_bounds(document, &occurrence) else {
+                continue;
+            };
+            if let Some(depth) = ray_aabb_distance(ray_origin, direction, bounds) {
+                consider_ray_selection_hit(
+                    &mut nearest,
+                    depth,
+                    3,
+                    SelectionTarget {
+                        occurrence,
+                        entity: SelectedEntity::Occurrence,
+                    },
+                );
+            }
+        }
+
+        nearest.map(|(_, _, target)| target)
+    }
+
+    /// Returns the world-space snap point represented by a ray-picked geometry target.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn snap_selection_target_on_ray(
+        &self,
+        document: &Document,
+        target: &SelectionTarget,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+    ) -> Option<SnapResult> {
+        let direction = ray_direction.try_normalized(1.0e-12)?;
+        let resolved = document.resolve_occurrence(&target.occurrence)?;
+        let geometry = document.effective_geometry(&target.occurrence)?;
+        let (point, normal, kind) = match &target.entity {
+            SelectedEntity::Vertex(id) => (
+                resolved
+                    .world_transform
+                    .transform_point(geometry.vertices.get(id)?.position),
+                Vec3::Y,
+                SnapKind::Endpoint,
+            ),
+            SelectedEntity::Segment(id) => {
+                let segment = geometry.segments.get(id)?;
+                let start = resolved
+                    .world_transform
+                    .transform_point(geometry.vertex_position(segment.endpoints[0])?);
+                let end = resolved
+                    .world_transform
+                    .transform_point(geometry.vertex_position(segment.endpoints[1])?);
+                let (depth, _) = ray_segment_distance(ray_origin, direction, start, end)?;
+                let ray_point = ray_origin + direction * depth;
+                (
+                    closest_point_on_segment(ray_point, start, end),
+                    Vec3::Y,
+                    SnapKind::Line,
+                )
+            }
+            SelectedEntity::Triangle(id) => {
+                let triangle = geometry.triangles.get(id)?;
+                let [a, b, c] = triangle
+                    .vertices
+                    .map(|reference| geometry.vertex_position(reference))
+                    .map(|point| {
+                        point.map(|point| resolved.world_transform.transform_point(point))
+                    });
+                let [Some(a), Some(b), Some(c)] = [a, b, c] else {
+                    return None;
+                };
+                let depth = ray_triangle_distance(ray_origin, direction, a, b, c)?;
+                let normal = (b - a).cross(c - a).try_normalized(1.0e-12)?;
+                (ray_origin + direction * depth, normal, SnapKind::Face)
+            }
+            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => return None,
+        };
+        point.is_finite().then_some(SnapResult {
+            point,
+            normal,
+            kind,
+            screen_distance: 0.0,
+        })
+    }
+
+    /// Snaps a native view ray to visible geometry, including locked entities.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn snap_point_on_ray(
+        &self,
+        document: &Document,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+        radius: f64,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+    ) -> Option<SnapResult> {
+        if !ray_origin.is_finite() || !radius.is_finite() || radius < 0.0 {
+            return None;
+        }
+        let direction = ray_direction.try_normalized(1.0e-12)?;
+        let occurrences = document.scene_geometry_refs().ok()?;
+        let mut nearest_face_depth = None::<f64>;
+        let mut nearest = None::<(f64, u8, SnapResult)>;
+        for occurrence in &occurrences {
+            if !scope.contains(document, occurrence) {
+                continue;
+            }
+            let (Some(resolved), Some(geometry)) = (
+                document.resolve_occurrence(occurrence),
+                document.effective_geometry(occurrence),
+            ) else {
+                continue;
+            };
+            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let world =
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                    if let Some(depth) =
+                        ray_triangle_distance(ray_origin, direction, world[0], world[1], world[2])
+                    {
+                        nearest_face_depth =
+                            Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
+                    }
+                }
+            }
+        }
+
+        for occurrence in occurrences {
+            if !scope.contains(document, &occurrence) {
+                continue;
+            }
+            let (Some(resolved), Some(geometry)) = (
+                document.resolve_occurrence(&occurrence),
+                document.effective_geometry(&occurrence),
+            ) else {
+                continue;
+            };
+            if policy.can_draw(SelectionKind::Vertex) {
+                for vertex in geometry.vertices.values() {
+                    let point = resolved.world_transform.transform_point(vertex.position);
+                    let depth = (point - ray_origin).dot(direction);
+                    if depth < 0.0 || nearest_face_depth.is_some_and(|face| depth > face + radius) {
+                        continue;
+                    }
+                    let distance = (point - (ray_origin + direction * depth)).length();
+                    if distance <= radius {
+                        consider_ray_snap(
+                            &mut nearest,
+                            depth,
+                            0,
+                            SnapResult {
+                                point,
+                                normal: Vec3::Y,
+                                kind: SnapKind::Endpoint,
+                                screen_distance: 0.0,
+                            },
+                        );
+                    }
+                }
+            }
+            if policy.can_draw(SelectionKind::Edge) {
+                for segment in geometry.segments.values() {
+                    let (Some(start), Some(end)) = (
+                        geometry.vertex_position(segment.endpoints[0]),
+                        geometry.vertex_position(segment.endpoints[1]),
+                    ) else {
+                        continue;
+                    };
+                    let start = resolved.world_transform.transform_point(start);
+                    let end = resolved.world_transform.transform_point(end);
+                    let Some((depth, miss_distance)) =
+                        ray_segment_distance(ray_origin, direction, start, end)
+                    else {
+                        continue;
+                    };
+                    if depth < 0.0
+                        || miss_distance > radius
+                        || nearest_face_depth.is_some_and(|face| depth > face + radius)
+                    {
+                        continue;
+                    }
+                    let ray_point = ray_origin + direction * depth;
+                    consider_ray_snap(
+                        &mut nearest,
+                        depth,
+                        1,
+                        SnapResult {
+                            point: closest_point_on_segment(ray_point, start, end),
+                            normal: Vec3::Y,
+                            kind: SnapKind::Line,
+                            screen_distance: 0.0,
+                        },
+                    );
+                }
+            }
+            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
+            {
+                for triangle in geometry.triangles.values() {
+                    let [Some(a), Some(b), Some(c)] = triangle
+                        .vertices
+                        .map(|reference| geometry.vertex_position(reference))
+                    else {
+                        continue;
+                    };
+                    let [a, b, c] =
+                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                    let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
+                        continue;
+                    };
+                    let Some(normal) = (b - a).cross(c - a).try_normalized(1.0e-12) else {
+                        continue;
+                    };
+                    consider_ray_snap(
+                        &mut nearest,
+                        depth,
+                        2,
+                        SnapResult {
+                            point: ray_origin + direction * depth,
+                            normal,
+                            kind: SnapKind::Face,
+                            screen_distance: 0.0,
+                        },
+                    );
+                }
+            }
+        }
+        nearest.map(|(_, _, snap)| snap)
+    }
+
     pub fn pick_selection_target_for_kind(
         &mut self,
         rect: Rect,
@@ -4710,6 +5103,121 @@ fn ray_triangle_distance(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec
     (distance.is_finite() && distance >= 0.0).then_some(distance)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn consider_ray_selection_hit(
+    nearest: &mut Option<(f64, u8, SelectionTarget)>,
+    depth: f64,
+    priority: u8,
+    target: SelectionTarget,
+) {
+    if !depth.is_finite() || depth < 0.0 {
+        return;
+    }
+    if nearest
+        .as_ref()
+        .is_none_or(|(best_depth, best_priority, _)| {
+            depth < *best_depth - 1.0e-6
+                || ((depth - *best_depth).abs() <= 1.0e-6 && priority < *best_priority)
+        })
+    {
+        *nearest = Some((depth, priority, target));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn consider_ray_snap(
+    nearest: &mut Option<(f64, u8, SnapResult)>,
+    depth: f64,
+    priority: u8,
+    snap: SnapResult,
+) {
+    if !depth.is_finite() || depth < 0.0 {
+        return;
+    }
+    if nearest
+        .as_ref()
+        .is_none_or(|(best_depth, best_priority, _)| {
+            depth < *best_depth - 1.0e-6
+                || ((depth - *best_depth).abs() <= 1.0e-6 && priority < *best_priority)
+        })
+    {
+        *nearest = Some((depth, priority, snap));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ray_aabb_distance(
+    origin: Vec3,
+    direction: Vec3,
+    bounds: meshcraft_core::geometry::Aabb3,
+) -> Option<f64> {
+    let mut near = 0.0_f64;
+    let mut far = f64::INFINITY;
+    for (origin, direction, min, max) in [
+        (origin.x, direction.x, bounds.min.x, bounds.max.x),
+        (origin.y, direction.y, bounds.min.y, bounds.max.y),
+        (origin.z, direction.z, bounds.min.z, bounds.max.z),
+    ] {
+        if direction.abs() <= 1.0e-12 {
+            if origin < min || origin > max {
+                return None;
+            }
+            continue;
+        }
+        let first = (min - origin) / direction;
+        let second = (max - origin) / direction;
+        near = near.max(first.min(second));
+        far = far.min(first.max(second));
+        if far < near {
+            return None;
+        }
+    }
+    (far >= 0.0 && near.is_finite()).then_some(near.max(0.0))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ray_segment_distance(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    start: Vec3,
+    end: Vec3,
+) -> Option<(f64, f64)> {
+    let segment = end - start;
+    let length_squared = segment.dot(segment);
+    if !length_squared.is_finite() {
+        return None;
+    }
+    if length_squared <= 1.0e-24 {
+        let depth = (start - ray_origin).dot(ray_direction);
+        if depth < 0.0 {
+            return None;
+        }
+        return Some((
+            depth,
+            (start - (ray_origin + ray_direction * depth)).length(),
+        ));
+    }
+    let from_start = ray_origin - start;
+    let ray_segment_dot = ray_direction.dot(segment);
+    let ray_offset = ray_direction.dot(from_start);
+    let segment_offset = segment.dot(from_start);
+    let denominator = length_squared - ray_segment_dot * ray_segment_dot;
+    let mut fraction = if denominator.abs() > 1.0e-12 {
+        ((segment_offset - ray_segment_dot * ray_offset) / denominator).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let mut depth = (start + segment * fraction - ray_origin).dot(ray_direction);
+    if depth < 0.0 {
+        depth = 0.0;
+        fraction = ((ray_origin - start).dot(segment) / length_squared).clamp(0.0, 1.0);
+    }
+    let segment_point = start + segment * fraction;
+    let ray_point = ray_origin + ray_direction * depth;
+    let miss_distance = (segment_point - ray_point).length();
+    (depth.is_finite() && miss_distance.is_finite()).then_some((depth, miss_distance))
+}
+
 fn closest_point_on_segment(point: Vec3, start: Vec3, end: Vec3) -> Vec3 {
     let direction = end - start;
     let length_squared = direction.dot(direction);
@@ -6558,6 +7066,62 @@ mod tests {
         assert!(point_in_triangle(Pos2::new(2.0, 2.0), a, b, c));
         assert!(point_in_triangle(Pos2::new(1.0, 5.0), a, b, c));
         assert!(!point_in_triangle(Pos2::new(9.0, 9.0), a, b, c));
+    }
+
+    #[test]
+    fn native_ray_picker_returns_the_nearest_face_and_its_world_snap() {
+        let mut viewport = Viewport::default();
+        let mut document = meshcraft_core::document::Document::new();
+        let occurrence = document
+            .add_cuboid("cube", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .unwrap();
+        let origin = Vec3::new(1.0, 1.0, 10.0);
+        let direction = -Vec3::Z;
+        let target = viewport
+            .pick_selection_target_on_ray(
+                &document,
+                origin,
+                direction,
+                0.05,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .expect("the ray hits the top face");
+
+        assert_eq!(occurrence, target.occurrence);
+        assert!(matches!(target.entity, SelectedEntity::Triangle(_)));
+        let snap = viewport
+            .snap_selection_target_on_ray(&document, &target, origin, direction)
+            .expect("the hit face supplies a snap point");
+        assert_eq!(SnapKind::Face, snap.kind);
+        assert!((snap.point.z - 2.0).abs() < 1.0e-10);
+
+        let mut locked_faces = SelectionDisplayPolicy::default();
+        locked_faces.set_unlocked(SelectionKind::Face, false);
+        let locked_pick = viewport
+            .pick_selection_target_on_ray(
+                &document,
+                origin,
+                direction,
+                0.05,
+                SnapScope::Document,
+                &locked_faces,
+            )
+            .expect("the enclosing object remains selectable");
+        assert_eq!(SelectedEntity::Occurrence, locked_pick.entity);
+        assert_eq!(
+            Some(SnapKind::Face),
+            viewport
+                .snap_point_on_ray(
+                    &document,
+                    origin,
+                    direction,
+                    0.05,
+                    SnapScope::Document,
+                    &locked_faces,
+                )
+                .map(|snap| snap.kind)
+        );
     }
 
     #[test]
