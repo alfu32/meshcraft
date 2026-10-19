@@ -145,9 +145,21 @@ struct NativeEguiInputCapture {
     keyboard_captured: bool,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct NativeEguiLayout {
     viewport_rect_points: Option<[f32; 4]>,
+    pixels_per_point: Option<f32>,
+    zoom_factor: f32,
+}
+
+impl Default for NativeEguiLayout {
+    fn default() -> Self {
+        Self {
+            viewport_rect_points: None,
+            pixels_per_point: None,
+            zoom_factor: 1.0,
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -782,6 +794,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             map_native_egui_viewport,
             apply_lighting_settings,
             (sync_scene_document,).chain(),
+            sync_shadow_map_availability,
             (update_scene_meshes, update_selection_meshes, refresh_status).chain(),
         )
             .chain(),
@@ -808,10 +821,14 @@ fn native_egui_shell(
     mut palette: ResMut<CommandPaletteState>,
     mut capture: ResMut<NativeEguiInputCapture>,
     mut layout: ResMut<NativeEguiLayout>,
+    mut visuals_initialized: Local<bool>,
     mut session: NonSendMut<MeshcraftApp>,
 ) -> Result {
     let context = contexts.ctx_mut()?;
-    context.set_visuals(native_egui::Visuals::dark());
+    if !*visuals_initialized {
+        context.set_visuals(native_egui::Visuals::dark());
+        *visuals_initialized = true;
+    }
     let mut workspace_ui = native_egui::Ui::new(
         context.clone(),
         native_egui::Id::new("meshcraft-native-workspace"),
@@ -827,6 +844,8 @@ fn native_egui_shell(
 
     let viewport_rect = session.native_bevy_viewport_rect();
     layout.viewport_rect_points = Some(viewport_rect);
+    layout.pixels_per_point = Some(context.pixels_per_point());
+    layout.zoom_factor = context.zoom_factor();
     palette.open = session.native_command_palette_open();
     let pointer_in_viewport = context.pointer_interact_pos().is_some_and(|position| {
         position.x >= viewport_rect[0]
@@ -856,7 +875,10 @@ fn map_native_egui_viewport(
             .unwrap_or([0.0, 0.0, window.width(), window.height()]);
     let requested = native_egui_viewport_physical_rect(
         UVec2::new(window.physical_width(), window.physical_height()),
-        window.scale_factor(),
+        layout
+            .pixels_per_point
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .unwrap_or_else(|| window.scale_factor()),
         viewport_rect,
     );
     if camera.viewport.as_ref().is_none_or(|current| {
@@ -869,21 +891,21 @@ fn map_native_egui_viewport(
 
 fn native_egui_viewport_physical_rect(
     window_physical_size: UVec2,
-    scale_factor: f32,
+    pixels_per_point: f32,
     viewport_rect_points: [f32; 4],
 ) -> Viewport {
     let full_width = window_physical_size.x.max(1);
     let full_height = window_physical_size.y.max(1);
-    let x = (viewport_rect_points[0] * scale_factor)
+    let x = (viewport_rect_points[0] * pixels_per_point)
         .round()
         .clamp(0.0, full_width.saturating_sub(1) as f32) as u32;
-    let y = (viewport_rect_points[1] * scale_factor)
+    let y = (viewport_rect_points[1] * pixels_per_point)
         .round()
         .clamp(0.0, full_height.saturating_sub(1) as f32) as u32;
-    let width = (viewport_rect_points[2] * scale_factor)
+    let width = (viewport_rect_points[2] * pixels_per_point)
         .round()
         .clamp(1.0, full_width.saturating_sub(x).max(1) as f32) as u32;
-    let height = (viewport_rect_points[3] * scale_factor)
+    let height = (viewport_rect_points[3] * pixels_per_point)
         .round()
         .clamp(1.0, full_height.saturating_sub(y).max(1) as f32) as u32;
     Viewport {
@@ -1178,7 +1200,7 @@ fn setup_scene(
         ShadowLight,
         DirectionalLight {
             illuminance: 10_000.0 * lighting.shadow,
-            shadow_maps_enabled: lighting.use_csm,
+            shadow_maps_enabled: lighting.use_csm && scene.triangles > 0,
             shadow_depth_bias: lighting.bevy_shadow_depth_bias(),
             shadow_normal_bias: lighting.bevy_shadow_normal_bias(),
             ..default()
@@ -5283,7 +5305,13 @@ fn native_viewport_pointer(
         mouse.pressed(MouseButton::Right),
         mouse.just_released(MouseButton::Right),
         cursor,
-        cursor.is_some_and(|position| native_viewport_contains(position, viewport_rect_points)),
+        cursor.is_some_and(|position| {
+            native_viewport_contains(
+                position,
+                viewport_rect_points,
+                invalidation.egui_layout.zoom_factor,
+            )
+        }),
     ) {
         context_menu.open = true;
         context_menu.position = position;
@@ -5298,9 +5326,13 @@ fn native_viewport_pointer(
     let mut hover_pick = None::<(ModelVec3, ModelVec3, f64)>;
     let mut hover_snap = None;
     let mut hover_point = None;
-    if let Some(position) =
-        cursor.filter(|position| native_viewport_contains(*position, viewport_rect_points))
-    {
+    if let Some(position) = cursor.filter(|position| {
+        native_viewport_contains(
+            *position,
+            viewport_rect_points,
+            invalidation.egui_layout.zoom_factor,
+        )
+    }) {
         if let Ok(ray) = camera.viewport_to_world(camera_transform, position) {
             let origin = ModelVec3::new(
                 f64::from(ray.origin.x),
@@ -5360,8 +5392,13 @@ fn native_viewport_pointer(
         overlay.feedback_screen = None;
     }
     if mouse.just_pressed(MouseButton::Left)
-        && let Some(position) =
-            cursor.filter(|position| native_viewport_contains(*position, viewport_rect_points))
+        && let Some(position) = cursor.filter(|position| {
+            native_viewport_contains(
+                *position,
+                viewport_rect_points,
+                invalidation.egui_layout.zoom_factor,
+            )
+        })
     {
         if session.active_tool_label() == "Select" {
             drag.start = Some(position);
@@ -5794,6 +5831,7 @@ fn sync_native_selected_vertex_dots(
                         window.width(),
                         window.height(),
                     ]),
+                    layout.zoom_factor,
                 )
                 .then_some(screen)
             })
@@ -5878,7 +5916,13 @@ fn update_right_click_gesture(
     menu_position
 }
 
-fn native_viewport_contains(position: Vec2, rect: [f32; 4]) -> bool {
+fn native_viewport_contains(position: Vec2, rect: [f32; 4], zoom_factor: f32) -> bool {
+    let zoom_factor = if zoom_factor.is_finite() && zoom_factor > 0.0 {
+        zoom_factor
+    } else {
+        1.0
+    };
+    let position = position / zoom_factor;
     position.x >= rect[0]
         && position.y >= rect[1]
         && position.x < rect[0] + rect[2]
@@ -6391,6 +6435,7 @@ fn toggle_csm(
 #[allow(clippy::too_many_arguments)]
 fn apply_lighting_settings(
     settings: Res<LightingSettings>,
+    scene: Res<SceneDocument>,
     mut ambient: ResMut<GlobalAmbientLight>,
     mut lights: Query<(&mut DirectionalLight, Option<&ShadowLight>)>,
     mut cameras: Query<&mut ShadowFilteringMethod, With<Camera3d>>,
@@ -6406,7 +6451,7 @@ fn apply_lighting_settings(
     for (mut light, is_shadow_light) in &mut lights {
         if is_shadow_light.is_some() {
             light.illuminance = 10_000.0 * settings.shadow;
-            light.shadow_maps_enabled = settings.use_csm;
+            light.shadow_maps_enabled = settings.use_csm && scene.triangles > 0;
             light.shadow_depth_bias = settings.bevy_shadow_depth_bias();
             light.shadow_normal_bias = settings.bevy_shadow_normal_bias();
         } else {
@@ -6426,6 +6471,22 @@ fn apply_lighting_settings(
     }
     for mut label in &mut csm_labels {
         label.0 = format!("Cascaded shadows: {}", on_off(settings.use_csm));
+    }
+}
+
+fn sync_shadow_map_availability(
+    scene: Res<SceneDocument>,
+    settings: Res<LightingSettings>,
+    mut lights: Query<&mut DirectionalLight, With<ShadowLight>>,
+) {
+    if !scene.is_changed() && !settings.is_changed() {
+        return;
+    }
+    let enabled = settings.use_csm && scene.triangles > 0;
+    for mut light in &mut lights {
+        if light.shadow_maps_enabled != enabled {
+            light.shadow_maps_enabled = enabled;
+        }
     }
 }
 
@@ -6511,24 +6572,26 @@ mod tests {
         NativeUiSettingChoice, NativeUiSettingChoiceButton, NativeUiSettingInput,
         NativeUiSettingInputField, NativeUiSettingToggleButton, NativeUiSettingToggleField,
         NativeUiSettingsApplyButton, NativeViewportOverlay, Pickable, SceneDocument,
-        SelectionWindowOverlay, ShadowFilter, SnapResult, TextureAtlasLayout, ToolPreview,
-        ToolbarCatalog, apply_native_model_settings, apply_native_polyline_settings,
+        SelectionWindowOverlay, ShadowFilter, ShadowLight, SnapResult, TextureAtlasLayout,
+        ToolPreview, ToolbarCatalog, apply_native_model_settings, apply_native_polyline_settings,
         apply_native_ui_preferences, back_face_color, build_scene_meshes_with_policy,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
         dispatch_toolbar_command, line_mesh, native_egui_viewport_physical_rect,
         native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
         native_segment_intersects_rect, native_toolbar_dimensions, native_toolbar_position,
-        native_triangle_intersects_rect, object_selection_summary, objects_summary,
-        open_native_model_settings_editor, oriented_grid_lines, persist_native_toolbar_position,
-        refresh_selection_window, rename_selected_native_object, restore_native_toolbar_position,
-        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
-        selected_object_info, selected_vertex_positions, setup_ui, submit_palette_parameters,
+        native_triangle_intersects_rect, native_viewport_contains, object_selection_summary,
+        objects_summary, open_native_model_settings_editor, oriented_grid_lines,
+        persist_native_toolbar_position, refresh_selection_window, rename_selected_native_object,
+        restore_native_toolbar_position, route_native_guide_shortcuts, scene_counts,
+        search_command_ids, select_native_object_row, selected_object_info,
+        selected_vertex_positions, setup_ui, submit_palette_parameters,
         sync_command_palette_parameter_ui, sync_command_palette_states,
         sync_native_context_menu_ui, sync_native_cursor_dot, sync_native_inspector_visibility,
         sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
         sync_native_settings_sections, sync_native_toolbar_visibility,
-        sync_native_ui_preference_presentation, sync_toolbar_button_states, toggle_command_palette,
-        toggle_native_ui_setting, tool_context_groups, triangle_mesh, update_native_permanent_grid,
+        sync_native_ui_preference_presentation, sync_shadow_map_availability,
+        sync_toolbar_button_states, toggle_command_palette, toggle_native_ui_setting,
+        tool_context_groups, triangle_mesh, update_native_permanent_grid,
         update_native_ui_setting_choice, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
@@ -8246,6 +8309,91 @@ mod tests {
         );
         assert_eq!(UVec2::new(1800, 1000), clamped.physical_position);
         assert_eq!(UVec2::new(120, 200), clamped.physical_size);
+
+        let ui_scaled = native_egui_viewport_physical_rect(
+            UVec2::new(2400, 1800),
+            3.0,
+            [80.0, 45.0, 800.0, 600.0],
+        );
+        assert_eq!(UVec2::new(240, 135), ui_scaled.physical_position);
+        assert_eq!(UVec2::new(2160, 1665), ui_scaled.physical_size);
+        assert!(native_viewport_contains(
+            Vec2::new(240.0, 180.0),
+            [80.0, 45.0, 800.0, 600.0],
+            3.0,
+        ));
+        assert!(!native_viewport_contains(
+            Vec2::new(2640.0, 180.0),
+            [80.0, 45.0, 800.0, 600.0],
+            3.0,
+        ));
+    }
+
+    #[test]
+    fn empty_scenes_skip_shadow_maps_and_mesh_faces_enable_them() {
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document: Document::new(),
+            generation: 0,
+            revision: 0,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
+            occurrences: 0,
+            triangles: 0,
+            segments: 0,
+        })
+        .insert_resource(LightingSettings {
+            use_csm: true,
+            ..default()
+        })
+        .add_systems(Update, sync_shadow_map_availability);
+        let light = app
+            .world_mut()
+            .spawn((
+                ShadowLight,
+                super::DirectionalLight {
+                    shadow_maps_enabled: true,
+                    ..default()
+                },
+            ))
+            .id();
+
+        app.update();
+        assert!(
+            !app.world()
+                .get::<super::DirectionalLight>(light)
+                .unwrap()
+                .shadow_maps_enabled
+        );
+
+        app.world_mut().resource_mut::<SceneDocument>().triangles = 12;
+        app.update();
+        assert!(
+            app.world()
+                .get::<super::DirectionalLight>(light)
+                .unwrap()
+                .shadow_maps_enabled
+        );
+
+        app.world_mut().resource_mut::<LightingSettings>().use_csm = false;
+        app.update();
+        assert!(
+            !app.world()
+                .get::<super::DirectionalLight>(light)
+                .unwrap()
+                .shadow_maps_enabled
+        );
     }
 
     #[test]
