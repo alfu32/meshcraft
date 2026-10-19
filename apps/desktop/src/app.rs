@@ -7114,18 +7114,16 @@ impl MeshcraftApp {
     }
 
     fn handle_escape(&mut self) {
-        let cleared_selection = !self.selection.selected().is_empty();
-        if cleared_selection {
+        if self.active_tool != "Select" || self.tool_cycle_state.hotspot_placement_active() {
+            self.cancel_active_tool();
+            self.status = "Current tool canceled; Select active.".to_owned();
+        } else if !self.selection.selected().is_empty() {
             self.selection.clear();
+            self.status = "Selection cleared.".to_owned();
         } else {
             self.guides.clear();
+            self.status = "Construction guides cleared.".to_owned();
         }
-        self.cancel_active_tool();
-        self.status = if cleared_selection {
-            "Selection cleared; current tool canceled.".to_owned()
-        } else {
-            "Construction guides cleared; current tool canceled.".to_owned()
-        };
     }
 
     fn commit_transform(
@@ -11730,7 +11728,7 @@ mod tests {
     }
 
     #[test]
-    fn escape_clears_selection_or_guides_and_always_returns_to_select() {
+    fn escape_cancels_tool_then_clears_selection_then_guides() {
         let mut app = test_app();
         let occurrence = app
             .document
@@ -11759,11 +11757,13 @@ mod tests {
         run_workspace_frame(&mut app, &context, vec![escape()]);
 
         assert_eq!("Select", app.active_tool);
-        assert!(app.selection.selected().is_empty());
+        assert!(!app.selection.selected().is_empty());
         assert_eq!(1, app.guides.len());
         assert_eq!(None, app.drawing_tool.anchor());
 
-        app.run_command("tool.line");
+        run_workspace_frame(&mut app, &context, vec![escape()]);
+        assert!(app.selection.selected().is_empty());
+        assert_eq!(1, app.guides.len());
         run_workspace_frame(&mut app, &context, vec![escape()]);
 
         assert_eq!("Select", app.active_tool);
@@ -17209,7 +17209,7 @@ mod tests {
     }
 
     #[test]
-    fn escape_cancels_translation_array_and_clears_its_selected_source() {
+    fn escape_cancels_translation_array_then_clears_source_on_the_next_press() {
         let mut app = test_app();
         let occurrence = app
             .document
@@ -17225,6 +17225,8 @@ mod tests {
         app.handle_escape();
 
         assert_eq!("Select", app.active_tool);
+        assert_eq!(app.selection.selected().len(), 1);
+        app.handle_escape();
         assert!(app.selection.selected().is_empty());
         assert!(!app.array_tool_state.active());
     }

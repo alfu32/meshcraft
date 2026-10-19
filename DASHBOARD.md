@@ -2,7 +2,7 @@
 
 Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 
-**Counts:** Todo 29 · In progress 9 · Done 22 · Superseded 1 · Total 61
+**Counts:** Todo 28 · In progress 10 · Done 22 · Superseded 1 · Total 61
 
 ## Current in-progress tasks
 
@@ -11,6 +11,7 @@ Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 - **T16 — Implement reusable objects, placement and explode**: Finish reusable object editing and explode behavior.
 - **T21 — Port every copy and array state machine**: Complete the remaining array state machines and adapters.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
+- **T39 — Complete real-time lighting, shadows and view capture (#13)**: Implemented the raylib light-camera shadow pass, directional/ambient face shading, black authored lines, three-plane guides/local point field, grid-line snapping, reversed orbit and staged Escape. Original k3d SVG atlases now generate at build time and populate buttons. Automated and live GPU/UI validation is in progress.
 - **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Revalidate geometric preview/text feedback for the raylib viewport.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
 - **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: The raylib 6 offscreen proof renders at 1280×800 and presents frames through a regular GPUI image component, so GPUI overlays remain above the canvas. Release runs sustain 59–60 new images/sec; worker frame work is typically 4–12 ms, with occasional 18 ms samples. This meets the requested 25 FPS floor and 30–60 FPS target for the simple proof scene. The production gate remains open for live viewport input, resize/DPI behavior, and the dense-array workflow.
@@ -65,7 +66,7 @@ The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Sc
 | T36 | Implement OBJ/STL/DXF interchange and unit policy | Todo |
 | T37 | Implement extended mesh formats | Todo |
 | T38 | Implement IFC4 proxy export and supported geometry import | Todo |
-| T39 | Complete real-time lighting, shadows and view capture; remove mesh triangulation seams (#13) | Todo |
+| T39 | Complete real-time lighting, shadows and view capture; remove mesh triangulation seams (#13) | In progress |
 | T40 | Port progressive CPU offline rendering | Todo |
 | T41 | Implement structured automation and regression dispatcher | Todo |
 | T42 | Audit phase-specific capabilities and preserve migration boundaries | Todo |
