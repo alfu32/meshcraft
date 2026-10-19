@@ -2077,6 +2077,26 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_toolbar_visibility(&self) -> Vec<bool> {
+        LEGACY_TOOLBARS
+            .iter()
+            .map(|(toolbar_id, _)| {
+                self.preferences.toolbars_visible
+                    && toolbar_id
+                        .strip_prefix("builtin_toolbar_")
+                        .and_then(|stem| self.preferences.toolbar_visibility.get(stem))
+                        .copied()
+                        .unwrap_or(true)
+            })
+            .collect()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_panels_visible(&self) -> bool {
+        self.preferences.panels_visible
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn native_command_state(&self, id: &str) -> CommandState {
         self.query_command_state(id)
     }
@@ -11237,7 +11257,8 @@ mod tests {
         assert!(command_ids("Architecture").contains(&"tool.builtin.arch_wall"));
         assert!(command_ids("HVAC").contains(&"tool.builtin.hvac_plumbing"));
 
-        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
         assert!(session.native_command_state("tool.line").enabled);
         assert!(
             !session
@@ -11249,6 +11270,25 @@ mod tests {
                 .native_command_state("tool.builtin.object_cut")
                 .enabled
         );
+
+        let visibility = session.native_toolbar_visibility();
+        assert_eq!(13, visibility.len());
+        assert!(visibility.iter().all(|shown| *shown));
+        session.run_command("view.toolbar.actions.hide");
+        assert!(!session.native_toolbar_visibility()[1]);
+        session.run_command("view.toolbars.toggle");
+        assert!(
+            session
+                .native_toolbar_visibility()
+                .iter()
+                .all(|shown| !shown)
+        );
+        session.run_command("view.toolbars.toggle");
+        assert!(session.native_toolbar_visibility()[0]);
+        assert!(!session.native_toolbar_visibility()[1]);
+        assert!(session.native_panels_visible());
+        session.run_command("view.panels.toggle");
+        assert!(!session.native_panels_visible());
     }
 
     fn text_center_in_row(output: &egui::FullOutput, text: &str, max_y: f32) -> Pos2 {

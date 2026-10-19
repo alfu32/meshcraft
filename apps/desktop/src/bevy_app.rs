@@ -13,9 +13,11 @@ use bevy::{
     light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
     mesh::{Mesh, PrimitiveTopology},
     pbr::StandardMaterial,
+    picking::hover::Hovered,
     prelude::*,
     render::render_resource::{Extent3d, Face, TextureDimension, TextureFormat},
     transform::TransformSystems,
+    ui::Pressed,
     ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
 };
@@ -74,7 +76,45 @@ struct NativeIconAtlas {
 struct DispatchCommand(String);
 
 #[derive(Component)]
-struct ToolbarCommandLabel(String);
+struct NativeToolbarWindow {
+    index: usize,
+    width: f32,
+    height: f32,
+}
+
+#[derive(Component)]
+struct NativeToolbarDragHandle(usize);
+
+#[derive(Resource, Default)]
+struct NativeToolbarDrag {
+    active_index: Option<usize>,
+    last_cursor: Option<Vec2>,
+}
+
+#[derive(Component)]
+struct NativeInspectorPanel;
+
+#[derive(Resource, Default)]
+struct NativeToolsContextMenuState {
+    open: bool,
+    position: Vec2,
+    block_world_input: bool,
+}
+
+#[derive(Resource, Default)]
+struct NativeRightClickGesture {
+    start: Option<Vec2>,
+    dragged: bool,
+}
+
+#[derive(Component)]
+struct NativeToolsContextMenuRoot;
+
+#[derive(Component)]
+struct ContextMenuCommand(String);
+
+#[derive(Component)]
+struct NativeUiInteraction;
 
 #[derive(Component)]
 struct CommandPaletteOverlay;
@@ -330,6 +370,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(ToolbarCatalog(MeshcraftApp::native_toolbar_catalog()))
     .insert_resource(CommandPaletteState::default())
     .insert_resource(NativeSelectionDrag::default())
+    .insert_resource(NativeToolbarDrag::default())
+    .insert_resource(NativeToolsContextMenuState::default())
+    .insert_resource(NativeRightClickGesture::default())
     .insert_resource(RenderedSelectionRevision(0))
     .insert_resource(LightingSettings::default())
     .insert_resource(OrbitCamera {
@@ -364,11 +407,16 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             refresh_command_palette,
             sync_command_palette_states,
             sync_command_palette_parameter_ui,
+            sync_native_toolbar_visibility,
+            sync_native_inspector_visibility,
+            sync_native_context_menu_ui,
+            drag_native_toolbars,
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
             sync_scene_document,
             sync_toolbar_button_states,
+            sync_context_menu_command_states,
             update_scene_meshes,
             update_selection_meshes,
             refresh_status,
@@ -850,16 +898,22 @@ fn to_bevy_vec3(point: ModelVec3) -> Option<Vec3> {
     converted.is_finite().then_some(converted)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup_ui(
     mut commands: Commands,
     scene: Res<SceneDocument>,
     lighting: Res<LightingSettings>,
     catalog: Res<CommandCatalog>,
     toolbars: Res<ToolbarCatalog>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<BevyImage>>,
     mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     let icon_atlas = create_native_icon_atlas(&mut images, &mut atlas_layouts);
+    let window_size = windows
+        .single()
+        .map(|window| Vec2::new(window.width(), window.height()))
+        .unwrap_or(Vec2::new(1920.0, 1080.0));
     let root = commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -869,6 +923,7 @@ fn setup_ui(
         .id();
     commands.entity(root).with_children(|root| {
         root.spawn((
+            NativeInspectorPanel,
             Node {
                 position_type: PositionType::Absolute,
                 top: px(10),
@@ -898,57 +953,89 @@ fn setup_ui(
                 Node { margin: UiRect::left(px(24)), ..default() },
             ));
         });
-        root.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(62),
-                left: px(10),
-                width: px(250),
-                bottom: px(38),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(7),
-                overflow: Overflow::scroll_y(),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.10, 0.12, 0.15, 0.92)),
-        ))
-        .with_children(|toolbar| {
-            for (title, registered_commands) in &toolbars.0 {
+        let max_toolbar_width = (window_size.x - 370.0).clamp(220.0, 620.0);
+        let toolbar_columns = (((max_toolbar_width - 12.0) / 32.0).floor() as usize).max(1);
+        let mut toolbar_left = 10.0;
+        let mut toolbar_top = 62.0;
+        let mut toolbar_column_width: f32 = 0.0;
+        for (index, (title, registered_commands)) in toolbars.0.iter().enumerate() {
+            let item_count = registered_commands.len().max(1);
+            let rows = item_count.div_ceil(toolbar_columns);
+            let width = (item_count.min(toolbar_columns) as f32 * 32.0 + 12.0)
+                .min(max_toolbar_width);
+            let height = 25.0 + rows as f32 * 32.0;
+            if toolbar_top + height > window_size.y - 36.0 && toolbar_top > 62.0 {
+                toolbar_left += toolbar_column_width + 8.0;
+                toolbar_top = 62.0;
+                toolbar_column_width = 0.0;
+            }
+            if toolbar_left + width > window_size.x - 350.0 {
+                toolbar_left = 10.0;
+                toolbar_top = (toolbar_top + height + 5.0).min(window_size.y - height - 36.0);
+                toolbar_column_width = 0.0;
+            }
+            root.spawn((
+                NativeToolbarWindow {
+                    index,
+                    width,
+                    height,
+                },
+                NativeUiInteraction,
+                Hovered::default(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(toolbar_left),
+                    top: px(toolbar_top),
+                    width: px(width),
+                    height: px(height),
+                    padding: UiRect::all(px(3)),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(2),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.10, 0.12, 0.15, 0.92)),
+            ))
+            .with_children(|toolbar| {
                 toolbar
                     .spawn((
+                        Button,
+                        NativeUiInteraction,
+                        NativeToolbarDragHandle(index),
+                        Hovered::default(),
                         Node {
                             width: Val::Percent(100.0),
-                            padding: UiRect::axes(px(5), px(3)),
-                            flex_direction: FlexDirection::Column,
-                            row_gap: px(3),
+                            height: px(19),
+                            padding: UiRect::horizontal(px(4)),
+                            align_items: AlignItems::Center,
                             ..default()
                         },
-                        BackgroundColor(Color::srgba(0.12, 0.14, 0.17, 0.95)),
+                        BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
                     ))
-                    .with_children(|group| {
-                        group.spawn((
-                            Text::new(title),
-                            TextFont::from_font_size(13.0),
-                            TextColor(Color::srgb(0.85, 0.90, 0.96)),
-                        ));
-                        group
-                            .spawn(Node {
-                                width: Val::Percent(100.0),
-                                flex_direction: FlexDirection::Row,
-                                flex_wrap: FlexWrap::Wrap,
-                                column_gap: px(3),
-                                row_gap: px(3),
-                                ..default()
-                            })
-                            .with_children(|buttons| {
-                                for command in registered_commands {
-                                    spawn_tool_button(buttons, command, &icon_atlas);
-                                }
-                            });
+                    .with_child((
+                        Text::new(title),
+                        TextFont::from_font_size(12.0),
+                        TextColor(Color::WHITE),
+                    ));
+                toolbar
+                    .spawn(Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Row,
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: px(1),
+                        row_gap: px(1),
+                        ..default()
+                    })
+                    .with_children(|buttons| {
+                        for command in registered_commands {
+                            spawn_tool_button(buttons, command, &icon_atlas);
+                        }
                     });
-            }
-        });
+            });
+            toolbar_top += height + 4.0;
+            toolbar_column_width = toolbar_column_width.max(width);
+        }
         root.spawn((
+            NativeInspectorPanel,
             Node {
                 position_type: PositionType::Absolute,
                 top: px(62),
@@ -1210,6 +1297,74 @@ fn setup_ui(
                 StatusText,
             ));
         });
+        let tool_groups = tool_context_groups(&catalog.0);
+        root.spawn((
+            NativeToolsContextMenuRoot,
+            NativeUiInteraction,
+            Hovered::default(),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                width: px(250),
+                height: px(460),
+                padding: UiRect::all(px(6)),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(3),
+                overflow: Overflow::scroll_y(),
+                display: Display::None,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.08, 0.10, 0.13, 0.98)),
+        ))
+        .with_children(|menu| {
+            menu.spawn((
+                Text::new("Tools"),
+                TextFont::from_font_size(16.0),
+                TextColor(Color::WHITE),
+                Node {
+                    width: Val::Percent(100.0),
+                    padding: UiRect::all(px(5)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
+            ));
+            for (group, group_commands) in &tool_groups {
+                menu.spawn((
+                    Text::new(group.clone()),
+                    TextFont::from_font_size(12.0),
+                    TextColor(Color::srgb(0.70, 0.78, 0.86)),
+                    Node {
+                        width: Val::Percent(100.0),
+                        padding: UiRect::axes(px(4), px(3)),
+                        ..default()
+                    },
+                ));
+                for command in group_commands {
+                    let command_id = command.id.as_str().to_owned();
+                    menu.spawn((
+                        Button,
+                        NativeUiInteraction,
+                        ContextMenuCommand(command_id),
+                        Hovered::default(),
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: px(25),
+                            align_items: AlignItems::Center,
+                            padding: UiRect::horizontal(px(7)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.20, 0.22, 0.26)),
+                    ))
+                    .with_child((
+                        Text::new(command.label.clone()),
+                        TextFont::from_font_size(12.0),
+                        TextColor(Color::WHITE),
+                    ))
+                    .observe(dispatch_context_menu_command);
+                }
+            }
+        });
     });
 }
 
@@ -1328,14 +1483,14 @@ fn spawn_tool_button(
     parent
         .spawn((
             Button,
+            NativeUiInteraction,
+            Hovered::default(),
             DispatchCommand(command_id.clone()),
             Node {
-                width: px(112),
-                height: px(36),
-                flex_direction: FlexDirection::Row,
+                width: px(31),
+                height: px(31),
                 align_items: AlignItems::Center,
-                column_gap: px(5),
-                padding: UiRect::horizontal(px(4)),
+                justify_content: JustifyContent::Center,
                 ..default()
             },
             BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
@@ -1356,15 +1511,115 @@ fn spawn_tool_button(
                         ..default()
                     },
                 ));
+            } else {
+                button.spawn((
+                    Text::new(command.label.chars().take(2).collect::<String>()),
+                    TextFont::from_font_size(9.0),
+                    TextColor::WHITE,
+                ));
             }
-            button.spawn((
-                Text::new(command.label.clone()),
-                TextFont::from_font_size(11.0),
-                TextColor::WHITE,
-                ToolbarCommandLabel(command_id),
-            ));
         })
         .observe(dispatch_toolbar_command);
+}
+
+fn sync_native_toolbar_visibility(
+    session: NonSend<MeshcraftApp>,
+    mut toolbars: Query<(&NativeToolbarWindow, &mut Node)>,
+) {
+    let visibility = session.native_toolbar_visibility();
+    for (toolbar, mut node) in &mut toolbars {
+        let shown = visibility.get(toolbar.index).copied().unwrap_or(false);
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+}
+
+fn sync_native_inspector_visibility(
+    session: NonSend<MeshcraftApp>,
+    mut inspectors: Query<&mut Node, With<NativeInspectorPanel>>,
+) {
+    let display = if session.native_panels_visible() {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    for mut inspector in &mut inspectors {
+        inspector.display = display;
+    }
+}
+
+fn sync_native_context_menu_ui(
+    context_menu: Res<NativeToolsContextMenuState>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut menus: Query<&mut Node, With<NativeToolsContextMenuRoot>>,
+) {
+    let window_size = windows
+        .single()
+        .map(|window| Vec2::new(window.width(), window.height()))
+        .unwrap_or(Vec2::new(1920.0, 1080.0));
+    let left = context_menu
+        .position
+        .x
+        .clamp(0.0, (window_size.x - 250.0).max(0.0));
+    let top = context_menu
+        .position
+        .y
+        .clamp(0.0, (window_size.y - 460.0).max(0.0));
+    for mut menu in &mut menus {
+        menu.display = if context_menu.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        menu.left = px(left);
+        menu.top = px(top);
+    }
+}
+
+fn drag_native_toolbars(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut drag: ResMut<NativeToolbarDrag>,
+    handles: Query<(&NativeToolbarDragHandle, Has<Pressed>)>,
+    mut toolbars: Query<(&NativeToolbarWindow, &mut Node)>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let cursor = window.cursor_position();
+    if mouse.just_pressed(MouseButton::Left) {
+        drag.active_index = handles
+            .iter()
+            .find_map(|(handle, pressed)| pressed.then_some(handle.0));
+        drag.last_cursor = cursor;
+    }
+    if mouse.pressed(MouseButton::Left)
+        && let (Some(index), Some(position), Some(previous)) =
+            (drag.active_index, cursor, drag.last_cursor)
+    {
+        let delta = position - previous;
+        if delta != Vec2::ZERO {
+            for (toolbar, mut node) in &mut toolbars {
+                if toolbar.index != index {
+                    continue;
+                }
+                let Val::Px(left) = node.left else {
+                    continue;
+                };
+                let Val::Px(top) = node.top else {
+                    continue;
+                };
+                node.left =
+                    px((left + delta.x).clamp(0.0, (window.width() - toolbar.width).max(0.0)));
+                node.top =
+                    px((top + delta.y).clamp(0.0, (window.height() - toolbar.height).max(0.0)));
+            }
+        }
+        drag.last_cursor = Some(position);
+    }
+    if mouse.just_released(MouseButton::Left) {
+        drag.active_index = None;
+        drag.last_cursor = None;
+    }
 }
 
 fn sync_toolbar_button_states(
@@ -1377,18 +1632,12 @@ fn sync_toolbar_button_states(
         Option<&Button>,
         &mut BackgroundColor,
     )>,
-    mut labels: Query<(&ToolbarCommandLabel, &mut TextColor)>,
 ) {
     if !scene.is_changed() {
         return;
     }
-    let mut states = std::collections::BTreeMap::new();
     for (entity, command, button, mut background) in &mut buttons {
         let state = session.native_command_state(&command.0);
-        states.insert(
-            command.0.clone(),
-            (state.enabled, state.checked == Some(true)),
-        );
         if state.enabled {
             if button.is_none() {
                 commands.entity(entity).insert(Button);
@@ -1405,14 +1654,6 @@ fn sync_toolbar_button_states(
             background.0 = Color::srgb(0.14, 0.15, 0.16);
         }
     }
-    for (label, mut color) in &mut labels {
-        let enabled = states.get(&label.0).is_some_and(|(enabled, _)| *enabled);
-        color.0 = if enabled {
-            Color::WHITE
-        } else {
-            Color::srgb(0.48, 0.49, 0.51)
-        };
-    }
 }
 
 fn dispatch_toolbar_command(
@@ -1427,6 +1668,52 @@ fn dispatch_toolbar_command(
         palette_state.open = false;
         for mut palette in &mut palettes {
             palette.display = Display::None;
+        }
+    }
+}
+
+fn dispatch_context_menu_command(
+    event: On<Activate>,
+    commands: Query<&ContextMenuCommand>,
+    mut session: NonSendMut<MeshcraftApp>,
+    mut context_menu: ResMut<NativeToolsContextMenuState>,
+) {
+    let Ok(command) = commands.get(event.entity) else {
+        return;
+    };
+    let dispatch = session.dispatch_command(&command.0, &CommandPayload::default());
+    if dispatch.accepted {
+        context_menu.open = false;
+        context_menu.block_world_input = true;
+    }
+}
+
+fn sync_context_menu_command_states(
+    mut commands: Commands,
+    session: NonSend<MeshcraftApp>,
+    mut buttons: Query<(
+        Entity,
+        &ContextMenuCommand,
+        Option<&Button>,
+        &mut BackgroundColor,
+    )>,
+) {
+    for (entity, command, button, mut background) in &mut buttons {
+        let state = session.native_command_state(&command.0);
+        if state.enabled {
+            if button.is_none() {
+                commands.entity(entity).insert(Button);
+            }
+            background.0 = if state.checked == Some(true) {
+                Color::srgb(0.12, 0.38, 0.62)
+            } else {
+                Color::srgb(0.20, 0.22, 0.26)
+            };
+        } else {
+            if button.is_some() {
+                commands.entity(entity).remove::<Button>();
+            }
+            background.0 = Color::srgb(0.14, 0.15, 0.16);
         }
     }
 }
@@ -1794,6 +2081,7 @@ fn route_native_escape(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut palette: ResMut<CommandPaletteState>,
     mut drag: ResMut<NativeSelectionDrag>,
+    mut context_menu: ResMut<NativeToolsContextMenuState>,
     mut session: NonSendMut<MeshcraftApp>,
 ) {
     if !keyboard.just_pressed(KeyCode::Escape) {
@@ -1802,6 +2090,9 @@ fn route_native_escape(
     drag.start = None;
     if palette.open {
         palette.open = false;
+    } else if context_menu.open {
+        context_menu.open = false;
+        context_menu.block_world_input = true;
     } else {
         session.handle_native_escape();
     }
@@ -2040,6 +2331,38 @@ fn search_command_ids(
         .take(limit)
         .map(|(_, command)| command.clone())
         .collect()
+}
+
+fn tool_context_groups(catalog: &[CommandDescriptor]) -> Vec<(String, Vec<CommandDescriptor>)> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<CommandDescriptor>>::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for command in catalog {
+        if command
+            .presentation
+            .menu_path
+            .first()
+            .is_some_and(|entry| entry == "Tools")
+        {
+            let group = command
+                .presentation
+                .menu_path
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "Common".to_owned());
+            if seen.insert(command.id.as_str().to_owned()) {
+                groups.entry(group).or_default().push(command.clone());
+            }
+        }
+        for alias in &command.presentation.menu_aliases {
+            if alias.first().is_some_and(|entry| entry == "Tools")
+                && seen.insert(command.id.as_str().to_owned())
+            {
+                let group = alias.get(1).cloned().unwrap_or_else(|| "Common".to_owned());
+                groups.entry(group).or_default().push(command.clone());
+            }
+        }
+    }
+    groups.into_iter().collect()
 }
 
 fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<MeshcraftApp>) {
@@ -2303,6 +2626,7 @@ fn refresh_status(
 
 // Bevy system parameters are injected independently by the ECS scheduler.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn native_viewport_pointer(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
@@ -2311,6 +2635,10 @@ fn native_viewport_pointer(
     time: Res<Time>,
     palette: Res<CommandPaletteState>,
     orbit: Res<OrbitCamera>,
+    mut context_menu: ResMut<NativeToolsContextMenuState>,
+    mut right_click: ResMut<NativeRightClickGesture>,
+    toolbar_drag: Res<NativeToolbarDrag>,
+    ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut drag: ResMut<NativeSelectionDrag>,
     mut session: NonSendMut<MeshcraftApp>,
 ) {
@@ -2320,11 +2648,61 @@ fn native_viewport_pointer(
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
     };
+    let cursor = window.cursor_position();
     if palette.open {
+        drag.start = None;
+        *right_click = NativeRightClickGesture::default();
+        return;
+    }
+    if toolbar_drag.active_index.is_some() {
         drag.start = None;
         return;
     }
-    let cursor = window.cursor_position();
+    if context_menu.block_world_input {
+        context_menu.block_world_input = false;
+        drag.start = None;
+        *right_click = NativeRightClickGesture::default();
+        return;
+    }
+    if context_menu.open {
+        let over_menu = ui_interactions
+            .iter()
+            .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
+        if mouse.just_pressed(MouseButton::Left) && !over_menu {
+            context_menu.open = false;
+            context_menu.block_world_input = true;
+        }
+        drag.start = None;
+        *right_click = NativeRightClickGesture::default();
+        return;
+    }
+    let over_toolbar = ui_interactions
+        .iter()
+        .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
+    if over_toolbar {
+        drag.start = None;
+        if mouse.just_pressed(MouseButton::Right) || mouse.just_released(MouseButton::Right) {
+            *right_click = NativeRightClickGesture::default();
+        }
+        return;
+    }
+    if let Some(position) = update_right_click_gesture(
+        &mut right_click,
+        mouse.just_pressed(MouseButton::Right),
+        mouse.pressed(MouseButton::Right),
+        mouse.just_released(MouseButton::Right),
+        cursor,
+        cursor.is_some_and(|position| native_viewport_contains(window, position)),
+    ) {
+        context_menu.open = true;
+        context_menu.position = position;
+        context_menu.block_world_input = true;
+    }
+    if context_menu.open || context_menu.block_world_input {
+        drag.start = None;
+        context_menu.block_world_input = false;
+        return;
+    }
     if mouse.just_pressed(MouseButton::Left)
         && let Some(position) =
             cursor.filter(|position| native_viewport_contains(window, *position))
@@ -2422,6 +2800,35 @@ fn native_viewport_pointer(
             );
         }
     }
+}
+
+fn update_right_click_gesture(
+    gesture: &mut NativeRightClickGesture,
+    just_pressed: bool,
+    pressed: bool,
+    just_released: bool,
+    cursor: Option<Vec2>,
+    within_viewport: bool,
+) -> Option<Vec2> {
+    if just_pressed {
+        gesture.start = cursor.filter(|_| within_viewport);
+        gesture.dragged = false;
+    }
+    if pressed
+        && let (Some(start), Some(position)) = (gesture.start, cursor)
+        && (position - start).length() >= 5.0
+    {
+        gesture.dragged = true;
+    }
+
+    let menu_position =
+        (just_released && gesture.start.is_some() && !gesture.dragged && within_viewport)
+            .then_some(cursor)
+            .flatten();
+    if just_released {
+        *gesture = NativeRightClickGesture::default();
+    }
+    menu_position
 }
 
 fn native_viewport_contains(window: &Window, position: Vec2) -> bool {
@@ -2963,15 +3370,26 @@ fn apply_window_state(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn orbit_camera(
     mut camera: Single<&mut Transform, With<Camera3d>>,
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     scroll_conversion: Res<MouseScrollPixelsPerLine>,
+    palette: Res<CommandPaletteState>,
+    right_click: Res<NativeRightClickGesture>,
+    context_menu: Res<NativeToolsContextMenuState>,
+    ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut orbit: ResMut<OrbitCamera>,
 ) {
-    if buttons.pressed(MouseButton::Right) {
+    let over_ui = ui_interactions
+        .iter()
+        .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
+    if palette.open || context_menu.open || over_ui {
+        return;
+    }
+    if buttons.pressed(MouseButton::Right) && right_click.dragged {
         orbit.yaw -= motion.delta.x * 0.006;
         orbit.pitch = (orbit.pitch + motion.delta.y * 0.006)
             .clamp(-89.0_f32.to_radians(), 89.0_f32.to_radians());
@@ -2995,13 +3413,13 @@ mod tests {
         BevyImage, Button, CommandCatalog, CommandPaletteParameterError,
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState, DispatchCommand,
-        LightingChannel, LightingSettings, NativeIconAtlas, SceneDocument, ShadowFilter,
-        TextureAtlasLayout, ToolbarCommandLabel, back_face_color, build_scene_meshes,
+        LightingChannel, LightingSettings, NativeIconAtlas, NativeRightClickGesture, SceneDocument,
+        ShadowFilter, TextureAtlasLayout, back_face_color, build_scene_meshes,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
         dispatch_toolbar_command, line_mesh, native_segment_intersects_rect,
         native_triangle_intersects_rect, scene_counts, search_command_ids,
         submit_palette_parameters, sync_command_palette_parameter_ui, sync_command_palette_states,
-        sync_toolbar_button_states, triangle_mesh,
+        sync_toolbar_button_states, tool_context_groups, triangle_mesh, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -3195,14 +3613,6 @@ mod tests {
                 BackgroundColor(Color::WHITE),
             ))
             .id();
-        let push_pull_label = app
-            .world_mut()
-            .spawn((
-                ToolbarCommandLabel("tool.builtin.push_pull".to_owned()),
-                TextColor(Color::WHITE),
-            ))
-            .id();
-
         app.update();
 
         assert!(app.world().get::<Button>(select).is_some());
@@ -3212,8 +3622,76 @@ mod tests {
         );
         assert!(app.world().get::<Button>(push_pull).is_none());
         assert_eq!(
-            Color::srgb(0.48, 0.49, 0.51),
-            app.world().get::<TextColor>(push_pull_label).unwrap().0
+            Color::srgb(0.14, 0.15, 0.16),
+            app.world().get::<BackgroundColor>(push_pull).unwrap().0
+        );
+    }
+
+    #[test]
+    fn right_click_tools_menu_groups_catalog_commands_without_duplicates() {
+        let catalog = MeshcraftApp::command_catalog();
+        let groups = tool_context_groups(&catalog);
+        assert!(!groups.is_empty());
+
+        let ids = groups
+            .iter()
+            .flat_map(|(_, commands)| commands.iter().map(|command| command.id.as_str()))
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"tool.select"));
+        assert!(ids.contains(&"tool.line"));
+        assert!(ids.contains(&"tool.builtin.move"));
+        assert!(!ids.contains(&"edit.undo"));
+        assert_eq!(
+            ids.len(),
+            ids.iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        );
+    }
+
+    #[test]
+    fn viewport_right_click_opens_tools_menu_while_drag_continues_to_orbit() {
+        let start = Vec2::new(300.0, 240.0);
+        let mut gesture = NativeRightClickGesture::default();
+        assert_eq!(
+            None,
+            update_right_click_gesture(&mut gesture, true, true, false, Some(start), true)
+        );
+        assert_eq!(
+            Some(start),
+            update_right_click_gesture(&mut gesture, false, false, true, Some(start), true)
+        );
+        assert!(gesture.start.is_none());
+        assert!(!gesture.dragged);
+
+        update_right_click_gesture(&mut gesture, true, true, false, Some(start), true);
+        update_right_click_gesture(
+            &mut gesture,
+            false,
+            true,
+            false,
+            Some(start + Vec2::new(8.0, 0.0)),
+            true,
+        );
+        assert!(gesture.dragged);
+        assert_eq!(
+            None,
+            update_right_click_gesture(
+                &mut gesture,
+                false,
+                false,
+                true,
+                Some(start + Vec2::new(8.0, 0.0)),
+                true,
+            )
+        );
+        assert!(!gesture.dragged);
+
+        update_right_click_gesture(&mut gesture, true, true, false, Some(start), false);
+        assert_eq!(
+            None,
+            update_right_click_gesture(&mut gesture, false, false, true, Some(start), true)
         );
     }
 
