@@ -9,3 +9,5 @@
 
 # Local reference recordings; do not commit large binary screencasts.
 /docs/Screencast*.mp4
+octodraw.octd.bak
+octodraw.octd
