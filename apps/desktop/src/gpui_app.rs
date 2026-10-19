@@ -39,6 +39,7 @@ use gpui::{
 use gpui_component::{
     Disableable, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
+    input::{Input, InputEvent, InputState},
 };
 use image::{Frame, ImageBuffer, Rgba};
 use meshcraft_core::{
@@ -187,11 +188,9 @@ struct RenderScene {
     selection: Vec<SelectionTarget>,
     guides: Vec<ConstructionGuide>,
     guides_visible: bool,
-    active_tool: String,
     cursor: Option<SnapResult>,
     cursor_axes: Option<[Vec3; 3]>,
     preview: Option<ToolPreview>,
-    feedback: Option<ToolFeedback>,
     selection_rect: Option<([f32; 4], bool)>,
     grid_spacing: f64,
     normal_line_width: f32,
@@ -210,11 +209,9 @@ impl Default for RenderScene {
             selection: Vec::new(),
             guides: Vec::new(),
             guides_visible: true,
-            active_tool: "Select".to_owned(),
             cursor: None,
             cursor_axes: None,
             preview: None,
-            feedback: None,
             selection_rect: None,
             grid_spacing: 1.0,
             normal_line_width: 1.0,
@@ -478,7 +475,7 @@ fn draw_offscreen_scene(
     target: &mut RenderTexture2D,
     orbit: OrbitCamera,
     scene_data: &RenderScene,
-    sequence: u64,
+    _sequence: u64,
     lighting: &mut lighting::Renderer,
 ) {
     let position = orbit.position();
@@ -512,22 +509,6 @@ fn draw_offscreen_scene(
         if let Some(preview) = scene_data.preview.as_ref() {
             draw_preview(&mut view, preview);
         }
-    }
-    let label = format!(
-        "{} · scene {} · frame {}",
-        scene_data.active_tool,
-        scene_data.document.revision(),
-        sequence
-    );
-    drawing.draw_text(&label, 14, 12, 16, Color::new(34, 48, 62, 255));
-    if let Some(feedback) = scene_data.feedback.as_ref() {
-        drawing.draw_text(
-            &feedback.text,
-            feedback.screen_position.x.round() as i32 + 14,
-            feedback.screen_position.y.round() as i32 + 14,
-            16,
-            Color::new(32, 51, 68, 255),
-        );
     }
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
@@ -803,18 +784,38 @@ struct SelectionGesture {
 struct RaylibCanvas {
     bridge: ViewportBridge,
     frame_watch_started: bool,
+    presented_image: Option<Arc<RenderImage>>,
+}
+
+fn replace_presented_image(
+    current: &mut Option<Arc<RenderImage>>,
+    next: &Arc<RenderImage>,
+) -> Option<Arc<RenderImage>> {
+    if current.as_ref().is_some_and(|image| image.id == next.id) {
+        return None;
+    }
+    current.replace(Arc::clone(next))
 }
 
 impl Render for RaylibCanvas {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.frame_watch_started {
             self.frame_watch_started = true;
+            cx.on_release_in(window, |canvas, window, _| {
+                if let Some(image) = canvas.presented_image.take() {
+                    let _ = window.drop_image(image);
+                }
+            })
+            .detach();
             let bridge = self.bridge.clone();
             let initial_sequence = bridge.latest_frame().map_or(0, |frame| frame.sequence);
             cx.spawn_in(window, async move |canvas, cx| {
                 let mut last_sequence = initial_sequence;
                 loop {
                     gpui::Timer::after(Duration::from_millis(16)).await;
+                    if canvas.upgrade().is_none() {
+                        break;
+                    }
                     let sequence = bridge.latest_frame().map_or(0, |frame| frame.sequence);
                     if sequence > last_sequence {
                         last_sequence = sequence;
@@ -827,9 +828,17 @@ impl Render for RaylibCanvas {
             .detach();
         }
         match self.bridge.latest_frame() {
-            Some(frame) => img(ImageSource::Render(frame.image.clone()))
-                .size_full()
-                .into_any_element(),
+            Some(frame) => {
+                if let Some(retired) =
+                    replace_presented_image(&mut self.presented_image, &frame.image)
+                {
+                    // RenderImage's Arc only owns CPU pixels. Atlas entries require explicit eviction.
+                    let _ = window.drop_image(retired);
+                }
+                img(ImageSource::Render(frame.image))
+                    .size_full()
+                    .into_any_element()
+            }
             None => div()
                 .size_full()
                 .flex()
@@ -866,6 +875,11 @@ struct MeshcraftShell {
     selection_gesture: Option<SelectionGesture>,
     selection_cursor: Option<(f32, f32)>,
     command_palette_open: bool,
+    palette_input: Option<Entity<InputState>>,
+    palette_subscription: Option<gpui::Subscription>,
+    palette_query: String,
+    palette_focus_pending: bool,
+    feedback: Option<ToolFeedback>,
     close_requested: bool,
     last_sequence: u64,
 }
@@ -875,6 +889,7 @@ impl MeshcraftShell {
         let viewport_canvas = cx.new(|_| RaylibCanvas {
             bridge: bridge.clone(),
             frame_watch_started: false,
+            presented_image: None,
         });
         let mut this = Self {
             focus: cx.focus_handle(),
@@ -897,6 +912,11 @@ impl MeshcraftShell {
             selection_gesture: None,
             selection_cursor: None,
             command_palette_open: false,
+            palette_input: None,
+            palette_subscription: None,
+            palette_query: String::new(),
+            palette_focus_pending: false,
+            feedback: None,
             close_requested: false,
             last_sequence: 0,
             bridge,
@@ -907,6 +927,54 @@ impl MeshcraftShell {
         this.bridge.publish_camera(this.camera);
         this.refresh_scene();
         this
+    }
+
+    fn toggle_command_palette(&mut self) {
+        self.command_palette_open = !self.command_palette_open;
+        self.open_menu = None;
+        self.palette_focus_pending = self.command_palette_open;
+    }
+
+    fn prepare_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_input.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search commands…"));
+            self.palette_subscription = Some(cx.subscribe_in(
+                &input,
+                window,
+                |this, input, event: &InputEvent, window, cx| {
+                    match event {
+                        InputEvent::Change => {
+                            this.palette_query = input.read(cx).value().to_string()
+                        }
+                        InputEvent::PressEnter { .. } if this.command_palette_open => {
+                            let command =
+                                MeshcraftApp::command_catalog().into_iter().find(|command| {
+                                    palette_matches(command, &this.palette_query)
+                                        && command_enabled(&this.session, command)
+                                });
+                            if let Some(command) = command {
+                                this.command_palette_open = false;
+                                window.focus(&this.focus);
+                                this.dispatch(command.id.as_str());
+                            }
+                        }
+                        _ => {}
+                    }
+                    cx.notify();
+                },
+            ));
+            self.palette_input = Some(input);
+        }
+        if self.palette_focus_pending {
+            self.palette_focus_pending = false;
+            self.palette_query.clear();
+            if let Some(input) = self.palette_input.clone() {
+                input.update(cx, |input, cx| {
+                    input.set_value("", window, cx);
+                    input.focus(window, cx);
+                });
+            }
+        }
     }
 
     fn refresh_scene(&mut self) {
@@ -930,6 +998,7 @@ impl MeshcraftShell {
                 (None, None, None)
             }
         };
+        self.feedback = feedback;
         let preferences = self.session.native_ui_preferences();
         let selection_rect = self
             .selection_gesture
@@ -953,11 +1022,9 @@ impl MeshcraftShell {
             selection: self.session.native_selection_targets(),
             guides: self.session.native_construction_guides().to_vec(),
             guides_visible: self.session.native_guides_visible(),
-            active_tool: self.session.active_tool_label().to_owned(),
             cursor: self.cursor_snap,
             cursor_axes,
             preview,
-            feedback,
             selection_rect,
             grid_spacing: self.cached_document.model_settings().grid_size,
             normal_line_width: preferences.normal_grid_width,
@@ -1353,8 +1420,7 @@ impl MeshcraftShell {
                 "view.axis_guide"
             });
         } else if modifiers.control && modifiers.shift && key == "p" {
-            self.command_palette_open = !self.command_palette_open;
-            self.open_menu = None;
+            self.toggle_command_palette();
         } else if self.command_palette_open || self.open_menu.is_some() {
             return;
         } else if key == "delete" {
@@ -1365,6 +1431,19 @@ impl MeshcraftShell {
             self.dispatch("edit.redo");
         }
     }
+}
+
+fn palette_matches(command: &CommandDescriptor, query: &str) -> bool {
+    let searchable = format!(
+        "{} {} {}",
+        command.id.as_str(),
+        command_label(command),
+        command.presentation.palette_path
+    )
+    .to_lowercase();
+    query
+        .split_whitespace()
+        .all(|word| searchable.contains(&word.to_lowercase()))
 }
 
 fn command_icon(command: &CommandDescriptor) -> Option<Arc<RenderImage>> {
@@ -1378,13 +1457,15 @@ fn command_icon(command: &CommandDescriptor) -> Option<Arc<RenderImage>> {
 fn labeled_command(
     label: impl Into<SharedString>,
     icon: Option<Arc<RenderImage>>,
+    width: f32,
 ) -> gpui::AnyElement {
     div()
         .flex()
         .items_center()
         .gap(px(7.))
-        .w_full()
+        .w(px(width))
         .min_w(px(0.))
+        .text_align(gpui::TextAlign::Left)
         .when_some(icon, |row, icon| {
             row.child(img(ImageSource::Render(icon)).size(px(20.)).flex_none())
         })
@@ -1837,6 +1918,7 @@ impl Render for MeshcraftShell {
             self.refresh_scene();
         }
         settings::prepare(self, window, cx);
+        self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();
         if let Some(frame) = frame.as_ref() {
             self.last_sequence = frame.sequence;
@@ -1895,8 +1977,7 @@ impl Render for MeshcraftShell {
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
-                            this.command_palette_open = !this.command_palette_open;
-                            this.open_menu = None;
+                            this.toggle_command_palette();
                             cx.notify();
                         }),
                     ),
@@ -2028,6 +2109,26 @@ impl Render for MeshcraftShell {
                     )),
             );
 
+        let viewport = viewport.when_some(self.feedback.as_ref(), |viewport, feedback| {
+            viewport.child(
+                div()
+                    .absolute()
+                    .top(px(47.))
+                    .left(px(12.))
+                    .right(px(12.))
+                    .child(
+                        div()
+                            .px(px(9.))
+                            .py(px(5.))
+                            .rounded(px(3.))
+                            .bg(rgb(0xf4f7fa))
+                            .text_sm()
+                            .text_color(rgb(0x27394b))
+                            .child(feedback.text.clone()),
+                    ),
+            )
+        });
+
         let body = div()
             .flex()
             .flex_1()
@@ -2108,6 +2209,7 @@ impl Render for MeshcraftShell {
                                 .child(labeled_command(
                                     label,
                                     command.as_ref().and_then(command_icon),
+                                    201.,
                                 ))
                                 .small()
                                 .text();
@@ -2132,63 +2234,88 @@ impl Render for MeshcraftShell {
         });
 
         let command_palette = self.command_palette_open.then(|| {
-            let commands = MeshcraftApp::command_catalog();
+            let commands = MeshcraftApp::command_catalog()
+                .into_iter()
+                .filter(|command| palette_matches(command, &self.palette_query))
+                .collect::<Vec<_>>();
+            let width = (f32::from(window.viewport_size().width) - 32.).clamp(220., 580.);
+            let left = ((f32::from(window.viewport_size().width) - width) / 2.).max(0.);
+            let list_height = (f32::from(window.viewport_size().height) - 240.).clamp(100., 390.);
             div()
                 .id("command-palette")
                 .occlude()
                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(gpui::MouseButton::Right, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| {
                     this.command_palette_open = false;
+                    window.focus(&this.focus);
                     cx.notify();
                 }))
                 .absolute()
-                .top(px(92.))
-                .left(px(330.))
-                .right(px(370.))
-                .max_h(px(650.))
+                .top(px(80.))
+                .left(px(left))
+                .w(px(width))
                 .p(px(10.))
                 .flex()
                 .flex_col()
-                .gap(px(3.))
+                .gap(px(8.))
                 .border_1()
                 .border_color(rgb(0x60768a))
                 .bg(rgb(0x1e2630))
                 .shadow_lg()
                 .child(
                     div()
-                        .px(px(7.))
-                        .py(px(5.))
-                        .text_lg()
-                        .child("Command Palette"),
+                        .text_sm()
+                        .child(format!("Commands · {} matches", commands.len())),
+                )
+                .child(
+                    Input::new(self.palette_input.as_ref().expect("prepared palette input"))
+                        .w_full(),
                 )
                 .child(
                     div()
-                        .px(px(7.))
-                        .pb(px(5.))
-                        .text_sm()
-                        .text_color(rgb(0xa4b2c1))
-                        .child("Choose a command. Ctrl+Shift+P or Escape closes this panel."),
+                        .id("command-palette-results")
+                        .max_h(px(list_height))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .when(commands.is_empty(), |list| {
+                            list.child(
+                                div()
+                                    .p(px(10.))
+                                    .text_sm()
+                                    .text_color(rgb(0xa4b2c1))
+                                    .child("No matching commands"),
+                            )
+                        })
+                        .children(commands.into_iter().map(|command| {
+                            let id = command.id.as_str().to_owned();
+                            Button::new(command_button_id("palette", &command))
+                                .child(labeled_command(
+                                    command.presentation.palette_path.clone(),
+                                    command_icon(&command),
+                                    width - 52.,
+                                ))
+                                .small()
+                                .text()
+                                .w_full()
+                                .disabled(!command_enabled(&self.session, &command))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.command_palette_open = false;
+                                    window.focus(&this.focus);
+                                    this.dispatch(&id);
+                                    cx.notify();
+                                }))
+                        })),
                 )
-                .overflow_y_scroll()
-                .children(commands.into_iter().map(|command| {
-                    let id = command.id.as_str().to_owned();
-                    let enabled = command_enabled(&self.session, &command);
-                    Button::new(command_button_id("palette", &command))
-                        .child(labeled_command(
-                            command.presentation.palette_path.clone(),
-                            command_icon(&command),
-                        ))
-                        .small()
-                        .text()
-                        .disabled(!enabled)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.command_palette_open = false;
-                            this.dispatch(&id);
-                            cx.notify();
-                        }))
-                }))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0xa4b2c1))
+                        .child("Enter: run first available match · Escape: close"),
+                )
                 .into_any_element()
         });
 
@@ -2202,6 +2329,19 @@ impl Render for MeshcraftShell {
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.command_palette_open {
+                    if event.keystroke.key == "escape"
+                        || (event.keystroke.key == "p"
+                            && event.keystroke.modifiers.control
+                            && event.keystroke.modifiers.shift)
+                    {
+                        this.command_palette_open = false;
+                        window.focus(&this.focus);
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                    return;
+                }
                 if this.settings.active.is_some() {
                     if event.keystroke.key == "escape" {
                         this.settings.active = None;
@@ -2292,7 +2432,11 @@ mod tests {
     use super::{
         OrbitCamera, ViewportBridge, ViewportLayout, ribbon_command_for_key, viewport_physical_rect,
     };
+    use super::{palette_matches, replace_presented_image};
     use crate::MeshcraftApp;
+    use gpui::RenderImage;
+    use image::{Frame, ImageBuffer};
+    use std::sync::Arc;
 
     #[test]
     fn viewport_bounds_match_the_tagged_shell_at_each_dpi() {
@@ -2303,6 +2447,53 @@ mod tests {
             assert_eq!(bounds.width, (1322.0 * scale) as u32);
             assert_eq!(bounds.height, (817.0 * scale).round() as u32);
         }
+    }
+
+    #[test]
+    fn retired_viewport_frames_are_returned_for_atlas_eviction() {
+        fn image() -> Arc<RenderImage> {
+            Arc::new(RenderImage::new(vec![Frame::new(ImageBuffer::new(2, 2))]))
+        }
+        let first = image();
+        let weak = Arc::downgrade(&first);
+        let mut current = None;
+        assert!(replace_presented_image(&mut current, &first).is_none());
+        assert!(
+            replace_presented_image(&mut current, &first).is_none(),
+            "repainting must reuse the atlas entry"
+        );
+        drop(first);
+        for _ in 0..1000 {
+            let next = image();
+            let previous = current.as_ref().unwrap().id;
+            let retired =
+                replace_presented_image(&mut current, &next).expect("evict previous GPU frame");
+            assert_eq!(retired.id, previous);
+            assert_ne!(retired.id, next.id);
+            drop(retired);
+            assert_eq!(
+                Arc::strong_count(&next),
+                2,
+                "only incoming and displayed CPU frame retained"
+            );
+        }
+        assert!(
+            weak.upgrade().is_none(),
+            "the initial CPU frame must be released too"
+        );
+    }
+
+    #[test]
+    fn palette_search_matches_all_tokens_case_insensitively_in_names_and_ids() {
+        let catalog = MeshcraftApp::command_catalog();
+        let line = catalog
+            .iter()
+            .find(|command| command.id.as_str() == "tool.builtin.line")
+            .unwrap();
+        assert!(palette_matches(line, ""));
+        assert!(palette_matches(line, "LINE tool"));
+        assert!(palette_matches(line, "tool.builtin line"));
+        assert!(!palette_matches(line, "line sphere"));
     }
 
     #[test]
