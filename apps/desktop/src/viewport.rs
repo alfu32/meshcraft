@@ -560,6 +560,7 @@ pub struct SnapResult {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SnapVisibility {
+    pub objects_visible: bool,
     pub edges_visible: bool,
     pub faces_visible: bool,
     pub faces_wireframe: bool,
@@ -568,6 +569,7 @@ pub struct SnapVisibility {
 impl Default for SnapVisibility {
     fn default() -> Self {
         Self {
+            objects_visible: true,
             edges_visible: true,
             faces_visible: true,
             faces_wireframe: false,
@@ -1363,6 +1365,7 @@ impl Viewport {
                 let mut nearest = None;
                 for occurrence in document.scene_geometry_refs().ok()? {
                     if !scope.contains(document, &occurrence)
+                        || (!occurrence.is_scene_root() && !visibility.objects_visible)
                         || !self.occurrence_bounds_near_pointer(
                             rect,
                             document,
@@ -1408,7 +1411,9 @@ impl Viewport {
             (ray, document.scene_geometry_refs())
         {
             for occurrence in occurrences {
-                if !scope.contains(document, &occurrence) {
+                if !scope.contains(document, &occurrence)
+                    || (!occurrence.is_scene_root() && !visibility.objects_visible)
+                {
                     continue;
                 }
                 if !self.occurrence_bounds_near_pointer(
@@ -2635,6 +2640,8 @@ impl Viewport {
                 continue;
             };
             if !scope.contains(document, &item.target.occurrence)
+                || (!item.target.occurrence.is_scene_root()
+                    && !policy.can_draw(SelectionKind::Object))
                 || !policy.can_draw(SelectionKind::Face)
                 || policy.state(SelectionKind::Face).wireframe
             {
@@ -2648,7 +2655,9 @@ impl Viewport {
 
         for item in &candidates {
             let target = &item.target;
-            if !scope.contains(document, &target.occurrence) {
+            if !scope.contains(document, &target.occurrence)
+                || (!target.occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             match item.primitive {
@@ -2700,6 +2709,7 @@ impl Viewport {
             if !matches!(item.primitive, NativeSpatialPrimitive::Occurrence)
                 || item.target.occurrence.is_scene_root()
                 || !scope.contains(document, &item.target.occurrence)
+                || !policy.can_draw(SelectionKind::Object)
                 || !policy.can_select(SelectionKind::Object)
             {
                 continue;
@@ -2804,6 +2814,8 @@ impl Viewport {
                 continue;
             };
             if !scope.contains(document, &item.target.occurrence)
+                || (!item.target.occurrence.is_scene_root()
+                    && !policy.can_draw(SelectionKind::Object))
                 || !policy.can_draw(SelectionKind::Face)
                 || policy.state(SelectionKind::Face).wireframe
             {
@@ -2816,7 +2828,10 @@ impl Viewport {
         }
 
         for item in candidates {
-            if !scope.contains(document, &item.target.occurrence) {
+            if !scope.contains(document, &item.target.occurrence)
+                || (!item.target.occurrence.is_scene_root()
+                    && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             match item.primitive {
@@ -2902,6 +2917,7 @@ impl Viewport {
         &mut self,
         document: &Document,
         scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
         snap: SnapResult,
         ground_normal: Vec3,
     ) -> Option<[Vec3; 3]> {
@@ -2917,7 +2933,10 @@ impl Viewport {
                 let candidates = index.query_point(snap.point, 1.0e-6);
                 let mut nearest = None::<(f64, Vec3)>;
                 for item in candidates {
-                    if !scope.contains(document, &item.target.occurrence) {
+                    if !scope.contains(document, &item.target.occurrence)
+                        || (!item.target.occurrence.is_scene_root()
+                            && !policy.can_draw(SelectionKind::Object))
+                    {
                         continue;
                     }
                     let NativeSpatialPrimitive::Segment([start, end]) = item.primitive else {
@@ -2954,7 +2973,9 @@ impl Viewport {
         let mut occluding_face_depth = None::<f64>;
         if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe {
             for occurrence in &occurrences {
-                if !scope.contains(document, occurrence) {
+                if !scope.contains(document, occurrence)
+                    || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                {
                     continue;
                 }
                 let (Some(resolved), Some(geometry)) = (
@@ -2993,7 +3014,9 @@ impl Viewport {
         }
         let mut nearest: Option<(f32, f64, SelectionTarget)> = None;
         for occurrence in occurrences {
-            if !scope.contains(document, &occurrence) {
+            if !scope.contains(document, &occurrence)
+                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             let resolved = document.resolve_occurrence(&occurrence)?;
@@ -3171,7 +3194,9 @@ impl Viewport {
         };
         let mut selected = BTreeSet::new();
         for occurrence in occurrences {
-            if !scope.contains(document, &occurrence) {
+            if !scope.contains(document, &occurrence)
+                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
@@ -3351,7 +3376,9 @@ impl Viewport {
         };
         let mut selected = BTreeSet::new();
         for occurrence in occurrences {
-            if !scope.contains(document, &occurrence) {
+            if !scope.contains(document, &occurrence)
+                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            {
                 continue;
             }
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
@@ -5448,7 +5475,13 @@ mod tests {
         };
         let mut viewport = Viewport::default();
         let [red, green, blue] = viewport
-            .native_cursor_axes(&document, SnapScope::Document, snap, Vec3::Y)
+            .native_cursor_axes(
+                &document,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+                snap,
+                Vec3::Y,
+            )
             .expect("segment snap has an oriented cursor basis");
 
         assert!(blue.distance(Vec3::X) < 1.0e-12);
@@ -7106,6 +7139,33 @@ mod tests {
                     &locked_faces,
                 )
                 .map(|snap| snap.kind)
+        );
+
+        let mut hidden_objects = SelectionDisplayPolicy::default();
+        hidden_objects.set_visible(SelectionKind::Object, false);
+        assert!(
+            viewport
+                .pick_selection_target_on_ray(
+                    &document,
+                    origin,
+                    direction,
+                    0.05,
+                    SnapScope::Document,
+                    &hidden_objects,
+                )
+                .is_none()
+        );
+        assert!(
+            viewport
+                .snap_point_on_ray(
+                    &document,
+                    origin,
+                    direction,
+                    0.05,
+                    SnapScope::Document,
+                    &hidden_objects,
+                )
+                .is_none()
         );
 
         let second_occurrence = document

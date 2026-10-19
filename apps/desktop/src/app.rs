@@ -678,6 +678,7 @@ enum ShellAction {
     ResetSceneForCapture,
     SnapshotDocument,
     SetSelection,
+    UpdateSelectionDisplay,
     CreateObject,
     ExplodeSelection,
     BeginObjectPlacement,
@@ -821,6 +822,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "select set occurrence paths automation setup",
                 None,
                 ShellAction::SetSelection,
+            ),
+            (
+                "selection.update_display",
+                "Selection> Update Display",
+                "Selection",
+                "visibility modifiable unlocked wireframe filter",
+                None,
+                ShellAction::UpdateSelectionDisplay,
             ),
             (
                 "edit.undo",
@@ -1541,7 +1550,9 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
-        ShellAction::SetSelection => CommandKind::SessionMutation,
+        ShellAction::SetSelection | ShellAction::UpdateSelectionDisplay => {
+            CommandKind::SessionMutation
+        }
         ShellAction::SnapshotDocument | ShellAction::About => CommandKind::ReadOnly,
     }
 }
@@ -1789,6 +1800,11 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("origin", CommandValueType::Array),
         ],
         "selection.set" => &[("paths", CommandValueType::Array)],
+        "selection.update_display" => &[
+            ("kind", CommandValueType::String),
+            ("property", CommandValueType::String),
+            ("enabled", CommandValueType::Boolean),
+        ],
         "paint.set_color" => &[
             ("red", CommandValueType::Integer),
             ("green", CommandValueType::Integer),
@@ -1845,11 +1861,50 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             name: (*name).to_owned(),
             value_type: *value_type,
             required: (id == "selection.set" && *name == "paths")
+                || (id == "selection.update_display"
+                    && matches!(*name, "kind" | "property" | "enabled"))
                 || (id == "object.delete_unused_definition" && *name == "definition_id")
                 || (id == "paint.set_color" && matches!(*name, "red" | "green" | "blue" | "alpha"))
                 || (id == "view.camera.set_pose" && matches!(*name, "position" | "target")),
         })
         .collect()
+}
+
+fn selection_kind_from_name(name: &str) -> Option<SelectionKind> {
+    Some(match name {
+        "vertex" => SelectionKind::Vertex,
+        "edge" => SelectionKind::Edge,
+        "face" => SelectionKind::Face,
+        "object" => SelectionKind::Object,
+        "voxel" => SelectionKind::Voxel,
+        "hotspot" => SelectionKind::Hotspot,
+        "dimension" => SelectionKind::Dimension,
+        "text" => SelectionKind::Text,
+        "wall" => SelectionKind::Wall,
+        "slab" => SelectionKind::Slab,
+        "stair" => SelectionKind::Stair,
+        "frame" => SelectionKind::Frame,
+        "hvac" => SelectionKind::Hvac,
+        _ => return None,
+    })
+}
+
+fn selection_kind_label(kind: SelectionKind) -> &'static str {
+    match kind {
+        SelectionKind::Vertex => "Vertices",
+        SelectionKind::Edge => "Edges",
+        SelectionKind::Face => "Faces",
+        SelectionKind::Object => "Objects",
+        SelectionKind::Voxel => "Voxels",
+        SelectionKind::Hotspot => "Hotspots",
+        SelectionKind::Dimension => "Dimensions",
+        SelectionKind::Text => "Texts",
+        SelectionKind::Wall => "Walls",
+        SelectionKind::Slab => "Slabs",
+        SelectionKind::Stair => "Stairs",
+        SelectionKind::Frame => "Frames",
+        SelectionKind::Hvac => "HVAC",
+    }
 }
 
 fn toolbar_visibility_key(stem: &str) -> &'static str {
@@ -2458,6 +2513,7 @@ impl MeshcraftApp {
         self.viewport.native_cursor_axes(
             &self.document,
             scope,
+            &self.selection_display_policy,
             snap,
             self.preferences.grid_normal_axis.vector(),
         )
@@ -5712,6 +5768,62 @@ impl MeshcraftApp {
                 result
                     .outputs
                     .insert("selection".to_owned(), selection_value);
+                return result;
+            }
+            ShellAction::UpdateSelectionDisplay => {
+                let Some(kind_name) = payload.values.get("kind").and_then(|value| value.as_str())
+                else {
+                    return CommandResult::failed("kind must be a selection type name");
+                };
+                let Some(kind) = selection_kind_from_name(kind_name) else {
+                    return CommandResult::failed(format!("unknown selection type `{kind_name}`"));
+                };
+                let Some(property) = payload
+                    .values
+                    .get("property")
+                    .and_then(|value| value.as_str())
+                else {
+                    return CommandResult::failed(
+                        "property must be `display`, `modifiable` or `wireframe`",
+                    );
+                };
+                let Some(enabled) = payload
+                    .values
+                    .get("enabled")
+                    .and_then(|value| value.as_bool())
+                else {
+                    return CommandResult::failed("enabled must be a boolean");
+                };
+                let changed = match property {
+                    "display" => self.selection_display_policy.set_visible(kind, enabled),
+                    "modifiable" => self.selection_display_policy.set_unlocked(kind, enabled),
+                    "wireframe" if kind == SelectionKind::Face => {
+                        self.selection_display_policy.set_wireframe(kind, enabled)
+                    }
+                    "wireframe" => {
+                        return CommandResult::failed(
+                            "wireframe is currently available for faces in the native renderer",
+                        );
+                    }
+                    _ => {
+                        return CommandResult::failed(format!(
+                            "unknown selection display property `{property}`"
+                        ));
+                    }
+                };
+                self.status = format!(
+                    "{} {} {}.",
+                    selection_kind_label(kind),
+                    property,
+                    if enabled { "enabled" } else { "disabled" }
+                );
+                let mut result = CommandResult::completed();
+                result.outputs.insert("kind".to_owned(), kind_name.into());
+                result
+                    .outputs
+                    .insert("property".to_owned(), property.into());
+                result.outputs.insert("enabled".to_owned(), enabled.into());
+                result.outputs.insert("changed".to_owned(), changed.into());
                 return result;
             }
             ShellAction::CreateObject => {
@@ -9392,6 +9504,9 @@ impl MeshcraftApp {
                 guides: visible_guides,
                 scope,
                 visibility: SnapVisibility {
+                    objects_visible: self
+                        .selection_display_policy
+                        .can_draw(SelectionKind::Object),
                     edges_visible: self.selection_display_policy.can_draw(SelectionKind::Edge),
                     faces_visible: self.selection_display_policy.can_draw(SelectionKind::Face),
                     faces_wireframe: self
@@ -10921,10 +11036,10 @@ mod tests {
         CommandPayload, CutTool, DrawingToolState, EditContext, LEGACY_TOOLBAR_COMMAND_IDS,
         LineOffsetToolState, MeshToolState, MeshcraftApp, OrthoView, PolylineToolState,
         Preferences, PrimitiveToolState, ReplacementDecision, RevolveToolState, SelectedEntity,
-        SelectionClickTracker, SelectionDisplayPolicy, SelectionMode, SelectionSession,
-        SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent, TransactionHistory,
-        TransformPick, TransformTool, TransformToolState, UiProfile, command_matches,
-        load_preferences_file, point_feedback_text, push_pull_feedback_text,
+        SelectionClickTracker, SelectionDisplayPolicy, SelectionKind, SelectionMode,
+        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
+        TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
+        command_matches, load_preferences_file, point_feedback_text, push_pull_feedback_text,
         registry_has_unique_ids, shell_commands, tool_command_id, vector_feedback_text,
     };
     use crate::viewport::{
@@ -11728,7 +11843,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(217, entries.len());
+        assert_eq!(218, entries.len());
         assert_eq!(
             74,
             entries
@@ -16043,6 +16158,93 @@ mod tests {
             rejected.result.completion
         );
         assert_eq!(previous_selection, app.selected_occurrences());
+        assert_eq!(revision, app.document.revision());
+    }
+
+    #[test]
+    fn selection_display_command_updates_visibility_modifiability_and_face_wireframe() {
+        let mut app = test_app();
+        let revision = app.document.revision();
+        let command = shell_commands()
+            .get("selection.update_display")
+            .expect("selection display command is registered");
+        assert_eq!(CommandKind::SessionMutation, command.descriptor.kind);
+        assert!(
+            command
+                .descriptor
+                .parameters
+                .iter()
+                .all(|parameter| parameter.required)
+        );
+
+        let dispatch_display = app.dispatch_command(
+            "selection.update_display",
+            &CommandPayload {
+                schema_version: meshcraft_core::commands::COMMAND_SCHEMA_VERSION,
+                values: BTreeMap::from([
+                    ("kind".to_owned(), json!("face")),
+                    ("property".to_owned(), json!("display")),
+                    ("enabled".to_owned(), json!(false)),
+                ]),
+            },
+        );
+        assert!(dispatch_display.accepted);
+        assert!(!app.selection_display_policy.can_draw(SelectionKind::Face));
+        assert!(!app.selection_display_policy.can_select(SelectionKind::Face));
+
+        let dispatch_modifiable = app.dispatch_command(
+            "selection.update_display",
+            &CommandPayload {
+                schema_version: meshcraft_core::commands::COMMAND_SCHEMA_VERSION,
+                values: BTreeMap::from([
+                    ("kind".to_owned(), json!("object")),
+                    ("property".to_owned(), json!("modifiable")),
+                    ("enabled".to_owned(), json!(false)),
+                ]),
+            },
+        );
+        assert!(dispatch_modifiable.accepted);
+        assert!(app.selection_display_policy.can_draw(SelectionKind::Object));
+        assert!(
+            !app.selection_display_policy
+                .can_select(SelectionKind::Object)
+        );
+
+        let dispatch_wireframe = app.dispatch_command(
+            "selection.update_display",
+            &CommandPayload {
+                schema_version: meshcraft_core::commands::COMMAND_SCHEMA_VERSION,
+                values: BTreeMap::from([
+                    ("kind".to_owned(), json!("face")),
+                    ("property".to_owned(), json!("wireframe")),
+                    ("enabled".to_owned(), json!(true)),
+                ]),
+            },
+        );
+        assert!(dispatch_wireframe.accepted);
+        assert!(
+            app.selection_display_policy
+                .state(SelectionKind::Face)
+                .wireframe
+        );
+        assert_eq!(revision, app.document.revision());
+
+        let rejected_wireframe = app.dispatch_command(
+            "selection.update_display",
+            &CommandPayload {
+                schema_version: meshcraft_core::commands::COMMAND_SCHEMA_VERSION,
+                values: BTreeMap::from([
+                    ("kind".to_owned(), json!("edge")),
+                    ("property".to_owned(), json!("wireframe")),
+                    ("enabled".to_owned(), json!(true)),
+                ]),
+            },
+        );
+        assert!(rejected_wireframe.accepted);
+        assert_eq!(
+            meshcraft_core::commands::CommandCompletion::Failed,
+            rejected_wireframe.result.completion
+        );
         assert_eq!(revision, app.document.revision());
     }
 

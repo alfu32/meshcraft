@@ -29,9 +29,12 @@ use bevy::{
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
 use meshcraft_core::{
-    document::{DefinitionId, Document, GeometryBundle, OccurrenceRef, Rgba8},
+    document::{DefinitionId, Document, GeometryBundle, OccurrenceRef, Rgba8, VertexId},
     geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
-    selection::{EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionTarget},
+    selection::{
+        EditContext, SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionMode,
+        SelectionTarget,
+    },
 };
 
 #[derive(Resource)]
@@ -55,6 +58,53 @@ struct SceneDocument {
     occurrences: usize,
     triangles: usize,
     segments: usize,
+}
+
+#[derive(Resource)]
+struct NativeSelectionDisplayState {
+    policy: SelectionDisplayPolicy,
+    render_revision: u64,
+}
+
+#[derive(Clone, Copy)]
+enum NativeSelectionValue {
+    Total,
+    Selected,
+}
+
+#[derive(Component)]
+struct NativeSelectionValueLabel {
+    kind: SelectionKind,
+    value: NativeSelectionValue,
+}
+
+#[derive(Clone, Copy)]
+enum NativeSelectionDisplayProperty {
+    Display,
+    Modifiable,
+    Wireframe,
+}
+
+impl NativeSelectionDisplayProperty {
+    fn command_name(self) -> &'static str {
+        match self {
+            Self::Display => "display",
+            Self::Modifiable => "modifiable",
+            Self::Wireframe => "wireframe",
+        }
+    }
+}
+
+#[derive(Component)]
+struct NativeSelectionDisplayToggle {
+    kind: SelectionKind,
+    property: NativeSelectionDisplayProperty,
+}
+
+#[derive(Component)]
+struct NativeSelectionToggleLabel {
+    kind: SelectionKind,
+    property: NativeSelectionDisplayProperty,
 }
 
 #[derive(Clone)]
@@ -115,11 +165,6 @@ struct NativeInspectorPanel;
 
 #[derive(Component, Clone, Copy)]
 enum NativeInspectorText {
-    Selection {
-        generation: u64,
-        revision: u64,
-        selection_revision: u64,
-    },
     Objects {
         generation: u64,
         revision: u64,
@@ -379,9 +424,6 @@ struct SelectionWindowOverlay;
 struct SelectionWindowLabel;
 
 #[derive(Component)]
-struct SelectionStatsText;
-
-#[derive(Component)]
 struct NativeCursorDot;
 
 #[derive(Component)]
@@ -545,6 +587,7 @@ struct SceneMeshEntities {
     front_faces: Option<Entity>,
     back_faces: Option<Entity>,
     segments: Option<Entity>,
+    face_wireframe: Option<Entity>,
     selected_faces: Option<Entity>,
     selected_edges: Option<Entity>,
 }
@@ -553,10 +596,14 @@ struct SceneMeshEntities {
 struct RenderedSceneRevision {
     generation: u64,
     revision: u64,
+    display_revision: u64,
 }
 
 #[derive(Resource)]
-struct RenderedSelectionRevision(u64);
+struct RenderedSelectionRevision {
+    selection_revision: u64,
+    display_revision: u64,
+}
 
 #[derive(Resource, Default)]
 struct NativeViewportOverlay {
@@ -585,6 +632,7 @@ struct SceneMeshes {
     front_faces: Option<Mesh>,
     back_faces: Option<Mesh>,
     segments: Option<Mesh>,
+    face_wireframe: Option<Mesh>,
     target: Vec3,
     radius: f32,
 }
@@ -596,6 +644,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let revision = session.document_revision();
     let (occurrences, triangles, segments) = scene_counts(&document);
     let selection = session.native_selection_summary();
+    let selection_display = session.native_selection_display_policy();
     let selection_targets = session.native_selection_targets();
     let selected_vertex_positions = selected_vertex_positions(&document, &selection_targets);
     let (selected_object_count, selected_object_definition_id, selected_object_name) =
@@ -631,6 +680,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         value: ui_preferences,
         revision: 0,
     })
+    .insert_resource(NativeSelectionDisplayState {
+        policy: selection_display,
+        render_revision: 0,
+    })
     .insert_resource(CommandPaletteState::default())
     .insert_resource(NativeSelectionDrag::default())
     .insert_resource(NativeToolbarDrag::default())
@@ -638,7 +691,6 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(NativeRightClickGesture::default())
     .insert_resource(NativeObjectListClick::default())
     .insert_resource(NativeViewportOverlay::default())
-    .insert_resource(RenderedSelectionRevision(0))
     .insert_resource(LightingSettings::default())
     .insert_resource(OrbitCamera {
         target: Vec3::ZERO,
@@ -688,8 +740,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             update_slider_thumbs,
             apply_lighting_settings,
             (
+                sync_native_selection_display_state,
                 sync_scene_document,
                 sync_native_settings_sections,
+                sync_native_selection_table,
                 sync_native_model_settings_inputs,
                 sync_native_object_name_input,
                 sync_native_object_list,
@@ -737,6 +791,32 @@ fn scene_counts(document: &Document) -> (usize, usize, usize) {
         }
     }
     (occurrences.len().saturating_sub(1), triangles, segments)
+}
+
+fn sync_native_selection_display_state(
+    session: NonSend<MeshcraftApp>,
+    mut state: ResMut<NativeSelectionDisplayState>,
+) {
+    let policy = session.native_selection_display_policy();
+    if policy == state.policy {
+        return;
+    }
+    let affects_rendering = [
+        SelectionKind::Object,
+        SelectionKind::Face,
+        SelectionKind::Edge,
+    ]
+    .into_iter()
+    .any(|kind| {
+        let before = state.policy.state(kind);
+        let after = policy.state(kind);
+        before.visible != after.visible
+            || (kind == SelectionKind::Face && before.wireframe != after.wireframe)
+    });
+    state.policy = policy;
+    if affects_rendering {
+        state.render_revision = state.render_revision.wrapping_add(1);
+    }
 }
 
 fn selected_vertex_positions(document: &Document, selection: &[SelectionTarget]) -> Vec<ModelVec3> {
@@ -846,16 +926,18 @@ fn create_native_icon_atlas(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup_scene(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
     ui_preferences: Res<NativeUiPreferencesState>,
     lighting: Res<LightingSettings>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let scene_meshes = build_scene_meshes(&scene.document);
+    let scene_meshes = build_scene_meshes_with_policy(&scene.document, &selection_display.policy);
     let mut scene_entities = SceneMeshEntities::default();
     ambient_light.brightness = lighting.ambient_brightness();
     commands.insert_resource(OrbitCamera {
@@ -945,6 +1027,22 @@ fn setup_scene(
             false,
         ));
     }
+    if let Some(mesh) = scene_meshes.face_wireframe {
+        scene_entities.face_wireframe = Some(spawn_mesh(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            mesh,
+            StandardMaterial {
+                unlit: true,
+                cull_mode: None,
+                ..default()
+            },
+            Transform::default(),
+            false,
+            false,
+        ));
+    }
 
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(500.0, 500.0))),
@@ -985,6 +1083,11 @@ fn setup_scene(
     commands.insert_resource(RenderedSceneRevision {
         generation: scene.generation,
         revision: scene.revision,
+        display_revision: selection_display.render_revision,
+    });
+    commands.insert_resource(RenderedSelectionRevision {
+        selection_revision: u64::MAX,
+        display_revision: u64::MAX,
     });
 }
 
@@ -1013,7 +1116,10 @@ fn spawn_mesh(
     entity.id()
 }
 
-fn build_scene_meshes(document: &Document) -> SceneMeshes {
+fn build_scene_meshes_with_policy(
+    document: &Document,
+    policy: &SelectionDisplayPolicy,
+) -> SceneMeshes {
     let mut front_positions = Vec::new();
     let mut front_normals = Vec::new();
     let mut front_colors = Vec::new();
@@ -1022,11 +1128,16 @@ fn build_scene_meshes(document: &Document) -> SceneMeshes {
     let mut back_colors = Vec::new();
     let mut line_positions = Vec::new();
     let mut line_colors = Vec::new();
+    let mut wireframe_positions = Vec::new();
+    let mut wireframe_colors = Vec::new();
     let mut bounds_min = Vec3::splat(f32::INFINITY);
     let mut bounds_max = Vec3::splat(f32::NEG_INFINITY);
 
     if let Ok(occurrences) = document.scene_geometry_refs() {
         for occurrence in occurrences {
+            if !occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object) {
+                continue;
+            }
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
             };
@@ -1044,8 +1155,11 @@ fn build_scene_meshes(document: &Document) -> SceneMeshes {
                 &mut back_colors,
                 &mut line_positions,
                 &mut line_colors,
+                &mut wireframe_positions,
+                &mut wireframe_colors,
                 &mut bounds_min,
                 &mut bounds_max,
+                policy,
             );
         }
     }
@@ -1065,6 +1179,7 @@ fn build_scene_meshes(document: &Document) -> SceneMeshes {
         front_faces: triangle_mesh(front_positions, front_normals, front_colors),
         back_faces: triangle_mesh(back_positions, back_normals, back_colors),
         segments: line_mesh(line_positions, line_colors),
+        face_wireframe: line_mesh(wireframe_positions, wireframe_colors),
         target,
         radius,
     }
@@ -1082,9 +1197,18 @@ fn append_geometry(
     back_colors: &mut Vec<[f32; 4]>,
     line_positions: &mut Vec<[f32; 3]>,
     line_colors: &mut Vec<[f32; 4]>,
+    wireframe_positions: &mut Vec<[f32; 3]>,
+    wireframe_colors: &mut Vec<[f32; 4]>,
     bounds_min: &mut Vec3,
     bounds_max: &mut Vec3,
+    policy: &SelectionDisplayPolicy,
 ) {
+    let draw_faces =
+        policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe;
+    let draw_wireframe =
+        policy.can_draw(SelectionKind::Face) && policy.state(SelectionKind::Face).wireframe;
+    let draw_edges = policy.can_draw(SelectionKind::Edge);
+    let mut wireframe_edges = std::collections::BTreeSet::<(VertexId, VertexId)>::new();
     for triangle in geometry.triangles.values() {
         let Some(points) = triangle
             .vertices
@@ -1110,21 +1234,38 @@ fn append_geometry(
         else {
             continue;
         };
-        let front = rgba_to_color(triangle.color);
-        let back = back_face_color(triangle.color);
-        let edge_scale = (points[1] - points[0])
-            .length()
-            .max((points[2] - points[1]).length())
-            .max((points[0] - points[2]).length());
-        let back_offset = normal * -(edge_scale * 2.0e-5).max(1.0e-7);
-        for index in 0..3 {
-            front_positions.push(points[index].to_array());
-            front_normals.push(normal.to_array());
-            front_colors.push(front);
-            let back_index = [0, 2, 1][index];
-            back_positions.push((points[back_index] + back_offset).to_array());
-            back_normals.push((-normal).to_array());
-            back_colors.push(back);
+        if draw_faces {
+            let front = rgba_to_color(triangle.color);
+            let back = back_face_color(triangle.color);
+            let edge_scale = (points[1] - points[0])
+                .length()
+                .max((points[2] - points[1]).length())
+                .max((points[0] - points[2]).length());
+            let back_offset = normal * -(edge_scale * 2.0e-5).max(1.0e-7);
+            for index in 0..3 {
+                front_positions.push(points[index].to_array());
+                front_normals.push(normal.to_array());
+                front_colors.push(front);
+                let back_index = [0, 2, 1][index];
+                back_positions.push((points[back_index] + back_offset).to_array());
+                back_normals.push((-normal).to_array());
+                back_colors.push(back);
+            }
+        } else if draw_wireframe {
+            for edge in [[0, 1], [1, 2], [2, 0]] {
+                let (left, right) = (triangle.vertices[edge[0]].id, triangle.vertices[edge[1]].id);
+                let key = if left <= right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                if wireframe_edges.insert(key) {
+                    for point in [points[edge[0]], points[edge[1]]] {
+                        wireframe_positions.push((point + normal * 0.001).to_array());
+                        wireframe_colors.push([0.05, 0.06, 0.08, 1.0]);
+                    }
+                }
+            }
         }
         for point in points {
             *bounds_min = bounds_min.min(point);
@@ -1132,6 +1273,9 @@ fn append_geometry(
         }
     }
 
+    if !draw_edges {
+        return;
+    }
     for segment in geometry.segments.values() {
         let Some(points) = segment
             .endpoints
@@ -1285,6 +1429,7 @@ fn to_bevy_vec3(point: ModelVec3) -> Option<Vec3> {
 fn setup_ui(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
     ui_preferences: Res<NativeUiPreferencesState>,
     lighting: Res<LightingSettings>,
     catalog: Res<CommandCatalog>,
@@ -1449,16 +1594,8 @@ fn setup_ui(
             BackgroundColor(Color::srgba(0.13, 0.14, 0.16, 0.94)),
         ))
         .with_children(|panel| {
-            inspector_dynamic_section(
-                panel,
-                "Selection",
-                selection_summary(&scene),
-                NativeInspectorText::Selection {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                    selection_revision: scene.selection_revision,
-                },
-            );
+            inspector_header(panel, "Selection");
+            spawn_native_selection_table(panel, &scene, &selection_display.policy);
             inspector_dynamic_section(
                 panel,
                 "Object",
@@ -1985,7 +2122,7 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
         },
         BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
     ));
-    let mut body_text = parent.spawn((
+    parent.spawn((
         Text::new(body.to_owned()),
         TextFont::from_font_size(13.0),
         TextColor(Color::WHITE),
@@ -1996,9 +2133,6 @@ fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str)
         },
         BackgroundColor(Color::srgb(0.30, 0.31, 0.32)),
     ));
-    if title == "Selection" {
-        body_text.insert(SelectionStatsText);
-    }
 }
 
 fn inspector_header(parent: &mut ChildSpawnerCommands, title: &str) {
@@ -2427,17 +2561,280 @@ fn objects_summary(occurrences: usize) -> String {
     format!("{occurrences} object instances in the scene")
 }
 
-fn selection_summary(scene: &SceneDocument) -> String {
-    format!(
-        "Selected  Objects {}  Vertices {}  Faces {}  Edges {}\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
-        scene.selected_objects,
-        scene.selected_vertices,
-        scene.selected_faces,
-        scene.selected_edges,
-        scene.triangles,
-        scene.segments,
-        scene.occurrences
-    )
+fn native_selection_kind_name(kind: SelectionKind) -> &'static str {
+    match kind {
+        SelectionKind::Vertex => "vertex",
+        SelectionKind::Edge => "edge",
+        SelectionKind::Face => "face",
+        SelectionKind::Object => "object",
+        SelectionKind::Voxel => "voxel",
+        SelectionKind::Hotspot => "hotspot",
+        SelectionKind::Dimension => "dimension",
+        SelectionKind::Text => "text",
+        SelectionKind::Wall => "wall",
+        SelectionKind::Slab => "slab",
+        SelectionKind::Stair => "stair",
+        SelectionKind::Frame => "frame",
+        SelectionKind::Hvac => "hvac",
+    }
+}
+
+fn native_selection_kind_label(kind: SelectionKind) -> &'static str {
+    match kind {
+        SelectionKind::Vertex => "Vertices",
+        SelectionKind::Edge => "Edges",
+        SelectionKind::Face => "Faces",
+        SelectionKind::Object => "Objects",
+        SelectionKind::Voxel => "Voxels",
+        SelectionKind::Hotspot => "Hotspots",
+        SelectionKind::Dimension => "Dimensions",
+        SelectionKind::Text => "Texts",
+        SelectionKind::Wall => "Walls",
+        SelectionKind::Slab => "Slabs",
+        SelectionKind::Stair => "Stairs",
+        SelectionKind::Frame => "Frames",
+        SelectionKind::Hvac => "HVAC",
+    }
+}
+
+fn native_selection_value(
+    scene: &SceneDocument,
+    kind: SelectionKind,
+    value: NativeSelectionValue,
+) -> usize {
+    match (kind, value) {
+        (SelectionKind::Edge, NativeSelectionValue::Total) => scene.segments,
+        (SelectionKind::Face, NativeSelectionValue::Total) => scene.triangles,
+        (SelectionKind::Object, NativeSelectionValue::Total) => scene.occurrences,
+        (SelectionKind::Edge, NativeSelectionValue::Selected) => scene.selected_edges,
+        (SelectionKind::Face, NativeSelectionValue::Selected) => scene.selected_faces,
+        (SelectionKind::Object, NativeSelectionValue::Selected) => scene.selected_objects,
+        _ => 0,
+    }
+}
+
+fn native_selection_toggle_value(
+    policy: &SelectionDisplayPolicy,
+    kind: SelectionKind,
+    property: NativeSelectionDisplayProperty,
+) -> bool {
+    let state = policy.state(kind);
+    match property {
+        NativeSelectionDisplayProperty::Display => state.visible,
+        NativeSelectionDisplayProperty::Modifiable => state.unlocked,
+        NativeSelectionDisplayProperty::Wireframe => state.wireframe,
+    }
+}
+
+fn native_selection_toggle_available(
+    policy: &SelectionDisplayPolicy,
+    kind: SelectionKind,
+    property: NativeSelectionDisplayProperty,
+) -> bool {
+    !matches!(property, NativeSelectionDisplayProperty::Modifiable) || policy.state(kind).visible
+}
+
+fn spawn_native_selection_table(
+    parent: &mut ChildSpawnerCommands,
+    scene: &SceneDocument,
+    policy: &SelectionDisplayPolicy,
+) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(5)),
+            flex_direction: FlexDirection::Column,
+            row_gap: px(1),
+            ..default()
+        })
+        .with_children(|table| {
+            table
+                .spawn(Node {
+                    width: Val::Percent(100.0),
+                    height: px(20),
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    ..default()
+                })
+                .with_children(|row| {
+                    spawn_selection_column_header(row, "Type", Val::Auto);
+                    spawn_selection_column_header(row, "T", px(32));
+                    spawn_selection_column_header(row, "S", px(28));
+                    spawn_selection_column_header(row, "D", px(25));
+                    spawn_selection_column_header(row, "M", px(25));
+                    spawn_selection_column_header(row, "W", px(25));
+                });
+
+            for kind in [
+                SelectionKind::Edge,
+                SelectionKind::Face,
+                SelectionKind::Voxel,
+                SelectionKind::Hotspot,
+                SelectionKind::Object,
+                SelectionKind::Dimension,
+                SelectionKind::Text,
+                SelectionKind::Wall,
+                SelectionKind::Slab,
+                SelectionKind::Stair,
+                SelectionKind::Frame,
+            ] {
+                table
+                    .spawn(Node {
+                        width: Val::Percent(100.0),
+                        height: px(22),
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn((
+                            Text::new(native_selection_kind_label(kind)),
+                            TextFont::from_font_size(13.0),
+                            TextColor(Color::WHITE),
+                            Node {
+                                flex_grow: 1.0,
+                                ..default()
+                            },
+                        ));
+                        for value in [NativeSelectionValue::Total, NativeSelectionValue::Selected] {
+                            row.spawn((
+                                Text::new(native_selection_value(scene, kind, value).to_string()),
+                                TextFont::from_font_size(13.0),
+                                TextColor(Color::WHITE),
+                                Node {
+                                    width: match value {
+                                        NativeSelectionValue::Total => px(32),
+                                        NativeSelectionValue::Selected => px(28),
+                                    },
+                                    ..default()
+                                },
+                                NativeSelectionValueLabel { kind, value },
+                            ));
+                        }
+                        for property in [
+                            NativeSelectionDisplayProperty::Display,
+                            NativeSelectionDisplayProperty::Modifiable,
+                            NativeSelectionDisplayProperty::Wireframe,
+                        ] {
+                            let available =
+                                !matches!(property, NativeSelectionDisplayProperty::Wireframe)
+                                    || kind == SelectionKind::Face;
+                            if available {
+                                spawn_native_selection_toggle(
+                                    row,
+                                    kind,
+                                    property,
+                                    native_selection_toggle_value(policy, kind, property),
+                                );
+                            } else {
+                                row.spawn((
+                                    Text::new("—"),
+                                    TextFont::from_font_size(12.0),
+                                    TextColor(Color::srgb(0.56, 0.57, 0.59)),
+                                    Node {
+                                        width: px(25),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        }
+                    });
+            }
+        });
+}
+
+fn spawn_selection_column_header(row: &mut ChildSpawnerCommands, text: &str, width: Val) {
+    row.spawn((
+        Text::new(text),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::srgb(0.83, 0.84, 0.86)),
+        Node {
+            width,
+            flex_grow: if text == "Type" { 1.0 } else { 0.0 },
+            ..default()
+        },
+    ));
+}
+
+fn spawn_native_selection_toggle(
+    row: &mut ChildSpawnerCommands,
+    kind: SelectionKind,
+    property: NativeSelectionDisplayProperty,
+    enabled: bool,
+) {
+    row.spawn((
+        Button,
+        NativeUiInteraction,
+        Hovered::default(),
+        NativeSelectionDisplayToggle { kind, property },
+        Node {
+            width: px(23),
+            height: px(18),
+            margin: UiRect::horizontal(px(1)),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        BackgroundColor(if enabled {
+            Color::srgb(0.18, 0.37, 0.52)
+        } else {
+            Color::srgb(0.20, 0.21, 0.22)
+        }),
+    ))
+    .with_child((
+        Text::new(if enabled { "✓" } else { "" }),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::WHITE),
+        NativeSelectionToggleLabel { kind, property },
+    ))
+    .observe(dispatch_native_selection_display_toggle);
+}
+
+fn sync_native_selection_table(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
+    mut values: Query<(&mut Text, &NativeSelectionValueLabel), Without<NativeSelectionToggleLabel>>,
+    mut labels: Query<(&mut Text, &NativeSelectionToggleLabel), Without<NativeSelectionValueLabel>>,
+    mut toggles: Query<(
+        Entity,
+        &NativeSelectionDisplayToggle,
+        Option<&Button>,
+        &mut BackgroundColor,
+    )>,
+) {
+    if !scene.is_changed() && !selection_display.is_changed() {
+        return;
+    }
+    for (mut text, value) in &mut values {
+        text.0 = native_selection_value(&scene, value.kind, value.value).to_string();
+    }
+    for (mut text, label) in &mut labels {
+        let enabled =
+            native_selection_toggle_value(&selection_display.policy, label.kind, label.property);
+        text.0 = if enabled { "✓" } else { "" }.to_owned();
+    }
+    for (entity, toggle, button, mut background) in &mut toggles {
+        let available = native_selection_toggle_available(
+            &selection_display.policy,
+            toggle.kind,
+            toggle.property,
+        );
+        if available && button.is_none() {
+            commands.entity(entity).insert(Button);
+        } else if !available && button.is_some() {
+            commands.entity(entity).remove::<Button>();
+        }
+        let enabled =
+            native_selection_toggle_value(&selection_display.policy, toggle.kind, toggle.property);
+        background.0 = if !available {
+            Color::srgb(0.15, 0.16, 0.17)
+        } else if enabled {
+            Color::srgb(0.18, 0.37, 0.52)
+        } else {
+            Color::srgb(0.20, 0.21, 0.22)
+        };
+    }
 }
 
 fn sync_native_settings_sections(
@@ -2446,21 +2843,6 @@ fn sync_native_settings_sections(
 ) {
     for (mut text, mut marker) in &mut sections {
         let summary = match *marker {
-            NativeInspectorText::Selection {
-                generation,
-                revision,
-                selection_revision,
-            } if generation != scene.generation
-                || revision != scene.revision
-                || selection_revision != scene.selection_revision =>
-            {
-                *marker = NativeInspectorText::Selection {
-                    generation: scene.generation,
-                    revision: scene.revision,
-                    selection_revision: scene.selection_revision,
-                };
-                selection_summary(&scene)
-            }
             NativeInspectorText::Object {
                 generation,
                 revision,
@@ -2862,6 +3244,31 @@ fn sync_toolbar_button_states(
             background.0 = Color::srgb(0.14, 0.15, 0.16);
         }
     }
+}
+
+fn dispatch_native_selection_display_toggle(
+    event: On<Activate>,
+    toggles: Query<&NativeSelectionDisplayToggle>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    let Ok(toggle) = toggles.get(event.entity) else {
+        return;
+    };
+    let policy = session.native_selection_display_policy();
+    let enabled = !native_selection_toggle_value(&policy, toggle.kind, toggle.property);
+    let mut payload = CommandPayload::default();
+    payload.values.insert(
+        "kind".to_owned(),
+        serde_json::Value::String(native_selection_kind_name(toggle.kind).to_owned()),
+    );
+    payload.values.insert(
+        "property".to_owned(),
+        serde_json::Value::String(toggle.property.command_name().to_owned()),
+    );
+    payload
+        .values
+        .insert("enabled".to_owned(), serde_json::Value::Bool(enabled));
+    session.dispatch_command("selection.update_display", &payload);
 }
 
 fn dispatch_toolbar_command(
@@ -4046,9 +4453,11 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_scene_meshes(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
     mut rendered_revision: ResMut<RenderedSceneRevision>,
     mut entities: ResMut<SceneMeshEntities>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -4057,10 +4466,11 @@ fn update_scene_meshes(
 ) {
     if rendered_revision.generation == scene.generation
         && rendered_revision.revision == scene.revision
+        && rendered_revision.display_revision == selection_display.render_revision
     {
         return;
     }
-    let scene_meshes = build_scene_meshes(&scene.document);
+    let scene_meshes = build_scene_meshes_with_policy(&scene.document, &selection_display.policy);
     replace_scene_batch(
         &mut commands,
         &mut meshes,
@@ -4104,22 +4514,43 @@ fn update_scene_meshes(
         },
         false,
     );
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.face_wireframe,
+        scene_meshes.face_wireframe,
+        StandardMaterial {
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        },
+        false,
+    );
     rendered_revision.generation = scene.generation;
     rendered_revision.revision = scene.revision;
+    rendered_revision.display_revision = selection_display.render_revision;
 }
 
 fn update_selection_meshes(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
     mut rendered_revision: ResMut<RenderedSelectionRevision>,
     mut entities: ResMut<SceneMeshEntities>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if rendered_revision.0 == scene.selection_revision {
+    if rendered_revision.selection_revision == scene.selection_revision
+        && rendered_revision.display_revision == selection_display.render_revision
+    {
         return;
     }
-    let selected = build_selection_meshes(&scene.document, &scene.selection_targets);
+    let selected = build_selection_meshes_with_policy(
+        &scene.document,
+        &scene.selection_targets,
+        &selection_display.policy,
+    );
     replace_scene_batch(
         &mut commands,
         &mut meshes,
@@ -4148,10 +4579,15 @@ fn update_selection_meshes(
         },
         false,
     );
-    rendered_revision.0 = scene.selection_revision;
+    rendered_revision.selection_revision = scene.selection_revision;
+    rendered_revision.display_revision = selection_display.render_revision;
 }
 
-fn build_selection_meshes(document: &Document, selection: &[SelectionTarget]) -> SelectionMeshes {
+fn build_selection_meshes_with_policy(
+    document: &Document,
+    selection: &[SelectionTarget],
+    policy: &SelectionDisplayPolicy,
+) -> SelectionMeshes {
     let mut positions = Vec::new();
     let mut normals = Vec::new();
     let mut colors = Vec::new();
@@ -4161,6 +4597,9 @@ fn build_selection_meshes(document: &Document, selection: &[SelectionTarget]) ->
     let edge_highlight = [1.0, 0.24, 0.015, 1.0];
 
     for target in selection {
+        if !target.occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object) {
+            continue;
+        }
         let (Some(resolved), Some(geometry)) = (
             document.resolve_occurrence(&target.occurrence),
             document.effective_geometry(&target.occurrence),
@@ -4168,7 +4607,10 @@ fn build_selection_meshes(document: &Document, selection: &[SelectionTarget]) ->
             continue;
         };
         let include_all = matches!(target.entity, SelectedEntity::Occurrence);
-        if include_all || matches!(target.entity, SelectedEntity::Triangle(_)) {
+        if policy.can_draw(SelectionKind::Face)
+            && !policy.state(SelectionKind::Face).wireframe
+            && (include_all || matches!(target.entity, SelectedEntity::Triangle(_)))
+        {
             for triangle in geometry.triangles.values().filter(|triangle| {
                 include_all || target.entity == SelectedEntity::Triangle(triangle.id)
             }) {
@@ -4193,7 +4635,9 @@ fn build_selection_meshes(document: &Document, selection: &[SelectionTarget]) ->
                 }
             }
         }
-        if include_all || matches!(target.entity, SelectedEntity::Segment(_)) {
+        if policy.can_draw(SelectionKind::Edge)
+            && (include_all || matches!(target.entity, SelectedEntity::Segment(_)))
+        {
             for segment in geometry.segments.values().filter(|segment| {
                 include_all || target.entity == SelectedEntity::Segment(segment.id)
             }) {
@@ -4253,28 +4697,12 @@ fn replace_scene_batch(
     }
 }
 
-fn refresh_status(
-    scene: Res<SceneDocument>,
-    mut labels: Query<&mut Text, (With<StatusText>, Without<SelectionStatsText>)>,
-    mut selection_stats: Query<&mut Text, (With<SelectionStatsText>, Without<StatusText>)>,
-) {
+fn refresh_status(scene: Res<SceneDocument>, mut labels: Query<&mut Text, With<StatusText>>) {
     if !scene.is_changed() {
         return;
     }
     for mut label in &mut labels {
         label.0 = format!("{}  |  {}", scene.status, scene.active_tool);
-    }
-    for mut stats in &mut selection_stats {
-        stats.0 = format!(
-            "Selected  Objects {}  Vertices {}  Faces {}  Edges {}\nTriangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
-            scene.selected_objects,
-            scene.selected_vertices,
-            scene.selected_faces,
-            scene.selected_edges,
-            scene.triangles,
-            scene.segments,
-            scene.occurrences
-        );
     }
 }
 
@@ -4617,6 +5045,7 @@ fn sync_native_cursor_dot(
 fn sync_native_selected_vertex_dots(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    selection_display: Res<NativeSelectionDisplayState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     layers: Query<Entity, With<NativeSelectedVertexDotLayer>>,
@@ -4627,15 +5056,19 @@ fn sync_native_selected_vertex_dots(
     else {
         return;
     };
-    let positions: Vec<Vec2> = scene
-        .selected_vertex_positions
-        .iter()
-        .filter_map(|position| {
-            let world = to_bevy_vec3(*position)?;
-            let screen = camera.world_to_viewport(camera_transform, world).ok()?;
-            native_viewport_contains(window, screen).then_some(screen)
-        })
-        .collect();
+    let positions: Vec<Vec2> = if selection_display.policy.can_draw(SelectionKind::Vertex) {
+        scene
+            .selected_vertex_positions
+            .iter()
+            .filter_map(|position| {
+                let world = to_bevy_vec3(*position)?;
+                let screen = camera.world_to_viewport(camera_transform, world).ok()?;
+                native_viewport_contains(window, screen).then_some(screen)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let existing: std::collections::BTreeMap<usize, Entity> = dots
         .iter()
         .map(|(entity, dot, _)| (dot.0, entity))
@@ -4817,7 +5250,9 @@ fn native_selection_region(
         std::collections::BTreeMap::<meshcraft_core::document::OccurrenceRef, Vec<Vec2>>::new();
 
     for occurrence in occurrences {
-        if !native_context_contains(&document, context, &occurrence) {
+        if !native_context_contains(&document, context, &occurrence)
+            || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+        {
             continue;
         }
         let (Some(resolved), Some(geometry)) = (
@@ -5291,25 +5726,27 @@ mod tests {
         NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
         NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
         NativeObjectListRow, NativeObjectNameInput, NativePolylineSettingsApplyButton,
-        NativeRenameObjectButton, NativeRightClickGesture, NativeToolbarDrag,
+        NativeRenameObjectButton, NativeRightClickGesture, NativeSelectionDisplayProperty,
+        NativeSelectionDisplayState, NativeSelectionDisplayToggle, NativeSelectionToggleLabel,
+        NativeSelectionValue, NativeSelectionValueLabel, NativeToolbarDrag,
         NativeToolsContextMenuState, NativeUiInteraction, NativeUiPreferencesState,
         NativeUiSettingChoice, NativeUiSettingChoiceButton, NativeUiSettingInput,
         NativeUiSettingInputField, NativeUiSettingToggleButton, NativeUiSettingToggleField,
-        NativeUiSettingsApplyButton, NativeViewportOverlay, SceneDocument, SelectionStatsText,
-        ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings,
+        NativeUiSettingsApplyButton, NativeViewportOverlay, SceneDocument, ShadowFilter,
+        SnapResult, TextureAtlasLayout, apply_native_model_settings,
         apply_native_polyline_settings, apply_native_ui_preferences, back_face_color,
-        build_oriented_grid_mesh, build_scene_meshes, command_payload_from_json,
+        build_oriented_grid_mesh, build_scene_meshes_with_policy, command_payload_from_json,
         create_native_icon_atlas, dispatch_palette_command, dispatch_toolbar_command, line_mesh,
         native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
         native_segment_intersects_rect, native_triangle_intersects_rect, object_selection_summary,
-        objects_summary, open_native_model_settings_editor, refresh_status,
-        rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
-        search_command_ids, select_native_object_row, selected_object_info,
-        selected_vertex_positions, selection_summary, submit_palette_parameters,
+        objects_summary, open_native_model_settings_editor, rename_selected_native_object,
+        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
+        selected_object_info, selected_vertex_positions, submit_palette_parameters,
         sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
-        sync_native_model_settings_inputs, sync_native_object_list, sync_native_settings_sections,
-        sync_toolbar_button_states, toggle_native_ui_setting, tool_context_groups, triangle_mesh,
-        update_native_ui_setting_choice, update_right_click_gesture,
+        sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
+        sync_native_settings_sections, sync_toolbar_button_states, toggle_native_ui_setting,
+        tool_context_groups, triangle_mesh, update_native_ui_setting_choice,
+        update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -5328,7 +5765,9 @@ mod tests {
     use meshcraft_core::{
         document::Document,
         geometry::Vec3 as ModelVec3,
-        selection::{SelectedEntity, SelectionMode, SelectionTarget},
+        selection::{
+            SelectedEntity, SelectionDisplayPolicy, SelectionKind, SelectionMode, SelectionTarget,
+        },
     };
 
     #[test]
@@ -5338,7 +5777,7 @@ mod tests {
             .add_cuboid("sample", ModelVec3::new(2.0, 3.0, 4.0), ModelVec3::ZERO)
             .expect("valid cuboid");
 
-        let built = build_scene_meshes(&document);
+        let built = build_scene_meshes_with_policy(&document, &SelectionDisplayPolicy::default());
         assert_eq!(
             attribute_len(
                 built.front_faces.as_ref().unwrap(),
@@ -5362,6 +5801,134 @@ mod tests {
         );
         assert_eq!(built.target, Vec3::new(1.0, 1.5, 2.0));
         assert_eq!(scene_counts(&document), (1, 12, 12));
+    }
+
+    #[test]
+    fn selection_display_filters_scene_batches_and_builds_separate_face_wireframe() {
+        let mut document = Document::new();
+        document
+            .add_cuboid("sample", ModelVec3::new(2.0, 3.0, 4.0), ModelVec3::ZERO)
+            .expect("valid cuboid");
+
+        let mut policy = SelectionDisplayPolicy::default();
+        policy.set_visible(SelectionKind::Face, false);
+        let without_faces = build_scene_meshes_with_policy(&document, &policy);
+        assert!(without_faces.front_faces.is_none());
+        assert!(without_faces.back_faces.is_none());
+        assert!(without_faces.segments.is_some());
+
+        policy.set_visible(SelectionKind::Face, true);
+        policy.set_wireframe(SelectionKind::Face, true);
+        let wireframe = build_scene_meshes_with_policy(&document, &policy);
+        assert!(wireframe.front_faces.is_none());
+        assert!(wireframe.back_faces.is_none());
+        assert!(wireframe.face_wireframe.is_some());
+        assert!(wireframe.segments.is_some());
+
+        policy.set_visible(SelectionKind::Edge, false);
+        let wireframe_without_authored_edges = build_scene_meshes_with_policy(&document, &policy);
+        assert!(wireframe_without_authored_edges.segments.is_none());
+        assert!(wireframe_without_authored_edges.face_wireframe.is_some());
+
+        policy.set_visible(SelectionKind::Object, false);
+        let hidden_objects = build_scene_meshes_with_policy(&document, &policy);
+        assert!(hidden_objects.front_faces.is_none());
+        assert!(hidden_objects.segments.is_none());
+        assert!(hidden_objects.face_wireframe.is_none());
+    }
+
+    #[test]
+    fn selection_table_refreshes_totals_and_display_controls_from_session_policy() {
+        let document = Document::new();
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document: document.clone(),
+            generation: 1,
+            revision: document.revision(),
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 1,
+            selected_objects: 2,
+            selected_vertices: 3,
+            selected_faces: 4,
+            selected_edges: 5,
+            selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
+            selected_object_count: 2,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
+            occurrences: 16,
+            triangles: 460,
+            segments: 524,
+        })
+        .insert_resource(NativeSelectionDisplayState {
+            policy: SelectionDisplayPolicy::default(),
+            render_revision: 0,
+        })
+        .add_systems(Update, sync_native_selection_table);
+        let faces_total = app
+            .world_mut()
+            .spawn((
+                Text::new(""),
+                NativeSelectionValueLabel {
+                    kind: SelectionKind::Face,
+                    value: NativeSelectionValue::Total,
+                },
+            ))
+            .id();
+        let faces_selected = app
+            .world_mut()
+            .spawn((
+                Text::new(""),
+                NativeSelectionValueLabel {
+                    kind: SelectionKind::Face,
+                    value: NativeSelectionValue::Selected,
+                },
+            ))
+            .id();
+        let face_display_label = app
+            .world_mut()
+            .spawn((
+                Text::new(""),
+                NativeSelectionToggleLabel {
+                    kind: SelectionKind::Face,
+                    property: NativeSelectionDisplayProperty::Display,
+                },
+            ))
+            .id();
+        let face_display_toggle = app
+            .world_mut()
+            .spawn((
+                Button,
+                NativeSelectionDisplayToggle {
+                    kind: SelectionKind::Face,
+                    property: NativeSelectionDisplayProperty::Display,
+                },
+                BackgroundColor(Color::WHITE),
+            ))
+            .id();
+
+        app.update();
+
+        assert_eq!("460", app.world().get::<Text>(faces_total).unwrap().0);
+        assert_eq!("4", app.world().get::<Text>(faces_selected).unwrap().0);
+        assert_eq!("✓", app.world().get::<Text>(face_display_label).unwrap().0);
+
+        app.world_mut()
+            .resource_mut::<NativeSelectionDisplayState>()
+            .policy
+            .set_visible(SelectionKind::Face, false);
+        app.update();
+
+        assert_eq!("", app.world().get::<Text>(face_display_label).unwrap().0);
+        assert_eq!(
+            Color::srgb(0.20, 0.21, 0.22),
+            app.world()
+                .get::<BackgroundColor>(face_display_toggle)
+                .unwrap()
+                .0
+        );
     }
 
     #[test]
@@ -5449,7 +6016,8 @@ mod tests {
         assert!(session.document_revision() > before_revision);
 
         let rendered_document = session.document_snapshot();
-        let meshes = build_scene_meshes(&rendered_document);
+        let meshes =
+            build_scene_meshes_with_policy(&rendered_document, &SelectionDisplayPolicy::default());
         assert!(meshes.front_faces.is_some());
         assert!(meshes.back_faces.is_some());
         assert_eq!(scene_counts(&rendered_document), (1, 12, 12));
@@ -6636,7 +7204,7 @@ mod tests {
     }
 
     #[test]
-    fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
+    fn native_object_inspector_summaries_refresh_after_document_changes() {
         let document = Document::new();
         let (occurrences, triangles, segments) = scene_counts(&document);
         let initial_objects_summary = objects_summary(occurrences);
@@ -6673,36 +7241,7 @@ mod tests {
                 },
             ))
             .id();
-        let initial_selection_summary = selection_summary(app.world().resource::<SceneDocument>());
-        let selection = app
-            .world_mut()
-            .spawn((
-                Text::new(initial_selection_summary),
-                NativeInspectorText::Selection {
-                    generation: 1,
-                    revision: 0,
-                    selection_revision: 0,
-                },
-            ))
-            .id();
-
         app.update();
-        {
-            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
-            scene.selected_objects = 1;
-            scene.selected_vertices = 3;
-            scene.selected_faces = 4;
-            scene.selected_edges = 5;
-            scene.selection_revision = 2;
-        }
-        app.update();
-        assert!(
-            app.world()
-                .get::<Text>(selection)
-                .unwrap()
-                .0
-                .contains("Selected  Objects 1  Vertices 3  Faces 4  Edges 5")
-        );
         {
             let mut scene = app.world_mut().resource_mut::<SceneDocument>();
             let mut settings = scene.document.model_settings().clone();
@@ -6718,13 +7257,6 @@ mod tests {
             "18 object instances in the scene",
             app.world().get::<Text>(objects).unwrap().0
         );
-        assert!(
-            app.world()
-                .get::<Text>(selection)
-                .unwrap()
-                .0
-                .contains("Objects  18")
-        );
 
         {
             let mut scene = app.world_mut().resource_mut::<SceneDocument>();
@@ -6739,46 +7271,6 @@ mod tests {
             "0 object instances in the scene",
             app.world().get::<Text>(objects).unwrap().0
         );
-    }
-
-    #[test]
-    fn selection_panel_reports_selected_vertices_and_model_totals() {
-        let document = Document::new();
-        let mut app = App::new();
-        app.insert_resource(SceneDocument {
-            document,
-            generation: 1,
-            revision: 0,
-            status: "Ready".to_owned(),
-            active_tool: "Select".to_owned(),
-            selection_revision: 2,
-            selected_objects: 1,
-            selected_vertices: 3,
-            selected_faces: 4,
-            selected_edges: 5,
-            selection_targets: Vec::new(),
-            selected_vertex_positions: Vec::new(),
-            selected_object_count: 1,
-            selected_object_definition_id: None,
-            selected_object_name: None,
-            object_entries: Vec::new(),
-            occurrences: 16,
-            triangles: 460,
-            segments: 524,
-        })
-        .add_systems(Update, refresh_status);
-        let stats = app
-            .world_mut()
-            .spawn((Text::new(String::new()), SelectionStatsText))
-            .id();
-
-        app.update();
-
-        let text = &app.world().get::<Text>(stats).unwrap().0;
-        assert!(text.contains("Selected  Objects 1  Vertices 3  Faces 4  Edges 5"));
-        assert!(text.contains("Triangles  460"));
-        assert!(text.contains("Edges  524"));
-        assert!(text.contains("Objects  16"));
     }
 
     #[test]
