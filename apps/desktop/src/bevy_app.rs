@@ -52,6 +52,10 @@ struct CommandPaletteState {
     query: String,
     results: Vec<String>,
     selected_index: usize,
+    pending_command: Option<String>,
+    parameter_json: String,
+    parameter_cursor: usize,
+    parameter_error: Option<String>,
 }
 
 #[derive(Resource)]
@@ -77,6 +81,18 @@ struct CommandPaletteOverlay;
 
 #[derive(Component)]
 struct CommandPaletteQuery;
+
+#[derive(Component)]
+struct CommandPaletteParameterPanel;
+
+#[derive(Component)]
+struct CommandPaletteParameterHint;
+
+#[derive(Component)]
+struct CommandPaletteParameterInput;
+
+#[derive(Component)]
+struct CommandPaletteParameterError;
 
 #[derive(Component)]
 struct CommandPaletteResult {
@@ -347,6 +363,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             handle_command_palette_keyboard,
             refresh_command_palette,
             sync_command_palette_states,
+            sync_command_palette_parameter_ui,
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
@@ -1072,6 +1089,44 @@ fn setup_ui(
                 CommandPaletteQuery,
             ));
             palette
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(4),
+                        padding: UiRect::all(px(7)),
+                        display: Display::None,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.15, 0.17, 0.20)),
+                    CommandPaletteParameterPanel,
+                ))
+                .with_children(|panel| {
+                    panel.spawn((
+                        Text::new(String::new()),
+                        TextFont::from_font_size(12.0),
+                        TextColor(Color::srgb(0.76, 0.84, 0.92)),
+                        CommandPaletteParameterHint,
+                    ));
+                    panel.spawn((
+                        Text::new("{}"),
+                        TextFont::from_font_size(14.0),
+                        TextColor(Color::WHITE),
+                        CommandPaletteParameterInput,
+                    ));
+                    panel.spawn((
+                        Text::new(String::new()),
+                        TextFont::from_font_size(12.0),
+                        TextColor(Color::srgb(0.98, 0.56, 0.48)),
+                        CommandPaletteParameterError,
+                    ));
+                    panel.spawn((
+                        Text::new("Edit JSON · Enter runs · Esc closes"),
+                        TextFont::from_font_size(11.0),
+                        TextColor(Color::srgb(0.64, 0.67, 0.70)),
+                    ));
+                });
+            palette
                 .spawn(Node {
                     width: Val::Percent(100.0),
                     max_height: px(520),
@@ -1379,15 +1434,36 @@ fn dispatch_toolbar_command(
 fn dispatch_palette_command(
     event: On<Activate>,
     commands: Query<&CommandPaletteResult>,
+    catalog: Res<CommandCatalog>,
     mut session: NonSendMut<MeshcraftApp>,
     mut palette_state: ResMut<CommandPaletteState>,
     mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
 ) {
-    if let Ok(Some(command_id)) = commands.get(event.entity).map(|item| &item.command_id) {
-        session.dispatch_command(command_id, &CommandPayload::default());
-        palette_state.open = false;
-        for mut palette in &mut palettes {
-            palette.display = Display::None;
+    if let Ok(result) = commands.get(event.entity)
+        && let Some(command_id) = result.command_id.as_deref()
+    {
+        if !result.enabled {
+            return;
+        }
+        palette_state.selected_index = result.slot;
+        if let Some(command) = catalog
+            .0
+            .iter()
+            .find(|command| command.id.as_str() == command_id)
+            && !command.parameters.is_empty()
+        {
+            begin_palette_parameter_entry(&mut palette_state, command_id);
+            return;
+        }
+        let dispatch = session.dispatch_command(command_id, &CommandPayload::default());
+        if dispatch.accepted {
+            palette_state.open = false;
+            palette_state.pending_command = None;
+            for mut palette in &mut palettes {
+                palette.display = Display::None;
+            }
+        } else {
+            palette_state.parameter_error = dispatch.result.diagnostics.first().cloned();
         }
     }
 }
@@ -1400,6 +1476,7 @@ fn open_command_palette(
     state.open = true;
     state.query.clear();
     state.selected_index = 0;
+    clear_palette_parameter_entry(&mut state);
     for mut palette in &mut palettes {
         palette.display = Display::Flex;
     }
@@ -1417,6 +1494,7 @@ fn toggle_command_palette(
         if state.open {
             state.query.clear();
             state.selected_index = 0;
+            clear_palette_parameter_entry(&mut state);
         }
     }
     for mut palette in &mut palettes {
@@ -1431,6 +1509,7 @@ fn toggle_command_palette(
 fn handle_command_palette_keyboard(
     mut keyboard_events: MessageReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    catalog: Res<CommandCatalog>,
     mut palette: ResMut<CommandPaletteState>,
     mut session: NonSendMut<MeshcraftApp>,
     mut overlays: Query<&mut Node, With<CommandPaletteOverlay>>,
@@ -1438,7 +1517,50 @@ fn handle_command_palette_keyboard(
     let control = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
     let alt = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
     for event in keyboard_events.read() {
-        if !palette.open || event.state != bevy::input::ButtonState::Pressed || control || alt {
+        if !palette.open || event.state != bevy::input::ButtonState::Pressed || alt {
+            continue;
+        }
+        if palette.pending_command.is_some() {
+            if control {
+                if event.key_code == KeyCode::KeyA {
+                    palette.parameter_json.clear();
+                    palette.parameter_cursor = 0;
+                    palette.parameter_error = None;
+                }
+                continue;
+            }
+            match event.key_code {
+                KeyCode::Escape => {}
+                KeyCode::Backspace => {
+                    remove_parameter_character_before_cursor(&mut palette);
+                    palette.parameter_error = None;
+                }
+                KeyCode::Delete => {
+                    remove_parameter_character_at_cursor(&mut palette);
+                    palette.parameter_error = None;
+                }
+                KeyCode::ArrowLeft => {
+                    palette.parameter_cursor =
+                        previous_char_boundary(&palette.parameter_json, palette.parameter_cursor);
+                }
+                KeyCode::ArrowRight => {
+                    palette.parameter_cursor =
+                        next_char_boundary(&palette.parameter_json, palette.parameter_cursor);
+                }
+                KeyCode::Home => palette.parameter_cursor = 0,
+                KeyCode::End => palette.parameter_cursor = palette.parameter_json.len(),
+                KeyCode::Enter => {
+                    submit_palette_parameters(&mut palette, &mut session);
+                }
+                _ => {
+                    if let Some(text) = event.text.as_deref() {
+                        insert_parameter_text(&mut palette, text);
+                    }
+                }
+            }
+            continue;
+        }
+        if control {
             continue;
         }
         match event.key_code {
@@ -1458,10 +1580,24 @@ fn handle_command_palette_keyboard(
             }
             KeyCode::Enter => {
                 if let Some(command_id) = palette.results.get(palette.selected_index).cloned() {
-                    let dispatch =
-                        session.dispatch_command(&command_id, &CommandPayload::default());
-                    if dispatch.accepted {
-                        palette.open = false;
+                    let state = session.native_command_state(&command_id);
+                    if !state.enabled {
+                        palette.parameter_error = state.disabled_reason;
+                    } else if let Some(command) = catalog
+                        .0
+                        .iter()
+                        .find(|command| command.id.as_str() == command_id)
+                        && !command.parameters.is_empty()
+                    {
+                        begin_palette_parameter_entry(&mut palette, &command_id);
+                    } else {
+                        let dispatch =
+                            session.dispatch_command(&command_id, &CommandPayload::default());
+                        if dispatch.accepted {
+                            palette.open = false;
+                        } else {
+                            palette.parameter_error = dispatch.result.diagnostics.first().cloned();
+                        }
                     }
                 }
             }
@@ -1481,6 +1617,176 @@ fn handle_command_palette_keyboard(
         } else {
             Display::None
         };
+    }
+}
+
+fn begin_palette_parameter_entry(palette: &mut CommandPaletteState, command_id: &str) {
+    palette.pending_command = Some(command_id.to_owned());
+    palette.parameter_json = "{}".to_owned();
+    palette.parameter_cursor = 1;
+    palette.parameter_error = None;
+}
+
+fn clear_palette_parameter_entry(palette: &mut CommandPaletteState) {
+    palette.pending_command = None;
+    palette.parameter_json.clear();
+    palette.parameter_cursor = 0;
+    palette.parameter_error = None;
+}
+
+fn command_payload_from_json(source: &str) -> Result<CommandPayload, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(source).map_err(|error| format!("Invalid JSON: {error}"))?;
+    let serde_json::Value::Object(values) = value else {
+        return Err("Parameters must be a JSON object, such as {\"count\": 3}.".to_owned());
+    };
+    Ok(CommandPayload {
+        values: values.into_iter().collect(),
+        ..default()
+    })
+}
+
+fn submit_palette_parameters(
+    palette: &mut CommandPaletteState,
+    session: &mut MeshcraftApp,
+) -> bool {
+    let Some(command_id) = palette.pending_command.as_deref() else {
+        return false;
+    };
+    let payload = match command_payload_from_json(&palette.parameter_json) {
+        Ok(payload) => payload,
+        Err(error) => {
+            palette.parameter_error = Some(error);
+            return false;
+        }
+    };
+    let dispatch = session.dispatch_command(command_id, &payload);
+    if dispatch.accepted {
+        palette.open = false;
+        clear_palette_parameter_entry(palette);
+        true
+    } else {
+        palette.parameter_error = Some(
+            dispatch
+                .result
+                .diagnostics
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "The command rejected these parameters.".to_owned()),
+        );
+        false
+    }
+}
+
+fn insert_parameter_text(palette: &mut CommandPaletteState, text: &str) {
+    let insertion = text
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>();
+    if insertion.is_empty() {
+        return;
+    }
+    palette
+        .parameter_json
+        .insert_str(palette.parameter_cursor, &insertion);
+    palette.parameter_cursor += insertion.len();
+    palette.parameter_error = None;
+}
+
+fn remove_parameter_character_before_cursor(palette: &mut CommandPaletteState) {
+    if palette.parameter_cursor == 0 {
+        return;
+    }
+    let previous = previous_char_boundary(&palette.parameter_json, palette.parameter_cursor);
+    palette
+        .parameter_json
+        .replace_range(previous..palette.parameter_cursor, "");
+    palette.parameter_cursor = previous;
+}
+
+fn remove_parameter_character_at_cursor(palette: &mut CommandPaletteState) {
+    if palette.parameter_cursor >= palette.parameter_json.len() {
+        return;
+    }
+    let next = next_char_boundary(&palette.parameter_json, palette.parameter_cursor);
+    palette
+        .parameter_json
+        .replace_range(palette.parameter_cursor..next, "");
+}
+
+fn previous_char_boundary(source: &str, cursor: usize) -> usize {
+    source[..cursor]
+        .char_indices()
+        .next_back()
+        .map_or(0, |(index, _)| index)
+}
+
+fn next_char_boundary(source: &str, cursor: usize) -> usize {
+    source[cursor..]
+        .char_indices()
+        .nth(1)
+        .map_or(source.len(), |(index, _)| cursor + index)
+}
+
+#[allow(clippy::type_complexity)]
+fn sync_command_palette_parameter_ui(
+    palette: Res<CommandPaletteState>,
+    catalog: Res<CommandCatalog>,
+    mut panels: Query<&mut Node, With<CommandPaletteParameterPanel>>,
+    mut texts: Query<(
+        &mut Text,
+        Option<&CommandPaletteParameterHint>,
+        Option<&CommandPaletteParameterInput>,
+        Option<&CommandPaletteParameterError>,
+    )>,
+) {
+    let Some(command_id) = palette.pending_command.as_deref() else {
+        for mut panel in &mut panels {
+            panel.display = Display::None;
+        }
+        return;
+    };
+    let schema = catalog
+        .0
+        .iter()
+        .find(|command| command.id.as_str() == command_id)
+        .map(|command| {
+            command
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    format!(
+                        "{}: {}{}",
+                        parameter.name,
+                        format!("{:?}", parameter.value_type).to_lowercase(),
+                        if parameter.required {
+                            " (required)"
+                        } else {
+                            ""
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+        })
+        .unwrap_or_else(|| "No parameter schema is available.".to_owned());
+    let cursor = palette.parameter_cursor.min(palette.parameter_json.len());
+    let parameter_text = format!(
+        "> {}|{}",
+        &palette.parameter_json[..cursor],
+        &palette.parameter_json[cursor..]
+    );
+    for mut panel in &mut panels {
+        panel.display = Display::Flex;
+    }
+    for (mut text, hint, input, error) in &mut texts {
+        if hint.is_some() {
+            text.0 = format!("{command_id} parameters · {schema}");
+        } else if input.is_some() {
+            text.0 = parameter_text.clone();
+        } else if error.is_some() {
+            text.0 = palette.parameter_error.clone().unwrap_or_default();
+        }
     }
 }
 
@@ -2686,13 +2992,16 @@ fn orbit_camera(
 #[cfg(test)]
 mod tests {
     use super::{
-        BevyImage, Button, CommandCatalog, CommandPaletteResult, CommandPaletteResultLabel,
-        CommandPaletteState, DispatchCommand, LightingChannel, LightingSettings, NativeIconAtlas,
-        SceneDocument, ShadowFilter, TextureAtlasLayout, ToolbarCommandLabel, back_face_color,
-        build_scene_meshes, create_native_icon_atlas, dispatch_palette_command,
+        BevyImage, Button, CommandCatalog, CommandPaletteParameterError,
+        CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
+        CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState, DispatchCommand,
+        LightingChannel, LightingSettings, NativeIconAtlas, SceneDocument, ShadowFilter,
+        TextureAtlasLayout, ToolbarCommandLabel, back_face_color, build_scene_meshes,
+        command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
         dispatch_toolbar_command, line_mesh, native_segment_intersects_rect,
         native_triangle_intersects_rect, scene_counts, search_command_ids,
-        sync_command_palette_states, sync_toolbar_button_states, triangle_mesh,
+        submit_palette_parameters, sync_command_palette_parameter_ui, sync_command_palette_states,
+        sync_toolbar_button_states, triangle_mesh,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -2937,6 +3246,7 @@ mod tests {
                 query: "cuboid".to_owned(),
                 results: Vec::new(),
                 selected_index: 0,
+                ..default()
             })
             .add_systems(Update, super::refresh_command_palette);
 
@@ -2958,6 +3268,7 @@ mod tests {
                 "tool.builtin.push_pull".to_owned(),
             ],
             selected_index: 1,
+            ..default()
         })
         .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
         .insert_non_send(MeshcraftApp::new_native_session(
@@ -3033,9 +3344,132 @@ mod tests {
     }
 
     #[test]
+    fn palette_payload_parser_requires_a_json_object_and_preserves_typed_values() {
+        let payload = command_payload_from_json(
+            r#"{"dimensions":[2.0,3.0,4.0],"origin":[-1.0,0.0,-2.0],"enabled":true}"#,
+        )
+        .expect("valid command payload");
+        assert_eq!(1, payload.schema_version);
+        assert_eq!(3, payload.values.len());
+        assert_eq!(
+            serde_json::json!([2.0, 3.0, 4.0]),
+            payload.values["dimensions"]
+        );
+        assert_eq!(serde_json::json!(true), payload.values["enabled"]);
+        assert!(command_payload_from_json("[1, 2, 3]").is_err());
+        assert!(command_payload_from_json("{").is_err());
+    }
+
+    #[test]
+    fn palette_parameter_entry_dispatches_a_typed_command_payload() {
+        let mut palette = CommandPaletteState {
+            open: true,
+            pending_command: Some("geometry.add_cuboid".to_owned()),
+            parameter_json: r#"{"dimensions":[2.0,3.0,4.0],"origin":[-1.0,0.0,-2.0]}"#.to_owned(),
+            parameter_cursor: 0,
+            ..default()
+        };
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let previous_revision = session.document_revision();
+
+        assert!(submit_palette_parameters(&mut palette, &mut session));
+
+        assert!(!palette.open);
+        assert!(palette.pending_command.is_none());
+        assert!(session.document_revision() > previous_revision);
+        assert_eq!(1, scene_counts(&session.document_snapshot()).0);
+    }
+
+    #[test]
+    fn parameter_entry_rejection_keeps_the_command_and_explains_the_error() {
+        let mut palette = CommandPaletteState {
+            open: true,
+            pending_command: Some("geometry.add_cuboid".to_owned()),
+            parameter_json: "[]".to_owned(),
+            parameter_cursor: 2,
+            ..default()
+        };
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+
+        assert!(!submit_palette_parameters(&mut palette, &mut session));
+
+        assert!(palette.open);
+        assert_eq!(
+            Some("geometry.add_cuboid"),
+            palette.pending_command.as_deref()
+        );
+        assert!(
+            palette
+                .parameter_error
+                .as_deref()
+                .is_some_and(|error| error.contains("JSON object"))
+        );
+        assert_eq!(0, session.document_revision());
+    }
+
+    #[test]
+    fn palette_parameter_panel_shows_schema_input_and_errors() {
+        let mut app = App::new();
+        app.insert_resource(CommandPaletteState {
+            open: true,
+            pending_command: Some("geometry.add_cuboid".to_owned()),
+            parameter_json: "{}".to_owned(),
+            parameter_cursor: 1,
+            parameter_error: Some("Invalid dimensions".to_owned()),
+            ..default()
+        })
+        .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
+        .add_systems(Update, sync_command_palette_parameter_ui);
+        let panel = app
+            .world_mut()
+            .spawn((
+                CommandPaletteParameterPanel,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .id();
+        let hint = app
+            .world_mut()
+            .spawn((CommandPaletteParameterHint, Text::new(String::new())))
+            .id();
+        let input = app
+            .world_mut()
+            .spawn((CommandPaletteParameterInput, Text::new(String::new())))
+            .id();
+        let error = app
+            .world_mut()
+            .spawn((CommandPaletteParameterError, Text::new(String::new())))
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            Display::Flex,
+            app.world().get::<Node>(panel).unwrap().display
+        );
+        assert!(
+            app.world()
+                .get::<Text>(hint)
+                .unwrap()
+                .0
+                .contains("dimensions: array")
+        );
+        assert_eq!("> {|}", app.world().get::<Text>(input).unwrap().0);
+        assert_eq!(
+            "Invalid dimensions",
+            app.world().get::<Text>(error).unwrap().0
+        );
+    }
+
+    #[test]
     fn toolbar_and_palette_activation_dispatch_shared_commands() {
         let mut app = App::new();
         app.insert_resource(super::CommandPaletteState::default())
+            .insert_resource(super::CommandCatalog(MeshcraftApp::command_catalog()))
             .insert_non_send(MeshcraftApp::new_native_session(
                 Document::new(),
                 "Ready".to_owned(),
@@ -3064,6 +3498,46 @@ mod tests {
 
         let session = app.world().non_send::<MeshcraftApp>();
         assert_eq!("Line", session.active_tool_label());
+    }
+
+    #[test]
+    fn activating_a_parameterized_palette_command_opens_its_editor() {
+        let mut app = App::new();
+        app.insert_resource(super::CommandPaletteState {
+            open: true,
+            ..default()
+        })
+        .insert_resource(super::CommandCatalog(MeshcraftApp::command_catalog()))
+        .insert_non_send(MeshcraftApp::new_native_session(
+            Document::new(),
+            "Ready".to_owned(),
+            None,
+        ))
+        .add_observer(dispatch_palette_command);
+        let palette = app
+            .world_mut()
+            .spawn(super::CommandPaletteResult {
+                slot: 0,
+                command_id: Some("geometry.add_cuboid".to_owned()),
+                enabled: true,
+                checked: None,
+                disabled_reason: None,
+            })
+            .id();
+
+        app.world_mut().trigger(Activate { entity: palette });
+
+        let state = app.world().resource::<super::CommandPaletteState>();
+        assert!(state.open);
+        assert_eq!(
+            Some("geometry.add_cuboid"),
+            state.pending_command.as_deref()
+        );
+        assert_eq!("{}", state.parameter_json);
+        assert_eq!(
+            0,
+            app.world().non_send::<MeshcraftApp>().document_revision()
+        );
     }
 
     fn attribute_len(mesh: &Mesh, name: MeshVertexAttribute) -> usize {
