@@ -1912,6 +1912,21 @@ struct Preferences {
     recent_projects: Vec<String>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeUiPreferences {
+    pub ui_text_scale: f32,
+    pub auto_collapse_toolbars: bool,
+    pub toolbar_icon_size: u32,
+    pub show_permanent_grid: bool,
+    pub show_construction_guides: bool,
+    pub grid_normal_axis: GridNormalAxis,
+    pub grid_extent: u32,
+    pub normal_grid_width: f32,
+    pub thick_grid_width: f32,
+    pub toolbar_flow_top_down: bool,
+}
+
 fn deserialize_grid_normal_axis<'de, D>(deserializer: D) -> Result<GridNormalAxis, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -2089,6 +2104,22 @@ impl MeshcraftApp {
                         .unwrap_or(true)
             })
             .collect()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_ui_preferences(&self) -> NativeUiPreferences {
+        NativeUiPreferences {
+            ui_text_scale: self.preferences.ui_text_scale,
+            auto_collapse_toolbars: self.preferences.auto_collapse_toolbars,
+            toolbar_icon_size: self.preferences.toolbar_icon_size,
+            show_permanent_grid: self.preferences.show_permanent_grid,
+            show_construction_guides: self.preferences.show_construction_guides,
+            grid_normal_axis: self.preferences.grid_normal_axis,
+            grid_extent: self.preferences.grid_extent,
+            normal_grid_width: self.preferences.normal_grid_width,
+            thick_grid_width: self.preferences.thick_grid_width,
+            toolbar_flow_top_down: self.preferences.toolbar_flow_top_down,
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

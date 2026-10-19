@@ -4,8 +4,8 @@
 //! from resolved geometry and refreshes them only after a document generation or revision change.
 //! Spatially incremental geometry updates remain migration work.
 
-use crate::MeshcraftApp;
-use crate::viewport::{ConstructionGuide, ConstructionGuideKind, SnapResult};
+use crate::viewport::{ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapResult};
+use crate::{MeshcraftApp, NativeUiPreferences};
 use bevy::{
     asset::RenderAssetUsages,
     image::{Image as BevyImage, TextureAtlas, TextureAtlasLayout},
@@ -20,7 +20,7 @@ use bevy::{
     render::render_resource::{Extent3d, Face, TextureDimension, TextureFormat},
     text::{EditableText, TextCursorStyle, TextEdit},
     transform::TransformSystems,
-    ui::{InteractionDisabled, Pressed},
+    ui::{InteractionDisabled, Pressed, UiScale},
     ui_widgets::{
         Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TextInput, TrackClick,
     },
@@ -33,8 +33,6 @@ use meshcraft_core::{
     geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
     selection::{EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionTarget},
 };
-
-const GRID_EXTENT: i32 = 40;
 
 #[derive(Resource)]
 struct SceneDocument {
@@ -97,6 +95,10 @@ struct NativeToolbarWindow {
     index: usize,
     width: f32,
     height: f32,
+    item_count: usize,
+    preferences_revision: u64,
+    icon_size: u32,
+    flow_top_down: bool,
 }
 
 #[derive(Component)]
@@ -171,6 +173,111 @@ struct NativeModelSettingsInput {
     generation: u64,
     revision: u64,
     field: NativeModelSettingField,
+}
+
+#[derive(Resource, Clone)]
+struct NativeUiPreferencesState {
+    value: NativeUiPreferences,
+    revision: u64,
+}
+
+#[derive(Component)]
+struct NativeUiSettingsApplyButton;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NativeUiSettingInputField {
+    TextScale,
+    ToolbarIconSize,
+    GridExtent,
+    NormalGridWidth,
+    ThickGridWidth,
+}
+
+impl NativeUiSettingInputField {
+    fn key(self) -> &'static str {
+        match self {
+            Self::TextScale => "ui_text_scale",
+            Self::ToolbarIconSize => "toolbar_icon_size",
+            Self::GridExtent => "grid_extent",
+            Self::NormalGridWidth => "normal_grid_width",
+            Self::ThickGridWidth => "thick_grid_width",
+        }
+    }
+}
+
+#[derive(Component)]
+struct NativeUiSettingInput {
+    field: NativeUiSettingInputField,
+    revision: u64,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NativeUiSettingToggleField {
+    AutoCollapseToolbars,
+    PermanentGrid,
+    ConstructionGuides,
+}
+
+impl NativeUiSettingToggleField {
+    fn key(self) -> &'static str {
+        match self {
+            Self::AutoCollapseToolbars => "auto_collapse_toolbars",
+            Self::PermanentGrid => "show_permanent_grid",
+            Self::ConstructionGuides => "show_construction_guides",
+        }
+    }
+
+    fn value(self, preferences: &NativeUiPreferences) -> bool {
+        match self {
+            Self::AutoCollapseToolbars => preferences.auto_collapse_toolbars,
+            Self::PermanentGrid => preferences.show_permanent_grid,
+            Self::ConstructionGuides => preferences.show_construction_guides,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::AutoCollapseToolbars => "Auto-collapse toolbars",
+            Self::PermanentGrid => "Show permanent grid",
+            Self::ConstructionGuides => "Show construction guides",
+        }
+    }
+}
+
+#[derive(Component)]
+struct NativeUiSettingToggleButton(NativeUiSettingToggleField);
+
+#[derive(Component)]
+struct NativeUiSettingToggleLabel(NativeUiSettingToggleField);
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NativeUiSettingChoice {
+    GridAxis(GridNormalAxis),
+    ToolbarFlow(bool),
+}
+
+#[derive(Component)]
+struct NativeUiSettingChoiceButton(NativeUiSettingChoice);
+
+#[derive(Component)]
+struct NativeUiSettingChoiceLabel(NativeUiSettingChoice);
+
+#[derive(Component)]
+struct NativeToolbarItems {
+    item_count: usize,
+}
+
+#[derive(Component)]
+struct NativeToolbarButton;
+
+#[derive(Component)]
+struct NativeToolbarIcon;
+
+#[derive(Component)]
+struct NativePermanentGrid {
+    extent: u32,
+    normal_axis: GridNormalAxis,
+    visible: bool,
 }
 
 #[derive(Component)]
@@ -472,7 +579,6 @@ struct SceneMeshes {
     front_faces: Option<Mesh>,
     back_faces: Option<Mesh>,
     segments: Option<Mesh>,
-    grid: Mesh,
     target: Vec3,
     radius: f32,
 }
@@ -489,6 +595,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let (selected_object_count, selected_object_definition_id, selected_object_name) =
         selected_object_info(&document, &selection_targets);
     let object_entries = native_object_entries(&document, session.native_top_level_occurrences());
+    let ui_preferences = session.native_ui_preferences();
     let mut app = App::new();
     app.insert_resource(SceneDocument {
         document,
@@ -514,6 +621,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(ClearColor(Color::srgb(0.78, 0.86, 0.94)))
     .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
     .insert_resource(ToolbarCatalog(MeshcraftApp::native_toolbar_catalog()))
+    .insert_resource(NativeUiPreferencesState {
+        value: ui_preferences,
+        revision: 0,
+    })
     .insert_resource(CommandPaletteState::default())
     .insert_resource(NativeSelectionDrag::default())
     .insert_resource(NativeToolbarDrag::default())
@@ -557,6 +668,14 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             sync_command_palette_parameter_ui,
             sync_native_toolbar_visibility,
             sync_native_inspector_visibility,
+            (
+                sync_native_ui_preferences,
+                sync_native_ui_setting_inputs,
+                sync_native_ui_setting_labels,
+                sync_native_ui_preference_presentation,
+                update_native_permanent_grid,
+            )
+                .chain(),
             sync_native_context_menu_ui,
             drag_native_toolbars,
             sync_lighting_sliders,
@@ -570,11 +689,14 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                 sync_native_object_list,
             )
                 .chain(),
-            sync_toolbar_button_states,
-            sync_context_menu_command_states,
-            update_scene_meshes,
-            update_selection_meshes,
-            refresh_status,
+            (
+                sync_toolbar_button_states,
+                sync_context_menu_command_states,
+                update_scene_meshes,
+                update_selection_meshes,
+                refresh_status,
+            )
+                .chain(),
         )
             .chain(),
     )
@@ -721,6 +843,7 @@ fn create_native_icon_atlas(
 fn setup_scene(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    ui_preferences: Res<NativeUiPreferencesState>,
     lighting: Res<LightingSettings>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -735,11 +858,14 @@ fn setup_scene(
         yaw: 0.75,
         pitch: 0.55,
     });
-    spawn_mesh(
+    let grid = spawn_mesh(
         &mut commands,
         &mut meshes,
         &mut materials,
-        scene_meshes.grid,
+        build_oriented_grid_mesh(
+            ui_preferences.value.grid_extent as i32,
+            ui_preferences.value.grid_normal_axis,
+        ),
         StandardMaterial {
             unlit: true,
             cull_mode: None,
@@ -749,6 +875,18 @@ fn setup_scene(
         false,
         false,
     );
+    commands.entity(grid).insert((
+        NativePermanentGrid {
+            extent: ui_preferences.value.grid_extent,
+            normal_axis: ui_preferences.value.grid_normal_axis,
+            visible: ui_preferences.value.show_permanent_grid,
+        },
+        if ui_preferences.value.show_permanent_grid {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        },
+    ));
     if let Some(mesh) = scene_meshes.front_faces {
         scene_entities.front_faces = Some(spawn_mesh(
             &mut commands,
@@ -921,7 +1059,6 @@ fn build_scene_meshes(document: &Document) -> SceneMeshes {
         front_faces: triangle_mesh(front_positions, front_normals, front_colors),
         back_faces: triangle_mesh(back_positions, back_normals, back_colors),
         segments: line_mesh(line_positions, line_colors),
-        grid: build_grid_mesh(GRID_EXTENT),
         target,
         radius,
     }
@@ -1046,47 +1183,58 @@ fn line_mesh(positions: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> Option<Mesh> {
     Some(mesh)
 }
 
-fn build_grid_mesh(extent: i32) -> Mesh {
+fn build_oriented_grid_mesh(extent: i32, normal_axis: GridNormalAxis) -> Mesh {
     let mut positions = Vec::new();
     let mut colors = Vec::new();
     let minor = [0.52, 0.60, 0.68, 1.0];
-    for step in -extent..=extent {
-        let value = step as f32;
-        let color_x = if step == 0 {
-            [0.85, 0.26, 0.24, 1.0]
-        } else {
-            minor
-        };
-        let color_z = if step == 0 {
-            [0.24, 0.40, 0.86, 1.0]
-        } else {
-            minor
-        };
-        push_line(
-            &mut positions,
-            &mut colors,
-            Vec3::new(-extent as f32, 0.002, value),
-            Vec3::new(extent as f32, 0.002, value),
-            color_z,
-        );
-        push_line(
-            &mut positions,
-            &mut colors,
-            Vec3::new(value, 0.002, -extent as f32),
-            Vec3::new(value, 0.002, extent as f32),
-            color_x,
-        );
-    }
-    for step in -extent..=extent {
-        let value = step as f32;
-        push_line(
-            &mut positions,
-            &mut colors,
-            Vec3::new(0.0, value, 0.002),
-            Vec3::new(0.0, value + 1.0, 0.002),
+    let (u_axis, v_axis, normal) = match normal_axis {
+        GridNormalAxis::X => (Vec3::Y, Vec3::Z, Vec3::X),
+        GridNormalAxis::Y => (Vec3::X, Vec3::Z, Vec3::Y),
+        GridNormalAxis::Z => (Vec3::X, Vec3::Y, Vec3::Z),
+    };
+    let (u_color, v_color, normal_color) = match normal_axis {
+        GridNormalAxis::X => (
             [0.2, 0.67, 0.3, 1.0],
+            [0.24, 0.40, 0.86, 1.0],
+            [0.85, 0.26, 0.24, 1.0],
+        ),
+        GridNormalAxis::Y => (
+            [0.85, 0.26, 0.24, 1.0],
+            [0.24, 0.40, 0.86, 1.0],
+            [0.2, 0.67, 0.3, 1.0],
+        ),
+        GridNormalAxis::Z => (
+            [0.85, 0.26, 0.24, 1.0],
+            [0.2, 0.67, 0.3, 1.0],
+            [0.24, 0.40, 0.86, 1.0],
+        ),
+    };
+    for step in -extent..=extent {
+        let value = step as f32;
+        let u_line_color = if step == 0 { u_color } else { minor };
+        let v_line_color = if step == 0 { v_color } else { minor };
+        push_line(
+            &mut positions,
+            &mut colors,
+            u_axis * -(extent as f32) + v_axis * value,
+            u_axis * extent as f32 + v_axis * value,
+            u_line_color,
+        );
+        push_line(
+            &mut positions,
+            &mut colors,
+            u_axis * value + v_axis * -(extent as f32),
+            u_axis * value + v_axis * extent as f32,
+            v_line_color,
         );
     }
+    push_line(
+        &mut positions,
+        &mut colors,
+        normal * -(extent as f32),
+        normal * extent as f32,
+        normal_color,
+    );
     line_mesh(positions, colors).expect("the fixed grid contains lines")
 }
 
@@ -1131,6 +1279,7 @@ fn to_bevy_vec3(point: ModelVec3) -> Option<Vec3> {
 fn setup_ui(
     mut commands: Commands,
     scene: Res<SceneDocument>,
+    ui_preferences: Res<NativeUiPreferencesState>,
     lighting: Res<LightingSettings>,
     catalog: Res<CommandCatalog>,
     toolbars: Res<ToolbarCatalog>,
@@ -1185,16 +1334,17 @@ fn setup_ui(
             ));
         });
         let max_toolbar_width = (window_size.x - 370.0).clamp(220.0, 620.0);
-        let toolbar_columns = (((max_toolbar_width - 12.0) / 32.0).floor() as usize).max(1);
+        let icon_size = ui_preferences.value.toolbar_icon_size as f32;
+        let toolbar_columns = (((max_toolbar_width - 12.0) / icon_size).floor() as usize).max(1);
         let mut toolbar_left = 10.0;
         let mut toolbar_top = 62.0;
         let mut toolbar_column_width: f32 = 0.0;
         for (index, (title, registered_commands)) in toolbars.0.iter().enumerate() {
             let item_count = registered_commands.len().max(1);
             let rows = item_count.div_ceil(toolbar_columns);
-            let width = (item_count.min(toolbar_columns) as f32 * 32.0 + 12.0)
+            let width = (item_count.min(toolbar_columns) as f32 * icon_size + 12.0)
                 .min(max_toolbar_width);
-            let height = 25.0 + rows as f32 * 32.0;
+            let height = 25.0 + rows as f32 * icon_size;
             if toolbar_top + height > window_size.y - 36.0 && toolbar_top > 62.0 {
                 toolbar_left += toolbar_column_width + 8.0;
                 toolbar_top = 62.0;
@@ -1210,6 +1360,10 @@ fn setup_ui(
                     index,
                     width,
                     height,
+                    item_count,
+                    preferences_revision: ui_preferences.revision,
+                    icon_size: ui_preferences.value.toolbar_icon_size,
+                    flow_top_down: ui_preferences.value.toolbar_flow_top_down,
                 },
                 NativeUiInteraction,
                 Hovered::default(),
@@ -1248,17 +1402,22 @@ fn setup_ui(
                         TextColor(Color::WHITE),
                     ));
                 toolbar
-                    .spawn(Node {
+                    .spawn((NativeToolbarItems { item_count }, Node {
                         width: Val::Percent(100.0),
-                        flex_direction: FlexDirection::Row,
+                        height: px(height - 25.0),
+                        flex_direction: if ui_preferences.value.toolbar_flow_top_down {
+                            FlexDirection::Column
+                        } else {
+                            FlexDirection::Row
+                        },
                         flex_wrap: FlexWrap::Wrap,
                         column_gap: px(1),
                         row_gap: px(1),
                         ..default()
-                    })
+                    }))
                     .with_children(|buttons| {
                         for command in registered_commands {
-                            spawn_tool_button(buttons, command, &icon_atlas);
+                            spawn_tool_button(buttons, command, &icon_atlas, icon_size);
                         }
                     });
             });
@@ -1441,7 +1600,7 @@ fn setup_ui(
                     TextColor::WHITE,
                 ))
                 .observe(open_native_model_settings_editor);
-            inspector_section(panel, "UI Settings", "Text size  1x\nToolbar icon size  32 × 32\nPermanent grid  On\nPermanent grid normal  Y up\nGrid extent  20");
+            spawn_native_ui_settings(panel, &ui_preferences);
             inspector_section(panel, "Help / About", "Meshcraft · Bevy 0.20\nDesktop viewport · GPU rendering\nCommands: Ctrl+Shift+P");
             inspector_dynamic_section(
                 panel,
@@ -1939,6 +2098,259 @@ fn spawn_native_model_setting_input(
     ));
 }
 
+fn native_ui_setting_fields(
+    preferences: &NativeUiPreferences,
+) -> [(NativeUiSettingInputField, &'static str, String); 5] {
+    [
+        (
+            NativeUiSettingInputField::TextScale,
+            "UI text size",
+            format!("{:.2}", preferences.ui_text_scale),
+        ),
+        (
+            NativeUiSettingInputField::ToolbarIconSize,
+            "Toolbar icon/button size (px)",
+            preferences.toolbar_icon_size.to_string(),
+        ),
+        (
+            NativeUiSettingInputField::GridExtent,
+            "Permanent grid extent (steps)",
+            preferences.grid_extent.to_string(),
+        ),
+        (
+            NativeUiSettingInputField::NormalGridWidth,
+            "Normal line width (px)",
+            format!("{:.2}", preferences.normal_grid_width),
+        ),
+        (
+            NativeUiSettingInputField::ThickGridWidth,
+            "Thick line width (px)",
+            format!("{:.2}", preferences.thick_grid_width),
+        ),
+    ]
+}
+
+fn spawn_native_ui_settings(parent: &mut ChildSpawnerCommands, state: &NativeUiPreferencesState) {
+    inspector_header(parent, "UI Settings");
+    for (field, label, value) in native_ui_setting_fields(&state.value) {
+        spawn_native_ui_setting_input(parent, field, label, value, state.revision);
+        if field == NativeUiSettingInputField::TextScale {
+            spawn_native_ui_setting_toggle(
+                parent,
+                NativeUiSettingToggleField::AutoCollapseToolbars,
+                &state.value,
+            );
+        }
+    }
+    parent
+        .spawn((
+            Button,
+            NativeUiInteraction,
+            Hovered::default(),
+            NativeUiSettingsApplyButton,
+            Node {
+                width: Val::Percent(100.0),
+                height: px(27),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.17, 0.37, 0.29)),
+        ))
+        .with_child((
+            Text::new("Apply UI Settings"),
+            TextFont::from_font_size(12.0),
+            TextColor(Color::WHITE),
+        ))
+        .observe(apply_native_ui_preferences);
+
+    for field in [
+        NativeUiSettingToggleField::PermanentGrid,
+        NativeUiSettingToggleField::ConstructionGuides,
+    ] {
+        spawn_native_ui_setting_toggle(parent, field, &state.value);
+    }
+
+    parent.spawn((
+        Text::new("Permanent grid normal"),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::left(px(4)),
+            ..default()
+        },
+    ));
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Row,
+            column_gap: px(3),
+            ..default()
+        })
+        .with_children(|choices| {
+            for axis in [GridNormalAxis::Y, GridNormalAxis::X, GridNormalAxis::Z] {
+                spawn_native_ui_choice_button(
+                    choices,
+                    NativeUiSettingChoice::GridAxis(axis),
+                    axis.label(),
+                    state.value.grid_normal_axis == axis,
+                );
+            }
+        });
+
+    parent.spawn((
+        Text::new("Arrange toolbars"),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::left(px(4)),
+            ..default()
+        },
+    ));
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Row,
+            column_gap: px(3),
+            ..default()
+        })
+        .with_children(|choices| {
+            spawn_native_ui_choice_button(
+                choices,
+                NativeUiSettingChoice::ToolbarFlow(false),
+                "Flow L→R",
+                !state.value.toolbar_flow_top_down,
+            );
+            spawn_native_ui_choice_button(
+                choices,
+                NativeUiSettingChoice::ToolbarFlow(true),
+                "Flow T→D",
+                state.value.toolbar_flow_top_down,
+            );
+        });
+    parent.spawn((
+        Text::new("Grid display and toolbar changes apply immediately. Pixel line widths and cross-session preference storage remain in progress."),
+        TextFont::from_font_size(11.0),
+        TextColor(Color::srgb(0.72, 0.74, 0.78)),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(4)),
+            ..default()
+        },
+    ));
+}
+
+fn spawn_native_ui_setting_toggle(
+    parent: &mut ChildSpawnerCommands,
+    field: NativeUiSettingToggleField,
+    preferences: &NativeUiPreferences,
+) {
+    parent
+        .spawn((
+            Button,
+            NativeUiInteraction,
+            Hovered::default(),
+            NativeUiSettingToggleButton(field),
+            Node {
+                width: Val::Percent(100.0),
+                height: px(25),
+                align_items: AlignItems::Center,
+                padding: UiRect::horizontal(px(6)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+        ))
+        .with_child((
+            Text::new(format!(
+                "{}: {}",
+                field.label(),
+                if field.value(preferences) {
+                    "On"
+                } else {
+                    "Off"
+                }
+            )),
+            TextFont::from_font_size(12.0),
+            TextColor(Color::WHITE),
+            NativeUiSettingToggleLabel(field),
+        ))
+        .observe(toggle_native_ui_setting);
+}
+
+fn spawn_native_ui_setting_input(
+    parent: &mut ChildSpawnerCommands,
+    field: NativeUiSettingInputField,
+    label: &str,
+    value: String,
+    revision: u64,
+) {
+    parent.spawn((
+        Text::new(label.to_owned()),
+        TextFont::from_font_size(12.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::left(px(4)),
+            ..default()
+        },
+    ));
+    parent.spawn((
+        TextInput,
+        EditableText::new(value),
+        TextCursorStyle::default(),
+        NativeUiInteraction,
+        Hovered::default(),
+        NativeUiSettingInput { field, revision },
+        Node {
+            width: Val::Percent(100.0),
+            height: px(26),
+            padding: UiRect::horizontal(px(6)),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.16, 0.17, 0.18)),
+        BorderColor::all(Color::srgb(0.08, 0.08, 0.08)),
+        TextFont::from_font_size(13.0),
+        TextColor(Color::WHITE),
+    ));
+}
+
+fn spawn_native_ui_choice_button(
+    parent: &mut ChildSpawnerCommands,
+    choice: NativeUiSettingChoice,
+    label: &str,
+    selected: bool,
+) {
+    parent
+        .spawn((
+            Button,
+            NativeUiInteraction,
+            Hovered::default(),
+            NativeUiSettingChoiceButton(choice),
+            Node {
+                flex_grow: 1.0,
+                height: px(26),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(if selected {
+                Color::srgb(0.12, 0.38, 0.62)
+            } else {
+                Color::srgb(0.22, 0.24, 0.28)
+            }),
+        ))
+        .with_child((
+            Text::new(label.to_owned()),
+            TextFont::from_font_size(11.0),
+            TextColor(Color::WHITE),
+            NativeUiSettingChoiceLabel(choice),
+        ))
+        .observe(update_native_ui_setting_choice);
+}
+
 fn spawn_native_object_rows(parent: &mut ChildSpawnerCommands, scene: &SceneDocument) {
     for entry in &scene.object_entries {
         let selected = scene.selection_targets.iter().any(|target| {
@@ -2139,6 +2551,7 @@ fn spawn_tool_button(
     parent: &mut ChildSpawnerCommands,
     command: &CommandDescriptor,
     icon_atlas: &NativeIconAtlas,
+    icon_size: f32,
 ) {
     let command_id = command.id.as_str().to_owned();
     let icon_index = command
@@ -2153,9 +2566,10 @@ fn spawn_tool_button(
             NativeUiInteraction,
             Hovered::default(),
             DispatchCommand(command_id.clone()),
+            NativeToolbarButton,
             Node {
-                width: px(31),
-                height: px(31),
+                width: px(icon_size - 1.0),
+                height: px(icon_size - 1.0),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 ..default()
@@ -2172,9 +2586,10 @@ fn spawn_tool_button(
                             index,
                         },
                     ),
+                    NativeToolbarIcon,
                     Node {
-                        width: px(28),
-                        height: px(28),
+                        width: px(icon_size - 4.0),
+                        height: px(icon_size - 4.0),
                         ..default()
                     },
                 ));
@@ -2197,6 +2612,113 @@ fn sync_native_toolbar_visibility(
     for (toolbar, mut node) in &mut toolbars {
         let shown = visibility.get(toolbar.index).copied().unwrap_or(false);
         node.display = if shown { Display::Flex } else { Display::None };
+    }
+}
+
+fn sync_native_ui_preference_presentation(
+    preferences: Res<NativeUiPreferencesState>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut ui_scale: ResMut<UiScale>,
+    mut toolbars: Query<(&mut NativeToolbarWindow, &mut Node)>,
+    mut toolbar_buttons: Query<&mut Node, With<NativeToolbarButton>>,
+    mut toolbar_icons: Query<&mut Node, With<NativeToolbarIcon>>,
+    mut toolbar_items: Query<(&NativeToolbarItems, &mut Node)>,
+) {
+    if (ui_scale.0 - preferences.value.ui_text_scale).abs() > f32::EPSILON {
+        ui_scale.0 = preferences.value.ui_text_scale;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let icon_size = preferences.value.toolbar_icon_size;
+    let max_toolbar_width = (window.width() - 370.0).clamp(220.0, 620.0);
+    let max_vertical_rows = ((window.height() - 150.0) / icon_size as f32)
+        .floor()
+        .max(1.0) as usize;
+    for (mut toolbar, mut node) in &mut toolbars {
+        if toolbar.preferences_revision == preferences.revision {
+            continue;
+        }
+        if toolbar.icon_size != icon_size
+            || toolbar.flow_top_down != preferences.value.toolbar_flow_top_down
+        {
+            let (columns, rows) = if preferences.value.toolbar_flow_top_down {
+                let rows = toolbar.item_count.min(max_vertical_rows).max(1);
+                (toolbar.item_count.div_ceil(rows), rows)
+            } else {
+                let columns =
+                    (((max_toolbar_width - 12.0) / icon_size as f32).floor() as usize).max(1);
+                (columns, toolbar.item_count.div_ceil(columns))
+            };
+            toolbar.width = (toolbar.item_count.min(columns) as f32 * icon_size as f32 + 12.0)
+                .min(max_toolbar_width);
+            toolbar.height = 25.0 + rows as f32 * icon_size as f32;
+            toolbar.icon_size = icon_size;
+            toolbar.flow_top_down = preferences.value.toolbar_flow_top_down;
+            node.width = px(toolbar.width);
+            node.height = px(toolbar.height);
+            node.left = match node.left {
+                Val::Px(left) => px(left.clamp(0.0, (window.width() - toolbar.width).max(0.0))),
+                other => other,
+            };
+            node.top = match node.top {
+                Val::Px(top) => px(top.clamp(0.0, (window.height() - toolbar.height).max(0.0))),
+                other => other,
+            };
+        }
+        toolbar.preferences_revision = preferences.revision;
+    }
+    for mut node in &mut toolbar_buttons {
+        node.width = px(icon_size as f32 - 1.0);
+        node.height = px(icon_size as f32 - 1.0);
+    }
+    for mut node in &mut toolbar_icons {
+        node.width = px(icon_size as f32 - 4.0);
+        node.height = px(icon_size as f32 - 4.0);
+    }
+    for (items, mut node) in &mut toolbar_items {
+        node.flex_direction = if preferences.value.toolbar_flow_top_down {
+            FlexDirection::Column
+        } else {
+            FlexDirection::Row
+        };
+        let rows = if preferences.value.toolbar_flow_top_down {
+            items.item_count.min(max_vertical_rows).max(1)
+        } else {
+            let columns = (((max_toolbar_width - 12.0) / icon_size as f32).floor() as usize).max(1);
+            items.item_count.div_ceil(columns)
+        };
+        node.height = px(rows as f32 * icon_size as f32);
+    }
+}
+
+fn update_native_permanent_grid(
+    mut commands: Commands,
+    preferences: Res<NativeUiPreferencesState>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut grids: Query<(Entity, &mut NativePermanentGrid, &mut Visibility)>,
+) {
+    for (entity, mut grid, mut visibility) in &mut grids {
+        if grid.extent != preferences.value.grid_extent
+            || grid.normal_axis != preferences.value.grid_normal_axis
+        {
+            commands
+                .entity(entity)
+                .insert(Mesh3d(meshes.add(build_oriented_grid_mesh(
+                    preferences.value.grid_extent as i32,
+                    preferences.value.grid_normal_axis,
+                ))));
+            grid.extent = preferences.value.grid_extent;
+            grid.normal_axis = preferences.value.grid_normal_axis;
+        }
+        if grid.visible != preferences.value.show_permanent_grid {
+            *visibility = if preferences.value.show_permanent_grid {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            grid.visible = preferences.value.show_permanent_grid;
+        }
     }
 }
 
@@ -2501,6 +3023,158 @@ fn apply_native_model_settings(
         return;
     }
     session.dispatch_command("model.update_settings", &payload);
+}
+
+fn apply_native_ui_preferences(
+    event: On<Activate>,
+    buttons: Query<(), With<NativeUiSettingsApplyButton>>,
+    inputs: Query<(&NativeUiSettingInput, &EditableText)>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if !buttons.contains(event.entity) {
+        return;
+    }
+    let mut payload = CommandPayload::default();
+    for (input, editor) in &inputs {
+        let source = editor.value().to_string();
+        let value = match input.field {
+            NativeUiSettingInputField::TextScale
+            | NativeUiSettingInputField::NormalGridWidth
+            | NativeUiSettingInputField::ThickGridWidth => source.parse::<f64>().map_or_else(
+                |_| serde_json::json!(source),
+                |value| serde_json::json!(value),
+            ),
+            NativeUiSettingInputField::ToolbarIconSize | NativeUiSettingInputField::GridExtent => {
+                source.parse::<u32>().map_or_else(
+                    |_| serde_json::json!(source),
+                    |value| serde_json::json!(value),
+                )
+            }
+        };
+        payload.values.insert(input.field.key().to_owned(), value);
+    }
+    if payload.values.len() != 5 {
+        return;
+    }
+    session.dispatch_command("ui.update_preferences", &payload);
+}
+
+fn toggle_native_ui_setting(
+    event: On<Activate>,
+    buttons: Query<&NativeUiSettingToggleButton>,
+    preferences: Res<NativeUiPreferencesState>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    let Ok(button) = buttons.get(event.entity) else {
+        return;
+    };
+    let mut payload = CommandPayload::default();
+    payload.values.insert(
+        button.0.key().to_owned(),
+        serde_json::json!(!button.0.value(&preferences.value)),
+    );
+    session.dispatch_command("ui.update_preferences", &payload);
+}
+
+fn update_native_ui_setting_choice(
+    event: On<Activate>,
+    buttons: Query<&NativeUiSettingChoiceButton>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    let Ok(button) = buttons.get(event.entity) else {
+        return;
+    };
+    let (key, value) = match button.0 {
+        NativeUiSettingChoice::GridAxis(axis) => ("grid_normal_axis", serde_json::json!(axis.id())),
+        NativeUiSettingChoice::ToolbarFlow(top_down) => {
+            ("toolbar_flow_top_down", serde_json::json!(top_down))
+        }
+    };
+    let mut payload = CommandPayload::default();
+    payload.values.insert(key.to_owned(), value);
+    session.dispatch_command("ui.update_preferences", &payload);
+}
+
+fn sync_native_ui_preferences(
+    mut preferences: ResMut<NativeUiPreferencesState>,
+    session: NonSend<MeshcraftApp>,
+) {
+    let next = session.native_ui_preferences();
+    if preferences.value != next {
+        preferences.value = next;
+        preferences.revision = preferences.revision.saturating_add(1);
+    }
+}
+
+fn sync_native_ui_setting_inputs(
+    preferences: Res<NativeUiPreferencesState>,
+    input_focus: Res<InputFocus>,
+    mut inputs: Query<(Entity, &mut EditableText, &mut NativeUiSettingInput)>,
+) {
+    for (entity, mut editor, mut state) in &mut inputs {
+        if state.revision == preferences.revision || input_focus.get() == Some(entity) {
+            continue;
+        }
+        let Some((_, _, value)) = native_ui_setting_fields(&preferences.value)
+            .into_iter()
+            .find(|(field, _, _)| *field == state.field)
+        else {
+            continue;
+        };
+        if editor.value().to_string() != value {
+            editor.editor_mut().set_text(&value);
+            editor.queue_edit(TextEdit::TextEnd(false));
+        }
+        state.revision = preferences.revision;
+    }
+}
+
+fn sync_native_ui_setting_labels(
+    preferences: Res<NativeUiPreferencesState>,
+    mut toggles: Query<(&NativeUiSettingToggleLabel, &mut Text)>,
+    mut choices: Query<(&NativeUiSettingChoiceLabel, &mut TextColor)>,
+    mut choice_buttons: Query<(&NativeUiSettingChoiceButton, &mut BackgroundColor)>,
+) {
+    for (label, mut text) in &mut toggles {
+        let value = label.0.value(&preferences.value);
+        let next = format!("{}: {}", label.0.label(), if value { "On" } else { "Off" });
+        if text.0 != next {
+            text.0 = next;
+        }
+    }
+    for (label, mut color) in &mut choices {
+        let selected = native_ui_setting_choice_selected(label.0, &preferences.value);
+        let next = if selected {
+            Color::srgb(0.72, 0.88, 1.0)
+        } else {
+            Color::WHITE
+        };
+        if color.0 != next {
+            color.0 = next;
+        }
+    }
+    for (button, mut background) in &mut choice_buttons {
+        let next = if native_ui_setting_choice_selected(button.0, &preferences.value) {
+            Color::srgb(0.12, 0.38, 0.62)
+        } else {
+            Color::srgb(0.22, 0.24, 0.28)
+        };
+        if background.0 != next {
+            background.0 = next;
+        }
+    }
+}
+
+fn native_ui_setting_choice_selected(
+    choice: NativeUiSettingChoice,
+    preferences: &NativeUiPreferences,
+) -> bool {
+    match choice {
+        NativeUiSettingChoice::GridAxis(axis) => preferences.grid_normal_axis == axis,
+        NativeUiSettingChoice::ToolbarFlow(top_down) => {
+            preferences.toolbar_flow_top_down == top_down
+        }
+    }
 }
 
 fn rename_selected_native_object(
@@ -4562,25 +5236,29 @@ mod tests {
         BevyImage, Button, CommandCatalog, CommandPaletteOverlay, CommandPaletteParameterError,
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState,
-        ConstructionGuideKind, DispatchCommand, EditContext, InputFocus, LightingChannel,
-        LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
+        ConstructionGuideKind, DispatchCommand, EditContext, GridNormalAxis, InputFocus,
+        LightingChannel, LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
         NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
         NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
         NativeObjectListRow, NativeObjectNameInput, NativeRenameObjectButton,
         NativeRightClickGesture, NativeToolbarDrag, NativeToolsContextMenuState,
-        NativeUiInteraction, NativeViewportOverlay, SceneDocument, SelectionStatsText,
-        ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings, back_face_color,
-        build_scene_meshes, command_payload_from_json, create_native_icon_atlas,
-        dispatch_palette_command, dispatch_toolbar_command, line_mesh, native_model_setting_fields,
-        native_object_entries, native_segment_intersects_rect, native_triangle_intersects_rect,
-        object_selection_summary, objects_summary, open_native_model_settings_editor,
-        polyline_settings_summary, refresh_status, rename_selected_native_object,
-        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
-        selected_object_info, selected_vertex_positions, selection_summary,
-        submit_palette_parameters, sync_command_palette_parameter_ui, sync_command_palette_states,
-        sync_native_cursor_dot, sync_native_model_settings_inputs, sync_native_object_list,
-        sync_native_settings_sections, sync_toolbar_button_states, tool_context_groups,
-        triangle_mesh, update_right_click_gesture,
+        NativeUiInteraction, NativeUiPreferencesState, NativeUiSettingChoice,
+        NativeUiSettingChoiceButton, NativeUiSettingInput, NativeUiSettingInputField,
+        NativeUiSettingToggleButton, NativeUiSettingToggleField, NativeUiSettingsApplyButton,
+        NativeViewportOverlay, SceneDocument, SelectionStatsText, ShadowFilter, SnapResult,
+        TextureAtlasLayout, apply_native_model_settings, apply_native_ui_preferences,
+        back_face_color, build_oriented_grid_mesh, build_scene_meshes, command_payload_from_json,
+        create_native_icon_atlas, dispatch_palette_command, dispatch_toolbar_command, line_mesh,
+        native_model_setting_fields, native_object_entries, native_segment_intersects_rect,
+        native_triangle_intersects_rect, object_selection_summary, objects_summary,
+        open_native_model_settings_editor, polyline_settings_summary, refresh_status,
+        rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
+        search_command_ids, select_native_object_row, selected_object_info,
+        selected_vertex_positions, selection_summary, submit_palette_parameters,
+        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
+        sync_native_model_settings_inputs, sync_native_object_list, sync_native_settings_sections,
+        sync_toolbar_button_states, toggle_native_ui_setting, tool_context_groups, triangle_mesh,
+        update_native_ui_setting_choice, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -4625,9 +5303,36 @@ mod tests {
             attribute_len(built.segments.as_ref().unwrap(), Mesh::ATTRIBUTE_POSITION),
             24
         );
-        assert!(attribute_len(&built.grid, Mesh::ATTRIBUTE_POSITION) > 300);
+        assert!(
+            attribute_len(
+                &build_oriented_grid_mesh(40, GridNormalAxis::Y),
+                Mesh::ATTRIBUTE_POSITION
+            ) > 300
+        );
         assert_eq!(built.target, Vec3::new(1.0, 1.5, 2.0));
         assert_eq!(scene_counts(&document), (1, 12, 12));
+    }
+
+    #[test]
+    fn native_permanent_grid_uses_the_selected_normal_axis() {
+        for (axis, normal_endpoint) in [
+            (GridNormalAxis::X, [2.0, 0.0, 0.0]),
+            (GridNormalAxis::Y, [0.0, 2.0, 0.0]),
+            (GridNormalAxis::Z, [0.0, 0.0, 2.0]),
+        ] {
+            let grid = build_oriented_grid_mesh(2, axis);
+            let Some(VertexAttributeValues::Float32x3(positions)) =
+                grid.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("native grid has position data");
+            };
+            assert!(positions.contains(&normal_endpoint));
+            assert!(
+                positions
+                    .iter()
+                    .all(|point| point.iter().all(|value| value.is_finite()))
+            );
+        }
     }
 
     #[test]
@@ -5305,6 +6010,134 @@ mod tests {
                 .value()
                 .to_string()
         );
+    }
+
+    #[test]
+    fn native_ui_preferences_apply_atomically_and_validate_ranges() {
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let mut app = App::new();
+        app.insert_non_send(session)
+            .add_observer(apply_native_ui_preferences);
+        let values = [
+            (NativeUiSettingInputField::TextScale, "1.25"),
+            (NativeUiSettingInputField::ToolbarIconSize, "40"),
+            (NativeUiSettingInputField::GridExtent, "12"),
+            (NativeUiSettingInputField::NormalGridWidth, "1.5"),
+            (NativeUiSettingInputField::ThickGridWidth, "4"),
+        ];
+        let mut grid_extent = None;
+        let mut text_scale = None;
+        for (field, value) in values {
+            let entity = app
+                .world_mut()
+                .spawn((
+                    NativeUiSettingInput { field, revision: 0 },
+                    EditableText::new(value),
+                ))
+                .id();
+            if field == NativeUiSettingInputField::GridExtent {
+                grid_extent = Some(entity);
+            } else if field == NativeUiSettingInputField::TextScale {
+                text_scale = Some(entity);
+            }
+        }
+        let button = app.world_mut().spawn(NativeUiSettingsApplyButton).id();
+        app.world_mut().trigger(Activate { entity: button });
+
+        session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        let applied = session.native_ui_preferences();
+        assert_eq!(1.25, applied.ui_text_scale);
+        assert_eq!(40, applied.toolbar_icon_size);
+        assert_eq!(12, applied.grid_extent);
+        assert_eq!(1.5, applied.normal_grid_width);
+        assert_eq!(4.0, applied.thick_grid_width);
+        app.insert_non_send(session);
+
+        app.world_mut()
+            .get_mut::<EditableText>(grid_extent.expect("grid extent input was created"))
+            .expect("grid extent input remains available")
+            .editor_mut()
+            .set_text("0");
+        app.world_mut()
+            .get_mut::<EditableText>(text_scale.expect("text size input was created"))
+            .expect("text size input remains available")
+            .editor_mut()
+            .set_text("1.5");
+        app.world_mut().trigger(Activate { entity: button });
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert_eq!(applied, session.native_ui_preferences());
+        assert!(
+            session
+                .status_text()
+                .contains("grid_extent must be between 1 and 1000")
+        );
+    }
+
+    #[test]
+    fn native_ui_preference_toggles_and_choices_use_shared_settings_command() {
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let initial = session.native_ui_preferences();
+        let mut app = App::new();
+        app.insert_non_send(session)
+            .insert_resource(NativeUiPreferencesState {
+                value: initial,
+                revision: 0,
+            })
+            .add_observer(toggle_native_ui_setting)
+            .add_observer(update_native_ui_setting_choice);
+        let auto_collapse = app
+            .world_mut()
+            .spawn(NativeUiSettingToggleButton(
+                NativeUiSettingToggleField::AutoCollapseToolbars,
+            ))
+            .id();
+        let permanent_grid = app
+            .world_mut()
+            .spawn(NativeUiSettingToggleButton(
+                NativeUiSettingToggleField::PermanentGrid,
+            ))
+            .id();
+        let guides = app
+            .world_mut()
+            .spawn(NativeUiSettingToggleButton(
+                NativeUiSettingToggleField::ConstructionGuides,
+            ))
+            .id();
+        let grid_axis = app
+            .world_mut()
+            .spawn(NativeUiSettingChoiceButton(
+                NativeUiSettingChoice::GridAxis(GridNormalAxis::X),
+            ))
+            .id();
+        let flow = app
+            .world_mut()
+            .spawn(NativeUiSettingChoiceButton(
+                NativeUiSettingChoice::ToolbarFlow(true),
+            ))
+            .id();
+
+        for entity in [auto_collapse, permanent_grid, guides, grid_axis, flow] {
+            app.world_mut().trigger(Activate { entity });
+        }
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        let preferences = session.native_ui_preferences();
+        assert!(preferences.auto_collapse_toolbars);
+        assert!(!preferences.show_permanent_grid);
+        assert!(!preferences.show_construction_guides);
+        assert_eq!(GridNormalAxis::X, preferences.grid_normal_axis);
+        assert!(preferences.toolbar_flow_top_down);
     }
 
     #[test]
