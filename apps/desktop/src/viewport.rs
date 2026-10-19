@@ -753,7 +753,7 @@ impl GridNormalAxis {
         }
     }
 
-    fn vector(self) -> Vec3 {
+    pub(crate) fn vector(self) -> Vec3 {
         match self {
             Self::X => Vec3::X,
             Self::Y => Vec3::Y,
@@ -2895,6 +2895,50 @@ impl Viewport {
             }
         }
         nearest.map(|(_, _, snap)| snap)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_cursor_axes(
+        &mut self,
+        document: &Document,
+        scope: SnapScope<'_>,
+        snap: SnapResult,
+        ground_normal: Vec3,
+    ) -> Option<[Vec3; 3]> {
+        let segment_axis = if snap.kind == SnapKind::Line {
+            if self
+                .native_pick_index
+                .as_ref()
+                .is_none_or(|index| index.revision() != document.revision())
+            {
+                self.native_pick_index = NativeSpatialIndex::build(document).ok();
+            }
+            self.native_pick_index.as_ref().and_then(|index| {
+                let candidates = index.query_point(snap.point, 1.0e-6);
+                let mut nearest = None::<(f64, Vec3)>;
+                for item in candidates {
+                    if !scope.contains(document, &item.target.occurrence) {
+                        continue;
+                    }
+                    let NativeSpatialPrimitive::Segment([start, end]) = item.primitive else {
+                        continue;
+                    };
+                    let Some(axis) = (end - start).try_normalized(1.0e-12) else {
+                        continue;
+                    };
+                    let distance = snap
+                        .point
+                        .distance(closest_point_on_segment(snap.point, start, end));
+                    if distance <= 1.0e-5 && nearest.is_none_or(|(current, _)| distance < current) {
+                        nearest = Some((distance, axis));
+                    }
+                }
+                nearest.map(|(_, axis)| axis)
+            })
+        } else {
+            None
+        };
+        cursor_axes(snap.normal, segment_axis, ground_normal)
     }
 
     pub fn pick_selection_target_for_kind(
@@ -5158,7 +5202,7 @@ mod tests {
         triangle_back_face_offset, visible_line_fragments,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
-    use meshcraft_core::document::{TriangleId, VertexId};
+    use meshcraft_core::document::{Document, TriangleId, VertexId};
     use meshcraft_core::geometry::Vec3;
     use serde_json::json;
     use std::collections::BTreeSet;
@@ -5387,6 +5431,30 @@ mod tests {
             cursor_axes(Vec3::Y, Some(Vec3::Y), Vec3::Y).expect("vertical segment has basis");
         assert!(vertical_red.y.abs() < 1.0e-12);
         assert!(vertical_red.dot(vertical_blue).abs() < 1.0e-12);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_segment_cursor_axis_uses_the_spatial_index() {
+        let mut document = Document::new();
+        document
+            .add_line_segment("axis", Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0))
+            .expect("line segment is valid");
+        let snap = SnapResult {
+            point: Vec3::new(2.0, 0.0, 0.0),
+            normal: Vec3::Y,
+            kind: SnapKind::Line,
+            screen_distance: 0.0,
+        };
+        let mut viewport = Viewport::default();
+        let [red, green, blue] = viewport
+            .native_cursor_axes(&document, SnapScope::Document, snap, Vec3::Y)
+            .expect("segment snap has an oriented cursor basis");
+
+        assert!(blue.distance(Vec3::X) < 1.0e-12);
+        assert!(red.y.abs() < 1.0e-12);
+        assert!(red.dot(green).abs() < 1.0e-12);
+        assert!(green.dot(blue).abs() < 1.0e-12);
     }
 
     #[test]

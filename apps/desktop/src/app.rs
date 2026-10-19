@@ -2339,6 +2339,36 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_native_cursor_snap(&mut self, snap: Option<SnapResult>) {
+        self.cursor_snap = snap;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_construction_guides(&self) -> &[ConstructionGuide] {
+        &self.guides
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_guides_visible(&self) -> bool {
+        self.preferences.show_construction_guides
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_cursor_axes(&mut self, snap: SnapResult) -> Option<[Vec3; 3]> {
+        let scope = match &self.selection.context {
+            EditContext::Document => SnapScope::Document,
+            EditContext::Definition(definition) => SnapScope::Definition(*definition),
+            EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
+        };
+        self.viewport.native_cursor_axes(
+            &self.document,
+            scope,
+            snap,
+            self.preferences.grid_normal_axis.vector(),
+        )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn pick_native_target(
         &mut self,
         origin: Vec3,

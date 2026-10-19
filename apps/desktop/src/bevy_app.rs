@@ -5,6 +5,7 @@
 //! Spatially incremental geometry updates remain migration work.
 
 use crate::MeshcraftApp;
+use crate::viewport::{ConstructionGuide, ConstructionGuideKind, SnapResult};
 use bevy::{
     asset::RenderAssetUsages,
     image::{Image as BevyImage, TextureAtlas, TextureAtlasLayout},
@@ -44,6 +45,7 @@ struct SceneDocument {
     selected_faces: usize,
     selected_edges: usize,
     selection_targets: Vec<SelectionTarget>,
+    selected_vertex_positions: Vec<ModelVec3>,
     occurrences: usize,
     triangles: usize,
     segments: usize,
@@ -185,6 +187,15 @@ struct SelectionWindowLabel;
 
 #[derive(Component)]
 struct SelectionStatsText;
+
+#[derive(Component)]
+struct NativeCursorDot;
+
+#[derive(Component)]
+struct NativeSelectedVertexDotLayer;
+
+#[derive(Component)]
+struct NativeSelectedVertexDot(usize);
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 struct LightingSettings {
@@ -354,6 +365,24 @@ struct RenderedSceneRevision {
 #[derive(Resource)]
 struct RenderedSelectionRevision(u64);
 
+#[derive(Resource, Default)]
+struct NativeViewportOverlay {
+    cursor_snap: Option<SnapResult>,
+    cursor_axes: Option<[ModelVec3; 3]>,
+    cursor_screen: Option<Vec2>,
+    guides: Vec<ConstructionGuide>,
+    guides_visible: bool,
+    grid_size: f64,
+}
+
+impl NativeViewportOverlay {
+    fn clear_cursor(&mut self) {
+        self.cursor_snap = None;
+        self.cursor_axes = None;
+        self.cursor_screen = None;
+    }
+}
+
 struct SelectionMeshes {
     faces: Option<Mesh>,
     edges: Option<Mesh>,
@@ -375,6 +404,8 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let revision = session.document_revision();
     let (occurrences, triangles, segments) = scene_counts(&document);
     let selection = session.native_selection_summary();
+    let selection_targets = session.native_selection_targets();
+    let selected_vertex_positions = selected_vertex_positions(&document, &selection_targets);
     let mut app = App::new();
     app.insert_resource(SceneDocument {
         document,
@@ -387,7 +418,8 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         selected_vertices: selection.vertices,
         selected_faces: selection.faces,
         selected_edges: selection.edges,
-        selection_targets: session.native_selection_targets(),
+        selection_targets,
+        selected_vertex_positions,
         occurrences,
         triangles,
         segments,
@@ -400,6 +432,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(NativeToolbarDrag::default())
     .insert_resource(NativeToolsContextMenuState::default())
     .insert_resource(NativeRightClickGesture::default())
+    .insert_resource(NativeViewportOverlay::default())
     .insert_resource(RenderedSelectionRevision(0))
     .insert_resource(LightingSettings::default())
     .insert_resource(OrbitCamera {
@@ -427,7 +460,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .add_systems(
         Update,
         (
-            route_native_escape,
+            (route_native_escape, route_native_guide_shortcuts).chain(),
             orbit_camera,
             toggle_command_palette,
             handle_command_palette_keyboard,
@@ -452,7 +485,13 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     )
     .add_systems(
         PostUpdate,
-        (native_viewport_pointer, refresh_selection_window)
+        (
+            native_viewport_pointer,
+            refresh_selection_window,
+            draw_native_viewport_overlays,
+            sync_native_selected_vertex_dots,
+            sync_native_cursor_dot,
+        )
             .chain()
             .after(TransformSystems::Propagate),
     );
@@ -475,6 +514,22 @@ fn scene_counts(document: &Document) -> (usize, usize, usize) {
         }
     }
     (occurrences.len().saturating_sub(1), triangles, segments)
+}
+
+fn selected_vertex_positions(document: &Document, selection: &[SelectionTarget]) -> Vec<ModelVec3> {
+    selection
+        .iter()
+        .filter_map(|target| {
+            let SelectedEntity::Vertex(vertex_id) = &target.entity else {
+                return None;
+            };
+            let resolved = document.resolve_occurrence(&target.occurrence)?;
+            let geometry = document.effective_geometry(&target.occurrence)?;
+            let vertex = geometry.vertices.get(vertex_id)?;
+            let position = resolved.world_transform.transform_point(vertex.position);
+            position.is_finite().then_some(position)
+        })
+        .collect()
 }
 
 fn create_native_icon_atlas(
@@ -951,6 +1006,8 @@ fn setup_ui(
     commands.entity(root).with_children(|root| {
         root.spawn((
             NativeInspectorPanel,
+            NativeUiInteraction,
+            Hovered::default(),
             Node {
                 position_type: PositionType::Absolute,
                 top: px(10),
@@ -1063,6 +1120,8 @@ fn setup_ui(
         }
         root.spawn((
             NativeInspectorPanel,
+            NativeUiInteraction,
+            Hovered::default(),
             Node {
                 position_type: PositionType::Absolute,
                 top: px(62),
@@ -1110,6 +1169,8 @@ fn setup_ui(
             panel
                 .spawn((
                     Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
                     NativeModelSettingsEditorButton,
                     Node {
                         width: Val::Percent(100.0),
@@ -1160,6 +1221,8 @@ fn setup_ui(
             panel
                 .spawn((
                     Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
                     ShadowFilterButton,
                     Node {
                         width: Val::Percent(100.0),
@@ -1180,6 +1243,8 @@ fn setup_ui(
             panel
                 .spawn((
                     Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
                     CsmButton,
                     Node {
                         width: Val::Percent(100.0),
@@ -1209,6 +1274,8 @@ fn setup_ui(
                 ..default()
             },
             Button,
+            NativeUiInteraction,
+            Hovered::default(),
             BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
         ))
         .with_child((
@@ -1434,6 +1501,33 @@ fn setup_ui(
                 }
             }
         });
+        root.spawn((
+            NativeSelectedVertexDotLayer,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+        ));
+        root.spawn((
+            NativeCursorDot,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                width: px(7),
+                height: px(7),
+                display: Display::None,
+                border: UiRect::all(px(1)),
+                border_radius: BorderRadius::MAX,
+                ..default()
+            },
+            BackgroundColor(Color::WHITE),
+            BorderColor::all(Color::BLACK),
+        ));
     });
 }
 
@@ -1616,6 +1710,8 @@ fn spawn_lighting_slider(parent: &mut ChildSpawnerCommands, channel: LightingCha
                     track_click: TrackClick::Snap,
                     ..default()
                 },
+                NativeUiInteraction,
+                Hovered::default(),
                 SliderValue(value),
                 SliderRange::new(0.0, 1.0),
                 LightingSlider(channel),
@@ -2328,6 +2424,44 @@ fn route_native_escape(
     }
 }
 
+fn route_native_guide_shortcuts(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    palette: Res<CommandPaletteState>,
+    context_menu: Res<NativeToolsContextMenuState>,
+    toolbar_drag: Res<NativeToolbarDrag>,
+    ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if palette.open || context_menu.open || toolbar_drag.active_index.is_some() {
+        return;
+    }
+    let over_interactive_ui = ui_interactions
+        .iter()
+        .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
+    if over_interactive_ui
+        || keyboard.pressed(KeyCode::ControlLeft)
+        || keyboard.pressed(KeyCode::ControlRight)
+        || keyboard.pressed(KeyCode::ShiftLeft)
+        || keyboard.pressed(KeyCode::ShiftRight)
+        || keyboard.pressed(KeyCode::AltLeft)
+        || keyboard.pressed(KeyCode::AltRight)
+        || keyboard.pressed(KeyCode::SuperLeft)
+        || keyboard.pressed(KeyCode::SuperRight)
+    {
+        return;
+    }
+    let command = if keyboard.just_pressed(KeyCode::KeyG) {
+        Some("view.grid_guide")
+    } else if keyboard.just_pressed(KeyCode::KeyT) {
+        Some("view.axis_guide")
+    } else {
+        None
+    };
+    if let Some(command) = command {
+        session.dispatch_command(command, &CommandPayload::default());
+    }
+}
+
 fn refresh_command_palette(
     catalog: Res<CommandCatalog>,
     mut palette: ResMut<CommandPaletteState>,
@@ -2598,11 +2732,13 @@ fn tool_context_groups(catalog: &[CommandDescriptor]) -> Vec<(String, Vec<Comman
 fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<MeshcraftApp>) {
     let generation = session.document_generation();
     let revision = session.document_revision();
+    let mut refresh_selected_vertices = false;
     if scene.generation != generation || scene.revision != revision {
         scene.document = session.document_snapshot();
         scene.generation = generation;
         scene.revision = revision;
         (scene.occurrences, scene.triangles, scene.segments) = scene_counts(&scene.document);
+        refresh_selected_vertices = true;
     }
     let status = session.status_text();
     if scene.status != status {
@@ -2621,6 +2757,11 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
         scene.selected_faces = summary.faces;
         scene.selected_edges = summary.edges;
         scene.selection_targets = session.native_selection_targets();
+        refresh_selected_vertices = true;
+    }
+    if refresh_selected_vertices {
+        scene.selected_vertex_positions =
+            selected_vertex_positions(&scene.document, &scene.selection_targets);
     }
 }
 
@@ -2869,6 +3010,8 @@ fn native_viewport_pointer(
     orbit: Res<OrbitCamera>,
     mut context_menu: ResMut<NativeToolsContextMenuState>,
     mut right_click: ResMut<NativeRightClickGesture>,
+    scene: Res<SceneDocument>,
+    mut overlay: ResMut<NativeViewportOverlay>,
     toolbar_drag: Res<NativeToolbarDrag>,
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut drag: ResMut<NativeSelectionDrag>,
@@ -2881,16 +3024,22 @@ fn native_viewport_pointer(
         return;
     };
     let cursor = window.cursor_position();
+    overlay.guides = session.native_construction_guides().to_vec();
+    overlay.guides_visible = session.native_guides_visible();
+    overlay.grid_size = scene.document.model_settings().grid_size;
     if palette.open {
+        overlay.clear_cursor();
         drag.start = None;
         *right_click = NativeRightClickGesture::default();
         return;
     }
     if toolbar_drag.active_index.is_some() {
+        overlay.clear_cursor();
         drag.start = None;
         return;
     }
     if context_menu.block_world_input {
+        overlay.clear_cursor();
         context_menu.block_world_input = false;
         drag.start = None;
         *right_click = NativeRightClickGesture::default();
@@ -2904,6 +3053,7 @@ fn native_viewport_pointer(
             context_menu.open = false;
             context_menu.block_world_input = true;
         }
+        overlay.clear_cursor();
         drag.start = None;
         *right_click = NativeRightClickGesture::default();
         return;
@@ -2912,6 +3062,7 @@ fn native_viewport_pointer(
         .iter()
         .any(|(hovered, pressed)| pressed || hovered.is_some_and(Hovered::get));
     if over_toolbar {
+        overlay.clear_cursor();
         drag.start = None;
         if mouse.just_pressed(MouseButton::Right) || mouse.just_released(MouseButton::Right) {
             *right_click = NativeRightClickGesture::default();
@@ -2931,9 +3082,52 @@ fn native_viewport_pointer(
         context_menu.block_world_input = true;
     }
     if context_menu.open || context_menu.block_world_input {
+        overlay.clear_cursor();
         drag.start = None;
         context_menu.block_world_input = false;
         return;
+    }
+    let mut hover_pick = None::<(ModelVec3, ModelVec3, f64)>;
+    let mut hover_snap = None;
+    let mut hover_point = None;
+    if let Some(position) = cursor.filter(|position| native_viewport_contains(window, *position)) {
+        if let Ok(ray) = camera.viewport_to_world(camera_transform, position) {
+            let origin = ModelVec3::new(
+                f64::from(ray.origin.x),
+                f64::from(ray.origin.y),
+                f64::from(ray.origin.z),
+            );
+            let ray_direction = ray.direction.as_vec3();
+            let direction = ModelVec3::new(
+                f64::from(ray_direction.x),
+                f64::from(ray_direction.y),
+                f64::from(ray_direction.z),
+            );
+            let radius = native_pick_radius(orbit.distance, window.height());
+            let snap = session
+                .native_snap_point_on_ray(origin, direction, radius)
+                .or_else(|| native_grid_pick(ray, overlay.grid_size).and_then(|(_, snap)| snap));
+            if let Some(snap) = snap {
+                let axes = session.native_cursor_axes(snap);
+                let screen = to_bevy_vec3(snap.point)
+                    .and_then(|point| camera.world_to_viewport(camera_transform, point).ok());
+                overlay.cursor_snap = Some(snap);
+                overlay.cursor_axes = axes;
+                overlay.cursor_screen = screen;
+                hover_point = Some(snap.point);
+                hover_snap = Some(snap);
+                hover_pick = Some((origin, direction, radius));
+                session.set_native_cursor_snap(Some(snap));
+            } else {
+                overlay.clear_cursor();
+                session.set_native_cursor_snap(None);
+            }
+        } else {
+            overlay.clear_cursor();
+            session.set_native_cursor_snap(None);
+        }
+    } else {
+        overlay.clear_cursor();
     }
     if mouse.just_pressed(MouseButton::Left)
         && let Some(position) =
@@ -2942,34 +3136,10 @@ fn native_viewport_pointer(
         if session.active_tool_label() == "Select" {
             drag.start = Some(position);
             drag.current = position;
-        } else if let Ok(ray) = camera.viewport_to_world(camera_transform, position) {
-            let origin = ModelVec3::new(
-                f64::from(ray.origin.x),
-                f64::from(ray.origin.y),
-                f64::from(ray.origin.z),
-            );
-            let direction = ray.direction.as_vec3();
-            let direction = ModelVec3::new(
-                f64::from(direction.x),
-                f64::from(direction.y),
-                f64::from(direction.z),
-            );
-            let radius = native_pick_radius(orbit.distance, window.height());
+        } else if let (Some((origin, direction, radius)), Some(point)) = (hover_pick, hover_point) {
             let target = session.pick_native_target(origin, direction, radius);
-            let snap = session.native_snap_point_on_ray(origin, direction, radius);
-            let (point, snap) = snap
-                .map_or_else(
-                    || {
-                        native_grid_pick(
-                            ray,
-                            session.document_snapshot().model_settings().grid_size,
-                        )
-                    },
-                    |snap| Some((snap.point, Some(snap))),
-                )
-                .unzip();
-            if let Some(point) = point {
-                session.handle_native_world_pick(point, snap.flatten(), target);
+            if let Some(snap) = hover_snap {
+                session.handle_native_world_pick(point, Some(snap), target);
             }
         }
     }
@@ -3030,6 +3200,196 @@ fn native_viewport_pointer(
                 now_millis,
                 ModelVec2::new(f64::from(position.x), f64::from(position.y)),
             );
+        }
+    }
+}
+
+fn draw_native_viewport_overlays(
+    mut gizmos: Gizmos,
+    overlay: Res<NativeViewportOverlay>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) {
+    if let Some(snap) = overlay.cursor_snap
+        && let Some(axes) = overlay.cursor_axes
+        && let Some(origin) = to_bevy_vec3(snap.point)
+    {
+        let spacing = if overlay.grid_size.is_finite() && overlay.grid_size > 1.0e-6 {
+            overlay.grid_size
+        } else {
+            1.0
+        };
+        let projected_origin = cameras
+            .single()
+            .ok()
+            .and_then(|(camera, transform)| camera.world_to_viewport(transform, origin).ok());
+        let cursor_colors = [
+            Color::srgb(0.89, 0.49, 0.49),
+            Color::srgb(0.41, 0.85, 0.59),
+            Color::srgb(0.47, 0.82, 1.0),
+        ];
+        for (axis, color) in axes.into_iter().zip(cursor_colors) {
+            let Some(axis) = to_bevy_vec3(axis) else {
+                continue;
+            };
+            let projected_unit = cameras
+                .single()
+                .ok()
+                .and_then(|(camera, transform)| {
+                    let screen_origin = projected_origin?;
+                    let screen_end = camera
+                        .world_to_viewport(transform, origin + axis * spacing as f32)
+                        .ok()?;
+                    Some(screen_origin.distance(screen_end))
+                })
+                .unwrap_or_default();
+            let extent = if projected_unit > 1.0e-3 {
+                spacing * f64::from((25.0 / projected_unit).clamp(0.2, 12.0))
+            } else {
+                spacing
+            };
+            let lighter = color.mix(&Color::WHITE, 0.4);
+            gizmos.line(origin - axis * (extent as f32 * 0.62), origin, lighter);
+            gizmos.line(origin, origin + axis * extent as f32, color);
+        }
+    }
+
+    if !overlay.guides_visible || !overlay.grid_size.is_finite() || overlay.grid_size <= 0.0 {
+        return;
+    }
+    let spacing = overlay.grid_size;
+    let extent = spacing * 10.0;
+    for guide in &overlay.guides {
+        let Some(origin) = to_bevy_vec3(guide.origin) else {
+            continue;
+        };
+        match guide.kind {
+            ConstructionGuideKind::Axis => {
+                for (axis, color) in [
+                    (guide.axis_u, Color::srgb(0.79, 0.41, 0.41)),
+                    (guide.axis_v, Color::srgb(0.39, 0.63, 0.45)),
+                    (guide.axis_w, Color::srgb(0.39, 0.51, 0.75)),
+                ] {
+                    let Some(axis) = to_bevy_vec3(axis) else {
+                        continue;
+                    };
+                    gizmos.line(
+                        origin - axis * extent as f32,
+                        origin,
+                        color.mix(&Color::WHITE, 0.35),
+                    );
+                    gizmos.line(origin, origin + axis * extent as f32, color);
+                }
+            }
+            ConstructionGuideKind::Grid => {
+                let planes = [
+                    (guide.axis_w, guide.axis_u, guide.axis_v),
+                    (guide.axis_v, guide.axis_u, guide.axis_w),
+                    (guide.axis_u, guide.axis_v, guide.axis_w),
+                ];
+                let grid_color = Color::srgba(0.28, 0.77, 0.81, 0.52);
+                for (_, axis_u, axis_v) in planes {
+                    let (Some(axis_u), Some(axis_v)) = (to_bevy_vec3(axis_u), to_bevy_vec3(axis_v))
+                    else {
+                        continue;
+                    };
+                    for step in -10..=10 {
+                        let offset = step as f32 * spacing as f32;
+                        let color = if step == 0 {
+                            Color::srgba(0.33, 0.86, 0.88, 0.72)
+                        } else {
+                            grid_color
+                        };
+                        for (start, end) in [
+                            (
+                                origin + axis_u * offset - axis_v * extent as f32,
+                                origin + axis_u * offset + axis_v * extent as f32,
+                            ),
+                            (
+                                origin + axis_v * offset - axis_u * extent as f32,
+                                origin + axis_v * offset + axis_u * extent as f32,
+                            ),
+                        ] {
+                            gizmos.line(start, end, color);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn sync_native_cursor_dot(
+    overlay: Res<NativeViewportOverlay>,
+    mut dots: Query<&mut Node, With<NativeCursorDot>>,
+) {
+    for mut node in &mut dots {
+        if let Some(position) = overlay.cursor_screen {
+            node.display = Display::Flex;
+            node.left = px(position.x - 3.5);
+            node.top = px(position.y - 3.5);
+        } else {
+            node.display = Display::None;
+        }
+    }
+}
+
+fn sync_native_selected_vertex_dots(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    layers: Query<Entity, With<NativeSelectedVertexDotLayer>>,
+    mut dots: Query<(Entity, &NativeSelectedVertexDot, &mut Node)>,
+) {
+    let (Ok(window), Ok((camera, camera_transform)), Ok(layer)) =
+        (windows.single(), cameras.single(), layers.single())
+    else {
+        return;
+    };
+    let positions: Vec<Vec2> = scene
+        .selected_vertex_positions
+        .iter()
+        .filter_map(|position| {
+            let world = to_bevy_vec3(*position)?;
+            let screen = camera.world_to_viewport(camera_transform, world).ok()?;
+            native_viewport_contains(window, screen).then_some(screen)
+        })
+        .collect();
+    let existing: std::collections::BTreeMap<usize, Entity> = dots
+        .iter()
+        .map(|(entity, dot, _)| (dot.0, entity))
+        .collect();
+
+    for (index, position) in positions.iter().copied().enumerate() {
+        if let Some(entity) = existing.get(&index) {
+            if let Ok((_, _, mut node)) = dots.get_mut(*entity) {
+                node.display = Display::Flex;
+                node.left = px(position.x - 3.0);
+                node.top = px(position.y - 3.0);
+            }
+        } else {
+            commands.entity(layer).with_children(|layer| {
+                layer.spawn((
+                    NativeSelectedVertexDot(index),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(position.x - 3.0),
+                        top: px(position.y - 3.0),
+                        width: px(6),
+                        height: px(6),
+                        border: UiRect::all(px(1)),
+                        border_radius: BorderRadius::MAX,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.98, 0.22, 0.18)),
+                    BorderColor::all(Color::WHITE),
+                ));
+            });
+        }
+    }
+    for (index, entity) in existing {
+        if index >= positions.len() {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -3644,31 +4004,38 @@ mod tests {
     use super::{
         BevyImage, Button, CommandCatalog, CommandPaletteOverlay, CommandPaletteParameterError,
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
-        CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState, DispatchCommand,
-        LightingChannel, LightingSettings, NativeIconAtlas, NativeInspectorText,
-        NativeModelSettingsEditorButton, NativeRightClickGesture, SceneDocument,
-        SelectionStatsText, ShadowFilter, TextureAtlasLayout, back_face_color, build_scene_meshes,
+        CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState,
+        ConstructionGuideKind, DispatchCommand, LightingChannel, LightingSettings, NativeCursorDot,
+        NativeIconAtlas, NativeInspectorText, NativeModelSettingsEditorButton,
+        NativeRightClickGesture, NativeToolbarDrag, NativeToolsContextMenuState,
+        NativeUiInteraction, NativeViewportOverlay, SceneDocument, SelectionStatsText,
+        ShadowFilter, SnapResult, TextureAtlasLayout, back_face_color, build_scene_meshes,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
         dispatch_toolbar_command, line_mesh, model_settings_summary,
         native_segment_intersects_rect, native_triangle_intersects_rect, objects_summary,
-        open_native_model_settings_editor, polyline_settings_summary, refresh_status, scene_counts,
-        search_command_ids, selection_summary, submit_palette_parameters,
-        sync_command_palette_parameter_ui, sync_command_palette_states,
-        sync_native_settings_sections, sync_toolbar_button_states, tool_context_groups,
-        triangle_mesh, update_right_click_gesture,
+        open_native_model_settings_editor, polyline_settings_summary, refresh_status,
+        route_native_guide_shortcuts, scene_counts, search_command_ids, selected_vertex_positions,
+        selection_summary, submit_palette_parameters, sync_command_palette_parameter_ui,
+        sync_command_palette_states, sync_native_cursor_dot, sync_native_settings_sections,
+        sync_toolbar_button_states, tool_context_groups, triangle_mesh, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
         asset::Assets,
         mesh::{Mesh, VertexAttributeValues},
         prelude::{
-            App, BackgroundColor, Color, Display, Node, Text, TextColor, Update, Vec2, Vec3,
-            default,
+            App, BackgroundColor, ButtonInput, Color, Display, KeyCode, Node, Text, TextColor,
+            Update, Val, Vec2, Vec3, default,
         },
+        ui::Pressed,
         ui_widgets::Activate,
     };
     use meshcraft_core::commands::CommandPayload;
-    use meshcraft_core::{document::Document, geometry::Vec3 as ModelVec3};
+    use meshcraft_core::{
+        document::Document,
+        geometry::Vec3 as ModelVec3,
+        selection::{SelectedEntity, SelectionTarget},
+    };
 
     #[test]
     fn scene_meshes_contain_front_back_faces_edges_and_grid() {
@@ -3824,6 +4191,7 @@ mod tests {
             selected_faces: 0,
             selected_edges: 0,
             selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
             occurrences: 0,
             triangles: 0,
             segments: 0,
@@ -4141,6 +4509,7 @@ mod tests {
             selected_faces: 0,
             selected_edges: 0,
             selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
             occurrences,
             triangles,
             segments,
@@ -4174,6 +4543,143 @@ mod tests {
     }
 
     #[test]
+    fn native_g_and_t_shortcuts_place_guides_at_the_cached_cursor() {
+        for (key, expected_kind) in [
+            (KeyCode::KeyG, ConstructionGuideKind::Grid),
+            (KeyCode::KeyT, ConstructionGuideKind::Axis),
+        ] {
+            let mut session =
+                MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+            let snap = SnapResult {
+                point: ModelVec3::new(2.0, 3.0, 4.0),
+                normal: ModelVec3::Y,
+                kind: crate::viewport::SnapKind::Face,
+                screen_distance: 0.0,
+            };
+            session.set_native_cursor_snap(Some(snap));
+            let mut keyboard = ButtonInput::<KeyCode>::default();
+            keyboard.press(key);
+            let mut app = App::new();
+            app.insert_resource(keyboard)
+                .insert_resource(CommandPaletteState::default())
+                .insert_resource(NativeToolsContextMenuState::default())
+                .insert_resource(NativeToolbarDrag::default())
+                .insert_non_send(session)
+                .add_systems(Update, route_native_guide_shortcuts);
+
+            app.update();
+
+            let session = app
+                .world_mut()
+                .remove_non_send::<MeshcraftApp>()
+                .expect("native session remains available");
+            assert_eq!("Select", session.active_tool_label());
+            let guide = session
+                .native_construction_guides()
+                .first()
+                .expect("shortcut placed a guide at the cached cursor");
+            assert_eq!(expected_kind, guide.kind);
+            assert_eq!(snap.point, guide.origin);
+        }
+    }
+
+    #[test]
+    fn selected_vertex_bullets_resolve_world_positions_for_explicit_vertex_targets() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_line_segment(
+                "line",
+                ModelVec3::new(1.0, 2.0, 3.0),
+                ModelVec3::new(4.0, 2.0, 3.0),
+            )
+            .expect("line occurrence is valid");
+        let (vertex_id, expected_position) = {
+            let geometry = document
+                .effective_geometry(&occurrence)
+                .expect("line geometry is available");
+            let vertex = geometry
+                .vertices
+                .values()
+                .next()
+                .expect("line has vertices");
+            (vertex.id, vertex.position)
+        };
+        let selection = [SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::Vertex(vertex_id),
+        }];
+
+        assert_eq!(
+            vec![expected_position],
+            selected_vertex_positions(&document, &selection)
+        );
+    }
+
+    #[test]
+    fn native_guide_shortcuts_are_suppressed_while_ui_is_pressed() {
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        session.set_native_cursor_snap(Some(SnapResult {
+            point: ModelVec3::new(2.0, 3.0, 4.0),
+            normal: ModelVec3::Y,
+            kind: crate::viewport::SnapKind::Face,
+            screen_distance: 0.0,
+        }));
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        keyboard.press(KeyCode::KeyG);
+        let mut app = App::new();
+        app.insert_resource(keyboard)
+            .insert_resource(CommandPaletteState::default())
+            .insert_resource(NativeToolsContextMenuState::default())
+            .insert_resource(NativeToolbarDrag::default())
+            .insert_non_send(session)
+            .add_systems(Update, route_native_guide_shortcuts);
+        app.world_mut().spawn((NativeUiInteraction, Pressed));
+
+        app.update();
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert!(session.native_construction_guides().is_empty());
+    }
+
+    #[test]
+    fn native_cursor_dot_uses_screen_coordinates_and_hides_without_a_cursor() {
+        let overlay = NativeViewportOverlay {
+            cursor_screen: Some(Vec2::new(110.0, 70.0)),
+            ..default()
+        };
+        let mut app = App::new();
+        app.insert_resource(overlay)
+            .add_systems(Update, sync_native_cursor_dot);
+        let dot = app
+            .world_mut()
+            .spawn((
+                NativeCursorDot,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let node = app.world().get::<Node>(dot).unwrap();
+        assert_eq!(Display::Flex, node.display);
+        assert_eq!(Val::Px(106.5), node.left);
+        assert_eq!(Val::Px(66.5), node.top);
+
+        app.world_mut()
+            .resource_mut::<NativeViewportOverlay>()
+            .clear_cursor();
+        app.update();
+        assert_eq!(Display::None, app.world().get::<Node>(dot).unwrap().display);
+    }
+
+    #[test]
     fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
         let document = Document::new();
         let initial_model_summary = model_settings_summary(&document);
@@ -4193,6 +4699,7 @@ mod tests {
             selected_faces: 0,
             selected_edges: 0,
             selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
             occurrences,
             triangles,
             segments,
@@ -4331,6 +4838,7 @@ mod tests {
             selected_faces: 4,
             selected_edges: 5,
             selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
             occurrences: 16,
             triangles: 460,
             segments: 524,

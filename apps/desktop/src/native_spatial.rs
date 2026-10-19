@@ -201,6 +201,41 @@ impl NativeSpatialIndex {
             .collect()
     }
 
+    /// Returns primitives whose bounds contain or approach a world-space point.
+    pub(crate) fn query_point(&self, point: Vec3, radius: f64) -> Vec<&NativeSpatialItem> {
+        if self.nodes.is_empty() || !point.is_finite() || !radius.is_finite() || radius < 0.0 {
+            return Vec::new();
+        }
+        let margin = Vec3::new(radius, radius, radius);
+        let Some(query) = Aabb3::from_points([point - margin, point + margin]) else {
+            return Vec::new();
+        };
+        let mut stack = vec![0];
+        let mut candidate_ids = Vec::new();
+        while let Some(node_id) = stack.pop() {
+            let node = &self.nodes[node_id];
+            if !aabb_intersects(node.bounds, query) {
+                continue;
+            }
+            if let (Some(left), Some(right)) = (node.left, node.right) {
+                stack.push(right);
+                stack.push(left);
+                continue;
+            }
+            for order_index in node.start..node.end {
+                let item_id = self.item_order[order_index];
+                if aabb_intersects(self.items[item_id].bounds, query) {
+                    candidate_ids.push(item_id);
+                }
+            }
+        }
+        candidate_ids.sort_unstable();
+        candidate_ids
+            .into_iter()
+            .map(|item_id| &self.items[item_id])
+            .collect()
+    }
+
     fn push_item(
         &mut self,
         bounds: Aabb3,
@@ -266,6 +301,15 @@ fn union_bounds(mut left: Aabb3, right: Aabb3) -> Aabb3 {
     left.include(right.min);
     left.include(right.max);
     left
+}
+
+fn aabb_intersects(left: Aabb3, right: Aabb3) -> bool {
+    left.min.x <= right.max.x
+        && left.max.x >= right.min.x
+        && left.min.y <= right.max.y
+        && left.max.y >= right.min.y
+        && left.min.z <= right.max.z
+        && left.max.z >= right.min.z
 }
 
 fn center(bounds: Aabb3) -> Vec3 {
@@ -351,6 +395,7 @@ mod tests {
         let (document, expected_occurrence) = tiled_cuboids(2_000);
         let index = NativeSpatialIndex::build(&document).expect("native spatial index builds");
         let candidates = index.query_ray(Vec3::new(0.5, 0.5, -5.0), Vec3::Z, 0.05);
+        let point_candidates = index.query_point(Vec3::new(0.5, 0.5, 0.5), 1.0e-6);
 
         assert_eq!(document.revision(), index.revision());
         assert!(!candidates.is_empty());
@@ -359,5 +404,7 @@ mod tests {
             candidate.target.occurrence == expected_occurrence
                 && matches!(candidate.primitive, NativeSpatialPrimitive::Triangle(_))
         }));
+        assert!(!point_candidates.is_empty());
+        assert!(point_candidates.len() * 100 < index.item_count());
     }
 }
