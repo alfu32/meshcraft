@@ -10,7 +10,9 @@ pub(super) const TAB_HEIGHT: f32 = 28.0;
 pub(super) const RIBBON_HEIGHT: f32 = 78.0;
 pub(super) const HEADER_HEIGHT: f32 = MENU_HEIGHT + TAB_HEIGHT + RIBBON_HEIGHT;
 pub(super) const STATUS_HEIGHT: f32 = 26.0;
-use gpui::{Context, IntoElement, SharedString, Styled, div, prelude::*, px, rgb};
+use gpui::{
+    Context, ImageSource, IntoElement, SharedString, Styled, div, img, prelude::*, px, rgb,
+};
 use gpui_component::{
     Disableable, Sizable,
     button::{Button, ButtonVariants},
@@ -64,12 +66,47 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         key: &'static str,
         label: &'static str,
     ) -> Button {
+        let command = ribbon_command_for_key(key, &self.catalog);
+        let icon = command
+            .and_then(|c| c.presentation.icon_key.as_deref())
+            .or_else(|| match key {
+                "open" => Some("file_open"),
+                "save" => Some("file_save"),
+                "undo" => Some("undo"),
+                "redo" => Some("redo"),
+                "delete" => Some("delete"),
+                "make-object" | "create-object" => Some("object_create"),
+                "explode" => Some("object_explode"),
+                "hotspot" => Some("hotspot"),
+                "axis-guide" => Some("grid_helper_axial"),
+                "grid-guide" => Some("grid_helper_planar"),
+                _ => None,
+            })
+            .and_then(crate::assets::gpui_icon);
+        let has_icon = icon.is_some();
         let button = Button::new(SharedString::from(format!("{namespace}/{key}")))
-            .label(label)
+            .when_some(icon, |button, icon| {
+                button.child(
+                    img(ImageSource::Render(icon))
+                        .size(px(22.))
+                        .bg(rgb(0xf4f5f6))
+                        .flex_none()
+                        .opacity(
+                            if command.is_some_and(|command| {
+                                command_enabled(&self.shell.session, command)
+                            }) {
+                                1.0
+                            } else {
+                                0.4
+                            },
+                        ),
+                )
+            })
+            .when(!has_icon, |button| button.label(label))
             .small()
             .ghost()
             .compact()
-            .tooltip(key);
+            .tooltip(format!("{label} · {key}"));
         match key {
             "flow-left-to-right" | "flow-top-to-down" => {
                 return button.on_click(self.cx.listener(move |this, _, _, cx| {
@@ -110,6 +147,18 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             "Double line offset" => Some(("double_line_offset", settings.double_line_offset, 0.1)),
             _ => None,
         };
+        let light = self.shell.lighting;
+        let lighting_number = match label {
+            "Ambient light" => Some(("ambient", light.ambient, 0.05)),
+            "Directional light" => Some(("directional", light.directional, 0.05)),
+            "Shadow alpha" => Some(("shadow_strength", light.shadow_strength, 0.05)),
+            "Specular value" => Some(("specular", light.specular, 0.05)),
+            "Shadow bias" => Some(("depth_bias", light.depth_bias, 0.00005)),
+            "Normal bias" => Some(("normal_bias", light.normal_bias, 0.001)),
+            "Light azimuth" => Some(("azimuth", light.azimuth, 5.0)),
+            "Light elevation" => Some(("elevation", light.elevation, 5.0)),
+            _ => None,
+        };
         let ui_number = match label {
             "UI text size" => Some((
                 "ui_text_scale",
@@ -137,6 +186,8 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             } else {
                 format!("{number:.4}")
             }
+        } else if let Some((_, number, _)) = lighting_number {
+            format!("{number:.5}")
         } else if let Some((_, value)) = &ui_number {
             value.clone()
         } else if label == "Unit name" {
@@ -167,6 +218,22 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     .compact()
                     .on_click(self.cx.listener(move |this, _, _, cx| {
                         this.update_model_number(field, sign * step);
+                        cx.notify();
+                    })),
+                );
+            }
+        } else if let Some((field, _, step)) = lighting_number {
+            for (suffix, sign) in [("decrease", -1.0), ("increase", 1.0)] {
+                cell = cell.child(
+                    Button::new(SharedString::from(format!(
+                        "settings/light/{field}/{suffix}"
+                    )))
+                    .label(if sign < 0.0 { "−" } else { "+" })
+                    .xsmall()
+                    .ghost()
+                    .compact()
+                    .on_click(self.cx.listener(move |this, _, _, cx| {
+                        this.adjust_lighting(field, sign * step);
                         cx.notify();
                     })),
                 );
@@ -239,7 +306,11 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             "Show permanent grid" => Some(("show_permanent_grid", preferences.show_permanent_grid)),
             _ => None,
         };
-        let checked = binding.map_or(fallback, |(_, checked)| checked);
+        let checked = if label == "Shadows" {
+            self.shell.lighting.shadows
+        } else {
+            binding.map_or(fallback, |(_, checked)| checked)
+        };
         let row = div()
             .id(SharedString::from(format!("settings/check/{label}")))
             .flex()
@@ -260,7 +331,17 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     }),
             )
             .child(label);
-        if let Some((field, _)) = binding {
+        if label == "Shadows" {
+            row.on_mouse_down(
+                gpui::MouseButton::Left,
+                self.cx.listener(|this, _, _, cx| {
+                    this.lighting.shadows = !this.lighting.shadows;
+                    this.refresh_scene();
+                    cx.notify();
+                }),
+            )
+            .into_any_element()
+        } else if let Some((field, _)) = binding {
             row.on_mouse_down(
                 gpui::MouseButton::Left,
                 self.cx.listener(move |this, _, _, cx| {
@@ -690,6 +771,8 @@ const VIEW_GROUPS: &[RibbonGroup] = &[
             ("orthographic", "Orthographic"),
             ("permanent-grid", "Grid"),
             ("guides", "Guides"),
+            ("grid-guide", "3D Grid"),
+            ("axis-guide", "3D Guide"),
             ("snap-settings", "Snapping"),
         ],
     },
@@ -1459,8 +1542,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .flex_col()
                 .gap(px(7.))
                 .child(setting_pair(
-                    "Shadow value",
-                    "0.59",
+                    "Light azimuth",
+                    "-35",
                     "Shadow alpha",
                     "0.50",
                     bindings,
@@ -1475,8 +1558,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .child(setting_pair(
                     "Specular value",
                     "0.20",
-                    "Specular alpha",
-                    "0.95",
+                    "Light elevation",
+                    "55",
                     bindings,
                 ))
                 .child(setting_pair(
@@ -1486,8 +1569,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "5620",
                     bindings,
                 ))
-                .child(setting_check("Use CSM", true, bindings))
-                .child(setting_check("Dither shadows", false, bindings)),
+                .child(setting_check("Shadows", true, bindings))
+                .child(div().text_xs().child("2048² light-camera map · 3 × 3 PCF")),
         ))
         .child(setting_section(
             "Help / About",

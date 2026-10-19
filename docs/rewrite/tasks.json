@@ -1893,7 +1893,7 @@
         "Filled coplanar mesh triangles render as a continuous surface without triangulation seams; boundary and non-coplanar edges remain visible (#13)."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T40",

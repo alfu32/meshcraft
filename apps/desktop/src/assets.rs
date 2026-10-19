@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use eframe::egui;
 
-const ICON_ATLAS_PNG: &[u8] = include_bytes!("../../../assets/tool-icons/icons.png");
+const ICON_ATLAS_PNG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icons.32.png"));
 const ICON_MAPPING_CSV: &str = include_str!("../../../assets/tool-icons/icons.mapping.csv");
 const ICON_ATLAS_SIZE: u32 = 320;
 
@@ -32,6 +32,49 @@ pub fn load_icon_atlas(context: &egui::Context) -> Option<egui::TextureHandle> {
         pixels,
         egui::TextureOptions::NEAREST,
     ))
+}
+
+/// Decode and crop the generated high-DPI atlas once, never on a UI redraw.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn gpui_icon(name: &str) -> Option<std::sync::Arc<gpui::RenderImage>> {
+    use std::sync::{Arc, OnceLock};
+    static ICONS: OnceLock<BTreeMap<&'static str, Arc<gpui::RenderImage>>> = OnceLock::new();
+    ICONS
+        .get_or_init(|| {
+            let atlas =
+                image::load_from_memory(include_bytes!(concat!(env!("OUT_DIR"), "/icons.64.png")))
+                    .expect("generated icon atlas")
+                    .to_rgba8();
+            icon_regions()
+                .into_iter()
+                .map(|(name, r)| {
+                    let mut tile = image::imageops::crop_imm(
+                        &atlas,
+                        r.x * 2,
+                        r.y * 2,
+                        r.width * 2,
+                        r.height * 2,
+                    )
+                    .to_image();
+                    // GPUI RenderImage expects premultiplied BGRA. PNG decodes to straight RGBA.
+                    for pixel in tile.pixels_mut() {
+                        let [r, g, b, a] = pixel.0;
+                        pixel.0 = [
+                            ((u16::from(b) * u16::from(a)) / 255) as u8,
+                            ((u16::from(g) * u16::from(a)) / 255) as u8,
+                            ((u16::from(r) * u16::from(a)) / 255) as u8,
+                            a,
+                        ];
+                    }
+                    (
+                        name,
+                        Arc::new(gpui::RenderImage::new(vec![image::Frame::new(tile)])),
+                    )
+                })
+                .collect()
+        })
+        .get(name)
+        .cloned()
 }
 
 fn parse_icon_regions(mapping: &'static str) -> BTreeMap<&'static str, IconRegion> {

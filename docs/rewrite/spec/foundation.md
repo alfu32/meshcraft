@@ -114,9 +114,13 @@ Rust normalizes GUI, scripted, and embedded events through one dispatcher, with 
 
 Source: `K/input/{ToolPointerProcessor,CameraInputRouter}.kt`, `K/ui/ToolController.kt`, `ToolInputProcessor.kt`. Acceptance: C10, C17, C23.
 
+**Current Escape contract (user correction, 2026-10-19).** Escape first cancels a non-selector tool and activates Select, preserving selection and guides. With Select already active, Escape clears a nonempty selection; only a further Escape with an empty selection clears guides. No stage commits draft geometry. Right mouse drag orbits around the target; both horizontal and vertical drag deltas are inverted relative to the previous raylib mapping. Shift+right drag translates the camera and target together.
+
 ### I04 Snapping
 
 **Observed.** Snap types/priorities: free 0; face 1; line/grid-line 2; grid/grid-guide/axis-guide 3; endpoint/midpoint 4. Priority is one part of actual candidate comparison, along with screen distance/depth/visibility. Snapping considers active and other visible transformed groups. A virtual plane is a fallback hit and is not selectable geometry.
+
+All point-input operators use snapping, including modification tools. Offer both grid intersections and points along grid lines within the configured screen-pixel radius, with free placement outside that radius.
 
 Preserve endpoint/midpoint/segment/face/grid/guide behavior in perspective and orthographic views. Screen radius is in pixels. Hidden/filtered geometry must follow characterized snap visibility rules. Do not promise global parallel/perpendicular/from-point inference solely from original SPEC aspirations. Rebuild stale spatial indexes safely or use a correct fallback query.
 
@@ -125,6 +129,8 @@ Source: `K/input/{Snapper,SnapType,SnapResult}.kt`. Acceptance: C10.
 ### I05 Grids and guides
 
 **Observed.** `PLANAR_GRID`, `AXIAL_GRID`. Permanent grid visibility, normal axis and extents are adjustable; half-size is clamped to 1..1000. Grid spacing also drives helpers. `G`/Planar Grid places oriented plane guides; `T`/Axial Grid places axis guides at snap points. Adaptive local grid feedback helps construction. Guide orientation and local-space axes affect snapping.
+
+Render the 3D grid guide as three oriented intersecting grid planes, the 3D axis guide as three colored axes, and the local planar field as unit/grid-spaced point marks in the cursor plane. Helper rendering and snapping use the same origins, axes and spacing.
 
 Keep these helpers separate from persistent model lines. UI exposes spacing, visibility/orientation/extents and guide actions in both workspaces. Determine guide/session persistence from code rather than assuming guides are serialized by ModelSnapshot.
 

@@ -71,6 +71,8 @@ Use incremental revisioned geometry buffers and per-instance transforms; avoid f
 
 Source: real-time render/chunk paths in `K/Main.kt`, `K/render/SketchDefaultShader.kt`, shader assets. Acceptance: C09, C24, C26.
 
+Authored unselected line segments render black in the light canvas palette; selection and helper colors remain distinguishable. Command buttons use the original k3d SVG grid and its named CSV tiles. Generate 32/48/64-pixel icon atlases during the Cargo build and cache cropped GPUI images outside redraws. Preserve command IDs, tooltips and disabled availability.
+
 ### R02 Lighting and shadows
 
 **Observed.** Model settings serialize shadow/directional/ambient/specular values/alphas and shadow bias, normal bias, PCF mode, dither, CSM flag. Controls update real-time lighting. Shadow maps cast entity shadows onto both the ground and other entities. Initial defaults include directional 0.73, ambient 0.59, specular 0.2; legacy shadow numeric scales are unusual (2500/5620) and cannot be assigned directly to a different GPU pipeline.

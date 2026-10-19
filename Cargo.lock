@@ -4270,6 +4270,7 @@ dependencies = [
  "meshcraft-core",
  "meshcraft-io",
  "raylib",
+ "resvg",
  "rfd",
  "serde",
  "serde_json",

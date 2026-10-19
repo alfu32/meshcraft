@@ -26,6 +26,9 @@ gpui-component = { version = "=0.5.1", default-features = false }
 raylib = "=6.0.0"
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 
+[build-dependencies]
+resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts"] }
+
 [dev-dependencies]
 base64.workspace = true
 flate2.workspace = true

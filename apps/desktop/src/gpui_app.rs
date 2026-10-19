@@ -14,8 +14,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "gpui_helpers.rs"]
+mod helpers;
 #[path = "gpui_layout.rs"]
 mod layout;
+#[path = "gpui_lighting.rs"]
+mod lighting;
 
 use crate::MeshcraftApp;
 use crate::viewport::{
@@ -108,8 +112,8 @@ impl Default for OrbitCamera {
 
 impl OrbitCamera {
     fn orbit_by_drag(&mut self, dx: f32, dy: f32) {
-        self.yaw += dx * 0.005;
-        self.pitch = (self.pitch - dy * 0.005).clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
+        self.yaw -= dx * 0.005;
+        self.pitch = (self.pitch + dy * 0.005).clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
     }
 
     fn position(self) -> Vec3 {
@@ -186,6 +190,7 @@ struct RenderScene {
     feedback: Option<ToolFeedback>,
     selection_rect: Option<([f32; 4], bool)>,
     grid_spacing: f64,
+    lighting: lighting::Lighting,
 }
 
 impl Default for RenderScene {
@@ -205,6 +210,7 @@ impl Default for RenderScene {
             feedback: None,
             selection_rect: None,
             grid_spacing: 1.0,
+            lighting: lighting::Lighting::default(),
         }
     }
 }
@@ -370,6 +376,7 @@ fn render_loop(
             return;
         }
     };
+    let mut lighting = lighting::Renderer::new(&mut rl, &thread);
     let mut sequence = 0_u64;
     let mut rendered_revision = 0;
 
@@ -404,7 +411,16 @@ fn render_loop(
             .read()
             .map(|value| Arc::clone(&value))
             .unwrap_or_else(|_| Arc::new(RenderScene::default()));
-        draw_offscreen_scene(&mut rl, &thread, &mut target, camera, &scene, sequence);
+        lighting.prepare(&mut rl, &thread, &scene);
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            sequence,
+            &mut lighting,
+        );
         let Some(image) = copy_target_to_gpui_image(&target) else {
             eprintln!("could not copy raylib viewport target into a GPUI image");
             thread::sleep(Duration::from_millis(10));
@@ -432,6 +448,7 @@ fn draw_offscreen_scene(
     orbit: OrbitCamera,
     scene_data: &RenderScene,
     sequence: u64,
+    lighting: &mut lighting::Renderer,
 ) {
     let position = orbit.position();
     let camera = Camera3D::perspective(
@@ -444,6 +461,7 @@ fn draw_offscreen_scene(
     drawing.clear_background(Color::new(224, 236, 247, 255));
     {
         let mut view = drawing.begin_mode3D(camera);
+        lighting.draw(&mut view, scene_data, position);
         if scene_data.grid_visible {
             draw_grid(
                 &mut view,
@@ -452,11 +470,11 @@ fn draw_offscreen_scene(
                 &scene_data.grid_normal_axis,
             );
         }
-        draw_document(&mut view, scene_data, position);
         if scene_data.guides_visible {
-            draw_guides(&mut view, &scene_data.guides);
+            draw_guides(&mut view, &scene_data.guides, scene_data.grid_spacing);
         }
         if let (Some(cursor), Some(axes)) = (scene_data.cursor, scene_data.cursor_axes) {
+            helpers::draw_point_field(&mut view, cursor.point, axes, scene_data.grid_spacing);
             draw_cursor(&mut view, cursor, axes);
         }
         if let Some(preview) = scene_data.preview.as_ref() {
@@ -573,105 +591,6 @@ fn draw_grid(scene: &mut impl RaylibDraw3D, spacing: f64, extent: i32, normal_ax
     scene.draw_line3D(axis_origin, blue_end, Color::new(68, 117, 186, 255));
 }
 
-fn draw_document(scene: &mut impl RaylibDraw3D, render: &RenderScene, camera_position: Vec3) {
-    let Ok(occurrences) = render.document.scene_geometry_refs() else {
-        return;
-    };
-    for occurrence in occurrences {
-        let Some(resolved) = render.document.resolve_occurrence(&occurrence) else {
-            continue;
-        };
-        let Some(geometry) = render.document.effective_geometry(&occurrence) else {
-            continue;
-        };
-        let occurrence_selected = render.selection.iter().any(|target| {
-            target.occurrence == occurrence && target.entity == SelectedEntity::Occurrence
-        });
-        for triangle in geometry.triangles.values() {
-            let Some(points) = triangle
-                .vertices
-                .map(|reference| geometry.vertex_position(reference))
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-            else {
-                continue;
-            };
-            let [a, b, c] = [points[0], points[1], points[2]]
-                .map(|point| resolved.world_transform.transform_point(point));
-            let selected = occurrence_selected
-                || render.selection.iter().any(|target| {
-                    target.occurrence == occurrence
-                        && target.entity == SelectedEntity::Triangle(triangle.id)
-                });
-            let normal = (b - a)
-                .cross(c - a)
-                .try_normalized(1.0e-12)
-                .unwrap_or(Vec3::Y);
-            let to_camera = (camera_position - (a + b + c) / 3.0)
-                .try_normalized(1.0e-12)
-                .unwrap_or(Vec3::Y);
-            let front = normal.dot(to_camera) >= 0.0;
-            let color = if selected {
-                Color::new(242, 151, 61, triangle.color.alpha)
-            } else {
-                shaded_face_color(triangle.color, front)
-            };
-            scene.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), color);
-            if selected {
-                let edge = Color::new(240, 116, 43, 255);
-                scene.draw_line3D(ray_vec3(a), ray_vec3(b), edge);
-                scene.draw_line3D(ray_vec3(b), ray_vec3(c), edge);
-                scene.draw_line3D(ray_vec3(c), ray_vec3(a), edge);
-            }
-        }
-        for segment in geometry.segments.values() {
-            let [Some(a), Some(b)] = segment
-                .endpoints
-                .map(|reference| geometry.vertex_position(reference))
-            else {
-                continue;
-            };
-            let a = resolved.world_transform.transform_point(a);
-            let b = resolved.world_transform.transform_point(b);
-            let selected = occurrence_selected
-                || render.selection.iter().any(|target| {
-                    target.occurrence == occurrence
-                        && target.entity == SelectedEntity::Segment(segment.id)
-                });
-            let color = if selected {
-                Color::new(245, 128, 46, 255)
-            } else {
-                ray_color(segment.color)
-            };
-            scene.draw_line3D(ray_vec3(a), ray_vec3(b), color);
-        }
-        for vertex in geometry.vertices.values() {
-            let selected = occurrence_selected
-                || render.selection.iter().any(|target| {
-                    target.occurrence == occurrence
-                        && target.entity == SelectedEntity::Vertex(vertex.id)
-                });
-            if selected {
-                let point = resolved.world_transform.transform_point(vertex.position);
-                scene.draw_sphere(ray_vec3(point), 0.06, Color::new(227, 57, 49, 255));
-            }
-        }
-    }
-}
-
-fn shaded_face_color(color: Rgba8, front: bool) -> Color {
-    let factor = if front { 0.94 } else { 0.72 };
-    let blue_bias = if front { 0.0 } else { 8.0 };
-    Color::new(
-        (f32::from(color.red) * factor).round() as u8,
-        (f32::from(color.green) * factor).round() as u8,
-        (f32::from(color.blue) * factor + blue_bias)
-            .min(255.0)
-            .round() as u8,
-        color.alpha,
-    )
-}
-
 fn ray_color(color: Rgba8) -> Color {
     Color::new(color.red, color.green, color.blue, color.alpha)
 }
@@ -679,69 +598,8 @@ fn ray_vec3(point: Vec3) -> RayVector3 {
     RayVector3::new(point.x as f32, point.y as f32, point.z as f32)
 }
 
-fn draw_guides(scene: &mut impl RaylibDraw3D, guides: &[ConstructionGuide]) {
-    const GUIDE_LENGTH: f32 = 64.0;
-    for guide in guides {
-        let origin = ray_vec3(guide.origin);
-        let axes = [
-            ray_vec3(guide.axis_u),
-            ray_vec3(guide.axis_v),
-            ray_vec3(guide.axis_w),
-        ];
-        let colors = [
-            Color::new(196, 74, 67, 255),
-            Color::new(57, 151, 96, 255),
-            Color::new(62, 112, 194, 255),
-        ];
-        for (axis, color) in axes.iter().copied().zip(colors) {
-            let end_a = RayVector3::new(
-                origin.x - axis.x * GUIDE_LENGTH,
-                origin.y - axis.y * GUIDE_LENGTH,
-                origin.z - axis.z * GUIDE_LENGTH,
-            );
-            let end_b = RayVector3::new(
-                origin.x + axis.x * GUIDE_LENGTH,
-                origin.y + axis.y * GUIDE_LENGTH,
-                origin.z + axis.z * GUIDE_LENGTH,
-            );
-            scene.draw_line3D(end_a, end_b, color);
-        }
-        if guide.kind == ConstructionGuideKind::Grid {
-            let spacing = 1.0_f32;
-            for step in -12..=12 {
-                let offset = step as f32 * spacing;
-                let u = axes[0];
-                let v = axes[1];
-                let start_u = RayVector3::new(
-                    origin.x - u.x * 12.0 + v.x * offset,
-                    origin.y - u.y * 12.0 + v.y * offset,
-                    origin.z - u.z * 12.0 + v.z * offset,
-                );
-                let end_u = RayVector3::new(
-                    origin.x + u.x * 12.0 + v.x * offset,
-                    origin.y + u.y * 12.0 + v.y * offset,
-                    origin.z + u.z * 12.0 + v.z * offset,
-                );
-                let start_v = RayVector3::new(
-                    origin.x - v.x * 12.0 + u.x * offset,
-                    origin.y - v.y * 12.0 + u.y * offset,
-                    origin.z - v.z * 12.0 + u.z * offset,
-                );
-                let end_v = RayVector3::new(
-                    origin.x + v.x * 12.0 + u.x * offset,
-                    origin.y + v.y * 12.0 + u.y * offset,
-                    origin.z + v.z * 12.0 + u.z * offset,
-                );
-                let color = if step % 5 == 0 {
-                    Color::new(94, 119, 144, 210)
-                } else {
-                    Color::new(146, 164, 180, 180)
-                };
-                scene.draw_line3D(start_u, end_u, color);
-                scene.draw_line3D(start_v, end_v, color);
-            }
-        }
-    }
+fn draw_guides(scene: &mut impl RaylibDraw3D, guides: &[ConstructionGuide], spacing: f64) {
+    helpers::draw_guides(scene, guides, spacing);
 }
 
 fn draw_cursor(scene: &mut impl RaylibDraw3D, cursor: SnapResult, axes: [Vec3; 3]) {
@@ -953,6 +811,7 @@ impl Render for RaylibCanvas {
 }
 
 struct MeshcraftShell {
+    focus: gpui::FocusHandle,
     bridge: ViewportBridge,
     viewport_canvas: Entity<RaylibCanvas>,
     session: MeshcraftApp,
@@ -961,6 +820,7 @@ struct MeshcraftShell {
     active_ribbon_tab: &'static str,
     open_menu: Option<&'static str>,
     menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
+    lighting: lighting::Lighting,
     cached_document_revision: Option<u64>,
     cached_document: Arc<Document>,
     cached_scene_counts: layout::SceneCounts,
@@ -982,11 +842,13 @@ impl MeshcraftShell {
             frame_watch_started: false,
         });
         let mut this = Self {
+            focus: cx.focus_handle(),
             camera: OrbitCamera::default(),
             layout: ViewportLayout::default(),
             active_ribbon_tab: "Home",
             open_menu: None,
             menu_bounds: Arc::default(),
+            lighting: lighting::Lighting::default(),
             cached_document_revision: None,
             cached_document: Arc::new(session.document_snapshot()),
             cached_scene_counts: layout::SceneCounts::default(),
@@ -1060,6 +922,7 @@ impl MeshcraftShell {
             feedback,
             selection_rect,
             grid_spacing: self.cached_document.model_settings().grid_size,
+            lighting: self.lighting,
         });
     }
 
@@ -1084,17 +947,23 @@ impl MeshcraftShell {
             .session
             .native_snap_point_on_ray(origin, direction, radius);
         let preferences = self.session.native_ui_preferences();
-        let (point, snap) = geometry_snap
-            .map(|snap| (snap.point, snap))
-            .or_else(|| {
-                grid_point_on_ray(
-                    origin,
-                    direction,
-                    settings.grid_size,
-                    preferences.grid_normal_axis,
-                )
-            })
-            .map_or((None, None), |(point, snap)| (Some(point), Some(snap)));
+        let snap = helpers::snap(
+            self.camera,
+            (self.layout.width as f32, self.layout.height as f32),
+            (x, y),
+            origin,
+            direction,
+            settings.grid_size,
+            settings.snap_radius as f32,
+            preferences.grid_normal_axis,
+            if preferences.show_construction_guides {
+                self.session.native_construction_guides()
+            } else {
+                &[]
+            },
+            geometry_snap,
+        );
+        let point = snap.map(|snap| snap.point);
         self.cursor_snap = snap;
         self.last_pick = point.zip(snap).map(|(point, snap)| PointerPick {
             origin,
@@ -1182,6 +1051,37 @@ impl MeshcraftShell {
             _ => return,
         };
         self.update_ui_preference(field, Value::Bool(!current));
+    }
+
+    fn adjust_lighting(&mut self, field: &str, delta: f32) {
+        let value = match field {
+            "ambient" => &mut self.lighting.ambient,
+            "directional" => &mut self.lighting.directional,
+            "shadow_strength" => &mut self.lighting.shadow_strength,
+            "specular" => &mut self.lighting.specular,
+            "depth_bias" => &mut self.lighting.depth_bias,
+            "normal_bias" => &mut self.lighting.normal_bias,
+            "azimuth" => &mut self.lighting.azimuth,
+            "elevation" => &mut self.lighting.elevation,
+            _ => return,
+        };
+        *value = (*value + delta).clamp(
+            if field == "azimuth" {
+                -180.0
+            } else if field == "elevation" {
+                5.0
+            } else {
+                0.0
+            },
+            match field {
+                "azimuth" => 180.0,
+                "elevation" => 85.0,
+                "depth_bias" => 0.01,
+                "normal_bias" => 0.1,
+                _ => 1.0,
+            },
+        );
+        self.refresh_scene();
     }
 
     fn adjust_ui_preference(&mut self, field: &str, delta: i32) {
@@ -1385,6 +1285,18 @@ impl MeshcraftShell {
             self.cursor_snap = None;
             self.last_pick = None;
             self.refresh_scene();
+        } else if !modifiers.control
+            && !modifiers.alt
+            && !modifiers.platform
+            && self.open_menu.is_none()
+            && !self.command_palette_open
+            && (key == "g" || key == "t")
+        {
+            self.dispatch(if key == "g" {
+                "view.grid_guide"
+            } else {
+                "view.axis_guide"
+            });
         } else if modifiers.control && modifiers.shift && key == "p" {
             self.command_palette_open = !self.command_palette_open;
             self.open_menu = None;
@@ -1394,58 +1306,6 @@ impl MeshcraftShell {
             self.dispatch("edit.redo");
         }
     }
-}
-
-fn grid_point_on_ray(
-    origin: Vec3,
-    direction: Vec3,
-    grid_size: f64,
-    normal_axis: GridNormalAxis,
-) -> Option<(Vec3, SnapResult)> {
-    let (origin_normal, direction_normal) = match normal_axis {
-        GridNormalAxis::X => (origin.x, direction.x),
-        GridNormalAxis::Y => (origin.y, direction.y),
-        GridNormalAxis::Z => (origin.z, direction.z),
-    };
-    if direction_normal.abs() <= 1.0e-10 || !grid_size.is_finite() || grid_size <= 0.0 {
-        return None;
-    }
-    let distance = -origin_normal / direction_normal;
-    if !distance.is_finite() || distance < 0.0 {
-        return None;
-    }
-    let hit = origin + direction * distance;
-    let point = match normal_axis {
-        GridNormalAxis::X => Vec3::new(
-            0.0,
-            (hit.y / grid_size).round() * grid_size,
-            (hit.z / grid_size).round() * grid_size,
-        ),
-        GridNormalAxis::Y => Vec3::new(
-            (hit.x / grid_size).round() * grid_size,
-            0.0,
-            (hit.z / grid_size).round() * grid_size,
-        ),
-        GridNormalAxis::Z => Vec3::new(
-            (hit.x / grid_size).round() * grid_size,
-            (hit.y / grid_size).round() * grid_size,
-            0.0,
-        ),
-    };
-    let normal = match normal_axis {
-        GridNormalAxis::X => Vec3::X,
-        GridNormalAxis::Y => Vec3::Y,
-        GridNormalAxis::Z => Vec3::new(0.0, 0.0, 1.0),
-    };
-    Some((
-        point,
-        SnapResult {
-            point,
-            normal,
-            kind: SnapKind::Grid,
-            screen_distance: 0.0,
-        },
-    ))
 }
 
 fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout {
@@ -1837,6 +1697,8 @@ fn ribbon_command_for_key<'a>(
         "orthographic" => &["view.camera.orthographic"],
         "permanent-grid" => &["view.grid.toggle"],
         "guides" => &["view.guides.toggle"],
+        "grid-guide" => &["view.grid_guide"],
+        "axis-guide" => &["view.axis_guide"],
         "selection-info" => &["view.selection"],
         "object-info" => &["view.object_info"],
         "objects" => &["view.objects"],
@@ -1995,6 +1857,7 @@ impl Render for MeshcraftShell {
         let viewport_bridge_down_left =
             cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                 let (x, y) = this.viewport_point(event.position, window);
+                window.focus(&this.focus);
                 this.pointer_down(event.button, x, y, event.modifiers);
                 cx.notify();
             });
@@ -2040,6 +1903,7 @@ impl Render for MeshcraftShell {
                 gpui::MouseButton::Right,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     let (x, y) = this.viewport_point(event.position, window);
+                    window.focus(&this.focus);
                     this.pointer_down(event.button, x, y, event.modifiers);
                     cx.notify();
                 }),
@@ -2224,6 +2088,7 @@ impl Render for MeshcraftShell {
 
         let mut root = div()
             .id("meshcraft-shell")
+            .track_focus(&self.focus)
             .size_full()
             .relative()
             .flex()
@@ -2295,7 +2160,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                             },
                         )
                         .detach();
-                    MeshcraftShell::new(bridge_for_view, session, view_cx)
+                    let shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
+                    window.focus(&shell.focus);
+                    shell
                 })
             },
         )
@@ -2309,11 +2176,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
 mod tests {
     use super::layout::ribbon_groups;
     use super::{
-        GridNormalAxis, OrbitCamera, SnapKind, ViewportBridge, ViewportLayout, grid_point_on_ray,
-        ribbon_command_for_key, viewport_physical_rect,
+        OrbitCamera, ViewportBridge, ViewportLayout, ribbon_command_for_key, viewport_physical_rect,
     };
     use crate::MeshcraftApp;
-    use meshcraft_core::geometry::Vec3;
 
     #[test]
     fn viewport_bounds_match_the_tagged_shell_at_each_dpi() {
@@ -2380,46 +2245,19 @@ mod tests {
     }
 
     #[test]
-    fn grid_snap_intersects_each_configured_workplane() {
-        let origin = Vec3::new(3.0, 4.0, 5.0);
-        let direction = Vec3::new(-1.0, -1.0, -1.0);
-        let cases = [
-            (GridNormalAxis::X, Vec3::new(0.0, 1.0, 2.0)),
-            (GridNormalAxis::Y, Vec3::new(-1.0, 0.0, 1.0)),
-            (GridNormalAxis::Z, Vec3::new(-2.0, -1.0, 0.0)),
-        ];
-
-        for (axis, expected) in cases {
-            let (point, snap) = grid_point_on_ray(origin, direction, 1.0, axis).unwrap();
-            assert_eq!(point, expected);
-            assert_eq!(snap.point, expected);
-            assert_eq!(snap.kind, SnapKind::Grid);
-        }
-    }
-
-    #[test]
-    fn grid_snap_ignores_rays_parallel_to_the_workplane() {
-        assert!(
-            grid_point_on_ray(
-                Vec3::new(1.0, 2.0, 3.0),
-                Vec3::new(0.0, 0.0, 1.0),
-                1.0,
-                GridNormalAxis::Y,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn vertical_orbit_drag_uses_the_reversed_y_direction() {
+    fn orbit_drag_reverses_both_axes_and_keeps_the_target_fixed() {
         let mut camera = OrbitCamera::default();
         let original_pitch = camera.pitch;
         let original_yaw = camera.yaw;
 
         camera.orbit_by_drag(12.0, 10.0);
 
-        assert!(camera.pitch < original_pitch);
-        assert!(camera.yaw > original_yaw);
+        assert!(camera.pitch > original_pitch);
+        assert!(camera.yaw < original_yaw);
+        assert_eq!(camera.target, OrbitCamera::default().target);
+        assert!(
+            (camera.position().distance(camera.target) - f64::from(camera.distance)).abs() < 1.0e-5
+        );
     }
 
     #[test]
