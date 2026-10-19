@@ -2231,7 +2231,7 @@ fn spawn_native_ui_settings(parent: &mut ChildSpawnerCommands, state: &NativeUiP
             );
         });
     parent.spawn((
-        Text::new("Grid display and toolbar changes apply immediately. Pixel line widths and cross-session preference storage remain in progress."),
+        Text::new("Grid and toolbar changes apply immediately and save for the next launch. Pixel line widths remain in progress."),
         TextFont::from_font_size(11.0),
         TextColor(Color::srgb(0.72, 0.74, 0.78)),
         Node {

@@ -1991,6 +1991,8 @@ impl Preferences {
 
 pub struct MeshcraftApp {
     preferences: Preferences,
+    #[cfg(not(target_arch = "wasm32"))]
+    persist_native_preferences: bool,
     icon_atlas: Option<egui::TextureHandle>,
     icon_regions: BTreeMap<&'static str, IconRegion>,
     active_tool: String,
@@ -2142,14 +2144,22 @@ impl MeshcraftApp {
         status: String,
         legacy_history: Option<OpaqueLegacyHistory>,
     ) -> Self {
-        Self::from_parts(
-            Preferences::default(),
-            None,
-            document,
-            status,
-            true,
-            legacy_history,
-        )
+        #[cfg(not(test))]
+        let mut preferences = load_native_preferences();
+        #[cfg(test)]
+        let mut preferences = Preferences::default();
+        preferences.normalize_recent_projects();
+        let session = Self::from_parts(preferences, None, document, status, true, legacy_history);
+        #[cfg(not(test))]
+        {
+            let mut session = session;
+            session.persist_native_preferences = true;
+            session
+        }
+        #[cfg(test)]
+        {
+            session
+        }
     }
 
     pub fn document_snapshot(&self) -> Document {
@@ -2612,6 +2622,8 @@ impl MeshcraftApp {
 
         Self {
             preferences,
+            #[cfg(not(target_arch = "wasm32"))]
+            persist_native_preferences: false,
             icon_atlas,
             icon_regions: assets::icon_regions(),
             active_tool: "Select".to_owned(),
@@ -6163,7 +6175,22 @@ impl MeshcraftApp {
         }
         self.preferences = preferences;
         self.status = "UI preferences updated.".to_owned();
-        CommandResult::completed()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut result = CommandResult::completed();
+            if self.persist_native_preferences
+                && let Err(error) = persist_native_preferences(&self.preferences)
+            {
+                let message = format!("UI preferences updated but could not be saved: {error}");
+                self.status = message.clone();
+                result.diagnostics.push(message);
+            }
+            result
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            CommandResult::completed()
+        }
     }
 
     pub fn query_command_state(&self, id: &str) -> CommandState {
@@ -10534,6 +10561,134 @@ fn write_project_file(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn native_preferences_path() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let root = std::env::var_os("APPDATA").map(PathBuf::from)?;
+
+    #[cfg(target_os = "macos")]
+    let root = std::env::var_os("HOME")
+        .map(PathBuf::from)?
+        .join("Library")
+        .join("Application Support");
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let root = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    return None;
+
+    Some(root.join("meshcraft").join("preferences.json"))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
+fn load_native_preferences() -> Preferences {
+    native_preferences_path()
+        .map(|path| load_preferences_file(&path))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_preferences_file(path: &Path) -> Preferences {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn persist_native_preferences(preferences: &Preferences) -> Result<(), String> {
+    let path = native_preferences_path()
+        .ok_or_else(|| "no native configuration directory is available".to_owned())?;
+    write_native_preferences_file(&path, preferences)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_native_preferences_file(path: &Path, preferences: &Preferences) -> Result<(), String> {
+    write_native_preferences_file_with_replace(path, preferences, replace_native_file)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn replace_native_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    if to.exists() {
+        fs::remove_file(to)?;
+    }
+    fs::rename(from, to)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_native_preferences_file_with_replace(
+    path: &Path,
+    preferences: &Preferences,
+    replace_file: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(preferences).map_err(|error| error.to_string())?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("could not create preferences directory: {error}"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "preferences path has no valid file name".to_owned())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let mut temporary_path = None;
+    let mut temporary_file = None;
+    for attempt in 0..32 {
+        let candidate = parent.join(format!(
+            ".{file_name}.meshcraft-{}-{nonce}-{attempt}.tmp",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                temporary_path = Some(candidate);
+                temporary_file = Some(file);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "could not create a temporary preferences file: {error}"
+                ));
+            }
+        }
+    }
+    let Some(temporary_path) = temporary_path else {
+        return Err("could not reserve a temporary preferences file".to_owned());
+    };
+    let mut temporary_file = temporary_file.expect("temporary path and file are created together");
+    let write_result = temporary_file
+        .write_all(&bytes)
+        .and_then(|()| temporary_file.sync_all());
+    drop(temporary_file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!(
+            "could not write temporary preferences file: {error}"
+        ));
+    }
+    if let Err(error) = replace_file(&temporary_path, path) {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!("could not replace {}: {error}", path.display()));
+    }
+    if let Ok(directory) = fs::File::open(parent) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn write_project_file_with_replace(
     path: &Path,
     document: &Document,
@@ -10769,8 +10924,8 @@ mod tests {
         SelectionClickTracker, SelectionDisplayPolicy, SelectionMode, SelectionSession,
         SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent, TransactionHistory,
         TransformPick, TransformTool, TransformToolState, UiProfile, command_matches,
-        point_feedback_text, push_pull_feedback_text, registry_has_unique_ids, shell_commands,
-        tool_command_id, vector_feedback_text,
+        load_preferences_file, point_feedback_text, push_pull_feedback_text,
+        registry_has_unique_ids, shell_commands, tool_command_id, vector_feedback_text,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, SelectionGesture,
@@ -10911,6 +11066,8 @@ mod tests {
     fn test_app() -> MeshcraftApp {
         MeshcraftApp {
             preferences: Preferences::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            persist_native_preferences: false,
             icon_atlas: None,
             icon_regions: BTreeMap::new(),
             active_tool: "Select".to_owned(),
@@ -17094,6 +17251,33 @@ mod tests {
             rejected.result.completion
         );
         assert_eq!(before.walk_move_speed, app.preferences.walk_move_speed);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_preferences_round_trip_through_atomic_config_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "meshcraft-preferences-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = directory.join("preferences.json");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(&path, br#"{"toolbar_icon_size": 40}"#).unwrap();
+        let mut expected = load_preferences_file(&path);
+        assert_eq!(40, expected.toolbar_icon_size);
+        assert_eq!(Preferences::default().grid_extent, expected.grid_extent);
+
+        expected.ui_text_scale = 1.5;
+        expected.show_permanent_grid = false;
+        expected.grid_extent = 48;
+        super::write_native_preferences_file(&path, &expected).unwrap();
+
+        assert_eq!(expected, load_preferences_file(&path));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
