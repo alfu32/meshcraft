@@ -1,11 +1,13 @@
 //! Native Bevy renderer and UI shell for the desktop migration.
 //!
-//! The document remains the source of truth. This module builds a compact set of GPU meshes
-//! from its resolved scene graph once at startup; document editing and incremental mesh invalidation
-//! are the next migration slices.
+//! The document remains the source of truth. This module builds compact category-wide GPU batches
+//! from resolved geometry and refreshes them only after a document generation or revision change.
+//! Viewport picking and spatially incremental geometry updates remain migration work.
 
+use crate::MeshcraftApp;
 use bevy::{
     asset::RenderAssetUsages,
+    input::keyboard::KeyboardInput,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollPixelsPerLine},
     light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
     mesh::{Mesh, PrimitiveTopology},
@@ -15,6 +17,7 @@ use bevy::{
     ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
 };
+use meshcraft_core::commands::{CommandDescriptor, CommandPayload};
 use meshcraft_core::{
     document::{Document, GeometryBundle, Rgba8},
     geometry::Vec3 as ModelVec3,
@@ -25,7 +28,10 @@ const GRID_EXTENT: i32 = 40;
 #[derive(Resource)]
 struct SceneDocument {
     document: Document,
+    generation: u64,
+    revision: u64,
     status: String,
+    active_tool: String,
     occurrences: usize,
     triangles: usize,
     segments: usize,
@@ -56,18 +62,49 @@ impl ToolKind {
             Self::Array => "Array",
         }
     }
-}
 
-#[derive(Resource)]
-struct ActiveTool(ToolKind);
+    const fn command_id(self) -> &'static str {
+        match self {
+            Self::Select => "tool.select",
+            Self::Line => "tool.line",
+            Self::Rectangle => "tool.rectangle",
+            Self::Move => "tool.builtin.move",
+            Self::Copy => "edit.copy_selection",
+            Self::Rotate => "tool.builtin.rotate",
+            Self::Extrude => "tool.builtin.push_pull",
+            Self::Array => "object.array_selection",
+        }
+    }
+}
 
 #[derive(Resource, Default)]
 struct CommandPaletteState {
     open: bool,
+    query: String,
+    results: Vec<String>,
+    selected_index: usize,
 }
+
+#[derive(Resource)]
+struct CommandCatalog(Vec<CommandDescriptor>);
+
+#[derive(Component)]
+struct DispatchCommand(String);
 
 #[derive(Component)]
 struct CommandPaletteOverlay;
+
+#[derive(Component)]
+struct CommandPaletteQuery;
+
+#[derive(Component)]
+struct CommandPaletteResult {
+    slot: usize,
+    command_id: Option<String>,
+}
+
+#[derive(Component)]
+struct CommandPaletteResultLabel(usize);
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 struct LightingSettings {
@@ -219,6 +256,19 @@ struct StatusText;
 #[derive(Component)]
 struct SceneMesh;
 
+#[derive(Resource, Default)]
+struct SceneMeshEntities {
+    front_faces: Option<Entity>,
+    back_faces: Option<Entity>,
+    segments: Option<Entity>,
+}
+
+#[derive(Resource)]
+struct RenderedSceneRevision {
+    generation: u64,
+    revision: u64,
+}
+
 struct SceneMeshes {
     front_faces: Option<Mesh>,
     back_faces: Option<Mesh>,
@@ -229,24 +279,24 @@ struct SceneMeshes {
 }
 
 /// Starts the native Bevy application with the requested window and optional imported document.
-pub fn run_native(
-    window_size: [f32; 2],
-    maximized: bool,
-    document: Option<Document>,
-    status: String,
-) {
-    let document = document.unwrap_or_default();
+pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp) {
+    let document = session.document_snapshot();
+    let generation = session.document_generation();
+    let revision = session.document_revision();
     let (occurrences, triangles, segments) = scene_counts(&document);
     let mut app = App::new();
     app.insert_resource(SceneDocument {
         document,
-        status,
+        generation,
+        revision,
+        status: session.status_text().to_owned(),
+        active_tool: session.active_tool_label().to_owned(),
         occurrences,
         triangles,
         segments,
     })
     .insert_resource(ClearColor(Color::srgb(0.78, 0.86, 0.94)))
-    .insert_resource(ActiveTool(ToolKind::Select))
+    .insert_resource(CommandCatalog(MeshcraftApp::command_catalog()))
     .insert_resource(CommandPaletteState::default())
     .insert_resource(LightingSettings::default())
     .insert_resource(OrbitCamera {
@@ -256,6 +306,7 @@ pub fn run_native(
         pitch: 0.55,
     })
     .insert_resource(StartupWindowState { maximized })
+    .insert_non_send(session)
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "Meshcraft".to_owned(),
@@ -274,11 +325,15 @@ pub fn run_native(
         Update,
         (
             orbit_camera,
-            refresh_status,
             toggle_command_palette,
+            handle_command_palette_keyboard,
+            refresh_command_palette,
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
+            sync_scene_document,
+            update_scene_meshes,
+            refresh_status,
         )
             .chain(),
     );
@@ -312,6 +367,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let scene_meshes = build_scene_meshes(&scene.document);
+    let mut scene_entities = SceneMeshEntities::default();
     ambient_light.brightness = lighting.ambient_brightness();
     commands.insert_resource(OrbitCamera {
         target: scene_meshes.target,
@@ -334,7 +390,7 @@ fn setup_scene(
         false,
     );
     if let Some(mesh) = scene_meshes.front_faces {
-        spawn_mesh(
+        scene_entities.front_faces = Some(spawn_mesh(
             &mut commands,
             &mut meshes,
             &mut materials,
@@ -349,10 +405,10 @@ fn setup_scene(
             Transform::default(),
             true,
             true,
-        );
+        ));
     }
     if let Some(mesh) = scene_meshes.back_faces {
-        spawn_mesh(
+        scene_entities.back_faces = Some(spawn_mesh(
             &mut commands,
             &mut meshes,
             &mut materials,
@@ -367,10 +423,10 @@ fn setup_scene(
             Transform::default(),
             true,
             false,
-        );
+        ));
     }
     if let Some(mesh) = scene_meshes.segments {
-        spawn_mesh(
+        scene_entities.segments = Some(spawn_mesh(
             &mut commands,
             &mut meshes,
             &mut materials,
@@ -383,7 +439,7 @@ fn setup_scene(
             Transform::default(),
             false,
             false,
-        );
+        ));
     }
 
     commands.spawn((
@@ -421,6 +477,11 @@ fn setup_scene(
         lighting.shadow_filter.method(),
         Transform::from_xyz(14.0, 13.0, 18.0).looking_at(scene_meshes.target, Vec3::Y),
     ));
+    commands.insert_resource(scene_entities);
+    commands.insert_resource(RenderedSceneRevision {
+        generation: scene.generation,
+        revision: scene.revision,
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -433,7 +494,7 @@ fn spawn_mesh(
     transform: Transform,
     is_scene_mesh: bool,
     casts_shadows: bool,
-) {
+) -> Entity {
     let mut entity = commands.spawn((
         Mesh3d(meshes.add(mesh)),
         MeshMaterial3d(materials.add(material)),
@@ -445,6 +506,7 @@ fn spawn_mesh(
     if !casts_shadows {
         entity.insert(NotShadowCaster);
     }
+    entity.id()
 }
 
 fn build_scene_meshes(document: &Document) -> SceneMeshes {
@@ -705,7 +767,12 @@ fn to_bevy_vec3(point: ModelVec3) -> Option<Vec3> {
     converted.is_finite().then_some(converted)
 }
 
-fn setup_ui(mut commands: Commands, scene: Res<SceneDocument>, lighting: Res<LightingSettings>) {
+fn setup_ui(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    lighting: Res<LightingSettings>,
+    catalog: Res<CommandCatalog>,
+) {
     let root = commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -925,22 +992,53 @@ fn setup_ui(mut commands: Commands, scene: Res<SceneDocument>, lighting: Res<Lig
         ))
         .with_children(|palette| {
             palette.spawn((
-                Text::new("Command Palette"),
+                Text::new(format!("Command Palette · {} commands", catalog.0.len())),
                 TextFont::from_font_size(20.0),
                 TextColor::WHITE,
             ));
-            for tool in [
-                ToolKind::Select,
-                ToolKind::Line,
-                ToolKind::Rectangle,
-                ToolKind::Move,
-                ToolKind::Copy,
-                ToolKind::Rotate,
-                ToolKind::Extrude,
-                ToolKind::Array,
-            ] {
-                spawn_tool_button(palette, tool.label(), tool);
-            }
+            palette.spawn((
+                Text::new("> "),
+                TextFont::from_font_size(15.0),
+                TextColor(Color::srgb(0.76, 0.84, 0.92)),
+                CommandPaletteQuery,
+            ));
+            palette
+                .spawn(Node {
+                    width: Val::Percent(100.0),
+                    max_height: px(520),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(3),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                })
+                .with_children(|results| {
+                    for slot in 0..24 {
+                        results
+                            .spawn((
+                                Button,
+                                CommandPaletteResult {
+                                    slot,
+                                    command_id: None,
+                                },
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    min_height: px(26),
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::horizontal(px(7)),
+                                    display: Display::None,
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+                            ))
+                            .with_child((
+                                Text::new(String::new()),
+                                TextFont::from_font_size(12.0),
+                                TextColor::WHITE,
+                                CommandPaletteResultLabel(slot),
+                            ))
+                            .observe(dispatch_palette_command);
+                    }
+                });
         });
         root.spawn((
             Node {
@@ -957,7 +1055,7 @@ fn setup_ui(mut commands: Commands, scene: Res<SceneDocument>, lighting: Res<Lig
         ))
         .with_children(|status| {
             status.spawn((
-                Text::new(format!("{}  |  {}", scene.status, ToolKind::Select.label())),
+                Text::new(format!("{}  |  {}", scene.status, scene.active_tool)),
                 TextFont::from_font_size(13.0),
                 TextColor::WHITE,
                 StatusText,
@@ -1067,7 +1165,7 @@ fn spawn_tool_button(parent: &mut ChildSpawnerCommands, label: &'static str, too
     parent
         .spawn((
             Button,
-            tool,
+            DispatchCommand(tool.command_id().to_owned()),
             Node {
                 width: px(112),
                 height: px(27),
@@ -1082,18 +1180,34 @@ fn spawn_tool_button(parent: &mut ChildSpawnerCommands, label: &'static str, too
             TextFont::from_font_size(12.0),
             TextColor::WHITE,
         ))
-        .observe(activate_tool);
+        .observe(dispatch_toolbar_command);
 }
 
-fn activate_tool(
+fn dispatch_toolbar_command(
     event: On<Activate>,
-    tools: Query<&ToolKind>,
-    mut active: ResMut<ActiveTool>,
+    commands: Query<&DispatchCommand>,
+    mut session: NonSendMut<MeshcraftApp>,
     mut palette_state: ResMut<CommandPaletteState>,
     mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
 ) {
-    if let Ok(tool) = tools.get(event.entity) {
-        active.0 = *tool;
+    if let Ok(command) = commands.get(event.entity) {
+        session.dispatch_command(&command.0, &CommandPayload::default());
+        palette_state.open = false;
+        for mut palette in &mut palettes {
+            palette.display = Display::None;
+        }
+    }
+}
+
+fn dispatch_palette_command(
+    event: On<Activate>,
+    commands: Query<&CommandPaletteResult>,
+    mut session: NonSendMut<MeshcraftApp>,
+    mut palette_state: ResMut<CommandPaletteState>,
+    mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
+) {
+    if let Ok(Some(command_id)) = commands.get(event.entity).map(|item| &item.command_id) {
+        session.dispatch_command(command_id, &CommandPayload::default());
         palette_state.open = false;
         for mut palette in &mut palettes {
             palette.display = Display::None;
@@ -1107,6 +1221,8 @@ fn open_command_palette(
     mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
 ) {
     state.open = true;
+    state.query.clear();
+    state.selected_index = 0;
     for mut palette in &mut palettes {
         palette.display = Display::Flex;
     }
@@ -1121,6 +1237,10 @@ fn toggle_command_palette(
     let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
     if control && shift && keyboard.just_pressed(KeyCode::KeyP) {
         state.open = !state.open;
+        if state.open {
+            state.query.clear();
+            state.selected_index = 0;
+        }
     }
     if state.open && keyboard.just_pressed(KeyCode::Escape) {
         state.open = false;
@@ -1134,16 +1254,289 @@ fn toggle_command_palette(
     }
 }
 
-fn refresh_status(
-    scene: Res<SceneDocument>,
-    active: Res<ActiveTool>,
-    mut labels: Query<&mut Text, With<StatusText>>,
+fn handle_command_palette_keyboard(
+    mut keyboard_events: MessageReader<KeyboardInput>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut palette: ResMut<CommandPaletteState>,
+    mut session: NonSendMut<MeshcraftApp>,
 ) {
-    if !scene.is_changed() && !active.is_changed() {
+    let control = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+    let alt = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
+    for event in keyboard_events.read() {
+        if !palette.open || event.state != bevy::input::ButtonState::Pressed || control || alt {
+            continue;
+        }
+        match event.key_code {
+            KeyCode::Escape => palette.open = false,
+            KeyCode::Backspace => {
+                palette.query.pop();
+                palette.selected_index = 0;
+            }
+            KeyCode::ArrowDown => {
+                if !palette.results.is_empty() {
+                    palette.selected_index =
+                        (palette.selected_index + 1).min(palette.results.len() - 1);
+                }
+            }
+            KeyCode::ArrowUp => {
+                palette.selected_index = palette.selected_index.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                if let Some(command_id) = palette.results.get(palette.selected_index).cloned() {
+                    session.dispatch_command(&command_id, &CommandPayload::default());
+                    palette.open = false;
+                }
+            }
+            _ => {
+                if let Some(text) = event.text.as_deref()
+                    && text.chars().any(|character| !character.is_control())
+                {
+                    palette.query.push_str(text);
+                    palette.selected_index = 0;
+                }
+            }
+        }
+    }
+}
+
+fn refresh_command_palette(
+    catalog: Res<CommandCatalog>,
+    mut palette: ResMut<CommandPaletteState>,
+    mut query_labels: Query<
+        &mut Text,
+        (
+            With<CommandPaletteQuery>,
+            Without<CommandPaletteResultLabel>,
+        ),
+    >,
+    mut results: Query<(&mut CommandPaletteResult, &mut Node, &mut BackgroundColor)>,
+    mut result_labels: Query<(&CommandPaletteResultLabel, &mut Text), Without<CommandPaletteQuery>>,
+) {
+    if !palette.is_changed() {
+        return;
+    }
+    let matches = search_command_ids(&catalog.0, &palette.query, 24);
+    palette.results = matches
+        .iter()
+        .map(|command| command.id.as_str().to_owned())
+        .collect();
+    palette.selected_index = palette
+        .selected_index
+        .min(palette.results.len().saturating_sub(1));
+    for mut label in &mut query_labels {
+        label.0 = if palette.query.is_empty() {
+            "> Type a command name or keyword".to_owned()
+        } else {
+            format!("> {}", palette.query)
+        };
+    }
+    for (mut result, mut node, mut background) in &mut results {
+        if let Some(command) = matches.get(result.slot) {
+            result.command_id = Some(command.id.as_str().to_owned());
+            node.display = Display::Flex;
+            background.0 = if result.slot == palette.selected_index {
+                Color::srgb(0.12, 0.38, 0.62)
+            } else {
+                Color::srgb(0.22, 0.24, 0.28)
+            };
+        } else {
+            result.command_id = None;
+            node.display = Display::None;
+        }
+    }
+    for (label_slot, mut label) in &mut result_labels {
+        if let Some(command) = matches.get(label_slot.0) {
+            let shortcut = command
+                .shortcut
+                .as_ref()
+                .map(|shortcut| format!("  [{shortcut}]"))
+                .unwrap_or_default();
+            label.0 = format!("{}{}", command.presentation.palette_path, shortcut);
+        } else {
+            label.0.clear();
+        }
+    }
+}
+
+fn search_command_ids(
+    catalog: &[CommandDescriptor],
+    query: &str,
+    limit: usize,
+) -> Vec<CommandDescriptor> {
+    let query = query.trim().to_lowercase();
+    let tokens = query.split_whitespace().collect::<Vec<_>>();
+    let mut matches = catalog
+        .iter()
+        .filter_map(|command| {
+            let searchable = format!(
+                "{} {} {} {} {}",
+                command.presentation.palette_path,
+                command.label,
+                command.category,
+                command.id,
+                command.keywords.join(" ")
+            )
+            .to_lowercase();
+            tokens
+                .iter()
+                .all(|token| searchable.contains(token))
+                .then(|| {
+                    let rank = if !query.is_empty()
+                        && command
+                            .presentation
+                            .palette_path
+                            .to_lowercase()
+                            .starts_with(&query)
+                    {
+                        0
+                    } else if !query.is_empty() && command.label.to_lowercase().starts_with(&query)
+                    {
+                        1
+                    } else if !query.is_empty() && command.id.as_str().starts_with(&query) {
+                        2
+                    } else {
+                        3
+                    };
+                    (rank, command)
+                })
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|(rank_a, command_a), (rank_b, command_b)| {
+        rank_a.cmp(rank_b).then_with(|| {
+            command_a
+                .presentation
+                .palette_path
+                .cmp(&command_b.presentation.palette_path)
+        })
+    });
+    matches
+        .into_iter()
+        .take(limit)
+        .map(|(_, command)| command.clone())
+        .collect()
+}
+
+fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<MeshcraftApp>) {
+    let generation = session.document_generation();
+    let revision = session.document_revision();
+    if scene.generation != generation || scene.revision != revision {
+        scene.document = session.document_snapshot();
+        scene.generation = generation;
+        scene.revision = revision;
+        (scene.occurrences, scene.triangles, scene.segments) = scene_counts(&scene.document);
+    }
+    let status = session.status_text();
+    if scene.status != status {
+        scene.status = status.to_owned();
+    }
+    let active_tool = session.active_tool_label();
+    if scene.active_tool != active_tool {
+        scene.active_tool = active_tool.to_owned();
+    }
+}
+
+fn update_scene_meshes(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    mut rendered_revision: ResMut<RenderedSceneRevision>,
+    mut entities: ResMut<SceneMeshEntities>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    lighting: Res<LightingSettings>,
+) {
+    if rendered_revision.generation == scene.generation
+        && rendered_revision.revision == scene.revision
+    {
+        return;
+    }
+    let scene_meshes = build_scene_meshes(&scene.document);
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.front_faces,
+        scene_meshes.front_faces,
+        StandardMaterial {
+            cull_mode: Some(Face::Back),
+            alpha_mode: AlphaMode::Blend,
+            perceptual_roughness: 1.0,
+            reflectance: lighting.specular,
+            ..default()
+        },
+        true,
+    );
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.back_faces,
+        scene_meshes.back_faces,
+        StandardMaterial {
+            cull_mode: Some(Face::Front),
+            alpha_mode: AlphaMode::Blend,
+            perceptual_roughness: 1.0,
+            reflectance: lighting.specular,
+            ..default()
+        },
+        false,
+    );
+    replace_scene_batch(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut entities.segments,
+        scene_meshes.segments,
+        StandardMaterial {
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        },
+        false,
+    );
+    rendered_revision.generation = scene.generation;
+    rendered_revision.revision = scene.revision;
+}
+
+fn replace_scene_batch(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    entity: &mut Option<Entity>,
+    mesh: Option<Mesh>,
+    material: StandardMaterial,
+    casts_shadows: bool,
+) {
+    match (entity.as_mut(), mesh) {
+        (Some(entity), Some(mesh)) => {
+            commands.entity(*entity).insert(Mesh3d(meshes.add(mesh)));
+        }
+        (Some(_), None) => {
+            if let Some(entity) = entity.take() {
+                commands.entity(entity).despawn();
+            }
+        }
+        (None, Some(mesh)) => {
+            *entity = Some(spawn_mesh(
+                commands,
+                meshes,
+                materials,
+                mesh,
+                material,
+                Transform::default(),
+                true,
+                casts_shadows,
+            ));
+        }
+        (None, None) => {}
+    }
+}
+
+fn refresh_status(scene: Res<SceneDocument>, mut labels: Query<&mut Text, With<StatusText>>) {
+    if !scene.is_changed() {
         return;
     }
     for mut label in &mut labels {
-        label.0 = format!("{}  |  {}", scene.status, active.0.label());
+        label.0 = format!("{}  |  {}", scene.status, scene.active_tool);
     }
 }
 
@@ -1289,12 +1682,16 @@ fn orbit_camera(
 mod tests {
     use super::{
         LightingChannel, LightingSettings, ShadowFilter, back_face_color, build_scene_meshes,
-        line_mesh, scene_counts, triangle_mesh,
+        dispatch_palette_command, dispatch_toolbar_command, line_mesh, scene_counts,
+        search_command_ids, triangle_mesh,
     };
+    use crate::MeshcraftApp;
     use bevy::{
         mesh::{Mesh, VertexAttributeValues},
-        prelude::Vec3,
+        prelude::{App, Update, Vec3},
+        ui_widgets::Activate,
     };
+    use meshcraft_core::commands::CommandPayload;
     use meshcraft_core::{document::Document, geometry::Vec3 as ModelVec3};
 
     #[test]
@@ -1351,6 +1748,97 @@ mod tests {
         assert_eq!(settings.ambient, 1.0);
         LightingChannel::Specular.set_value(&mut settings, -1.0);
         assert_eq!(settings.specular, 0.0);
+    }
+
+    #[test]
+    fn command_palette_search_uses_the_shared_command_registry() {
+        let catalog = MeshcraftApp::command_catalog();
+        let results = search_command_ids(&catalog, "cuboid", 24);
+        let ids = results
+            .iter()
+            .map(|command| command.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"tool.cuboid"));
+        assert!(ids.contains(&"geometry.add_cuboid"));
+
+        let by_keyword = search_command_ids(&catalog, "undo", 24);
+        assert!(
+            by_keyword
+                .iter()
+                .any(|command| command.id.as_str() == "edit.undo")
+        );
+    }
+
+    #[test]
+    fn native_command_session_mutations_refresh_the_render_source_document() {
+        let mut session =
+            MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        session.set_native_project_path(std::path::PathBuf::from("scene.octd"));
+        assert_eq!(
+            Some("scene.octd".to_owned()),
+            session.current_project_path()
+        );
+        let before_revision = session.document_revision();
+        let dispatched =
+            session.dispatch_command("geometry.add_cuboid", &CommandPayload::default());
+        assert!(dispatched.accepted);
+        assert!(session.document_revision() > before_revision);
+
+        let rendered_document = session.document_snapshot();
+        let meshes = build_scene_meshes(&rendered_document);
+        assert!(meshes.front_faces.is_some());
+        assert!(meshes.back_faces.is_some());
+        assert_eq!(scene_counts(&rendered_document), (1, 12, 12));
+    }
+
+    #[test]
+    fn palette_refresh_system_builds_results_in_a_bevy_schedule() {
+        let mut app = App::new();
+        app.insert_resource(super::CommandCatalog(MeshcraftApp::command_catalog()))
+            .insert_resource(super::CommandPaletteState {
+                open: true,
+                query: "cuboid".to_owned(),
+                results: Vec::new(),
+                selected_index: 0,
+            })
+            .add_systems(Update, super::refresh_command_palette);
+
+        app.update();
+
+        let state = app.world().resource::<super::CommandPaletteState>();
+        assert!(state.results.contains(&"tool.cuboid".to_owned()));
+        assert!(state.results.contains(&"geometry.add_cuboid".to_owned()));
+    }
+
+    #[test]
+    fn toolbar_and_palette_activation_dispatch_shared_commands() {
+        let mut app = App::new();
+        app.insert_resource(super::CommandPaletteState::default())
+            .insert_non_send(MeshcraftApp::new_native_session(
+                Document::new(),
+                "Ready".to_owned(),
+                None,
+            ))
+            .add_observer(dispatch_toolbar_command)
+            .add_observer(dispatch_palette_command);
+        let toolbar = app
+            .world_mut()
+            .spawn(super::DispatchCommand("geometry.add_cuboid".to_owned()))
+            .id();
+        let palette = app
+            .world_mut()
+            .spawn(super::CommandPaletteResult {
+                slot: 0,
+                command_id: Some("tool.line".to_owned()),
+            })
+            .id();
+
+        app.world_mut().trigger(Activate { entity: toolbar });
+        assert!(app.world().non_send::<MeshcraftApp>().document_revision() > 0);
+        app.world_mut().trigger(Activate { entity: palette });
+
+        let session = app.world().non_send::<MeshcraftApp>();
+        assert_eq!("Line", session.active_tool_label());
     }
 
     fn attribute_len(mesh: &Mesh, name: MeshVertexAttribute) -> usize {

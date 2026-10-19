@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::document::Document;
 #[cfg(not(target_arch = "wasm32"))]
-use meshcraft_desktop::bevy_app::run_native;
+use meshcraft_desktop::{MeshcraftApp, bevy_app::run_native};
 use meshcraft_io::project::{ImportedProject, read_project};
 use std::{env, ffi::OsString, fs, path::PathBuf};
 
@@ -52,13 +52,23 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let startup_path = startup.document.clone();
     let startup_document = load_startup_document(startup.document);
-    let (document, status) = match startup_document {
-        Ok(Some((project, status))) => (Some(project.document), status),
-        Ok(None) => (Some(Document::new()), "Ready · empty document".to_owned()),
-        Err(error) => (None, error),
+    let (document, status, legacy_history, loaded_path) = match startup_document {
+        Ok(Some((project, status))) => (project.document, status, project.history, startup_path),
+        Ok(None) => (
+            Document::new(),
+            "Ready · empty document".to_owned(),
+            None,
+            None,
+        ),
+        Err(error) => (Document::new(), error, None, None),
     };
-    run_native(startup.window_size, startup.maximized, document, status);
+    let mut session = MeshcraftApp::new_native_session(document, status, legacy_history);
+    if let Some(path) = loaded_path {
+        session.set_native_project_path(path);
+    }
+    run_native(startup.window_size, startup.maximized, session);
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -1992,6 +1992,7 @@ pub struct MeshcraftApp {
     quit_requested: bool,
     panel_focus: Option<String>,
     document: Document,
+    document_generation: u64,
     saved_revision: u64,
     #[cfg(not(target_arch = "wasm32"))]
     autosave_observed_revision: u64,
@@ -2056,6 +2057,42 @@ impl MeshcraftApp {
         self.job_results.get(job_id)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new_native_session(
+        document: Document,
+        status: String,
+        legacy_history: Option<OpaqueLegacyHistory>,
+    ) -> Self {
+        Self::from_parts(
+            Preferences::default(),
+            None,
+            document,
+            status,
+            true,
+            legacy_history,
+        )
+    }
+
+    pub fn document_snapshot(&self) -> Document {
+        self.document.clone()
+    }
+
+    pub fn document_revision(&self) -> u64 {
+        self.document.revision()
+    }
+
+    pub fn document_generation(&self) -> u64 {
+        self.document_generation
+    }
+
+    pub fn status_text(&self) -> &str {
+        &self.status
+    }
+
+    pub fn active_tool_label(&self) -> &str {
+        &self.active_tool
+    }
+
     pub fn current_project_path(&self) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -2067,6 +2104,11 @@ impl MeshcraftApp {
         {
             None
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_native_project_path(&mut self, path: PathBuf) {
+        self.current_project_path = Some(path);
     }
 
     fn document_is_dirty(&self) -> bool {
@@ -2122,6 +2164,26 @@ impl MeshcraftApp {
             .unwrap_or_default();
         preferences.normalize_recent_projects();
 
+        Self::from_parts(
+            preferences,
+            assets::load_icon_atlas(&creation_context.egui_ctx),
+            document,
+            status,
+            frame_document,
+            legacy_history,
+        )
+    }
+
+    fn from_parts(
+        preferences: Preferences,
+        icon_atlas: Option<egui::TextureHandle>,
+        document: Document,
+        status: String,
+        frame_document: bool,
+        legacy_history: Option<OpaqueLegacyHistory>,
+    ) -> Self {
+        let mut preferences = preferences;
+        preferences.normalize_recent_projects();
         let legacy_active_index = legacy_history
             .as_ref()
             .and_then(OpaqueLegacyHistory::active_entry_index);
@@ -2135,7 +2197,7 @@ impl MeshcraftApp {
 
         Self {
             preferences,
-            icon_atlas: assets::load_icon_atlas(&creation_context.egui_ctx),
+            icon_atlas,
             icon_regions: assets::icon_regions(),
             active_tool: "Select".to_owned(),
             status,
@@ -2151,6 +2213,7 @@ impl MeshcraftApp {
             quit_requested: false,
             panel_focus: None,
             document,
+            document_generation: 0,
             saved_revision,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: saved_revision,
@@ -4390,6 +4453,7 @@ impl MeshcraftApp {
     ) -> CommandResult {
         self.remember_recent_project(path);
         self.document = project.document;
+        self.document_generation = self.document_generation.wrapping_add(1);
         self.saved_revision = self.document.revision();
         self.autosave_observed_revision = self.document.revision();
         self.autosave_deadline = None;
@@ -10447,6 +10511,7 @@ mod tests {
             quit_requested: false,
             panel_focus: None,
             document: Document::new(),
+            document_generation: 0,
             saved_revision: 0,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: 0,
