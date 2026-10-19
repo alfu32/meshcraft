@@ -331,6 +331,8 @@ struct NativePermanentGrid {
     extent: u32,
     normal_axis: GridNormalAxis,
     visible: bool,
+    thick: bool,
+    width: f32,
 }
 
 #[derive(Component)]
@@ -938,6 +940,7 @@ fn setup_scene(
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
 ) {
     let scene_meshes = build_scene_meshes_with_policy(&scene.document, &selection_display.policy);
     let mut scene_entities = SceneMeshEntities::default();
@@ -948,35 +951,36 @@ fn setup_scene(
         yaw: 0.75,
         pitch: 0.55,
     });
-    let grid = spawn_mesh(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        build_oriented_grid_mesh(
-            ui_preferences.value.grid_extent as i32,
-            ui_preferences.value.grid_normal_axis,
-        ),
-        StandardMaterial {
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        },
-        Transform::default(),
-        false,
-        false,
-    );
-    commands.entity(grid).insert((
-        NativePermanentGrid {
-            extent: ui_preferences.value.grid_extent,
-            normal_axis: ui_preferences.value.grid_normal_axis,
-            visible: ui_preferences.value.show_permanent_grid,
-        },
-        if ui_preferences.value.show_permanent_grid {
-            Visibility::Inherited
+    for thick in [false, true] {
+        let width = if thick {
+            ui_preferences.value.thick_grid_width
         } else {
-            Visibility::Hidden
-        },
-    ));
+            ui_preferences.value.normal_grid_width
+        };
+        commands.spawn((
+            Gizmo {
+                handle: gizmo_assets.add(build_oriented_grid_gizmo(
+                    ui_preferences.value.grid_extent as i32,
+                    ui_preferences.value.grid_normal_axis,
+                    thick,
+                )),
+                line_config: GizmoLineConfig { width, ..default() },
+                ..default()
+            },
+            NativePermanentGrid {
+                extent: ui_preferences.value.grid_extent,
+                normal_axis: ui_preferences.value.grid_normal_axis,
+                visible: ui_preferences.value.show_permanent_grid,
+                thick,
+                width,
+            },
+            if ui_preferences.value.show_permanent_grid {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
+        ));
+    }
     if let Some(mesh) = scene_meshes.front_faces {
         scene_entities.front_faces = Some(spawn_mesh(
             &mut commands,
@@ -1335,9 +1339,16 @@ fn line_mesh(positions: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> Option<Mesh> {
     Some(mesh)
 }
 
-fn build_oriented_grid_mesh(extent: i32, normal_axis: GridNormalAxis) -> Mesh {
-    let mut positions = Vec::new();
-    let mut colors = Vec::new();
+#[derive(Clone, Copy)]
+struct OrientedGridLine {
+    start: Vec3,
+    end: Vec3,
+    color: [f32; 4],
+    thick: bool,
+}
+
+fn oriented_grid_lines(extent: i32, normal_axis: GridNormalAxis) -> Vec<OrientedGridLine> {
+    let mut lines = Vec::new();
     let minor = [0.52, 0.60, 0.68, 1.0];
     let (u_axis, v_axis, normal) = match normal_axis {
         GridNormalAxis::X => (Vec3::Y, Vec3::Z, Vec3::X),
@@ -1365,40 +1376,59 @@ fn build_oriented_grid_mesh(extent: i32, normal_axis: GridNormalAxis) -> Mesh {
         let value = step as f32;
         let u_line_color = if step == 0 { u_color } else { minor };
         let v_line_color = if step == 0 { v_color } else { minor };
-        push_line(
-            &mut positions,
-            &mut colors,
+        push_grid_line(
+            &mut lines,
             u_axis * -(extent as f32) + v_axis * value,
             u_axis * extent as f32 + v_axis * value,
             u_line_color,
+            step == 0,
         );
-        push_line(
-            &mut positions,
-            &mut colors,
+        push_grid_line(
+            &mut lines,
             u_axis * value + v_axis * -(extent as f32),
             u_axis * value + v_axis * extent as f32,
             v_line_color,
+            step == 0,
         );
     }
-    push_line(
-        &mut positions,
-        &mut colors,
+    push_grid_line(
+        &mut lines,
         normal * -(extent as f32),
         normal * extent as f32,
         normal_color,
+        true,
     );
-    line_mesh(positions, colors).expect("the fixed grid contains lines")
+    lines
 }
 
-fn push_line(
-    positions: &mut Vec<[f32; 3]>,
-    colors: &mut Vec<[f32; 4]>,
+fn push_grid_line(
+    lines: &mut Vec<OrientedGridLine>,
     start: Vec3,
     end: Vec3,
     color: [f32; 4],
+    thick: bool,
 ) {
-    positions.extend([start.to_array(), end.to_array()]);
-    colors.extend([color, color]);
+    lines.push(OrientedGridLine {
+        start,
+        end,
+        color,
+        thick,
+    });
+}
+
+fn build_oriented_grid_gizmo(extent: i32, normal_axis: GridNormalAxis, thick: bool) -> GizmoAsset {
+    let mut gizmo = GizmoAsset::new();
+    for line in oriented_grid_lines(extent, normal_axis)
+        .into_iter()
+        .filter(|line| line.thick == thick)
+    {
+        gizmo.line(
+            line.start,
+            line.end,
+            Color::srgb(line.color[0], line.color[1], line.color[2]),
+        );
+    }
+    gizmo
 }
 
 fn rgba_to_color(color: Rgba8) -> [f32; 4] {
@@ -3118,23 +3148,33 @@ fn sync_native_ui_preference_presentation(
 }
 
 fn update_native_permanent_grid(
-    mut commands: Commands,
     preferences: Res<NativeUiPreferencesState>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut grids: Query<(Entity, &mut NativePermanentGrid, &mut Visibility)>,
+    mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
+    mut grids: Query<(&mut NativePermanentGrid, &mut Gizmo, &mut Visibility)>,
 ) {
-    for (entity, mut grid, mut visibility) in &mut grids {
+    if !preferences.is_changed() {
+        return;
+    }
+    for (mut grid, mut gizmo, mut visibility) in &mut grids {
         if grid.extent != preferences.value.grid_extent
             || grid.normal_axis != preferences.value.grid_normal_axis
         {
-            commands
-                .entity(entity)
-                .insert(Mesh3d(meshes.add(build_oriented_grid_mesh(
-                    preferences.value.grid_extent as i32,
-                    preferences.value.grid_normal_axis,
-                ))));
+            gizmo.handle = gizmo_assets.add(build_oriented_grid_gizmo(
+                preferences.value.grid_extent as i32,
+                preferences.value.grid_normal_axis,
+                grid.thick,
+            ));
             grid.extent = preferences.value.grid_extent;
             grid.normal_axis = preferences.value.grid_normal_axis;
+        }
+        let width = if grid.thick {
+            preferences.value.thick_grid_width
+        } else {
+            preferences.value.normal_grid_width
+        };
+        if grid.width != width {
+            gizmo.line_config.width = width;
+            grid.width = width;
         }
         if grid.visible != preferences.value.show_permanent_grid {
             *visibility = if preferences.value.show_permanent_grid {
@@ -5816,28 +5856,28 @@ mod tests {
         LightingChannel, LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
         NativeModelSettingField, NativeModelSettingsApplyButton, NativeModelSettingsEditorButton,
         NativeModelSettingsInput, NativeObjectListClick, NativeObjectListContainer,
-        NativeObjectListRow, NativeObjectNameInput, NativePolylineSettingsApplyButton,
-        NativeRenameObjectButton, NativeRightClickGesture, NativeSelectionDisplayProperty,
-        NativeSelectionDisplayState, NativeSelectionDisplayToggle, NativeSelectionToggleLabel,
-        NativeSelectionValue, NativeSelectionValueLabel, NativeToolbarDrag,
-        NativeToolsContextMenuState, NativeUiInteraction, NativeUiPreferencesState,
-        NativeUiSettingChoice, NativeUiSettingChoiceButton, NativeUiSettingInput,
-        NativeUiSettingInputField, NativeUiSettingToggleButton, NativeUiSettingToggleField,
-        NativeUiSettingsApplyButton, NativeViewportOverlay, SceneDocument, ShadowFilter,
-        SnapResult, TextureAtlasLayout, apply_native_model_settings,
+        NativeObjectListRow, NativeObjectNameInput, NativePermanentGrid,
+        NativePolylineSettingsApplyButton, NativeRenameObjectButton, NativeRightClickGesture,
+        NativeSelectionDisplayProperty, NativeSelectionDisplayState, NativeSelectionDisplayToggle,
+        NativeSelectionToggleLabel, NativeSelectionValue, NativeSelectionValueLabel,
+        NativeToolbarDrag, NativeToolsContextMenuState, NativeUiInteraction,
+        NativeUiPreferencesState, NativeUiSettingChoice, NativeUiSettingChoiceButton,
+        NativeUiSettingInput, NativeUiSettingInputField, NativeUiSettingToggleButton,
+        NativeUiSettingToggleField, NativeUiSettingsApplyButton, NativeViewportOverlay,
+        SceneDocument, ShadowFilter, SnapResult, TextureAtlasLayout, apply_native_model_settings,
         apply_native_polyline_settings, apply_native_ui_preferences, back_face_color,
-        build_oriented_grid_mesh, build_scene_meshes_with_policy, command_payload_from_json,
-        create_native_icon_atlas, dispatch_palette_command, dispatch_toolbar_command, line_mesh,
-        native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
-        native_segment_intersects_rect, native_toolbar_dimensions, native_toolbar_position,
-        native_triangle_intersects_rect, object_selection_summary, objects_summary,
-        open_native_model_settings_editor, persist_native_toolbar_position,
-        rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
-        search_command_ids, select_native_object_row, selected_object_info,
-        selected_vertex_positions, submit_palette_parameters, sync_command_palette_parameter_ui,
-        sync_command_palette_states, sync_native_cursor_dot, sync_native_model_settings_inputs,
-        sync_native_object_list, sync_native_selection_table, sync_native_settings_sections,
-        sync_toolbar_button_states, toggle_native_ui_setting, tool_context_groups, triangle_mesh,
+        build_scene_meshes_with_policy, command_payload_from_json, create_native_icon_atlas,
+        dispatch_palette_command, dispatch_toolbar_command, line_mesh, native_model_setting_fields,
+        native_object_entries, native_polyline_setting_fields, native_segment_intersects_rect,
+        native_toolbar_dimensions, native_toolbar_position, native_triangle_intersects_rect,
+        object_selection_summary, objects_summary, open_native_model_settings_editor,
+        oriented_grid_lines, persist_native_toolbar_position, rename_selected_native_object,
+        route_native_guide_shortcuts, scene_counts, search_command_ids, select_native_object_row,
+        selected_object_info, selected_vertex_positions, submit_palette_parameters,
+        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
+        sync_native_model_settings_inputs, sync_native_object_list, sync_native_selection_table,
+        sync_native_settings_sections, sync_toolbar_button_states, toggle_native_ui_setting,
+        tool_context_groups, triangle_mesh, update_native_permanent_grid,
         update_native_ui_setting_choice, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
@@ -5845,8 +5885,8 @@ mod tests {
         asset::Assets,
         mesh::{Mesh, VertexAttributeValues},
         prelude::{
-            App, BackgroundColor, ButtonInput, Color, Display, KeyCode, Node, Text, TextColor,
-            Update, Val, Vec2, Vec3, default,
+            App, BackgroundColor, ButtonInput, Color, Display, Gizmo, GizmoAsset, GizmoLineConfig,
+            KeyCode, Node, Text, TextColor, Update, Val, Vec2, Vec3, Visibility, default,
         },
         text::EditableText,
         time::Time,
@@ -5885,12 +5925,7 @@ mod tests {
             attribute_len(built.segments.as_ref().unwrap(), Mesh::ATTRIBUTE_POSITION),
             24
         );
-        assert!(
-            attribute_len(
-                &build_oriented_grid_mesh(40, GridNormalAxis::Y),
-                Mesh::ATTRIBUTE_POSITION
-            ) > 300
-        );
+        assert!(oriented_grid_lines(40, GridNormalAxis::Y).len() > 150);
         assert_eq!(built.target, Vec3::new(1.0, 1.5, 2.0));
         assert_eq!(scene_counts(&document), (1, 12, 12));
     }
@@ -6073,18 +6108,100 @@ mod tests {
             (GridNormalAxis::Y, [0.0, 2.0, 0.0]),
             (GridNormalAxis::Z, [0.0, 0.0, 2.0]),
         ] {
-            let grid = build_oriented_grid_mesh(2, axis);
-            let Some(VertexAttributeValues::Float32x3(positions)) =
-                grid.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                panic!("native grid has position data");
-            };
-            assert!(positions.contains(&normal_endpoint));
+            let lines = oriented_grid_lines(2, axis);
             assert!(
-                positions
+                lines
                     .iter()
-                    .all(|point| point.iter().all(|value| value.is_finite()))
+                    .any(|line| line.end.to_array() == normal_endpoint)
             );
+            assert!(lines.iter().all(|line| {
+                line.start.is_finite()
+                    && line.end.is_finite()
+                    && line.color.iter().all(|value| value.is_finite())
+            }));
+            assert_eq!(3, lines.iter().filter(|line| line.thick).count());
+            assert_eq!(8, lines.iter().filter(|line| !line.thick).count());
+        }
+    }
+
+    #[test]
+    fn native_grid_batches_apply_separate_pixel_widths_and_preferences() {
+        let session = MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
+        let mut preferences = session.native_ui_preferences();
+        preferences.grid_extent = 4;
+        preferences.grid_normal_axis = GridNormalAxis::X;
+        preferences.show_permanent_grid = false;
+        preferences.normal_grid_width = 1.25;
+        preferences.thick_grid_width = 4.0;
+
+        let mut app = App::new();
+        app.insert_resource(Assets::<GizmoAsset>::default())
+            .insert_resource(NativeUiPreferencesState {
+                value: preferences,
+                revision: 1,
+            })
+            .add_systems(Update, update_native_permanent_grid);
+
+        let normal_grid = app
+            .world_mut()
+            .spawn((
+                NativePermanentGrid {
+                    extent: 2,
+                    normal_axis: GridNormalAxis::Y,
+                    visible: true,
+                    thick: false,
+                    width: 0.5,
+                },
+                Gizmo {
+                    line_config: GizmoLineConfig {
+                        width: 0.5,
+                        ..default()
+                    },
+                    ..default()
+                },
+                Visibility::Inherited,
+            ))
+            .id();
+        let thick_grid = app
+            .world_mut()
+            .spawn((
+                NativePermanentGrid {
+                    extent: 2,
+                    normal_axis: GridNormalAxis::Y,
+                    visible: true,
+                    thick: true,
+                    width: 0.5,
+                },
+                Gizmo {
+                    line_config: GizmoLineConfig {
+                        width: 0.5,
+                        ..default()
+                    },
+                    ..default()
+                },
+                Visibility::Inherited,
+            ))
+            .id();
+
+        app.update();
+
+        for (entity, expected_width) in [(normal_grid, 1.25), (thick_grid, 4.0)] {
+            let gizmo = app.world().get::<Gizmo>(entity).unwrap();
+            assert_eq!(expected_width, gizmo.line_config.width);
+            assert!(
+                app.world()
+                    .resource::<Assets<GizmoAsset>>()
+                    .get(&gizmo.handle)
+                    .is_some()
+            );
+            assert_eq!(
+                Visibility::Hidden,
+                *app.world().get::<Visibility>(entity).unwrap()
+            );
+            let grid = app.world().get::<NativePermanentGrid>(entity).unwrap();
+            assert_eq!(4, grid.extent);
+            assert_eq!(GridNormalAxis::X, grid.normal_axis);
+            assert!(!grid.visible);
         }
     }
 
