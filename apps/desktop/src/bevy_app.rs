@@ -1,0 +1,1365 @@
+//! Native Bevy renderer and UI shell for the desktop migration.
+//!
+//! The document remains the source of truth. This module builds a compact set of GPU meshes
+//! from its resolved scene graph once at startup; document editing and incremental mesh invalidation
+//! are the next migration slices.
+
+use bevy::{
+    asset::RenderAssetUsages,
+    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollPixelsPerLine},
+    light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
+    mesh::{Mesh, PrimitiveTopology},
+    pbr::StandardMaterial,
+    prelude::*,
+    render::render_resource::Face,
+    ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
+    window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
+};
+use meshcraft_core::{
+    document::{Document, GeometryBundle, Rgba8},
+    geometry::Vec3 as ModelVec3,
+};
+
+const GRID_EXTENT: i32 = 40;
+
+#[derive(Resource)]
+struct SceneDocument {
+    document: Document,
+    status: String,
+    occurrences: usize,
+    triangles: usize,
+    segments: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Component)]
+enum ToolKind {
+    Select,
+    Line,
+    Rectangle,
+    Move,
+    Copy,
+    Rotate,
+    Extrude,
+    Array,
+}
+
+impl ToolKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Select => "Select",
+            Self::Line => "Line",
+            Self::Rectangle => "Rectangle",
+            Self::Move => "Move",
+            Self::Copy => "Copy",
+            Self::Rotate => "Rotate 3D",
+            Self::Extrude => "Extrude",
+            Self::Array => "Array",
+        }
+    }
+}
+
+#[derive(Resource)]
+struct ActiveTool(ToolKind);
+
+#[derive(Resource, Default)]
+struct CommandPaletteState {
+    open: bool,
+}
+
+#[derive(Component)]
+struct CommandPaletteOverlay;
+
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+struct LightingSettings {
+    shadow: f32,
+    directional: f32,
+    ambient: f32,
+    specular: f32,
+    shadow_filter: ShadowFilter,
+    use_csm: bool,
+    shadow_bias: f32,
+    shadow_normal_bias: f32,
+}
+
+impl Default for LightingSettings {
+    fn default() -> Self {
+        // Values match the visible K3D shader panel and LightingSettings defaults.
+        Self {
+            shadow: 0.59,
+            directional: 0.73,
+            ambient: 0.59,
+            specular: 0.20,
+            shadow_filter: ShadowFilter::Hardware2x2,
+            use_csm: true,
+            shadow_bias: 2500.0,
+            shadow_normal_bias: 5620.0,
+        }
+    }
+}
+
+impl LightingSettings {
+    fn ambient_brightness(self) -> f32 {
+        // Bevy's ambient light uses physical units, while the reference shader uses a color
+        // multiplier. This scale keeps the reference's 0.59 setting bright enough to lift shade.
+        self.ambient.clamp(0.0, 1.0) * 240.0
+    }
+
+    fn bevy_shadow_depth_bias(self) -> f32 {
+        DirectionalLight::DEFAULT_SHADOW_DEPTH_BIAS * (self.shadow_bias / 2500.0).max(0.0)
+    }
+
+    fn bevy_shadow_normal_bias(self) -> f32 {
+        DirectionalLight::DEFAULT_SHADOW_NORMAL_BIAS * (self.shadow_normal_bias / 5620.0).max(0.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShadowFilter {
+    Hardware2x2,
+    Gaussian,
+    Temporal,
+}
+
+impl ShadowFilter {
+    const fn next(self) -> Self {
+        match self {
+            Self::Hardware2x2 => Self::Gaussian,
+            Self::Gaussian => Self::Temporal,
+            Self::Temporal => Self::Hardware2x2,
+        }
+    }
+
+    const fn method(self) -> ShadowFilteringMethod {
+        match self {
+            Self::Hardware2x2 => ShadowFilteringMethod::Hardware2x2,
+            Self::Gaussian => ShadowFilteringMethod::Gaussian,
+            Self::Temporal => ShadowFilteringMethod::Temporal,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Hardware2x2 => "2x2",
+            Self::Gaussian => "Gaussian",
+            Self::Temporal => "Temporal",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LightingChannel {
+    Shadow,
+    Directional,
+    Ambient,
+    Specular,
+}
+
+impl LightingChannel {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Shadow => "Shadow",
+            Self::Directional => "Directional",
+            Self::Ambient => "Ambient",
+            Self::Specular => "Specular",
+        }
+    }
+
+    const fn value(self, settings: LightingSettings) -> f32 {
+        match self {
+            Self::Shadow => settings.shadow,
+            Self::Directional => settings.directional,
+            Self::Ambient => settings.ambient,
+            Self::Specular => settings.specular,
+        }
+    }
+
+    fn set_value(self, settings: &mut LightingSettings, value: f32) {
+        let value = value.clamp(0.0, 1.0);
+        match self {
+            Self::Shadow => settings.shadow = value,
+            Self::Directional => settings.directional = value,
+            Self::Ambient => settings.ambient = value,
+            Self::Specular => settings.specular = value,
+        }
+    }
+}
+
+#[derive(Component)]
+struct LightingSlider(LightingChannel);
+
+#[derive(Component)]
+struct LightingValueLabel(LightingChannel);
+
+#[derive(Component)]
+struct ShadowLight;
+
+#[derive(Component)]
+struct ShadowFilterButton;
+
+#[derive(Component)]
+struct CsmButton;
+
+#[derive(Component)]
+struct ShadowFilterLabel;
+
+#[derive(Component)]
+struct CsmLabel;
+
+#[derive(Resource)]
+struct OrbitCamera {
+    target: Vec3,
+    distance: f32,
+    yaw: f32,
+    pitch: f32,
+}
+
+#[derive(Component)]
+struct StatusText;
+
+#[derive(Component)]
+struct SceneMesh;
+
+struct SceneMeshes {
+    front_faces: Option<Mesh>,
+    back_faces: Option<Mesh>,
+    segments: Option<Mesh>,
+    grid: Mesh,
+    target: Vec3,
+    radius: f32,
+}
+
+/// Starts the native Bevy application with the requested window and optional imported document.
+pub fn run_native(
+    window_size: [f32; 2],
+    maximized: bool,
+    document: Option<Document>,
+    status: String,
+) {
+    let document = document.unwrap_or_default();
+    let (occurrences, triangles, segments) = scene_counts(&document);
+    let mut app = App::new();
+    app.insert_resource(SceneDocument {
+        document,
+        status,
+        occurrences,
+        triangles,
+        segments,
+    })
+    .insert_resource(ClearColor(Color::srgb(0.78, 0.86, 0.94)))
+    .insert_resource(ActiveTool(ToolKind::Select))
+    .insert_resource(CommandPaletteState::default())
+    .insert_resource(LightingSettings::default())
+    .insert_resource(OrbitCamera {
+        target: Vec3::ZERO,
+        distance: 24.0,
+        yaw: 0.75,
+        pitch: 0.55,
+    })
+    .insert_resource(StartupWindowState { maximized })
+    .add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Meshcraft".to_owned(),
+            resolution: WindowResolution::new(window_size[0] as u32, window_size[1] as u32),
+            resize_constraints: WindowResizeConstraints {
+                min_width: 900.0,
+                min_height: 600.0,
+                ..default()
+            },
+            ..default()
+        }),
+        ..default()
+    }))
+    .add_systems(Startup, (setup_scene, setup_ui, apply_window_state))
+    .add_systems(
+        Update,
+        (
+            orbit_camera,
+            refresh_status,
+            toggle_command_palette,
+            sync_lighting_sliders,
+            update_slider_thumbs,
+            apply_lighting_settings,
+        )
+            .chain(),
+    );
+    app.run();
+}
+
+#[derive(Resource)]
+struct StartupWindowState {
+    maximized: bool,
+}
+
+fn scene_counts(document: &Document) -> (usize, usize, usize) {
+    let occurrences = document.scene_geometry_refs().unwrap_or_default();
+    let mut triangles = 0;
+    let mut segments = 0;
+    for occurrence in &occurrences {
+        if let Some(geometry) = document.effective_geometry(occurrence) {
+            triangles += geometry.triangles.len();
+            segments += geometry.segments.len();
+        }
+    }
+    (occurrences.len().saturating_sub(1), triangles, segments)
+}
+
+fn setup_scene(
+    mut commands: Commands,
+    scene: Res<SceneDocument>,
+    lighting: Res<LightingSettings>,
+    mut ambient_light: ResMut<GlobalAmbientLight>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let scene_meshes = build_scene_meshes(&scene.document);
+    ambient_light.brightness = lighting.ambient_brightness();
+    commands.insert_resource(OrbitCamera {
+        target: scene_meshes.target,
+        distance: scene_meshes.radius.max(8.0) * 2.2,
+        yaw: 0.75,
+        pitch: 0.55,
+    });
+    spawn_mesh(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        scene_meshes.grid,
+        StandardMaterial {
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        },
+        Transform::default(),
+        false,
+        false,
+    );
+    if let Some(mesh) = scene_meshes.front_faces {
+        spawn_mesh(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            mesh,
+            StandardMaterial {
+                cull_mode: Some(Face::Back),
+                alpha_mode: AlphaMode::Blend,
+                perceptual_roughness: 1.0,
+                reflectance: lighting.specular,
+                ..default()
+            },
+            Transform::default(),
+            true,
+            true,
+        );
+    }
+    if let Some(mesh) = scene_meshes.back_faces {
+        spawn_mesh(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            mesh,
+            StandardMaterial {
+                cull_mode: Some(Face::Front),
+                alpha_mode: AlphaMode::Blend,
+                perceptual_roughness: 1.0,
+                reflectance: lighting.specular,
+                ..default()
+            },
+            Transform::default(),
+            true,
+            false,
+        );
+    }
+    if let Some(mesh) = scene_meshes.segments {
+        spawn_mesh(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            mesh,
+            StandardMaterial {
+                unlit: true,
+                cull_mode: None,
+                ..default()
+            },
+            Transform::default(),
+            false,
+            false,
+        );
+    }
+
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(500.0, 500.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.72, 0.82, 0.92),
+            perceptual_roughness: 1.0,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, -0.004, 0.0),
+        NotShadowCaster,
+    ));
+    commands.spawn((
+        ShadowLight,
+        DirectionalLight {
+            illuminance: 10_000.0 * lighting.shadow,
+            shadow_maps_enabled: lighting.use_csm,
+            shadow_depth_bias: lighting.bevy_shadow_depth_bias(),
+            shadow_normal_bias: lighting.bevy_shadow_normal_bias(),
+            ..default()
+        },
+        Transform::from_xyz(-8.0, 18.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            color: Color::WHITE,
+            illuminance: 10_000.0 * lighting.directional,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_xyz(-8.0, 18.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        Camera3d::default(),
+        lighting.shadow_filter.method(),
+        Transform::from_xyz(14.0, 13.0, 18.0).looking_at(scene_meshes.target, Vec3::Y),
+    ));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_mesh(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    mesh: Mesh,
+    material: StandardMaterial,
+    transform: Transform,
+    is_scene_mesh: bool,
+    casts_shadows: bool,
+) {
+    let mut entity = commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(materials.add(material)),
+        transform,
+    ));
+    if is_scene_mesh {
+        entity.insert(SceneMesh);
+    }
+    if !casts_shadows {
+        entity.insert(NotShadowCaster);
+    }
+}
+
+fn build_scene_meshes(document: &Document) -> SceneMeshes {
+    let mut front_positions = Vec::new();
+    let mut front_normals = Vec::new();
+    let mut front_colors = Vec::new();
+    let mut back_positions = Vec::new();
+    let mut back_normals = Vec::new();
+    let mut back_colors = Vec::new();
+    let mut line_positions = Vec::new();
+    let mut line_colors = Vec::new();
+    let mut bounds_min = Vec3::splat(f32::INFINITY);
+    let mut bounds_max = Vec3::splat(f32::NEG_INFINITY);
+
+    if let Ok(occurrences) = document.scene_geometry_refs() {
+        for occurrence in occurrences {
+            let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+                continue;
+            };
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            append_geometry(
+                geometry,
+                resolved.world_transform,
+                &mut front_positions,
+                &mut front_normals,
+                &mut front_colors,
+                &mut back_positions,
+                &mut back_normals,
+                &mut back_colors,
+                &mut line_positions,
+                &mut line_colors,
+                &mut bounds_min,
+                &mut bounds_max,
+            );
+        }
+    }
+
+    let bounds_valid = bounds_min.is_finite() && bounds_max.is_finite();
+    let target = if bounds_valid {
+        (bounds_min + bounds_max) * 0.5
+    } else {
+        Vec3::ZERO
+    };
+    let radius = if bounds_valid {
+        (bounds_max - bounds_min).length() * 0.5
+    } else {
+        8.0
+    };
+    SceneMeshes {
+        front_faces: triangle_mesh(front_positions, front_normals, front_colors),
+        back_faces: triangle_mesh(back_positions, back_normals, back_colors),
+        segments: line_mesh(line_positions, line_colors),
+        grid: build_grid_mesh(GRID_EXTENT),
+        target,
+        radius,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_geometry(
+    geometry: &GeometryBundle,
+    transform: meshcraft_core::geometry::Affine3,
+    front_positions: &mut Vec<[f32; 3]>,
+    front_normals: &mut Vec<[f32; 3]>,
+    front_colors: &mut Vec<[f32; 4]>,
+    back_positions: &mut Vec<[f32; 3]>,
+    back_normals: &mut Vec<[f32; 3]>,
+    back_colors: &mut Vec<[f32; 4]>,
+    line_positions: &mut Vec<[f32; 3]>,
+    line_colors: &mut Vec<[f32; 4]>,
+    bounds_min: &mut Vec3,
+    bounds_max: &mut Vec3,
+) {
+    for triangle in geometry.triangles.values() {
+        let Some(points) = triangle
+            .vertices
+            .map(|reference| geometry.vertex_position(reference))
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .and_then(|points| <[ModelVec3; 3]>::try_from(points).ok())
+            .map(|points| points.map(|point| transform.transform_point(point)))
+        else {
+            continue;
+        };
+        let Some(points) = points
+            .map(to_bevy_vec3)
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .and_then(|points| <[Vec3; 3]>::try_from(points).ok())
+        else {
+            continue;
+        };
+        let Some(normal) = (points[1] - points[0])
+            .cross(points[2] - points[0])
+            .try_normalize()
+        else {
+            continue;
+        };
+        let front = rgba_to_color(triangle.color);
+        let back = back_face_color(triangle.color);
+        let edge_scale = (points[1] - points[0])
+            .length()
+            .max((points[2] - points[1]).length())
+            .max((points[0] - points[2]).length());
+        let back_offset = normal * -(edge_scale * 2.0e-5).max(1.0e-7);
+        for index in 0..3 {
+            front_positions.push(points[index].to_array());
+            front_normals.push(normal.to_array());
+            front_colors.push(front);
+            let back_index = [0, 2, 1][index];
+            back_positions.push((points[back_index] + back_offset).to_array());
+            back_normals.push((-normal).to_array());
+            back_colors.push(back);
+        }
+        for point in points {
+            *bounds_min = bounds_min.min(point);
+            *bounds_max = bounds_max.max(point);
+        }
+    }
+
+    for segment in geometry.segments.values() {
+        let Some(points) = segment
+            .endpoints
+            .map(|reference| geometry.vertex_position(reference))
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .and_then(|points| <[ModelVec3; 2]>::try_from(points).ok())
+            .map(|points| points.map(|point| transform.transform_point(point)))
+        else {
+            continue;
+        };
+        let Some(points) = points
+            .map(to_bevy_vec3)
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .and_then(|points| <[Vec3; 2]>::try_from(points).ok())
+        else {
+            continue;
+        };
+        let color = rgba_to_color(segment.color);
+        for point in points {
+            line_positions.push(point.to_array());
+            line_colors.push(color);
+            *bounds_min = bounds_min.min(point);
+            *bounds_max = bounds_max.max(point);
+        }
+    }
+}
+
+fn triangle_mesh(
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+) -> Option<Mesh> {
+    if positions.is_empty() {
+        return None;
+    }
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    Some(mesh)
+}
+
+fn line_mesh(positions: Vec<[f32; 3]>, colors: Vec<[f32; 4]>) -> Option<Mesh> {
+    if positions.is_empty() {
+        return None;
+    }
+    let mut mesh = Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    Some(mesh)
+}
+
+fn build_grid_mesh(extent: i32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut colors = Vec::new();
+    let minor = [0.52, 0.60, 0.68, 1.0];
+    for step in -extent..=extent {
+        let value = step as f32;
+        let color_x = if step == 0 {
+            [0.85, 0.26, 0.24, 1.0]
+        } else {
+            minor
+        };
+        let color_z = if step == 0 {
+            [0.24, 0.40, 0.86, 1.0]
+        } else {
+            minor
+        };
+        push_line(
+            &mut positions,
+            &mut colors,
+            Vec3::new(-extent as f32, 0.002, value),
+            Vec3::new(extent as f32, 0.002, value),
+            color_z,
+        );
+        push_line(
+            &mut positions,
+            &mut colors,
+            Vec3::new(value, 0.002, -extent as f32),
+            Vec3::new(value, 0.002, extent as f32),
+            color_x,
+        );
+    }
+    for step in -extent..=extent {
+        let value = step as f32;
+        push_line(
+            &mut positions,
+            &mut colors,
+            Vec3::new(0.0, value, 0.002),
+            Vec3::new(0.0, value + 1.0, 0.002),
+            [0.2, 0.67, 0.3, 1.0],
+        );
+    }
+    line_mesh(positions, colors).expect("the fixed grid contains lines")
+}
+
+fn push_line(
+    positions: &mut Vec<[f32; 3]>,
+    colors: &mut Vec<[f32; 4]>,
+    start: Vec3,
+    end: Vec3,
+    color: [f32; 4],
+) {
+    positions.extend([start.to_array(), end.to_array()]);
+    colors.extend([color, color]);
+}
+
+fn rgba_to_color(color: Rgba8) -> [f32; 4] {
+    [
+        f32::from(color.red) / 255.0,
+        f32::from(color.green) / 255.0,
+        f32::from(color.blue) / 255.0,
+        f32::from(color.alpha) / 255.0,
+    ]
+}
+
+fn back_face_color(color: Rgba8) -> [f32; 4] {
+    [
+        f32::from(color.red) / 255.0 * 0.72,
+        f32::from(color.green) / 255.0 * 0.76,
+        (f32::from(color.blue) / 255.0 * 1.10).min(1.0),
+        f32::from(color.alpha) / 255.0,
+    ]
+}
+
+fn to_bevy_vec3(point: ModelVec3) -> Option<Vec3> {
+    if !point.is_finite() {
+        return None;
+    }
+    let converted = Vec3::new(point.x as f32, point.y as f32, point.z as f32);
+    converted.is_finite().then_some(converted)
+}
+
+fn setup_ui(mut commands: Commands, scene: Res<SceneDocument>, lighting: Res<LightingSettings>) {
+    let root = commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        })
+        .id();
+    commands.entity(root).with_children(|root| {
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(10),
+                left: px(10),
+                right: px(318),
+                height: px(42),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                padding: UiRect::axes(px(12), px(4)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.12, 0.14, 0.17)),
+        ))
+        .with_children(|bar| {
+            bar.spawn((Text::new("Meshcraft"), TextFont::from_font_size(18.0), TextColor::WHITE));
+            bar.spawn((
+                Text::new("Bevy 0.20 · GPU viewport"),
+                TextFont::from_font_size(14.0),
+                TextColor(Color::srgb(0.72, 0.80, 0.89)),
+                Node { margin: UiRect::left(px(24)), ..default() },
+            ));
+            bar.spawn((
+                Text::new("Right-drag: orbit · Wheel: zoom"),
+                TextFont::from_font_size(13.0),
+                TextColor(Color::srgb(0.72, 0.80, 0.89)),
+                Node { margin: UiRect::left(px(24)), ..default() },
+            ));
+        });
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(62),
+                left: px(10),
+                width: px(250),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(7),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.10, 0.12, 0.15, 0.92)),
+        ))
+        .with_children(|toolbar| {
+            for (title, tools) in [
+                ("Point Construction", &[ToolKind::Line, ToolKind::Rectangle][..]),
+                ("Actions", &[ToolKind::Select, ToolKind::Copy][..]),
+                ("Modification", &[ToolKind::Move, ToolKind::Rotate][..]),
+                ("Entity Construction", &[ToolKind::Extrude][..]),
+                ("Spatial Arrays", &[ToolKind::Array][..]),
+            ] {
+                toolbar
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            padding: UiRect::axes(px(5), px(3)),
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(3),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(0.12, 0.14, 0.17, 0.95)),
+                    ))
+                    .with_children(|group| {
+                        group.spawn((
+                            Text::new(title),
+                            TextFont::from_font_size(13.0),
+                            TextColor(Color::srgb(0.85, 0.90, 0.96)),
+                        ));
+                        group
+                            .spawn(Node {
+                                width: Val::Percent(100.0),
+                                flex_direction: FlexDirection::Row,
+                                flex_wrap: FlexWrap::Wrap,
+                                column_gap: px(3),
+                                row_gap: px(3),
+                                ..default()
+                            })
+                            .with_children(|buttons| {
+                                for tool in tools {
+                                    spawn_tool_button(buttons, tool.label(), *tool);
+                                }
+                            });
+                    });
+            }
+            toolbar.spawn((
+                Text::new("Camera · right-drag orbit · wheel zoom"),
+                TextFont::from_font_size(12.0),
+                TextColor(Color::srgb(0.72, 0.80, 0.89)),
+                Node { padding: UiRect::all(px(5)), ..default() },
+            ));
+        });
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(62),
+                right: px(10),
+                width: px(330),
+                bottom: px(38),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(8),
+                padding: UiRect::all(px(10)),
+                overflow: Overflow::scroll_y(),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.13, 0.14, 0.16, 0.94)),
+        ))
+        .with_children(|panel| {
+            inspector_section(panel, "Selection", &format!(
+                "Triangles  {}\nEdges  {}\nObjects  {}\nWalls / slabs / stairs / frames  0",
+                scene.triangles, scene.segments, scene.occurrences
+            ));
+            inspector_section(panel, "Object", "No object selected\nName");
+            inspector_section(panel, "Objects", &format!("{} object instances in the scene", scene.occurrences));
+            inspector_section(panel, "Model Settings", "Unit name  unit\nUnit size  1.0000\nGrid size  1.0000\nCircle segments  24\nSnap radius");
+            inspector_section(panel, "UI Settings", "Text size  1x\nToolbar icon size  32 × 32\nPermanent grid  On\nPermanent grid normal  Y up\nGrid extent  20");
+            inspector_section(panel, "Help / About", "Meshcraft · Bevy 0.20\nDesktop viewport · GPU rendering\nCommands: Ctrl+Shift+P");
+            inspector_section(panel, "Architecture - Walls", "Wall thickness  0.200\nWall height  2.700\nInclination  0°\nExterior / interior color");
+            inspector_section(panel, "Architecture - Slabs", "Slab thickness  0.200\nTop / bottom / side color");
+            inspector_section(panel, "Architecture - Stairs", "Stair height  2.700\nSteps  14\nSupport thickness  0.200");
+            inspector_section(panel, "Architecture - Frames", "Frame depth  0.120\nFrame width  0.060\nGlazing  On");
+            inspector_section(panel, "HVAC Settings", "Pipe diameter  0.200\nPipe sides  16\nDuct width  0.500\nDuct height  0.250");
+            inspector_section(panel, "Hotspot Settings", "Operation  MOVE\nShape  CIRCLE\nAttached edges  0\nAttached faces  0");
+            inspector_section(panel, "Random Tools", "Fuzzy offset strength\nSurface array copies  12\nScale / rotation fuzz  0");
+            inspector_section(panel, "Tutorials", "Mode: Idle\nStep: 0/0\nBasic training");
+            panel.spawn((
+                Text::new("Lighting / Shadows"),
+                TextFont::from_font_size(15.0),
+                TextColor(Color::srgb(0.84, 0.89, 0.94)),
+                Node { width: Val::Percent(100.0), padding: UiRect::all(px(5)), ..default() },
+                BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
+            ));
+            spawn_lighting_slider(panel, LightingChannel::Shadow, lighting.shadow);
+            spawn_lighting_slider(panel, LightingChannel::Directional, lighting.directional);
+            spawn_lighting_slider(panel, LightingChannel::Ambient, lighting.ambient);
+            spawn_lighting_slider(panel, LightingChannel::Specular, lighting.specular);
+            panel
+                .spawn((
+                    Button,
+                    ShadowFilterButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(26),
+                        align_items: AlignItems::Center,
+                        padding: UiRect::horizontal(px(7)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+                ))
+                .with_child((
+                    Text::new(format!("Shadow filter: {}", lighting.shadow_filter.label())),
+                    TextFont::from_font_size(13.0),
+                    TextColor::WHITE,
+                    ShadowFilterLabel,
+                ))
+                .observe(cycle_shadow_filter);
+            panel
+                .spawn((
+                    Button,
+                    CsmButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(26),
+                        align_items: AlignItems::Center,
+                        padding: UiRect::horizontal(px(7)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+                ))
+                .with_child((
+                    Text::new(format!("Cascaded shadows: {}", on_off(lighting.use_csm))),
+                    TextFont::from_font_size(13.0),
+                    TextColor::WHITE,
+                    CsmLabel,
+                ))
+                .observe(toggle_csm);
+        });
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(12),
+                left: px(268),
+                height: px(38),
+                padding: UiRect::horizontal(px(10)),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            Button,
+            BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
+        ))
+        .with_child((
+            Text::new("Commands  Ctrl+Shift+P"),
+            TextFont::from_font_size(14.0),
+            TextColor::WHITE,
+        ))
+        .observe(open_command_palette);
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: percent(22.0),
+                left: percent(35.0),
+                width: percent(30.0),
+                padding: UiRect::all(px(14)),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(8),
+                display: Display::None,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.10, 0.12, 0.15, 0.98)),
+            CommandPaletteOverlay,
+        ))
+        .with_children(|palette| {
+            palette.spawn((
+                Text::new("Command Palette"),
+                TextFont::from_font_size(20.0),
+                TextColor::WHITE,
+            ));
+            for tool in [
+                ToolKind::Select,
+                ToolKind::Line,
+                ToolKind::Rectangle,
+                ToolKind::Move,
+                ToolKind::Copy,
+                ToolKind::Rotate,
+                ToolKind::Extrude,
+                ToolKind::Array,
+            ] {
+                spawn_tool_button(palette, tool.label(), tool);
+            }
+        });
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                right: px(0),
+                bottom: px(0),
+                height: px(28),
+                padding: UiRect::axes(px(8), px(4)),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.12, 0.14, 0.17)),
+        ))
+        .with_children(|status| {
+            status.spawn((
+                Text::new(format!("{}  |  {}", scene.status, ToolKind::Select.label())),
+                TextFont::from_font_size(13.0),
+                TextColor::WHITE,
+                StatusText,
+            ));
+        });
+    });
+}
+
+fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str) {
+    parent.spawn((
+        Text::new(title.to_owned()),
+        TextFont::from_font_size(15.0),
+        TextColor(Color::srgb(0.84, 0.89, 0.94)),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(5)),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
+    ));
+    parent.spawn((
+        Text::new(body.to_owned()),
+        TextFont::from_font_size(13.0),
+        TextColor(Color::WHITE),
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(px(7)),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.30, 0.31, 0.32)),
+    ));
+}
+
+fn spawn_lighting_slider(parent: &mut ChildSpawnerCommands, channel: LightingChannel, value: f32) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: px(24),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: px(6),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                Text::new(format!("{}: {value:.2}", channel.label())),
+                TextFont::from_font_size(12.0),
+                TextColor(Color::WHITE),
+                Node {
+                    width: px(94),
+                    ..default()
+                },
+                LightingValueLabel(channel),
+            ));
+            row.spawn((
+                Slider {
+                    track_click: TrackClick::Snap,
+                    ..default()
+                },
+                SliderValue(value),
+                SliderRange::new(0.0, 1.0),
+                LightingSlider(channel),
+                Node {
+                    width: px(190),
+                    height: px(16),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|slider| {
+                slider.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(4),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.06, 0.07, 0.08)),
+                ));
+                slider
+                    .spawn(Node {
+                        display: Display::Flex,
+                        position_type: PositionType::Absolute,
+                        left: px(0),
+                        right: px(12),
+                        top: px(0),
+                        bottom: px(0),
+                        ..default()
+                    })
+                    .with_child((
+                        SliderThumb,
+                        Node {
+                            display: Display::Flex,
+                            width: px(12),
+                            height: px(12),
+                            position_type: PositionType::Absolute,
+                            left: percent(value * 100.0),
+                            border_radius: BorderRadius::MAX,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.38, 0.72, 0.98)),
+                    ));
+            });
+        });
+}
+
+fn spawn_tool_button(parent: &mut ChildSpawnerCommands, label: &'static str, tool: ToolKind) {
+    parent
+        .spawn((
+            Button,
+            tool,
+            Node {
+                width: px(112),
+                height: px(27),
+                align_items: AlignItems::Center,
+                padding: UiRect::horizontal(px(7)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+        ))
+        .with_child((
+            Text::new(label),
+            TextFont::from_font_size(12.0),
+            TextColor::WHITE,
+        ))
+        .observe(activate_tool);
+}
+
+fn activate_tool(
+    event: On<Activate>,
+    tools: Query<&ToolKind>,
+    mut active: ResMut<ActiveTool>,
+    mut palette_state: ResMut<CommandPaletteState>,
+    mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
+) {
+    if let Ok(tool) = tools.get(event.entity) {
+        active.0 = *tool;
+        palette_state.open = false;
+        for mut palette in &mut palettes {
+            palette.display = Display::None;
+        }
+    }
+}
+
+fn open_command_palette(
+    _event: On<Activate>,
+    mut state: ResMut<CommandPaletteState>,
+    mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
+) {
+    state.open = true;
+    for mut palette in &mut palettes {
+        palette.display = Display::Flex;
+    }
+}
+
+fn toggle_command_palette(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut state: ResMut<CommandPaletteState>,
+    mut palettes: Query<&mut Node, With<CommandPaletteOverlay>>,
+) {
+    let control = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    if control && shift && keyboard.just_pressed(KeyCode::KeyP) {
+        state.open = !state.open;
+    }
+    if state.open && keyboard.just_pressed(KeyCode::Escape) {
+        state.open = false;
+    }
+    for mut palette in &mut palettes {
+        palette.display = if state.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+}
+
+fn refresh_status(
+    scene: Res<SceneDocument>,
+    active: Res<ActiveTool>,
+    mut labels: Query<&mut Text, With<StatusText>>,
+) {
+    if !scene.is_changed() && !active.is_changed() {
+        return;
+    }
+    for mut label in &mut labels {
+        label.0 = format!("{}  |  {}", scene.status, active.0.label());
+    }
+}
+
+fn sync_lighting_sliders(
+    sliders: Query<(&SliderValue, &LightingSlider), Changed<SliderValue>>,
+    mut settings: ResMut<LightingSettings>,
+    mut labels: Query<(&mut Text, &LightingValueLabel)>,
+) {
+    let mut changed = false;
+    for (value, slider) in &sliders {
+        slider.0.set_value(&mut settings, value.0);
+        changed = true;
+    }
+    if !changed {
+        return;
+    }
+    for (mut label, marker) in &mut labels {
+        label.0 = format!("{}: {:.2}", marker.0.label(), marker.0.value(*settings));
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn update_slider_thumbs(
+    sliders: Query<
+        (Entity, &SliderValue, &SliderRange),
+        (Changed<SliderValue>, With<LightingSlider>),
+    >,
+    children: Query<&Children>,
+    mut thumbs: Query<&mut Node, With<SliderThumb>>,
+) {
+    for (entity, value, range) in &sliders {
+        for child in children.iter_descendants(entity) {
+            if let Ok(mut node) = thumbs.get_mut(child) {
+                node.left = percent(range.thumb_position(value.0) * 100.0);
+            }
+        }
+    }
+}
+
+fn cycle_shadow_filter(
+    event: On<Activate>,
+    buttons: Query<(), With<ShadowFilterButton>>,
+    mut settings: ResMut<LightingSettings>,
+) {
+    if buttons.contains(event.entity) {
+        settings.shadow_filter = settings.shadow_filter.next();
+    }
+}
+
+fn toggle_csm(
+    event: On<Activate>,
+    buttons: Query<(), With<CsmButton>>,
+    mut settings: ResMut<LightingSettings>,
+) {
+    if buttons.contains(event.entity) {
+        settings.use_csm = !settings.use_csm;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_lighting_settings(
+    settings: Res<LightingSettings>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut lights: Query<(&mut DirectionalLight, Option<&ShadowLight>)>,
+    mut cameras: Query<&mut ShadowFilteringMethod, With<Camera3d>>,
+    scene_materials: Query<&MeshMaterial3d<StandardMaterial>, With<SceneMesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut filter_labels: Query<&mut Text, (With<ShadowFilterLabel>, Without<CsmLabel>)>,
+    mut csm_labels: Query<&mut Text, (With<CsmLabel>, Without<ShadowFilterLabel>)>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    ambient.brightness = settings.ambient_brightness();
+    for (mut light, is_shadow_light) in &mut lights {
+        if is_shadow_light.is_some() {
+            light.illuminance = 10_000.0 * settings.shadow;
+            light.shadow_maps_enabled = settings.use_csm;
+            light.shadow_depth_bias = settings.bevy_shadow_depth_bias();
+            light.shadow_normal_bias = settings.bevy_shadow_normal_bias();
+        } else {
+            light.illuminance = 10_000.0 * settings.directional;
+        }
+    }
+    for mut filter in &mut cameras {
+        *filter = settings.shadow_filter.method();
+    }
+    for handle in &scene_materials {
+        if let Some(mut material) = materials.get_mut(&handle.0) {
+            material.reflectance = settings.specular;
+        }
+    }
+    for mut label in &mut filter_labels {
+        label.0 = format!("Shadow filter: {}", settings.shadow_filter.label());
+    }
+    for mut label in &mut csm_labels {
+        label.0 = format!("Cascaded shadows: {}", on_off(settings.use_csm));
+    }
+}
+
+const fn on_off(value: bool) -> &'static str {
+    if value { "On" } else { "Off" }
+}
+
+fn apply_window_state(
+    state: Res<StartupWindowState>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if state.maximized
+        && let Ok(mut window) = windows.single_mut()
+    {
+        window.set_maximized(true);
+    }
+}
+
+fn orbit_camera(
+    mut camera: Single<&mut Transform, With<Camera3d>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
+    scroll_conversion: Res<MouseScrollPixelsPerLine>,
+    mut orbit: ResMut<OrbitCamera>,
+) {
+    if buttons.pressed(MouseButton::Right) {
+        orbit.yaw -= motion.delta.x * 0.006;
+        orbit.pitch = (orbit.pitch + motion.delta.y * 0.006)
+            .clamp(-89.0_f32.to_radians(), 89.0_f32.to_radians());
+    }
+    let zoom = scroll.to_lines(&scroll_conversion).delta.y;
+    if zoom != 0.0 {
+        orbit.distance = (orbit.distance * (-zoom * 0.12).exp()).clamp(0.1, 100_000.0);
+    }
+    let horizontal = orbit.distance * orbit.pitch.cos();
+    let offset = Vec3::new(
+        horizontal * orbit.yaw.sin(),
+        orbit.distance * orbit.pitch.sin(),
+        horizontal * orbit.yaw.cos(),
+    );
+    **camera = Transform::from_translation(orbit.target + offset).looking_at(orbit.target, Vec3::Y);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        LightingChannel, LightingSettings, ShadowFilter, back_face_color, build_scene_meshes,
+        line_mesh, scene_counts, triangle_mesh,
+    };
+    use bevy::{
+        mesh::{Mesh, VertexAttributeValues},
+        prelude::Vec3,
+    };
+    use meshcraft_core::{document::Document, geometry::Vec3 as ModelVec3};
+
+    #[test]
+    fn scene_meshes_contain_front_back_faces_edges_and_grid() {
+        let mut document = Document::new();
+        document
+            .add_cuboid("sample", ModelVec3::new(2.0, 3.0, 4.0), ModelVec3::ZERO)
+            .expect("valid cuboid");
+
+        let built = build_scene_meshes(&document);
+        assert_eq!(
+            attribute_len(
+                built.front_faces.as_ref().unwrap(),
+                Mesh::ATTRIBUTE_POSITION
+            ),
+            36
+        );
+        assert_eq!(
+            attribute_len(built.back_faces.as_ref().unwrap(), Mesh::ATTRIBUTE_POSITION),
+            36
+        );
+        assert_eq!(
+            attribute_len(built.segments.as_ref().unwrap(), Mesh::ATTRIBUTE_POSITION),
+            24
+        );
+        assert!(attribute_len(&built.grid, Mesh::ATTRIBUTE_POSITION) > 300);
+        assert_eq!(built.target, Vec3::new(1.0, 1.5, 2.0));
+        assert_eq!(scene_counts(&document), (1, 12, 12));
+    }
+
+    #[test]
+    fn builders_skip_empty_meshes_and_tint_back_faces_blueward() {
+        assert!(triangle_mesh(Vec::new(), Vec::new(), Vec::new()).is_none());
+        assert!(line_mesh(Vec::new(), Vec::new()).is_none());
+        let back = back_face_color(meshcraft_core::document::Rgba8::new(100, 100, 100, 255));
+        assert!(back[0] < back[1] && back[1] < back[2]);
+    }
+
+    #[test]
+    fn lighting_defaults_match_k3d_and_ambient_lifts_shaded_faces() {
+        let settings = LightingSettings::default();
+        assert_eq!(settings.shadow, 0.59);
+        assert_eq!(settings.directional, 0.73);
+        assert_eq!(settings.ambient, 0.59);
+        assert_eq!(settings.specular, 0.20);
+        assert_eq!(settings.shadow_filter, ShadowFilter::Hardware2x2);
+        assert!(settings.ambient_brightness() > 80.0);
+    }
+
+    #[test]
+    fn lighting_slider_values_are_clamped_to_their_shader_range() {
+        let mut settings = LightingSettings::default();
+        LightingChannel::Ambient.set_value(&mut settings, 2.0);
+        assert_eq!(settings.ambient, 1.0);
+        LightingChannel::Specular.set_value(&mut settings, -1.0);
+        assert_eq!(settings.specular, 0.0);
+    }
+
+    fn attribute_len(mesh: &Mesh, name: MeshVertexAttribute) -> usize {
+        match mesh.attribute(name).expect("mesh attribute") {
+            VertexAttributeValues::Float32x3(values) => values.len(),
+            VertexAttributeValues::Float32x4(values) => values.len(),
+            _ => panic!("unexpected vertex attribute format"),
+        }
+    }
+
+    use bevy::mesh::MeshVertexAttribute;
+}

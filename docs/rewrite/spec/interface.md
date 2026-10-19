@@ -2,7 +2,7 @@
 
 ### U01 Button workspace
 
-**Observed.** The pinned source defines twelve movable floating toolbars: Point Construction, Entity Construction, Modification, Modification 2, Architecture, HVAC, Primitives, Mech, Voxel, Actions, Camera, and Rendering. The supplied running-app captures show thirteen labeled groups because In-tool Operators is presented as its own group there. Preserve the source/app distinction when comparing screenshots: the contextual operator group is shown separately in the live reference. Labels, icons, active state, delayed hints, adjustable icon/line sizes, docking/collapse behavior and persisted layout are part of workflow intent.
+**Observed.** The pinned source defines twelve movable floating toolbars: Point Construction, Entity Construction, Modification, Modification 2, Architecture, HVAC, Primitives, Mech, Voxel, Actions, Camera, and Rendering. The supplied running-app captures show thirteen labeled groups because In-tool Operators is presented as its own group there. Preserve the source/app distinction when comparing screenshots: the contextual operator group is shown separately in the live reference. Labels, icons, active state, delayed hints, adjustable icon/line sizes, docking/collapse behavior and persisted layout are part of workflow intent. In Buttons and Hybrid profiles, each visible group is an independently movable floating toolbar over the viewport; the workspace must not reserve a fixed tool column that substantially reduces the work surface (#16).
 
 Preserve access to the same modeling operations in a button-oriented workspace. Hidden toolbars must remain recoverable through View/Window and the palette. Avoid copying the existing 7,468-line UI class; render toolbar definitions from command/tool metadata. Main toolbar categories may be reorganized if every legacy operation remains discoverable and mappings are documented.
 
@@ -10,7 +10,7 @@ Source: `K/ui/SketchUiOverlay.kt`: toolbar definitions, `builtInToolbarCommandTa
 
 ### U02 Conventional desktop menus
 
-**New: explicitly requested.** Provide three switchable profiles: **Desktop Menus** (desktop default), **Buttons**, and **Hybrid** (menus plus toolbars). All profiles retain viewport, status/measurement feedback, inspector access, shortcuts, and the command palette. `Ctrl+Shift+P` opens the complete palette of available commands. Every enabled menu, toolbar, palette, automation and tutorial action routes through the same command registry; a toolbar's visibility never determines command availability. Switching profiles preserves the document, active context, selection, camera and current tool draft, and persists as an application preference.
+**New: explicitly requested.** Provide three switchable profiles: **Desktop Menus** (desktop default), **Buttons**, and **Hybrid** (menus plus toolbars). All profiles retain viewport, status/measurement feedback, inspector access, shortcuts, and the command palette. `Ctrl+Shift+P` opens the complete palette of available commands. Every enabled menu, toolbar, palette, automation and tutorial action routes through the same command registry; a toolbar's visibility never determines command availability. Switching profiles preserves the document, active context, selection, camera and current tool draft, and persists as an application preference. Right-clicking the viewport opens the same Tools command tree at the pointer without changing the active tool or accepted picks; a secondary-button drag remains available for camera control (#17).
 
 Proposed top-level organization:
 
@@ -47,6 +47,8 @@ Source: `K/ui/SketchUiOverlay.kt`, callback wiring `K/Main.kt:1038`, settings cl
 
 **Observed + new profile preference.** Persist application workspace profile, panel/toolbar layout/visibility, UI scale/line widths, grid presentation and navigation tuning separately from model settings. Reset-layout must recover panels placed outside a changed monitor configuration. Status shows active tool, cursor screen/world coordinates, snap label, numeric input, operation messages, load/save progress and edit context.
 
+The construction cursor uses only red, green and blue axis segments without arrowheads, with a small center bullet drawn last in the viewport overlay. On a segment snap, blue follows the segment, red remains parallel to the ground and green is the remaining orthogonal axis (#14, #15). Selected vertex handles are small red bullets drawn in screen space (#15).
+
 Keep a persistent recent-project list of at most ten paths. Successful opens move the project to the front and remove an older duplicate; failed or cancelled loads do not add an entry. Expose entries under File and through the command palette, using the normal load/replacement flow.
 
 Preview overlays show selections, hover, guides, measurement labels, tool geometry and handles in distinct readable styles. Model captures can omit UI while retaining appropriate world overlays. Preference changes must not mutate model geometry or create arbitrary geometry undo entries. Menus and panels stay synchronized with actual state after undo/load/context changes.
@@ -62,6 +64,8 @@ Acceptance: C34.
 ### R01 Interactive viewport
 
 **Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Coplanar triangles on one surface must share a rendered orientation even when adjacent triangles use distinct vertex IDs at coincident positions. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.
+
+Render both sides of each ideal mesh triangle. Keep the back face as a render-only layer offset a small scale-relative distance opposite the normal to avoid shearing. In filled display, omit coplanar shared triangle edges so triangulation seams do not appear; retain true boundaries, creases and separately authored lines (#13).
 
 Use incremental revisioned geometry buffers and per-instance transforms; avoid full-document snapshots and mesh rebuilds every frame. Keep display/picking/selection policies consistent and define transparent sorting/two-sided behavior using source scenarios. Basic flat/shaded rendering ships with the first viewport; later lighting/shadow work completes fidelity. Device loss/resize must not corrupt documents.
 

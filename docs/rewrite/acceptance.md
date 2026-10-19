@@ -108,6 +108,10 @@ Small deterministic ray/path scenes, progressive tile coverage, worker counts, c
 
 Record hardware/OS/GPU/build and fixture hashes/sizes/counts. Measure cold/warm raw load and save, perspective/orthographic pick percentiles, simple edit latency, static/interaction frame time, selection/copy preview, regeneration and undo/history memory. Include large `docs/tutorial/000_interface.octd` (about 49.8 MB compressed) in an opt-in performance set. Verify revision/cancellation correctness alongside timing; targets are goals until measured.
 
+## C39 — Bevy desktop renderer and UI migration (#19)
+
+Run the native desktop app using Bevy's 3D renderer and Bevy UI for [high-priority migration issue #19](https://github.com/alfu32/meshcraft/issues/19), addressing the performance report in [issue #18](https://github.com/alfu32/meshcraft/issues/18). Batch scene geometry into category-level GPU meshes rather than per-entity draw submissions, and verify only solid front faces cast shadow-map shadows; authored lines and the construction grid stay out of the shadow pass while the ground receives shadows. Load a Meshcraft project containing at least 2,000 entities; record hardware, GPU, build profile and fixture hash, then measure idle frame time, pointer-hover cost, pick latency and a representative edit. Verify moving the pointer does not rebuild unchanged scene meshes or scan the full document. Assert that the Bevy scene reflects document revisions and that menus, toolbars, palette and viewport input dispatch through the shared command/session services. Core and IO must build without Bevy or GPU dependencies.
+
 ## C27 — Interchange matrix
 
 Use independent existing files and legacy exports for each supported format. Validate geometry bounds, unit scale, winding, normals, DXF lines, nested/component transforms, binary/ASCII cases and 3MF validation errors. Import/export scene selection paths and empty/malformed files. IFC4 proxy classes/spatial structure and units are checked explicitly; semantic `IfcWall` fidelity is not claimed.

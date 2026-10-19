@@ -1,7 +1,13 @@
 # ADR-04: Cross-platform UI and rendering stack
 
-- Status: Accepted for the first application shell; OS-native menu integration remains open.
-- Date: 2026-10-18
+- Status: Superseded for the native desktop application by the Bevy migration recorded below; retained as history for the first shell and browser adapter.
+- Date: 2026-10-18; superseded 2026-10-19
+
+## Current decision (2026-10-19)
+
+Use Bevy 0.20 for the native desktop application window, ECS scene, GPU 3D renderer, input and Bevy UI. This replaces the initial eframe/egui desktop shell because rendering and hover are too slow on large scenes (#18); the staged migration is high priority under T57 and [issue #19](https://github.com/alfu32/meshcraft/issues/19). Bevy 0.20 requires Rust 1.97.1, so the workspace MSRV is raised accordingly. The normalized document and shared command/session services remain authoritative; Bevy entities and meshes are derived presentation data. Keep `meshcraft-core` and `meshcraft-io` free of Bevy dependencies. The current web adapter is separate and remains on its existing UI stack until the later browser delivery.
+
+The first Bevy vertical slice must load real Meshcraft data, render its entities without rebuilding unchanged geometry per frame, and expose actions through Bevy UI. Pin Bevy 0.20.0 in Cargo manifests after validating its native platform feature set and build; do not claim a performance improvement until C39 records measurements against the T00 baseline.
 
 ## Decision
 

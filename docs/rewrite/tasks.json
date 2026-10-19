@@ -391,7 +391,7 @@
     },
     {
       "id": "T08",
-      "title": "Implement shared desktop menus, button and hybrid workspaces",
+      "title": "Implement shared desktop menus, floating toolbars and context tools menu (#16, #17)",
       "phase": "desktop",
       "dependencies": [
         "T06",
@@ -426,14 +426,17 @@
         "Implement the U02 menu tree from shared command metadata, initially exposing ready operations and capability-aware disabled entries; generate toolbar/palette views from the same registrations.",
         "Implement Desktop Menus/Buttons/Hybrid preferences, toolbar/panel restoration and draft-preserving profile switches.",
         "Implement keyboard menu navigation, focus/shortcut suppression/restoration, enabled/checked states, DPI/accessibility labels and selected native-menu adapter.",
-        "Verify viewport offsets and command parity with menu open/close/switch scenarios; add menu mapping coverage checks for every later registered tool."
+        "Verify viewport offsets and command parity with menu open/close/switch scenarios; add menu mapping coverage checks for every later registered tool.",
+        "Display legacy toolbar groups as movable floating toolbars over the viewport instead of a fixed side panel; preserve per-toolbar visibility, command parity and compact viewport space (#16).",
+        "Open the shared Tools command tree from a right-click in the viewport, preserving the active tool and existing context-aware pointer interactions (#17)."
       ],
       "done": [
         "C23 passes for the first editing slice and remains a release gate.",
-        "No menu handler contains independent geometry or file-operation logic."
+        "No menu handler contains independent geometry or file-operation logic.",
+        "Buttons and Hybrid profiles show independently movable legacy toolbar groups without reserving a fixed work-surface column, and viewport right-click exposes the registered Tools menu (#16, #17)."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T09",
@@ -519,7 +522,7 @@
       "done": [
         "C09 project/unproject/navigation tests pass in both menu and button layouts.",
         "No camera mode silently uses the wrong projection for picking.",
-        "Orbit input and restored perspective poses support pitch from −89° through +89° without reaching the singular camera poles."
+        "Orbit input and restored perspective poses support pitch from \u221289\u00b0 through +89\u00b0 without reaching the singular camera poles."
       ],
       "tool_ids": [],
       "status": "complete"
@@ -1011,7 +1014,7 @@
       "tool_ids": [
         "PUSH_PULL"
       ],
-    "status": "complete"
+      "status": "complete"
     },
     {
       "id": "T21",
@@ -1335,7 +1338,7 @@
         "Commit loose selected geometry in the parent and remove source instances only on successful atomic completion; document differences for disjoint/coincident/invalid meshes."
       ],
       "done": [
-        "C20 tests A−B/B−A, output context and source lifecycle explicitly.",
+        "C20 tests A\u2212B/B\u2212A, output context and source lifecycle explicitly.",
         "Robustness limits and deliberate improvements are reported; no OpenSCAD dependency."
       ],
       "tool_ids": [
@@ -1844,7 +1847,7 @@
     },
     {
       "id": "T39",
-      "title": "Complete real-time lighting, shadows and view capture",
+      "title": "Complete real-time lighting, shadows and view capture; remove mesh triangulation seams (#13)",
       "phase": "desktop",
       "dependencies": [
         "T17",
@@ -1879,13 +1882,15 @@
       "slices": [
         "Implement directional/ambient/specular/alpha lighting and explicit conversion from persisted legacy shadow settings into the new pipeline.",
         "Implement supported shadow filtering/quality controls, stable bounds/ground and readable overlay/transparent composition.",
-        "Implement model/UI inclusion-aware GPU PNG capture and current-view SVG output with completion notifications and fixed-camera comparisons."
+        "Implement model/UI inclusion-aware GPU PNG capture and current-view SVG output with completion notifications and fixed-camera comparisons.",
+        "Hide coplanar shared mesh edges from filled rendering while retaining true mesh boundaries, explicit construction lines and visible edges across a crease (#13)."
       ],
       "done": [
         "C24 covers lights/shadows/alpha/overlays and menu-dependent viewport offsets.",
         "Front/back face colors preserve the darker, slightly bluer back-face appearance, and shadow maps cast entity shadows onto ground and other entities.",
         "Coplanar triangles retain one rendered orientation across shared edges, including edges whose endpoints have coincident positions but distinct vertex IDs.",
-        "Capture dispatch success is distinct from a completed fresh output file."
+        "Capture dispatch success is distinct from a completed fresh output file.",
+        "Filled coplanar mesh triangles render as a continuous surface without triangulation seams; boundary and non-coplanar edges remain visible (#13)."
       ],
       "tool_ids": [],
       "status": "in_progress"
@@ -2496,7 +2501,7 @@
       ],
       "slices": [
         "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals; include Paint target and selected-object Array previews.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
@@ -2595,7 +2600,7 @@
     },
     {
       "id": "T54",
-      "title": "Persistent oriented cursor and context-safe guide placement (#8, #9)",
+      "title": "Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)",
       "phase": "desktop",
       "dependencies": [
         "T11",
@@ -2627,14 +2632,17 @@
         "Expose the latest snapped or free construction point as a viewport cursor throughout all active tool states.",
         "Render an oriented cursor basis and guide axes with red horizontal tangent, green remaining tangent and blue surface-normal conventions for level and slanted surfaces.",
         "Make guide commands and G/T place at the current cursor without changing active tools, accepted picks, previews or document history; retain selector click placement when there is no cursor point and reject missing points during an in-progress tool without state loss.",
-        "Add C36 regression coverage for cursor basis, both guide kinds, staged-tool context preservation, missing cursor handling and selector fallback."
+        "Add C36 regression coverage for cursor basis, both guide kinds, staged-tool context preservation, missing cursor handling and selector fallback.",
+        "Orient the cursor on a snapped segment with blue along the segment, red parallel to the ground and green along the remaining orthogonal direction (#14).",
+        "Reduce the cursor to colored axis segments without arrowheads and a final screen-space center bullet; render selected vertex markers as small red screen-space bullets (#15)."
       ],
       "done": [
         "Cursor and guide orientation use the snapped surface normal with a horizontal red tangent and orthogonal green tangent.",
-        "Guide placement at the cursor preserves all in-progress tool state and performs no document edit."
+        "Guide placement at the cursor preserves all in-progress tool state and performs no document edit.",
+        "Segment cursor orientation follows the segment and ground basis; the cursor has no arrowheads and selected vertex markers are small red screen-space bullets (#14, #15)."
       ],
       "tool_ids": [],
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "id": "T55",
@@ -2719,6 +2727,59 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T57",
+      "title": "Migrate desktop rendering and UI to Bevy and Bevy UI (#19)",
+      "phase": "desktop",
+      "dependencies": [
+        "T01",
+        "T46"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "R01",
+        "O04"
+      ],
+      "acceptance": [
+        "C17",
+        "C24",
+        "C26",
+        "C39"
+      ],
+      "targets": [
+        "Cargo.toml",
+        "apps/desktop/Cargo.toml",
+        "apps/desktop/src/main.rs",
+        "apps/desktop/src/bevy_app.rs",
+        "docs/decisions/ADR-04-ui-stack.md",
+        "docs/rewrite/architecture.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SketchDefaultShader.kt"
+      ],
+      "source_symbols": [
+        "renderFrame",
+        "buildStandardToolbars",
+        "drawScene"
+      ],
+      "slices": [
+        "Adopt a pinned Bevy release for the native desktop renderer, ECS scene representation, input and Bevy UI; record required platform features and keep core/IO independent of Bevy types.",
+        "Build a vertical slice that loads the authoritative Meshcraft document, renders resolved scene geometry as GPU meshes with camera, grid and lighting, and routes edits through the existing command/document services.",
+        "Port desktop menus, floating toolbars, palette, inspectors, status and viewport input incrementally to Bevy UI while preserving shared command IDs and active tool/session state.",
+        "Measure frame and hover latency on a reproducible scene with at least 2,000 entities to address the performance report in #18; cache stable meshes/transforms and use spatial queries so pointer movement does not rebuild or scan the full scene.",
+        "Carry viewport correctness requirements for two-sided face rendering, cursor/guides, selection and both-direction window selection into the Bevy renderer and UI acceptance tests."
+      ],
+      "done": [
+        "The native desktop application uses Bevy's 3D renderer and Bevy UI for its primary window, scene viewport and controls; the viewport no longer projects and redraws all model geometry through egui.",
+        "A Meshcraft document with at least 2,000 entities renders and supports hover/picking with measured frame and interaction latency recorded against the T00 baseline; unchanged geometry is not rebuilt on every frame or pointer move.",
+        "The Bevy UI routes equivalent menu, toolbar, palette and viewport actions through the shared command/session services, and core/IO remain usable without GPU/UI dependencies."
+      ],
+      "tool_ids": [],
+      "status": "in_progress"
     }
   ]
 }

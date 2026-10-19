@@ -8493,90 +8493,94 @@ impl MeshcraftApp {
         }
     }
 
-    fn show_tool_panel(&mut self, ui: &mut egui::Ui, height: f32) {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_width(312.0);
-            ui.set_min_height(height);
-            ui.heading("Toolbars");
-            let size = self.preferences.toolbar_icon_size as f32;
+    fn show_floating_toolbars(&mut self, ctx: &egui::Context, viewport_rect: egui::Rect) {
+        let size = self.preferences.toolbar_icon_size as f32;
+        let mut vertical_offset = 8.0;
+        for (toolbar_id, label) in LEGACY_TOOLBARS {
+            let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
+                continue;
+            };
+            if !self
+                .preferences
+                .toolbar_visibility
+                .get(stem)
+                .copied()
+                .unwrap_or(true)
+            {
+                continue;
+            }
+
+            let command_ids = legacy_toolbar_command_ids(stem);
+            let mut open = true;
             let mut selected_command = None;
-            egui::ScrollArea::vertical()
-                .id_salt("legacy-toolbar-list")
-                .show(ui, |ui| {
-                    for (toolbar_id, label) in LEGACY_TOOLBARS {
-                        let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
-                            continue;
+            let position = egui::pos2(
+                viewport_rect.left() + 8.0,
+                viewport_rect.top() + vertical_offset,
+            );
+            vertical_offset += size + 26.0;
+            egui::Window::new(*label)
+                .id(egui::Id::unique(egui::IdSalt::new((
+                    "legacy-floating-toolbar",
+                    stem,
+                ))))
+                .default_pos(position)
+                .resizable(false)
+                .collapsible(false)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.set_max_width(620.0);
+                    if stem == "in_tool_operators" {
+                        let mode = if self.tool_cycle_state.hotspot_placement_active() {
+                            "Hotspot placement host action"
+                        } else {
+                            self.active_tool.as_str()
                         };
-                        let shown = self
-                            .preferences
-                            .toolbar_visibility
-                            .get(stem)
-                            .copied()
-                            .unwrap_or(true);
-                        let mut next_shown = shown;
-                        if ui.checkbox(&mut next_shown, *label).changed() {
-                            let verb = if next_shown { "show" } else { "hide" };
-                            self.run_command(&format!("view.toolbar.{stem}.{verb}"));
-                        }
-                        if shown {
-                            egui::Frame::group(ui.style()).show(ui, |ui| {
-                                if stem == "in_tool_operators" {
-                                    let mode = if self.tool_cycle_state.hotspot_placement_active() {
-                                        "Hotspot placement host action"
-                                    } else {
-                                        self.active_tool.as_str()
-                                    };
-                                    ui.weak(format!("Active tool: {mode}"));
-                                }
-                                ui.horizontal_wrapped(|ui| {
-                                    for id in legacy_toolbar_command_ids(stem) {
-                                        if let Some(command) = shell_commands().get(&id) {
-                                            let clicked = if stem == "rendering" {
-                                                let state = self.query_command_state(
-                                                    command.descriptor.id.as_str(),
-                                                );
-                                                let response = ui
-                                                    .add_enabled_ui(state.enabled, |ui| {
-                                                        ui.add_sized(
-                                                            [size * 1.7, size],
-                                                            egui::Button::new(
-                                                                &command.descriptor.label,
-                                                            ),
-                                                        )
-                                                    })
-                                                    .inner;
-                                                if !state.enabled {
-                                                    response.clone().on_disabled_hover_text(
-                                                        state
-                                                            .disabled_reason
-                                                            .as_deref()
-                                                            .unwrap_or("Unavailable in this build"),
-                                                    );
-                                                }
-                                                response
-                                                    .on_hover_text(&command.descriptor.label)
-                                                    .clicked()
-                                            } else {
-                                                self.show_tool_button(ui, command, size, true)
-                                            };
-                                            if clicked {
-                                                selected_command = Some(id);
-                                            }
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                        ui.add_space(3.0);
+                        ui.weak(format!("Active tool: {mode}"));
                     }
+                    ui.horizontal_wrapped(|ui| {
+                        for id in &command_ids {
+                            if let Some(command) = shell_commands().get(id) {
+                                let clicked = if stem == "rendering" {
+                                    let state =
+                                        self.query_command_state(command.descriptor.id.as_str());
+                                    let response = ui
+                                        .add_enabled_ui(state.enabled, |ui| {
+                                            ui.add_sized(
+                                                [size * 1.7, size],
+                                                egui::Button::new(&command.descriptor.label),
+                                            )
+                                        })
+                                        .inner;
+                                    if !state.enabled {
+                                        response.clone().on_disabled_hover_text(
+                                            state
+                                                .disabled_reason
+                                                .as_deref()
+                                                .unwrap_or("Unavailable in this build"),
+                                        );
+                                    }
+                                    response.on_hover_text(&command.descriptor.label).clicked()
+                                } else {
+                                    self.show_tool_button(ui, command, size, true)
+                                };
+                                if clicked {
+                                    selected_command = Some(id.clone());
+                                }
+                            }
+                        }
+                    });
                 });
+            if !open {
+                self.run_command(&format!("view.toolbar.{stem}.hide"));
+            }
             if let Some(id) = selected_command {
                 self.run_command(&id);
             }
-        });
+        }
     }
 
-    fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) {
+    fn show_viewport(&mut self, ui: &mut egui::Ui, size: Vec2) -> egui::Response {
         self.sync_drawing_tool_state();
         if self.transform_tool_state.active() != TransformTool::from_label(&self.active_tool) {
             self.transform_tool_state
@@ -8713,6 +8717,7 @@ impl MeshcraftApp {
                 },
             },
         );
+        let response = input.response.clone();
         self.viewport_rect = input.rect;
         self.pointer_in_viewport = input.pointer_local;
         if pointer.is_some() {
@@ -8804,6 +8809,7 @@ impl MeshcraftApp {
                     });
                 });
         }
+        response
     }
 
     fn handle_selection_gesture(&mut self, rect: egui::Rect, gesture: SelectionGesture) {
@@ -9871,21 +9877,14 @@ impl MeshcraftApp {
         ui.separator();
         let content_height = (ui.available_height() - 48.0).max(160.0);
         let content_width = ui.available_width();
-        let show_tools = toolbar_visible && content_width >= 980.0;
         let show_inspector = self.preferences.panels_visible && content_width >= 650.0;
-        let side_width =
-            if show_tools { 324.0 } else { 0.0 } + if show_inspector { 420.0 } else { 0.0 };
+        let side_width = if show_inspector { 420.0 } else { 0.0 };
         let viewport_width = (content_width - side_width - 16.0).max(120.0);
 
+        let mut viewport_response = None;
         ui.horizontal(|ui| {
-            if show_tools {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(324.0, content_height),
-                    Layout::top_down(Align::Min),
-                    |ui| self.show_tool_panel(ui, content_height),
-                );
-            }
-            self.show_viewport(ui, Vec2::new(viewport_width, content_height));
+            viewport_response =
+                Some(self.show_viewport(ui, Vec2::new(viewport_width, content_height)));
             if show_inspector {
                 ui.allocate_ui_with_layout(
                     Vec2::new(420.0, content_height),
@@ -9894,6 +9893,14 @@ impl MeshcraftApp {
                 );
             }
         });
+        if toolbar_visible {
+            self.show_floating_toolbars(ui.ctx(), self.viewport_rect);
+        }
+        if let Some(response) = viewport_response {
+            let _ = response.context_menu(|ui| {
+                self.show_command_menu_branch(ui, &["Tools".to_owned()]);
+            });
+        }
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
@@ -10591,6 +10598,53 @@ mod tests {
                 "profile={profile:?}"
             );
         }
+    }
+
+    #[test]
+    fn buttons_profile_keeps_toolbars_floating_and_exposes_tools_on_right_click() {
+        let context = egui::Context::default();
+        let mut app = test_app();
+        app.preferences.profile = UiProfile::Buttons;
+        app.run_command("tool.rectangle");
+
+        run_workspace_frame(&mut app, &context, Vec::new());
+        assert!(
+            app.viewport_rect.width() > 760.0,
+            "floating toolbars should not reserve a fixed side column: {}",
+            app.viewport_rect.width()
+        );
+
+        let center = app.viewport_rect.center();
+        let position = egui::pos2(app.viewport_rect.right() - 50.0, center.y);
+        run_workspace_frame(&mut app, &context, vec![Event::PointerMoved(position)]);
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        run_workspace_frame(&mut app, &context, Vec::new());
+        let menu = run_workspace_frame(&mut app, &context, Vec::new());
+
+        assert!(egui::Popup::is_any_open(&context));
+        let line = text_center_in_row(&menu, "Line", 850.0);
+        click_workspace_position(&mut app, &context, line);
+
+        assert_eq!("Line", app.active_tool);
     }
 
     #[test]

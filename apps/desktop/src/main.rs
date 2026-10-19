@@ -1,5 +1,7 @@
-use eframe::egui;
-use meshcraft_desktop::MeshcraftApp;
+#[cfg(not(target_arch = "wasm32"))]
+use meshcraft_core::document::Document;
+#[cfg(not(target_arch = "wasm32"))]
+use meshcraft_desktop::bevy_app::run_native;
 use meshcraft_io::project::{ImportedProject, read_project};
 use std::{env, ffi::OsString, fs, path::PathBuf};
 
@@ -33,16 +35,17 @@ enum StartupCommand {
     Version,
 }
 
-fn main() -> eframe::Result {
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
     let startup = match parse_startup_args(env::args_os().skip(1)) {
         Ok(StartupCommand::Run(options)) => options,
         Ok(StartupCommand::Help) => {
             println!("{USAGE}");
-            return Ok(());
+            return;
         }
         Ok(StartupCommand::Version) => {
             println!("Meshcraft {}", env!("CARGO_PKG_VERSION"));
-            return Ok(());
+            return;
         }
         Err(error) => {
             eprintln!("{error}\n\n{USAGE}");
@@ -50,30 +53,16 @@ fn main() -> eframe::Result {
         }
     };
     let startup_document = load_startup_document(startup.document);
-    let options = eframe::NativeOptions {
-        renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default()
-            .with_maximized(startup.maximized)
-            .with_inner_size(startup.window_size)
-            .with_min_inner_size([900.0, 600.0]),
-        ..Default::default()
+    let (document, status) = match startup_document {
+        Ok(Some((project, status))) => (Some(project.document), status),
+        Ok(None) => (Some(Document::new()), "Ready · empty document".to_owned()),
+        Err(error) => (None, error),
     };
-
-    eframe::run_native(
-        "Meshcraft",
-        options,
-        Box::new(move |creation_context| {
-            let app = match startup_document {
-                Ok(Some((project, status))) => {
-                    MeshcraftApp::new_with_project(creation_context, project, status)
-                }
-                Ok(None) => MeshcraftApp::new(creation_context),
-                Err(error) => MeshcraftApp::new_with_error(creation_context, error),
-            };
-            Ok(Box::new(app))
-        }),
-    )
+    run_native(startup.window_size, startup.maximized, document, status);
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
 
 fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> Result<StartupCommand, String> {
     let mut args = args.into_iter().peekable();

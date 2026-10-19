@@ -484,9 +484,10 @@ impl OrthoView {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ViewportInput {
     pub rect: Rect,
+    pub response: egui::Response,
     pub click: Option<ViewportClick>,
     pub selection_gesture: Option<SelectionGesture>,
     pub pointer_local: Option<Vec2>,
@@ -1054,28 +1055,6 @@ impl Viewport {
             }
         }
 
-        if let Some(snap) = scene.snap.filter(|snap| snap.kind != SnapKind::Free)
-            && let Some(position) = self.project_if_visible(rect, snap.point)
-        {
-            self.draw_cursor(&painter, rect, snap, scene.grid.spacing);
-            let color = match snap.kind {
-                SnapKind::Free => Color32::WHITE,
-                SnapKind::Face => Color32::from_rgb(255, 218, 77),
-                SnapKind::Line => Color32::from_rgb(87, 192, 255),
-                SnapKind::Grid => Color32::from_rgb(105, 226, 177),
-                SnapKind::GridLine => Color32::from_rgb(68, 211, 183),
-                SnapKind::GridGuide => Color32::from_rgb(79, 225, 212),
-                SnapKind::AxisGuide => Color32::from_rgb(103, 201, 255),
-                SnapKind::Endpoint => Color32::from_rgb(255, 113, 138),
-                SnapKind::Midpoint => Color32::from_rgb(203, 149, 255),
-            };
-            painter.circle_stroke(position, 6.0, Stroke::new(2.0, Color32::BLACK));
-            painter.circle_stroke(position, 4.0, Stroke::new(2.0, color));
-        }
-        if let Some(snap) = scene.snap.filter(|snap| snap.kind == SnapKind::Free) {
-            self.draw_cursor(&painter, rect, snap, scene.grid.spacing);
-        }
-
         if let Some(feedback) = scene.feedback.as_ref() {
             let font = egui::FontId::proportional(12.0);
             let text_color = Color32::WHITE;
@@ -1135,6 +1114,21 @@ impl Viewport {
             }
         }
 
+        // Keep the construction cursor above the world, feedback and selection-window overlays.
+        if let Some(snap) = scene.snap {
+            let line_axis = (snap.kind == SnapKind::Line)
+                .then(|| snapped_segment_axis(scene.document, scene.scope, snap.point))
+                .flatten();
+            self.draw_cursor(
+                &painter,
+                rect,
+                snap,
+                scene.grid.spacing,
+                line_axis,
+                self.grid_normal_axis.vector(),
+            );
+        }
+
         let pointer = pointer_position.filter(|_| pointer_over_viewport);
         let click =
             if scene.active_tool != "Orbit" && response.clicked_by(egui::PointerButton::Primary) {
@@ -1171,6 +1165,7 @@ impl Viewport {
         };
         ViewportInput {
             rect,
+            response,
             click,
             selection_gesture,
             pointer_local: pointer.map(|position| position - rect.min),
@@ -3379,12 +3374,20 @@ impl Viewport {
         }
     }
 
-    fn draw_cursor(&self, painter: &egui::Painter, rect: Rect, snap: SnapResult, spacing: f64) {
+    fn draw_cursor(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        snap: SnapResult,
+        spacing: f64,
+        line_axis: Option<Vec3>,
+        ground_normal: Vec3,
+    ) {
         let Some(origin_screen) = self.project_if_visible(rect, snap.point) else {
             return;
         };
-        let Some(basis) =
-            ConstructionGuide::at_point(ConstructionGuideKind::Axis, snap.point, snap.normal)
+        let Some([red_axis, green_axis, blue_axis]) =
+            cursor_axes(snap.normal, line_axis, ground_normal)
         else {
             return;
         };
@@ -3394,11 +3397,7 @@ impl Viewport {
             1.0
         };
         let [red, green, blue] = axis_guide_colors(true);
-        for (axis, color) in [
-            (basis.axis_u, red),
-            (basis.axis_v, green),
-            (basis.axis_w, blue),
-        ] {
+        for (axis, color) in [(red_axis, red), (green_axis, green), (blue_axis, blue)] {
             let projected_unit = self
                 .project_if_visible(rect, snap.point + axis * spacing)
                 .map_or(0.0, |screen| screen.distance(origin_screen));
@@ -3413,8 +3412,7 @@ impl Viewport {
 
             if let Some([start, _]) = self.clip_segment_to_camera([negative, snap.point]) {
                 let screen_segment = [self.world_to_screen(rect, start), origin_screen];
-                painter.line_segment(screen_segment, Stroke::new(4.0, Color32::BLACK));
-                painter.line_segment(screen_segment, Stroke::new(2.2, lighter_axis_color(color)));
+                painter.line_segment(screen_segment, Stroke::new(2.0, lighter_axis_color(color)));
             }
             if let Some([start, end]) = self.clip_segment_to_camera([snap.point, positive]) {
                 let start_screen = if start == snap.point {
@@ -3423,25 +3421,11 @@ impl Viewport {
                     self.world_to_screen(rect, start)
                 };
                 let end_screen = self.world_to_screen(rect, end);
-                painter.line_segment([start_screen, end_screen], Stroke::new(4.0, Color32::BLACK));
-                painter.line_segment([start_screen, end_screen], Stroke::new(2.2, color));
-                let direction = end_screen - start_screen;
-                if direction.length() > 5.0 {
-                    let direction = direction.normalized();
-                    let wing = Vec2::new(-direction.y, direction.x) * 3.2;
-                    let arrow_base = end_screen - direction * 6.0;
-                    for arrow_end in [arrow_base + wing, arrow_base - wing] {
-                        painter.line_segment(
-                            [end_screen, arrow_end],
-                            Stroke::new(3.6, Color32::BLACK),
-                        );
-                        painter.line_segment([end_screen, arrow_end], Stroke::new(1.8, color));
-                    }
-                }
+                painter.line_segment([start_screen, end_screen], Stroke::new(2.0, color));
             }
         }
-        painter.circle_filled(origin_screen, 4.2, Color32::BLACK);
-        painter.circle_filled(origin_screen, 2.0, Color32::WHITE);
+        painter.circle_filled(origin_screen, 3.0, Color32::BLACK);
+        painter.circle_filled(origin_screen, 1.6, Color32::WHITE);
     }
 
     fn draw_ground_shadows(
@@ -3537,6 +3521,7 @@ impl Viewport {
         let mut faces = Vec::new();
         let mut segments = Vec::new();
         let mut occluders = Vec::new();
+        let mut vertex_markers = Vec::new();
         let view_direction = self.camera_direction();
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
@@ -3553,7 +3538,7 @@ impl Viewport {
             let selected = selection.iter().any(|target| {
                 target.occurrence == occurrence && target.entity == SelectedEntity::Occurrence
             });
-            let winding_flips = geometry
+            let triangle_records = geometry
                 .triangles
                 .values()
                 .filter_map(|triangle| {
@@ -3572,7 +3557,8 @@ impl Viewport {
                     ))
                 })
                 .collect::<Vec<_>>();
-            let winding_flips = coplanar_triangle_winding_flips(&winding_flips);
+            let winding_flips = coplanar_triangle_winding_flips(&triangle_records);
+            let coplanar_shared_edges = coplanar_shared_triangle_edges(&triangle_records);
             let mut surface_edges = BTreeSet::new();
             let mut visible_surface_edges = BTreeSet::new();
             for triangle in geometry.triangles.values() {
@@ -3584,12 +3570,14 @@ impl Viewport {
                 };
                 let world_points =
                     [a, b, c].map(|point| resolved.world_transform.transform_point(point));
-                let mut facing = (world_points[1] - world_points[0])
+                let mut normal = (world_points[1] - world_points[0])
                     .cross(world_points[2] - world_points[0])
-                    .dot(view_direction);
+                    .try_normalized(1.0e-12)
+                    .unwrap_or(Vec3::Y);
                 if winding_flips.contains(&triangle.id) {
-                    facing = -facing;
+                    normal = -normal;
                 }
+                let facing = normal.dot(view_direction);
                 for [a, b] in [[0, 1], [1, 2], [2, 0]] {
                     let edge = edge_key(triangle.vertices[a].id, triangle.vertices[b].id);
                     surface_edges.insert(edge);
@@ -3608,28 +3596,22 @@ impl Viewport {
                         .iter()
                         .map(|point| self.world_to_screen(rect, *point))
                         .collect::<Vec<_>>();
-                    let depth = clipped_world
-                        .iter()
-                        .map(|point| self.view_depth(*point))
-                        .sum::<f64>()
-                        / clipped_world.len() as f64;
                     let selected_face = selection.iter().any(|target| {
                         target.occurrence == occurrence
                             && target.entity == SelectedEntity::Triangle(triangle.id)
                     });
-                    let color = if selected_face {
+                    let base_color = if selected_face {
                         Color32::from_rgba_unmultiplied(255, 163, 62, 116)
                     } else {
-                        let color = orient_face_color(color32(triangle.color), facing > 0.0);
-                        let center = (world_points[0] + world_points[1] + world_points[2]) / 3.0;
-                        let normal = (world_points[1] - world_points[0])
-                            .cross(world_points[2] - world_points[0])
-                            .try_normalized(1.0e-12)
-                            .unwrap_or(Vec3::Y);
-                        let shadow = shadow_map
-                            .map_or(0.0, |shadow_map| shadow_map.shadow_coverage(center, normal));
-                        shade_face_for_shadow(color, shadow)
+                        color32(triangle.color)
                     };
+                    let center = (world_points[0] + world_points[1] + world_points[2]) / 3.0;
+                    let shadow = shadow_map
+                        .map_or(0.0, |shadow_map| shadow_map.shadow_coverage(center, normal));
+                    let front_color =
+                        shade_face_for_shadow(orient_face_color(base_color, true), shadow);
+                    let back_color =
+                        shade_face_for_shadow(orient_face_color(base_color, false), shadow);
                     for index in 1..clipped_world.len() - 1 {
                         let world_triangle = [
                             clipped_world[0],
@@ -3642,18 +3624,55 @@ impl Viewport {
                             depths: world_triangle.map(|point| self.camera_depth(point)),
                         });
                     }
-                    faces.push((depth, points, color));
+                    let back_offset = triangle_back_face_offset(world_points, normal);
+                    for (face_points, color) in [
+                        (
+                            world_points,
+                            if facing >= 0.0 {
+                                front_color
+                            } else {
+                                back_color
+                            },
+                        ),
+                        (
+                            world_points.map(|point| point - back_offset),
+                            if facing >= 0.0 {
+                                back_color
+                            } else {
+                                front_color
+                            },
+                        ),
+                    ] {
+                        let clipped_face = self.clip_polygon_to_camera(&face_points);
+                        if clipped_face.len() < 3 {
+                            continue;
+                        }
+                        let screen_points = clipped_face
+                            .iter()
+                            .map(|point| self.world_to_screen(rect, *point))
+                            .collect::<Vec<_>>();
+                        let depth = clipped_face
+                            .iter()
+                            .map(|point| self.view_depth(*point))
+                            .sum::<f64>()
+                            / clipped_face.len() as f64;
+                        faces.push((depth, screen_points, color));
+                    }
                 }
             }
             if !policy.can_draw(SelectionKind::Edge) {
                 continue;
             }
             for segment in geometry.segments.values() {
-                if surface_edges
-                    .contains(&edge_key(segment.endpoints[0].id, segment.endpoints[1].id))
-                    && !visible_surface_edges
-                        .contains(&edge_key(segment.endpoints[0].id, segment.endpoints[1].id))
-                {
+                let edge = edge_key(segment.endpoints[0].id, segment.endpoints[1].id);
+                let selected_edge = selection.iter().any(|target| {
+                    target.occurrence == occurrence
+                        && target.entity == SelectedEntity::Segment(segment.id)
+                });
+                if coplanar_shared_edges.contains(&edge) && !selected_edge {
+                    continue;
+                }
+                if surface_edges.contains(&edge) && !visible_surface_edges.contains(&edge) {
                     continue;
                 }
                 let (Some(start_local), Some(end_local)) = (
@@ -3668,10 +3687,6 @@ impl Viewport {
                     continue;
                 };
                 let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
-                let selected_edge = selection.iter().any(|target| {
-                    target.occurrence == occurrence
-                        && target.entity == SelectedEntity::Segment(segment.id)
-                });
                 let edge_color = if selected || selected_edge {
                     Color32::from_rgb(244, 166, 77)
                 } else if segment.color == Rgba8::WHITE {
@@ -3693,8 +3708,7 @@ impl Viewport {
                 };
                 let world = resolved.world_transform.transform_point(vertex.position);
                 if let Some(screen) = self.project_if_visible(rect, world) {
-                    painter.circle_filled(screen, 4.0, Color32::from_rgb(255, 150, 57));
-                    painter.circle_stroke(screen, 4.0, Stroke::new(1.0, Color32::BLACK));
+                    vertex_markers.push(screen);
                 }
             }
         }
@@ -3725,6 +3739,9 @@ impl Viewport {
             for fragment in fragments {
                 painter.line_segment(fragment, Stroke::new(1.4, color));
             }
+        }
+        for screen in vertex_markers {
+            painter.circle_filled(screen, 2.8, Color32::from_rgb(232, 51, 62));
         }
     }
 
@@ -4020,6 +4037,73 @@ fn axis_guide_colors(preview: bool) -> [Color32; 3] {
     }
 }
 
+fn cursor_axes(
+    surface_normal: Vec3,
+    segment_axis: Option<Vec3>,
+    ground_normal: Vec3,
+) -> Option<[Vec3; 3]> {
+    if let Some(blue) = segment_axis.and_then(|axis| axis.try_normalized(1.0e-12)) {
+        let ground = ground_normal.try_normalized(1.0e-12)?;
+        let red = ground.cross(blue).try_normalized(1.0e-10).or_else(|| {
+            let reference = if ground.dot(Vec3::X).abs() < 0.9 {
+                Vec3::X
+            } else {
+                Vec3::Z
+            };
+            let ground_tangent =
+                (reference - ground * reference.dot(ground)).try_normalized(1.0e-12)?;
+            (ground_tangent - blue * ground_tangent.dot(blue)).try_normalized(1.0e-12)
+        })?;
+        let green = blue.cross(red).try_normalized(1.0e-12)?;
+        return Some([red, green, blue]);
+    }
+    let guide =
+        ConstructionGuide::at_point(ConstructionGuideKind::Axis, Vec3::ZERO, surface_normal)?;
+    Some([guide.axis_u, guide.axis_v, guide.axis_w])
+}
+
+fn snapped_segment_axis(document: &Document, scope: SnapScope<'_>, point: Vec3) -> Option<Vec3> {
+    let occurrences = document.scene_geometry_refs().ok()?;
+    let mut nearest: Option<(f64, Vec3)> = None;
+    for occurrence in occurrences {
+        if !scope.contains(document, &occurrence) {
+            continue;
+        }
+        let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let Some(geometry) = document.effective_geometry(&occurrence) else {
+            continue;
+        };
+        for segment in geometry.segments.values() {
+            let (Some(start), Some(end)) = (
+                geometry.vertex_position(segment.endpoints[0]),
+                geometry.vertex_position(segment.endpoints[1]),
+            ) else {
+                continue;
+            };
+            let start = resolved.world_transform.transform_point(start);
+            let end = resolved.world_transform.transform_point(end);
+            let Some(axis) = (end - start).try_normalized(1.0e-12) else {
+                continue;
+            };
+            let distance = point.distance(closest_point_on_segment(point, start, end));
+            if nearest.is_none_or(|(current, _)| distance < current) {
+                nearest = Some((distance, axis));
+            }
+        }
+    }
+    nearest.map(|(_, axis)| axis)
+}
+
+fn triangle_back_face_offset(points: [Vec3; 3], normal: Vec3) -> Vec3 {
+    let scale = points[0]
+        .distance(points[1])
+        .max(points[1].distance(points[2]))
+        .max(points[2].distance(points[0]));
+    normal * (scale * 1.0e-5)
+}
+
 fn lighter_axis_color(color: Color32) -> Color32 {
     let lighten = |channel: u8| channel + ((u16::from(255 - channel) * 40) / 100) as u8;
     Color32::from_rgba_unmultiplied(
@@ -4207,6 +4291,102 @@ fn coplanar_triangle_winding_flips(
         }
     }
     flipped
+}
+
+fn coplanar_shared_triangle_edges(
+    triangles: &[(TriangleId, [VertexId; 3], [Vec3; 3])],
+) -> BTreeSet<(VertexId, VertexId)> {
+    if triangles.len() < 2 {
+        return BTreeSet::new();
+    }
+    let mut points = triangles.iter().flat_map(|(_, _, points)| points).copied();
+    let Some(first_point) = points.next() else {
+        return BTreeSet::new();
+    };
+    let (minimum, maximum) =
+        points.fold((first_point, first_point), |(minimum, maximum), point| {
+            (
+                Vec3::new(
+                    minimum.x.min(point.x),
+                    minimum.y.min(point.y),
+                    minimum.z.min(point.z),
+                ),
+                Vec3::new(
+                    maximum.x.max(point.x),
+                    maximum.y.max(point.y),
+                    maximum.z.max(point.z),
+                ),
+            )
+        });
+    let scale = (maximum - minimum).length().max(1.0);
+    let tolerance = scale * 1.0e-8;
+    let position_key = |point: Vec3| {
+        (
+            ((point.x - minimum.x) / tolerance).round() as i64,
+            ((point.y - minimum.y) / tolerance).round() as i64,
+            ((point.z - minimum.z) / tolerance).round() as i64,
+        )
+    };
+    let position_edge_key = |first: Vec3, second: Vec3| {
+        let (first, second) = (position_key(first), position_key(second));
+        if first <= second {
+            (first, second)
+        } else {
+            (second, first)
+        }
+    };
+    let normals = triangles
+        .iter()
+        .map(|(_, _, points)| {
+            (points[1] - points[0])
+                .cross(points[2] - points[0])
+                .try_normalized(1.0e-12)
+        })
+        .collect::<Vec<_>>();
+    let mut edge_users =
+        BTreeMap::<((i64, i64, i64), (i64, i64, i64)), Vec<(usize, (VertexId, VertexId))>>::new();
+    for (index, (_, vertices, triangle_points)) in triangles.iter().enumerate() {
+        for [first, second] in [[0, 1], [1, 2], [2, 0]] {
+            edge_users
+                .entry(position_edge_key(
+                    triangle_points[first],
+                    triangle_points[second],
+                ))
+                .or_default()
+                .push((index, edge_key(vertices[first], vertices[second])));
+        }
+    }
+
+    let mut hidden = BTreeSet::new();
+    for users in edge_users.values() {
+        for first_index in 0..users.len() {
+            for second_index in first_index + 1..users.len() {
+                let (first_triangle, first_edge) = users[first_index];
+                let (second_triangle, second_edge) = users[second_index];
+                if first_triangle == second_triangle {
+                    continue;
+                }
+                let (Some(first_normal), Some(second_normal)) =
+                    (normals[first_triangle], normals[second_triangle])
+                else {
+                    continue;
+                };
+                if first_normal.dot(second_normal).abs() < 1.0 - 1.0e-8
+                    || triangles[second_triangle].2.iter().any(|point| {
+                        first_normal
+                            .dot(*point - triangles[first_triangle].2[0])
+                            .abs()
+                            > tolerance
+                    })
+                {
+                    continue;
+                }
+                hidden.insert(first_edge);
+                hidden.insert(second_edge);
+            }
+        }
+    }
+    hidden
 }
 
 fn screen_barycentric(point: Pos2, triangle: [Pos2; 3]) -> Option<[f64; 3]> {
@@ -4547,13 +4727,16 @@ mod tests {
         GridNormalAxis, MAX_ELEVATION, MIN_ELEVATION, OrthoView, SelectedEntity,
         SelectionDisplayPolicy, SelectionKind, ShadowMap, SnapKind, SnapOptions, SnapResult,
         SnapScope, SnapVisibility, Viewport, WalkthroughCamera, WalkthroughTuning, WorldTriangle,
-        axis_guide_colors, coplanar_triangle_winding_flips, cuboid_corners, height_in_triangle_xz,
-        lighter_axis_color, orient_face_color, point_in_triangle, shade_face_for_shadow,
-        shadow_light_direction, visible_line_fragments,
+        axis_guide_colors, coplanar_shared_triangle_edges, coplanar_triangle_winding_flips,
+        cuboid_corners, cursor_axes, edge_key, height_in_triangle_xz, lighter_axis_color,
+        orient_face_color, point_in_triangle, shade_face_for_shadow, shadow_light_direction,
+        triangle_back_face_offset, visible_line_fragments,
     };
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
+    use meshcraft_core::document::{TriangleId, VertexId};
     use meshcraft_core::geometry::Vec3;
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     #[test]
     fn back_faces_are_darker_and_slightly_bluer_than_front_faces() {
@@ -4757,6 +4940,71 @@ mod tests {
         assert!(guide.axis_u.dot(guide.axis_v).abs() < 1.0e-12);
         assert!(guide.axis_u.dot(guide.axis_w).abs() < 1.0e-12);
         assert!(guide.axis_v.dot(guide.axis_w).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn segment_cursor_uses_blue_for_segment_and_red_for_ground_tangent() {
+        let segment = Vec3::new(1.0, 2.0, 0.0)
+            .try_normalized(1.0e-12)
+            .expect("segment direction is nonzero");
+        let [red, green, blue] =
+            cursor_axes(Vec3::Y, Some(segment), Vec3::Y).expect("segment cursor basis is defined");
+
+        assert!(blue.distance(segment) < 1.0e-12);
+        assert!(red.y.abs() < 1.0e-12);
+        assert!(red.dot(blue).abs() < 1.0e-12);
+        assert!(green.dot(red).abs() < 1.0e-12);
+        assert!(green.dot(blue).abs() < 1.0e-12);
+        assert!((red.length() - 1.0).abs() < 1.0e-12);
+        assert!((green.length() - 1.0).abs() < 1.0e-12);
+
+        let [vertical_red, _, vertical_blue] =
+            cursor_axes(Vec3::Y, Some(Vec3::Y), Vec3::Y).expect("vertical segment has basis");
+        assert!(vertical_red.y.abs() < 1.0e-12);
+        assert!(vertical_red.dot(vertical_blue).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn coplanar_shared_triangle_edges_are_hidden_but_creases_are_retained() {
+        let square = [
+            (
+                TriangleId(1),
+                [VertexId(1), VertexId(2), VertexId(3)],
+                [Vec3::ZERO, Vec3::X, Vec3::new(1.0, 0.0, 1.0)],
+            ),
+            (
+                TriangleId(2),
+                [VertexId(1), VertexId(3), VertexId(4)],
+                [Vec3::ZERO, Vec3::new(1.0, 0.0, 1.0), Vec3::Z],
+            ),
+        ];
+        let diagonal = edge_key(VertexId(1), VertexId(3));
+        assert_eq!(
+            BTreeSet::from([diagonal]),
+            coplanar_shared_triangle_edges(&square)
+        );
+
+        let folded = [
+            square[0],
+            (
+                TriangleId(2),
+                [VertexId(1), VertexId(3), VertexId(4)],
+                [Vec3::ZERO, Vec3::new(1.0, 0.0, 1.0), Vec3::Z + Vec3::Y],
+            ),
+        ];
+        assert!(coplanar_shared_triangle_edges(&folded).is_empty());
+    }
+
+    #[test]
+    fn back_face_is_separated_a_small_distance_along_negative_normal() {
+        let points = [Vec3::ZERO, Vec3::X, Vec3::Z];
+        let normal = Vec3::Y;
+        let offset = triangle_back_face_offset(points, normal);
+        let moved_back_point = points[0] - offset;
+
+        assert!(offset.length() > 0.0);
+        assert!(offset.length() < 1.0e-3);
+        assert!((moved_back_point - points[0]).dot(normal) < 0.0);
     }
 
     #[test]

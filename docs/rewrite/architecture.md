@@ -1,6 +1,6 @@
 # Proposed Rust architecture
 
-This is the architecture contract for the Rust implementation. Settled user direction: menus alongside buttons; desktop first; Android/Groovy execution/developer CLI/TUI deferred; JavaScriptCore plugins with a handed-in context in the final product; thorough object-model normalization before core contracts harden. A minimal eframe shell and geometry-stack experiment exist; normalized document and modeling operations remain to be built. Graphics/library choices remain proposals for T01. The object-model decision is gated by T46.
+This is the architecture contract for the Rust implementation. Settled user direction: menus alongside buttons; desktop first; Android/Groovy execution/developer CLI/TUI deferred; JavaScriptCore plugins with a handed-in context in the final product; thorough object-model normalization before core contracts harden. The initial eframe/egui shell remains as a migration reference; the native desktop renderer and primary UI are being migrated to Bevy and Bevy UI under high-priority T57 (#19) because the current per-frame CPU projection/drawing path is too slow on large scenes (#18). Core and IO must stay independent of Bevy. The object-model decision is gated by T46.
 
 ## Workspace boundaries
 
@@ -39,7 +39,7 @@ flowchart LR
 
 ## Library proposal and early proofs
 
-Use `wgpu` for portable rendering and evaluate `winit` + `egui` integration for the viewport, menus, panels and palette. This is a proposal based on the cross-platform scope and current published capabilities: [wgpu's official overview](https://wgpu.rs/) describes native and browser backends; [egui's repository](https://github.com/emilk/egui) describes native/web UI; its [MenuBar API](https://docs.rs/egui/latest/egui/containers/menu/struct.MenuBar.html) provides an in-window menu building block. Reviewed 2026-10-15; do not pin guessed versions from this document.
+Use Bevy for the native desktop app, including its ECS-driven 3D renderer and Bevy UI. Pin the selected Bevy version and explicitly enable only required platform/render features in T57. The Bevy scene is a projection/cache of immutable Meshcraft document state; commands and transactions remain authoritative. Browser WASM remains a separate later delivery and may retain its current adapter until browser parity is addressed. Bevy is actively developed and release APIs can change; use the official [Bevy release](https://bevy.org/news/bevy-0-20/) and migration guides when updating.
 
 Conventional keyboard-accessible menus are mandatory. OS-native menu rendering is a separate integration choice; [muda's official repository](https://github.com/tauri-apps/muda) is a candidate for native desktop menu handling, especially macOS. T01/T08 must demonstrate focus, shortcuts, checked/enabled state and event-loop compatibility before selecting it. Library marketing is not proof of adequate accessibility, text/IME handling or keyboard navigation.
 
@@ -118,7 +118,7 @@ JSC values/callbacks belong to a runtime executor with explicit GC/context lifet
 | ADR01 | Accepted scope: desktop first, browser later, Android deferred | Plan/release gates |
 | ADR02 | Accepted scope: menus plus button interface; desktop menu profile default proposed | T08 validates behavior and default preference |
 | ADR03 | Accepted scope: Groovy/JVM plugin execution and developer CLI/TUI deferred; initial desktop has no plugin runtime | T42 capability/unknown-data audit |
-| ADR04 | Proposed: wgpu + winit + egui, optional native menu adapter | T01 demonstrator, T08 focus/accessibility checks |
+| ADR04 | Accepted: Bevy 0.20 for native desktop window, 3D renderer and Bevy UI; browser adapter remains separate | T57 performance/feature proof, then T08 focus/accessibility checks |
 | ADR05 | Proposed: f64 kernel and triangle/segment semantics; canonical vertex/layout/override storage decided before implementation | T46 then T02/T03; C01/C02/C32 |
 | ADR06 | Proposed: sparse schema-17 compatibility reader/writer, explicit defaults allowed | T05/T09 Kotlin reopen proof; no new incompatible format under version 17 |
 | ADR07 | Proposed change: transaction boundaries instead of 3.5 s undo coalescing | T04 documents policy and legacy-history replay |
