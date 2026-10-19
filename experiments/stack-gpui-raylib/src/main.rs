@@ -15,6 +15,7 @@ use gpui::{
 use gpui_component::{
     Disableable, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
+    menu::{DropdownMenu as _, PopupMenuItem},
 };
 use raylib::prelude::*;
 use x11rb::{
@@ -517,8 +518,8 @@ fn publish_viewport_layout(bridge: &ViewportBridge, window: &Window) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Camera3D, ViewportBridge, ViewportEvent, ViewportInput, apply_input_event, orbit_camera,
-        physical_rect, viewport_rect,
+        Camera3D, MENU_NAMES, RIBBON_TABS, ViewportBridge, ViewportEvent, ViewportInput,
+        apply_input_event, menu_items, orbit_camera, physical_rect, ribbon_groups, viewport_rect,
     };
     use raylib::prelude::Vector3;
     use std::sync::{Arc, Mutex};
@@ -535,6 +536,27 @@ mod tests {
     fn tracks_central_canvas_size_when_host_window_resizes() {
         assert_eq!(viewport_rect(1400.0, 900.0, 1.0), (230, 140, 840, 734));
         assert_eq!(viewport_rect(1200.0, 760.0, 1.0), (230, 140, 640, 594));
+    }
+
+    #[test]
+    fn every_text_menu_has_populated_disabled_command_items() {
+        assert_eq!(MENU_NAMES.len(), 13);
+        for menu in MENU_NAMES {
+            assert!(!menu_items(menu).is_empty(), "{menu} menu has no entries");
+        }
+    }
+
+    #[test]
+    fn every_ribbon_tab_has_populated_command_groups() {
+        assert_eq!(RIBBON_TABS.len(), 8);
+        for tab in RIBBON_TABS {
+            let groups = ribbon_groups(tab);
+            assert!(!groups.is_empty(), "{tab} tab has no groups");
+            assert!(
+                groups.iter().all(|group| !group.commands.is_empty()),
+                "{tab} tab has an empty group"
+            );
+        }
     }
 
     #[test]
@@ -629,6 +651,462 @@ mod tests {
 
 struct MeshcraftShell {
     bridge: ViewportBridge,
+    active_ribbon_tab: &'static str,
+}
+
+const MENU_NAMES: &[&str] = &[
+    "File",
+    "Edit",
+    "View",
+    "Insert",
+    "Format",
+    "Draw",
+    "Dimension",
+    "Modify",
+    "Objects",
+    "Tools",
+    "Render",
+    "Window",
+    "Help",
+];
+
+const RIBBON_TABS: &[&str] = &[
+    "Home",
+    "Construction",
+    "Modify",
+    "Arrays",
+    "Architecture",
+    "Inspect",
+    "View",
+    "Settings",
+];
+
+fn menu_items(menu: &str) -> &'static [&'static str] {
+    match menu {
+        "File" => &[
+            "New",
+            "Open…",
+            "Save",
+            "Save As…",
+            "Import Objects…",
+            "Export…",
+            "Recent Projects",
+            "Exit",
+        ],
+        "Edit" => &[
+            "Undo",
+            "Redo",
+            "Cut",
+            "Copy",
+            "Paste",
+            "Delete",
+            "Select All",
+        ],
+        "View" => &[
+            "Orbit",
+            "Pan",
+            "Zoom",
+            "Fit Model",
+            "Projection",
+            "Permanent Grid",
+            "Guides",
+        ],
+        "Insert" => &[
+            "Point",
+            "Line",
+            "Polyline",
+            "Planar Mesh",
+            "Rectangle",
+            "Circle",
+            "Object",
+            "Text",
+        ],
+        "Format" => &[
+            "Model Settings",
+            "UI Settings",
+            "Material Color",
+            "Dimension Style",
+        ],
+        "Draw" => &[
+            "Line",
+            "Construction Polyline",
+            "2-Line",
+            "Mesh 2-Line",
+            "Rectangle",
+            "Circle",
+            "Arc",
+            "Hotspot",
+        ],
+        "Dimension" => &[
+            "Linear Dimension",
+            "Aligned Dimension",
+            "Angular Dimension",
+            "Radius",
+            "Diameter",
+        ],
+        "Modify" => &[
+            "Move",
+            "Copy",
+            "Rotate 3D",
+            "Scale",
+            "Stretch",
+            "Extrude",
+            "Mirror",
+            "Offset",
+            "Sweep",
+        ],
+        "Objects" => &[
+            "Make Object",
+            "Edit Definition",
+            "Place Instance",
+            "Explode Object",
+        ],
+        "Tools" => &[
+            "Select",
+            "Window Select",
+            "Snap Settings",
+            "Linear Array",
+            "Planar Array",
+            "Spatial Array",
+            "Distance",
+        ],
+        "Render" => &[
+            "Real-Time Render",
+            "Global Illumination",
+            "Stop Render",
+            "Save Image",
+        ],
+        "Window" => &[
+            "Selection Panel",
+            "Object Panel",
+            "Settings Panel",
+            "Reset Layout",
+        ],
+        "Help" => &["Tutorials", "Keyboard Shortcuts", "About Meshcraft"],
+        _ => &[],
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RibbonGroup {
+    title: &'static str,
+    namespace: &'static str,
+    commands: &'static [(&'static str, &'static str)],
+}
+
+const HOME_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Construction",
+        namespace: "ribbon/home/construction",
+        commands: &[
+            ("point", "Point"),
+            ("line", "Line"),
+            ("polyline", "Polyline"),
+            ("double-line", "2-Line"),
+            ("meshed-double-line", "Mesh 2-Line"),
+            ("closed-mesh", "Planar Mesh"),
+            ("rectangle", "Rectangle"),
+            ("circle", "Circle"),
+        ],
+    },
+    RibbonGroup {
+        title: "Modify Selection",
+        namespace: "ribbon/home/modify",
+        commands: &[
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("move", "Move"),
+            ("copy", "Copy"),
+            ("rotate-3d", "Rotate 3D"),
+            ("scale", "Scale"),
+            ("stretch", "Stretch"),
+            ("extrude", "Extrude"),
+        ],
+    },
+    RibbonGroup {
+        title: "Arrays & Objects",
+        namespace: "ribbon/home/arrays",
+        commands: &[
+            ("make-object", "Make Object"),
+            ("edit-object", "Edit Object"),
+            ("linear-array", "Linear"),
+            ("planar-array", "Planar"),
+            ("spatial-array", "Spatial"),
+            ("rotational-array", "Rotate"),
+            ("helical-array", "Helical"),
+        ],
+    },
+    RibbonGroup {
+        title: "Entities & View",
+        namespace: "ribbon/home/entities",
+        commands: &[
+            ("dimension", "Dimension"),
+            ("hotspot", "Hotspot"),
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame"),
+            ("orbit", "Orbit"),
+            ("zoom", "Zoom"),
+        ],
+    },
+];
+
+const CONSTRUCTION_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Point Construction",
+        namespace: "ribbon/construction/points",
+        commands: &[
+            ("point", "Point"),
+            ("line", "Line"),
+            ("construction-polyline", "Polyline"),
+            ("double-line", "2-Line"),
+            ("meshed-double-line", "Mesh 2-Line"),
+            ("closed-mesh", "Closed Mesh"),
+            ("rectangle", "Rectangle"),
+            ("circle", "Circle"),
+            ("arc", "Arc"),
+        ],
+    },
+    RibbonGroup {
+        title: "Entity Construction",
+        namespace: "ribbon/construction/entities",
+        commands: &[
+            ("dimension", "Dimension"),
+            ("text", "Text"),
+            ("leader", "Leader"),
+            ("hotspot", "Hotspot"),
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame"),
+        ],
+    },
+    RibbonGroup {
+        title: "Primitives & Services",
+        namespace: "ribbon/construction/primitives",
+        commands: &[
+            ("cuboid", "Cuboid"),
+            ("sphere", "Sphere"),
+            ("cylinder", "Cylinder"),
+            ("cone", "Cone"),
+            ("voxel", "Voxel"),
+            ("pipe", "Pipe"),
+            ("duct", "Duct"),
+        ],
+    },
+];
+
+const MODIFY_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Selection",
+        namespace: "ribbon/modify/selection",
+        commands: &[
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("select-connected", "Connected"),
+            ("select-coplanar", "Coplanar"),
+            ("select-all", "Select All"),
+        ],
+    },
+    RibbonGroup {
+        title: "Transforms",
+        namespace: "ribbon/modify/transforms",
+        commands: &[
+            ("move", "Move"),
+            ("copy", "Copy"),
+            ("rotate-3d", "Rotate 3D"),
+            ("rotate-copy-3d", "Rotate Copy"),
+            ("scale", "Scale"),
+            ("stretch", "Stretch"),
+            ("extrude", "Extrude"),
+            ("mirror", "Mirror"),
+        ],
+    },
+    RibbonGroup {
+        title: "Surface & Path",
+        namespace: "ribbon/modify/surface",
+        commands: &[
+            ("offset", "Offset"),
+            ("sweep", "Sweep"),
+            ("fillet", "Fillet"),
+            ("chamfer", "Chamfer"),
+            ("planar-regularize", "Regularize"),
+            ("surface-remesh", "Remesh"),
+        ],
+    },
+];
+
+const ARRAY_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Selection Arrays",
+        namespace: "ribbon/arrays/spread",
+        commands: &[
+            ("linear-array", "Linear Spread"),
+            ("planar-array", "Planar Spread"),
+            ("spatial-array", "Spatial Spread"),
+        ],
+    },
+    RibbonGroup {
+        title: "Rotational Arrays",
+        namespace: "ribbon/arrays/rotational",
+        commands: &[
+            ("rotational-array", "Rotational"),
+            ("helical-array", "Helical"),
+        ],
+    },
+    RibbonGroup {
+        title: "Objects",
+        namespace: "ribbon/arrays/objects",
+        commands: &[
+            ("make-object", "Make Object"),
+            ("edit-object", "Edit Object"),
+            ("place-object", "Place Instance"),
+            ("explode-object", "Explode"),
+        ],
+    },
+];
+
+const ARCHITECTURE_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Architecture",
+        namespace: "ribbon/architecture/building",
+        commands: &[
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame"),
+            ("door", "Door"),
+            ("window", "Window"),
+        ],
+    },
+    RibbonGroup {
+        title: "Building Services",
+        namespace: "ribbon/architecture/services",
+        commands: &[
+            ("hotspot", "Hotspot"),
+            ("pipe", "Pipe"),
+            ("duct", "Duct"),
+            ("voxel", "Voxel"),
+            ("dimension", "Dimension"),
+            ("text", "Text"),
+        ],
+    },
+];
+
+const INSPECT_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Inspect",
+        namespace: "ribbon/inspect/measure",
+        commands: &[
+            ("distance", "Distance"),
+            ("dimension", "Dimension"),
+            ("selection-info", "Selection Info"),
+            ("object-info", "Object Info"),
+        ],
+    },
+    RibbonGroup {
+        title: "Selection",
+        namespace: "ribbon/inspect/selection",
+        commands: &[
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("select-connected", "Connected"),
+            ("select-coplanar", "Coplanar"),
+        ],
+    },
+    RibbonGroup {
+        title: "Model",
+        namespace: "ribbon/inspect/model",
+        commands: &[
+            ("objects", "Objects"),
+            ("hotspots", "Hotspots"),
+            ("walls", "Walls"),
+            ("dimensions", "Dimensions"),
+        ],
+    },
+];
+
+const VIEW_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Camera",
+        namespace: "ribbon/view/camera",
+        commands: &[
+            ("orbit", "Orbit"),
+            ("pan", "Pan"),
+            ("zoom", "Zoom"),
+            ("fit-model", "Fit Model"),
+            ("reset-camera", "Reset"),
+        ],
+    },
+    RibbonGroup {
+        title: "Projection & Grid",
+        namespace: "ribbon/view/grid",
+        commands: &[
+            ("perspective", "Perspective"),
+            ("orthographic", "Orthographic"),
+            ("permanent-grid", "Grid"),
+            ("guides", "Guides"),
+            ("snap-settings", "Snapping"),
+        ],
+    },
+    RibbonGroup {
+        title: "Rendering",
+        namespace: "ribbon/view/render",
+        commands: &[
+            ("realtime-render", "RT"),
+            ("global-illumination", "GI"),
+            ("stop-render", "Stop"),
+            ("save-render", "Save Image"),
+        ],
+    },
+];
+
+const SETTINGS_GROUPS: &[RibbonGroup] = &[
+    RibbonGroup {
+        title: "Model Settings",
+        namespace: "ribbon/settings/model",
+        commands: &[
+            ("unit-name", "Unit Name"),
+            ("unit-size", "Unit Size"),
+            ("grid-size", "Grid Size"),
+            ("circle-segments", "Circle Segments"),
+            ("snap-radius", "Snap Radius"),
+        ],
+    },
+    RibbonGroup {
+        title: "Interface",
+        namespace: "ribbon/settings/ui",
+        commands: &[
+            ("ui-text-size", "Text Size"),
+            ("toolbar-size", "Toolbar Size"),
+            ("permanent-grid", "Permanent Grid"),
+            ("arrange-toolbars", "Arrange Toolbars"),
+        ],
+    },
+    RibbonGroup {
+        title: "Domain Settings",
+        namespace: "ribbon/settings/domain",
+        commands: &[
+            ("architecture-settings", "Architecture"),
+            ("hvac-settings", "HVAC"),
+            ("hotspot-settings", "Hotspots"),
+            ("shader-settings", "Shaders"),
+        ],
+    },
+];
+
+fn ribbon_groups(tab: &str) -> &'static [RibbonGroup] {
+    match tab {
+        "Construction" => CONSTRUCTION_GROUPS,
+        "Modify" => MODIFY_GROUPS,
+        "Arrays" => ARRAY_GROUPS,
+        "Architecture" => ARCHITECTURE_GROUPS,
+        "Inspect" => INSPECT_GROUPS,
+        "View" => VIEW_GROUPS,
+        "Settings" => SETTINGS_GROUPS,
+        _ => HOME_GROUPS,
+    }
 }
 
 fn disabled_button(namespace: &'static str, command: &'static str, label: &'static str) -> Button {
@@ -641,15 +1119,21 @@ fn disabled_button(namespace: &'static str, command: &'static str, label: &'stat
         .tooltip(command)
 }
 
-fn menu_button(menu: &'static str) -> Button {
+fn menu_button(menu: &'static str) -> impl IntoElement {
+    let items = menu_items(menu);
     Button::new(gpui::SharedString::from(format!(
         "menu/{}",
         menu.to_lowercase()
     )))
     .label(menu)
-    .disabled(true)
     .xsmall()
     .text()
+    .dropdown_menu(move |mut popup, _, _| {
+        for item in items {
+            popup = popup.item(PopupMenuItem::new(*item).disabled(true));
+        }
+        popup
+    })
 }
 
 fn command_row(
@@ -725,6 +1209,20 @@ fn ribbon_group(
                     .iter()
                     .map(|(command, label)| disabled_button(namespace, command, label).w(px(76.))),
             ),
+        )
+}
+
+fn ribbon_content(tab: &'static str) -> impl IntoElement {
+    div()
+        .h(px(78.))
+        .flex()
+        .gap(px(3.))
+        .px(px(5.))
+        .bg(rgb(0x20262e))
+        .children(
+            ribbon_groups(tab)
+                .iter()
+                .map(|group| ribbon_group(group.title, group.namespace, group.commands)),
         )
 }
 
@@ -1290,7 +1788,7 @@ fn right_settings_panel() -> impl IntoElement {
 }
 
 impl Render for MeshcraftShell {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .flex()
@@ -1313,14 +1811,7 @@ impl Render for MeshcraftShell {
                             .text_color(rgb(0xe5edf7))
                             .child("Meshcraft"),
                     )
-                    .children(
-                        [
-                            "File", "Edit", "View", "Insert", "Format", "Draw", "Dimension",
-                            "Modify", "Objects", "Tools", "Render", "Window", "Help",
-                        ]
-                        .into_iter()
-                        .map(menu_button),
-                    )
+                    .children(MENU_NAMES.iter().copied().map(menu_button))
                     .child(div().flex_1())
                     .child(
                         Button::new("menu/commands")
@@ -1345,75 +1836,26 @@ impl Render for MeshcraftShell {
                     .gap(px(4.))
                     .px(px(9.))
                     .bg(rgb(0x232a33))
-                    .children(
-                        [
-                            "Home", "Construction", "Modify", "Arrays", "Architecture",
-                            "Inspect", "View", "Settings",
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, tab)| {
-                            let button = Button::new(gpui::SharedString::from(format!(
-                                "ribbon-tab/{}",
-                                tab.to_lowercase()
-                            )))
-                                .label(tab)
-                                .disabled(true)
-                                .small();
-                            if index == 0 {
-                                button.primary()
-                            } else {
-                                button.ghost()
-                            }
-                        }),
-                    ),
+                    .children(RIBBON_TABS.iter().copied().map(|tab| {
+                        let active = self.active_ribbon_tab == tab;
+                        let button = Button::new(gpui::SharedString::from(format!(
+                            "ribbon-tab/{}",
+                            tab.to_lowercase()
+                        )))
+                        .label(tab)
+                        .small()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.active_ribbon_tab = tab;
+                            cx.notify();
+                        }));
+                        if active {
+                            button.primary()
+                        } else {
+                            button.ghost()
+                        }
+                    })),
             )
-            .child(
-                div()
-                    .h(px(78.))
-                    .flex()
-                    .gap(px(3.))
-                    .px(px(5.))
-                    .bg(rgb(0x20262e))
-                    .child(ribbon_group(
-                        "Construction",
-                        "ribbon/construction",
-                        &[
-                            ("point", "Point"), ("line", "Line"), ("polyline", "Polyline"),
-                            ("double-line", "2-Line"), ("meshed-double-line", "Mesh 2-Line"),
-                            ("closed-mesh", "Planar Mesh"), ("rectangle", "Rectangle"),
-                            ("circle", "Circle"),
-                        ],
-                    ))
-                    .child(ribbon_group(
-                        "Modify Selection",
-                        "ribbon/modify",
-                        &[
-                            ("select", "Select"), ("window-select", "Window"),
-                            ("move", "Move"), ("copy", "Copy"), ("rotate-3d", "Rotate 3D"),
-                            ("scale", "Scale"), ("stretch", "Stretch"), ("extrude", "Extrude"),
-                        ],
-                    ))
-                    .child(ribbon_group(
-                        "Arrays & Objects",
-                        "ribbon/arrays",
-                        &[
-                            ("create-object", "Make Object"), ("edit-object", "Edit Object"),
-                            ("linear-array", "Linear"), ("planar-array", "Planar"),
-                            ("spatial-array", "Spatial"), ("rotational-array", "Rotate"),
-                            ("helical-array", "Helical"),
-                        ],
-                    ))
-                    .child(ribbon_group(
-                        "Entities & View",
-                        "ribbon/entities",
-                        &[
-                            ("dimension", "Dimension"), ("hotspot", "Hotspot"),
-                            ("wall", "Wall"), ("slab", "Slab"), ("stair", "Stair"),
-                            ("frame", "Frame"), ("orbit", "Orbit"), ("zoom", "Zoom"),
-                        ],
-                    )),
-            )
+            .child(ribbon_content(self.active_ribbon_tab))
             .child(
                 div()
                     .flex()
@@ -1487,7 +1929,10 @@ fn main() {
                             },
                         )
                         .detach();
-                    MeshcraftShell { bridge }
+                    MeshcraftShell {
+                        bridge,
+                        active_ribbon_tab: "Home",
+                    }
                 })
             },
         )
