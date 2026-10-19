@@ -522,7 +522,7 @@
       "done": [
         "C09 project/unproject/navigation tests pass in both menu and button layouts.",
         "No camera mode silently uses the wrong projection for picking.",
-        "Orbit input and restored perspective poses support pitch from −89° through +89° without reaching the singular camera poles."
+        "Orbit input and restored perspective poses support pitch from \u221289\u00b0 through +89\u00b0 without reaching the singular camera poles."
       ],
       "tool_ids": [],
       "status": "complete"
@@ -1338,7 +1338,7 @@
         "Commit loose selected geometry in the parent and remove source instances only on successful atomic completion; document differences for disjoint/coincident/invalid meshes."
       ],
       "done": [
-        "C20 tests A−B/B−A, output context and source lifecycle explicitly.",
+        "C20 tests A\u2212B/B\u2212A, output context and source lifecycle explicitly.",
         "Robustness limits and deliberate improvements are reported; no OpenSCAD dependency."
       ],
       "tool_ids": [
@@ -2506,7 +2506,7 @@
       ],
       "slices": [
         "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals; include Paint target and selected-object Array previews.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
@@ -2885,7 +2885,7 @@
         "Dependency versions and reproducible proof commands are recorded; Windows/macOS support is not claimed without separate verification."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/decisions/ADR-06-gpui-raylib.md",
         "docs/UI-3D_renderer.md"
