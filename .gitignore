@@ -1,3 +1,7 @@
 .kode
 .kode.json
 /target/
+
+# Local reference recordings; do not commit large binary screencasts.
+/docs/Screencast From 2026-10-19 10-42-51.mp4
+/docs/Screencast From 2026-10-19 10-47-07.mp4

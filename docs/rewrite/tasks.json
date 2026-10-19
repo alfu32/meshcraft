@@ -20,7 +20,8 @@
     "Every implemented command/tool adds menu, button/palette, enabled-state, transaction and applicable scenario coverage.",
     "Source behavior wins; document deliberate improvements and unsupported subsets.",
     "T46 ratifies normalized object ownership, identity, layouts and migration before T02/T03/T05/T16 contracts harden.",
-    "Later JavaScriptCore plugins are required final-product work, isolated from initial desktop and browser release gates; no Groovy/JVM or developer CLI/TUI prerequisite."
+    "Later JavaScriptCore plugins are required final-product work, isolated from initial desktop and browser release gates; no Groovy/JVM or developer CLI/TUI prerequisite.",
+    "T59 proves GPUI/raylib-rs native viewport hosting without CPU framebuffer readback before desktop cutover; T60 removes retired Bevy/egui code only after replacement acceptance passes."
   ],
   "tasks": [
     {
@@ -345,12 +346,13 @@
     },
     {
       "id": "T07",
-      "title": "Build desktop window and basic viewport",
+      "title": "Build GPUI desktop window and raylib viewport with normalized input ownership",
       "phase": "desktop",
       "dependencies": [
         "T01",
         "T03",
-        "T06"
+        "T06",
+        "T59"
       ],
       "requirements": [
         "I03",
@@ -387,11 +389,11 @@
         "Core tests remain headless and platform services are isolated."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "planned"
     },
     {
       "id": "T08",
-      "title": "Implement shared desktop menus, floating toolbars and context tools menu (#16, #17)",
+      "title": "Implement GPUI desktop menus, grouped ribbon, and context command menu (#16, #17)",
       "phase": "desktop",
       "dependencies": [
         "T06",
@@ -423,20 +425,18 @@
         "inToolOperators"
       ],
       "slices": [
-        "Implement the U02 menu tree from shared command metadata, initially exposing ready operations and capability-aware disabled entries; generate toolbar/palette views from the same registrations.",
-        "Implement Desktop Menus/Buttons/Hybrid preferences, toolbar/panel restoration and draft-preserving profile switches.",
-        "Implement keyboard menu navigation, focus/shortcut suppression/restoration, enabled/checked states, DPI/accessibility labels and selected native-menu adapter.",
-        "Verify viewport offsets and command parity with menu open/close/switch scenarios; add menu mapping coverage checks for every later registered tool.",
-        "Display legacy toolbar groups as movable floating toolbars over the viewport instead of a fixed side panel; preserve per-toolbar visibility, command parity and compact viewport space (#16).",
-        "Open the shared Tools command tree from a right-click in the viewport, preserving the active tool and existing context-aware pointer interactions (#17)."
+        "Generate the textual menu row from the shared action tree, with enabled/checked state and commands routed to the common dispatcher.",
+        "Build the SolidCraft-style grouped, tabbed command ribbon from registered command metadata and existing toolbar/icon definitions.",
+        "Build searchable CADCraft-style Ctrl+Shift+P completion with shared availability, parameter schemas, keyboard navigation and feedback.",
+        "Expose the shared Tools context menu from the viewport without stealing input from active staged tools; keep its commands and state consistent with the palette.",
+        "Verify keyboard navigation, accessibility labels, focus restoration, shortcut suppression, resize/DPI and command mapping across all presentations."
       ],
       "done": [
-        "C23 passes for the first editing slice and remains a release gate.",
-        "No menu handler contains independent geometry or file-operation logic.",
-        "Buttons and Hybrid profiles show independently movable legacy toolbar groups without reserving a fixed work-surface column, and viewport right-click exposes the registered Tools menu (#16, #17)."
+        "The textual menu, ribbon, context menu and palette dispatch identical command IDs and reflect the shared enabled/checked state.",
+        "The shell remains visible and useful for an empty document, and text controls do not leak shortcuts or viewport events."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "planned"
     },
     {
       "id": "T09",
@@ -826,7 +826,7 @@
     },
     {
       "id": "T17",
-      "title": "Complete inspectors, settings, preferences and menu coverage",
+      "title": "Complete GPUI inspectors, JSON-driven settings, preferences and command coverage",
       "phase": "desktop",
       "dependencies": [
         "T08",
@@ -869,7 +869,7 @@
         "C17/C23 pass after load, undo, field focus and profile switching."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "planned"
     },
     {
       "id": "T18",
@@ -1893,7 +1893,7 @@
         "Filled coplanar mesh triangles render as a continuous surface without triangulation seams; boundary and non-coplanar edges remain visible (#13)."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "planned"
     },
     {
       "id": "T40",
@@ -2104,7 +2104,9 @@
         "T39",
         "T40",
         "T42",
-        "T43"
+        "T43",
+        "T59",
+        "T60"
       ],
       "requirements": [
         "O03",
@@ -2118,7 +2120,10 @@
         "C23",
         "C26",
         "C31",
-        "C32"
+        "C32",
+        "C39",
+        "C40",
+        "C41"
       ],
       "targets": [
         "docs/rewrite/qualification/",
@@ -2463,7 +2468,7 @@
     },
     {
       "id": "T51",
-      "title": "Fix geometric feedback for enabled tools (#2)",
+      "title": "Restore and verify geometric feedback in the raylib viewport (#2, #21)",
       "phase": "desktop",
       "dependencies": [
         "T13",
@@ -2479,8 +2484,8 @@
         "C34"
       ],
       "targets": [
-        "apps/desktop/src/app.rs",
-        "apps/desktop/src/viewport.rs",
+        "crates/meshcraft-session/src/",
+        "crates/meshcraft-render/src/viewport/",
         "crates/meshcraft-core/src/tools/transforms.rs",
         "crates/meshcraft-core/src/tools/shapes.rs"
       ],
@@ -2510,7 +2515,7 @@
         "Vector feedback shows distance and relative coordinates, and preview data agrees with committed geometry for snapped, numeric and entered-definition workflows."
       ],
       "tool_ids": [],
-      "status": "complete"
+      "status": "in_progress"
     },
     {
       "id": "T52",
@@ -2615,8 +2620,8 @@
         "C36"
       ],
       "targets": [
-        "apps/desktop/src/app.rs",
-        "apps/desktop/src/viewport.rs"
+        "crates/meshcraft-session/src/",
+        "crates/meshcraft-render/src/viewport/"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/input/GuideManager.kt",
@@ -2782,7 +2787,7 @@
     },
     {
       "id": "T58",
-      "title": "Replace Bevy UI with egui; retain the Bevy model viewport (#20, high priority)",
+      "title": "egui shell + Bevy viewport prototype (superseded by GPUI + raylib-rs; #20)",
       "phase": "desktop",
       "dependencies": [
         "T57"
@@ -2801,12 +2806,10 @@
         "C40"
       ],
       "targets": [
-        "Cargo.toml",
-        "apps/desktop/Cargo.toml",
         "apps/desktop/src/bevy_app.rs",
-        "apps/desktop/src/ui/",
-        "docs/decisions/ADR-05-ui-architecture.md",
-        "docs/rewrite/architecture.md"
+        "apps/desktop/src/viewport.rs",
+        "apps/desktop/src/app.rs",
+        "docs/decisions/ADR-05-ui-architecture.md"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt"
@@ -2817,28 +2820,141 @@
         "drawScene"
       ],
       "slices": [
-        "Spike a compatible egui/Bevy integration in one native window; prove the egui layout rectangle can define the Bevy camera viewport and verify input capture, render order, DPI/resize and idle behavior. Pin compatible versions and document limitations.",
-        "Audit CADCraft and SolidCraft Apache-2.0 UI crates for independently reusable controls, dialogs, menus, docking, palettes, themes, icons and UI tests; copy/adapt useful components with required license notices and Meshcraft command/session adapters.",
-        "Separate UI presentation state from the Bevy viewport/session bridge; keep Document, commands, selection, tools, undo, persistence and preferences framework-neutral.",
-        "Migrate application menus, toolbars, command palette, inspector/settings, object list, dialogs and status/feedback to egui components with a cohesive theme, readable labels, real text/numeric fields, keyboard focus and tooltips.",
-        "Keep Bevy GPU scene batching, camera, shadows, grid, guides, cursor, selection/marquee overlays, tool previews, ray picking, snapping and model interaction in the custom central viewport.",
-        "Route egui and viewport input by actual layout bounds and UI capture state; preserve shared command IDs, enabled reasons, Escape semantics, object-instance editing, click/double/triple selection and both marquee directions.",
-        "Add interactive UI coverage and visual reviews for editable fields, menus, focus, DPI/resizing, command routing, viewport input ownership, and create/select/transform/settings/object-edit/cancel/save-reopen workflows.",
-        "Measure idle CPU and click-to-visible feedback; repeat T00/#18 frame, hover, pick and edit benchmarks on a reproducible 2,000-entity scene, reporting egui/UI and Bevy rendering costs separately."
+        "Record the rejected egui/Bevy integration and the reason for changing direction without treating its UI acceptance or performance report as complete.",
+        "Keep the old task capsule as historical evidence and route all new desktop work through T59 and T60 (#21)."
       ],
       "done": [
-        "A documented, pinned egui/Bevy integration presents the whole desktop shell in one native window, with the central camera viewport matching the remaining content rectangle and reliable UI/viewport input ownership.",
-        "The migrated shell provides cohesive, fully labeled menus, toolbars, searchable command palette, dockable/scrollable inspectors, and usable text/numeric/dropdown/color/checkbox/slider controls; commands remain routed through the shared registry.",
-        "The custom Bevy viewport retains GPU rendering and all current model interaction; core and IO remain independent of UI and GPU types, and idle rendering remains event-driven.",
-        "Useful CADCraft/SolidCraft UI components are reused or explicitly rejected in a recorded audit; copied/adapted code/assets retain Apache-2.0 notices and attribution.",
-        "C40/C17/C23 pass with interactive and visual evidence; 2,000-entity measurements and click-to-visible-selection latency are recorded against T00/#18."
+        "Issue #20 is closed as wont-fix after the architecture changed; the egui/Bevy prototype is not the target desktop stack.",
+        "The new GPUI + raylib-rs direction and its native-surface proof gate are specified in ADR-06, UI-3D_renderer.md and T59."
       ],
       "tool_ids": [],
-      "status": "in_progress",
+      "status": "superseded",
       "design_docs": [
-        "docs/decisions/ADR-05-ui-architecture.md",
-        "docs/rewrite/architecture.md",
-        "docs/rewrite/handoffs/T58.md"
+        "docs/decisions/ADR-05-ui-architecture.md"
+      ]
+    },
+    {
+      "id": "T59",
+      "title": "Prove GPUI + raylib-rs viewport integration (#21, high priority)",
+      "phase": "desktop",
+      "dependencies": [
+        "T06",
+        "T46"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "U03",
+        "U04",
+        "R01",
+        "O01"
+      ],
+      "acceptance": [
+        "C40"
+      ],
+      "targets": [
+        "Cargo.toml",
+        "apps/desktop/Cargo.toml",
+        "experiments/stack-gpui-raylib/",
+        "docs/decisions/ADR-06-gpui-raylib.md",
+        "docs/UI-3D_renderer.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/Main.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SceneSnapshot.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/ToolPointerProcessor.kt"
+      ],
+      "source_symbols": [
+        "renderFrame",
+        "buildStandardToolbars",
+        "drawScene",
+        "onPointerMove"
+      ],
+      "slices": [
+        "Pin a minimal GPUI host and raylib-rs renderer prototype only after recording the exact toolchain/platform/backend; keep the proof isolated from the production shell.",
+        "Render a live raylib frame in the GPUI viewport rectangle without continuous GPU-to-CPU pixel readback; reject CPU frame-copy paths.",
+        "Verify resize/DPI mapping, clipping, focus, pointer and keyboard ownership, event-loop/render-thread rules, window close and resource destruction on the target Linux session.",
+        "Define the versioned, framework-neutral viewport input/event and scene snapshot/delta contract; high-frequency camera/pointer state remains local to the viewport.",
+        "Record measured behavior, dependency revisions, limitations and a go/no-go result before the full migration proceeds."
+      ],
+      "done": [
+        "A live raylib-rs canvas is correctly presented inside GPUI bounds with no per-frame CPU framebuffer readback.",
+        "Viewport input, focus, resize/DPI, clipping and shutdown pass on the explicitly recorded target Linux window backend.",
+        "The renderer/session boundary is typed and framework-neutral; core and commands do not depend on UI or GPU crates.",
+        "Dependency versions and reproducible proof commands are recorded; Windows/macOS support is not claimed without separate verification."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/decisions/ADR-06-gpui-raylib.md",
+        "docs/UI-3D_renderer.md"
+      ]
+    },
+    {
+      "id": "T60",
+      "title": "Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority)",
+      "phase": "desktop",
+      "dependencies": [
+        "T07",
+        "T08",
+        "T17",
+        "T39",
+        "T54",
+        "T59",
+        "T51"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "U03",
+        "U04",
+        "R01",
+        "O01",
+        "O04"
+      ],
+      "acceptance": [
+        "C40",
+        "C41",
+        "C34"
+      ],
+      "targets": [
+        "Cargo.toml",
+        "apps/desktop/",
+        "crates/meshcraft-session/",
+        "crates/meshcraft-ui/",
+        "crates/meshcraft-render/",
+        "experiments/stack/",
+        "Cargo.lock"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SceneSnapshot.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/ToolPointerProcessor.kt"
+      ],
+      "source_symbols": [
+        "buildStandardToolbars",
+        "renderFrame",
+        "onPointerMove"
+      ],
+      "slices": [
+        "Move command dispatch, tool/session state and non-visual selection/interaction behavior behind a headless session API; route OS dialogs and file operations through typed host effects.",
+        "Complete the GPUI shell and raylib viewport paths for the shared command catalog, JSON settings schemas, status/feedback and viewport input contract.",
+        "Port click/window selection, connected/coplanar multi-click selection, snapping, Escape, nested definition editing, construction/modify tools and all array families.",
+        "Carry two-sided face tints, batched geometry, shadow-map policy, cursor/guides, construction feedback and measurement text into raylib; exclude authored lines and overlays from shadow casting.",
+        "Remove Bevy, bevy_ecs, bevy_egui, egui/eframe and retired framework-specific renderer/UI modules from the desktop source and dependency graph; remove obsolete stack experiments and lockfile entries.",
+        "Run headless command/core/IO tests and C39/C40/C41 desktop verification; record all preserved behavior, removed files and remaining platform limits."
+      ],
+      "done": [
+        "The documented desktop workflows are served by GPUI and raylib-rs; no production Bevy/egui/eframe renderer or UI code remains.",
+        "Shared command IDs, JSON payload definitions, headless dispatch, transactions, undo, object model and IO behavior remain covered and independent of GPUI/raylib.",
+        "The recording-derived dense-array workflow completes without a UI hang and meets the recorded interaction and performance acceptance criteria."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/decisions/ADR-06-gpui-raylib.md",
+        "docs/UI-3D_renderer.md"
       ]
     }
   ]

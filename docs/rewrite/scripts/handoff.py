@@ -51,7 +51,7 @@ def main():
     if arguments.list or arguments.ready:
         for task in tasks.values():
             ready = all(tasks[dependency]["status"] == "complete" for dependency in task["dependencies"])
-            if not arguments.ready or (ready and task["status"] != "complete"):
+            if not arguments.ready or (ready and task["status"] not in ("complete", "superseded")):
                 print(f'{task["id"]} [{task["status"]}; {task["phase"]}] {task["title"]}; needs: {", ".join(task["dependencies"]) or "none"}; slices: {len(task["slices"])}')
         return
     source_state(inventory, arguments.allow_source_drift)

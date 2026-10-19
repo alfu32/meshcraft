@@ -32,7 +32,7 @@ Browser runtime and `<octodraw-editor>` compatibility follow desktop. Android ha
 
 The object model is now examined separately in [object-model.md](object-model.md): eliminate redundant ownership/copies before freezing core contracts. A measured census found 2,899 of 2,939 serialized geometry override bundles equal to their definitions across the 60 fixtures. These are normalization candidates, not permission to discard authored instance differences. T46 gates the core model; T47–T50 deliver JavaScriptCore plugins after initial desktop qualification.
 
-Implementation has started with a provisional `meshcraft-core` model, an isometric viewport, interactive Line/Rectangle/Cuboid tools, and copy/object/array commands. The native X11 smoke test exercised those drafting tools and the cuboid → copy → object → array path through `Ctrl+Shift+P`. This is an initial slice; persistence, undo, topology repair/cutting, and legacy compatibility remain unimplemented. T00 and T46 remain open, so the current model is not a ratified schema and dependent task contracts must still follow the gate.
+The implementation has since grown substantially: the Rust core contains the normalized document, transactions, selection, tool state machines, shared command catalog, IO and many geometry/array operations. The current desktop executable is an interim Bevy/egui stack and is not the selected product architecture. The accepted direction is GPUI + raylib-rs; see [ADR-06](../decisions/ADR-06-gpui-raylib.md) and [UI-3D_renderer.md](../UI-3D_renderer.md). T59 is the first gate: prove native viewport hosting without a per-frame CPU framebuffer copy. T60 removes the old framework-specific desktop code after replacement. Preserve commands and model behavior while separating the current desktop session from GPUI and raylib. The supplied, locally ignored recordings inform C41's dense-array interaction regression.
 
 ## What was found
 
@@ -58,6 +58,8 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 | `compatibility.md` | Sparse JSON, transforms, history, formats, APIs, migration |
 | `history.md` | Historical layers and deliberate sequencing changes |
 | `architecture.md` | Rust boundaries, contracts, numerical and compatibility decisions |
+| `../decisions/ADR-06-gpui-raylib.md` | Accepted GPUI shell/raylib viewport architecture and integration gates |
+| `../UI-3D_renderer.md` | Desktop layout, renderer boundary, interaction and performance requirements |
 | `object-model.md` | Source/fixture-backed redundancy analysis, normalized ownership proposal and migration gate |
 | `object-model-evidence.json` | Reproducible counts for the 60 pinned top-level fixture models |
 | `plugins.md` | Required later JavaScriptCore runtime, application context and SDK/lifecycle contracts |
@@ -70,6 +72,6 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 
 ## Current handoff
 
-T00 and T01 are in progress. A read-only importer for current prototype/instance JSON is an early partial T05 implementation; see `handoffs/T05.md` for its limits. Continue the baseline fixture/oracle work and finish T46's ownership, identity, hierarchy, migration, and measured-comparison decisions before treating core APIs as stable. Use `python3 docs/rewrite/scripts/handoff.py --ready` to identify work whose dependencies are complete; do not begin by translating `Main.kt` wholesale.
+T59 is the high-priority stack proof. Read `../decisions/ADR-06-gpui-raylib.md`, `../UI-3D_renderer.md`, and `handoffs/T59.md`; run `python3 docs/rewrite/scripts/handoff.py T59` for the implementation packet. T58 and issue #20 are superseded. Keep `meshcraft-core` and `meshcraft-io` headless, and extract the current desktop session/command handling before removing old UI and renderer modules. Use `python3 docs/rewrite/scripts/handoff.py --ready` to identify dependency-ready work.
 
 The initial source audit did not launch the legacy application or run its source-repository build. A later live UI/MCP inspection is documented in `live-reference.md`; its screenshots are visual evidence, not a geometry parity oracle. The user-supplied `.octd` scene was read and imported without modifying or saving it.

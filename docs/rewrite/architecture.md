@@ -1,6 +1,6 @@
 # Proposed Rust architecture
 
-This is the architecture contract for the Rust implementation. Settled user direction: menus alongside buttons; desktop first; Android/Groovy execution/developer CLI/TUI deferred; JavaScriptCore plugins with a handed-in context in the final product; thorough object-model normalization before core contracts harden. The native desktop keeps Bevy for GPU rendering and its custom model viewport, while egui through `bevy_egui` owns the application shell under high-priority T58 (#20). T57's Bevy UI direction was closed as not planned after the user rejected its visual quality and UX; its Bevy viewport work remains the foundation. The CPU projection/drawing path that prompted #18 remains retired; large-scene benchmarks still need recording. Core and IO must stay independent of Bevy and egui. The object-model decision is gated by T46.
+This is the architecture contract for the Rust implementation. Settled direction: desktop first, GPUI for the desktop shell, raylib-rs for its 3D viewport, commands independent of UI/rendering, Android/Groovy execution/developer CLI/TUI deferred, JavaScriptCore plugins with a handed-in context in the final product, and thorough object-model normalization before core contracts harden. The Bevy/egui stack is superseded by [ADR-06](../decisions/ADR-06-gpui-raylib.md), [T59](handoffs/T59.md) and [T60](handoffs/T60.md). The GPUI/raylib native-surface proof is a hard gate; CPU framebuffer readback is not an acceptable production viewport path. Preserve the normalized model, headless commands and IO while replacing the renderer and UI. The object-model decision is gated by T46.
 
 ## Workspace boundaries
 
@@ -10,44 +10,44 @@ Start with a small Cargo workspace; use modules within crates before introducing
 | --- | --- | --- |
 | `meshcraft-core` | f64 geometry, document/prototypes, selection, transactions, command metadata/handlers, tool state machines, domain generators, snapshot extraction | GPU/UI types, OS dialogs/filesystem, HTTP server, JVM, browser globals |
 | `meshcraft-io` | Sparse legacy DTOs, project/history containers, migration/validation, supported interchange codecs | Widget lifetime, live render thread, implicit mutation of document |
-| `meshcraft-render` | GPU viewport buffers/shaders, shared render snapshots, CPU offline renderer/scheduler | GUI callbacks, authoritative model edits |
-| `meshcraft-ui` | Command-backed menus/toolbars/palette, panels, focus/input normalization, workspace preferences | Independent modeling implementations |
-| `meshcraft-desktop` | Window/event loop, dialogs/files, serialized saves, structured HTTP automation, packaging, host services | Feature-specific geometry algorithms |
+| `meshcraft-session` | Headless command dispatch, tool/session state, typed viewport input/output, undo and host-effect requests | GPUI, raylib, windowing, GPU types |
+| `meshcraft-render` | raylib-rs viewport, GPU batches, renderer-neutral snapshots/deltas, camera presentation and picking; CPU offline renderer remains separate | GPUI callbacks, authoritative model edits |
+| `meshcraft-ui` | GPUI shell, command-backed menus/ribbon/palette, inspectors/forms, focus/input routing and workspace layout | Independent modeling implementations, direct document mutation |
+| `meshcraft-desktop` | GPUI application lifecycle, viewport host surface, OS dialogs/files, serialized saves, structured HTTP automation, packaging and host services | Feature-specific geometry algorithms |
 | `meshcraft-web` (later) | WASM entry, JS wrapper bridge, browser files/storage, cooperative scheduling | Native filesystem/server/thread assumptions |
 | `meshcraft-plugins-jsc` (later) | JavaScriptCore FFI/lifetimes, runtime executor, plugin lifecycle and versioned context adapter | Direct mutable document/store access, GUI widget ownership, assumptions that native JSC runs in browser WASM |
 
-Suggested core module ownership: `geometry/`, `document/`, `selection/`, `commands/`, `transactions/`, `tools/`, `domains/{voxel,architecture,hvac,hotspot}/`, `jobs/`. IO modules: `legacy/`, `project/`, `mesh/{obj,stl,dxf,...}/`, `ifc/`. Renderer: `viewport/`, `snapshot/`, `offline/`. UI: `menus/`, `toolbars/`, `panels/`, `input/`, `workspace/`.
+Suggested core module ownership: `geometry/`, `document/`, `selection/`, `commands/`, `transactions/`, `tools/`, `domains/{voxel,architecture,hvac,hotspot}/`, `jobs/`. Session modules: `dispatch/`, `input/`, `tool_state/`, `effects/`. IO modules: `legacy/`, `project/`, `mesh/{obj,stl,dxf,...}/`, `ifc/`. Renderer: `viewport/`, `snapshot/`, `offline/`. UI: `menus/`, `ribbon/`, `palette/`, `panels/`, `input/`, `workspace/`.
 
 Host composition lives in a short application coordinator. Avoid recreating the existing 12,809-line Main, 9,166-line GroupScene and 7,468-line SketchUiOverlay as three Rust structs with all responsibilities. The sum of their responsibilities remains necessary; their coupling does not.
 
 ```mermaid
 flowchart LR
-  Menu[Menus / Buttons / Palette] --> Registry[Command registry]
-  HTTP[Structured automation] --> Registry
-  Embed[Later browser bridge] --> Registry
-  Input[Normalized viewport input] --> Tool[Tool state machine]
-  Registry --> Tool
-  Registry --> Tx[Transaction service]
-  Tool --> Tx
+  GPUI[GPUI menus / ribbon / palette / panels] --> Registry[Headless command registry]
+  Automation[Structured automation] --> Registry
+  Browser[Later browser bridge] --> Registry
+  Raylib[raylib viewport input] --> Session[Headless editor session]
+  Registry --> Session
+  Session --> Tool[Tool state machine]
+  Tool --> Tx[Transaction service]
   Tx --> Doc[Document + prototypes]
-  Doc --> Snap[Immutable snapshots]
-  Snap --> IO[IO + saves]
-  Snap --> Render[Viewport / offline render]
+  Doc --> Delta[Revisioned snapshot / delta]
+  Delta --> Raylib
+  Delta --> IO[IO + saves]
   Doc --> Cache[Revisioned derived caches]
-  Cache --> Tool
+  Cache --> Session
+  Session -->|typed events / host effects| GPUI
 ```
 
-## Library proposal and early proofs
+## UI and renderer stack proof
 
-Use Bevy 0.20 for the native desktop window, ECS-driven GPU 3D renderer, camera, input and custom model viewport. Use egui for the complete application shell through `bevy_egui` 0.43.1, which supports Bevy 0.20. The desktop organization follows the user's SolidCraft reference: textual menu row, tabbed command ribbon, central viewport, and right-side selection/settings inspector. Ctrl+Shift+P uses a searchable completion palette informed by the CADCraft reference. Existing command IDs and JSON parameter definitions drive these controls. T58's compatibility spike verifies the one-window render order, camera-to-layout mapping, event capture, resize/DPI behavior and idle redraw before the full UI migration. The Bevy scene is a projection/cache of immutable Meshcraft document state; commands and transactions remain authoritative. egui widgets dispatch shared command IDs and do not mutate document internals. The UI's central content rectangle controls the Bevy camera viewport; UI-captured events never enter viewport tools, while viewport events retain existing model-space snapping and selection behavior. New documents remain empty, with the shell and explicit empty states available. Browser WASM remains a separate later delivery and may retain its current adapter until browser parity is addressed. Use the official [Bevy release](https://bevy.org/news/bevy-0-20/) and [`bevy_egui` support table](https://github.com/vladbat00/bevy_egui#bevy-support-table) when updating pinned integrations.
+Use GPUI for the desktop shell and raylib-rs for the custom 3D viewport, as specified in [ADR-06](../decisions/ADR-06-gpui-raylib.md) and [UI-3D_renderer.md](../UI-3D_renderer.md). The application follows the SolidCraft organization (text menu, grouped ribbon, central viewport, right inspector) and CADCraft command completion (`Ctrl+Shift+P`). Existing command IDs and JSON parameter definitions drive all presentations. Keep the core command/session service headless; GPUI routes actions into it, while raylib consumes revisioned scene snapshots and returns typed interaction events.
 
-T58 audits [CADCraft's egui UI crate](https://github.com/storytold/cadcraft/tree/main/crates/ui-egui) and [SolidCraft's egui UI crate](https://github.com/tangency-labs/solidcraft/tree/main/crates/ui-egui) for reusable CAD menus, panels, forms, dialogs, docking, themes and test patterns. Port focused components only, adapt them to Meshcraft's shared command/session interfaces, and retain Apache-2.0 notices and attribution for copied/adapted files/assets. Neither source application's model or renderer is adopted.
+T59 must prove a native raylib surface can occupy the actual GPUI viewport rectangle without continuous CPU framebuffer readback. Verify the target Linux window backend, composition/clipping, DPI/resize, focus, event routing and shutdown. Pin GPUI/component/raylib revisions only after this works. T60 then removes Bevy, bevy_egui, egui/eframe and retired renderer modules after their behavior has been replaced. Do not claim Windows/macOS support until their native-surface paths pass the same gate. See the [GPUI upstream README](https://github.com/zed-industries/zed/blob/main/crates/gpui/README.md) and its [external-compositor discussion](https://github.com/zed-industries/zed/discussions/60572) for current API constraints.
 
-Conventional keyboard-accessible menus are mandatory. OS-native menu rendering is a separate integration choice; [muda's official repository](https://github.com/tauri-apps/muda) is a candidate for native desktop menu handling, especially macOS. T01/T08 must demonstrate focus, shortcuts, checked/enabled state and event-loop compatibility before selecting it. Library marketing is not proof of adequate accessibility, text/IME handling or keyboard navigation.
+GPUI Component is the preferred rich-widget source after a dependency/license fit check. Reuse focused widgets when practical; connect them to Meshcraft's command/session and JSON settings boundaries. SolidCraft and CADCraft remain visual/interaction references; their egui implementation is not carried into the new stack.
 
-Use typed serialization/DTO conversion and a math library supporting f64 if they simplify the boundary; pin actual versions/MSRV after the spike. Choose polygon clipping/triangulation only after running concave/holes/near-collinear fixtures against it. Replacing JTS blindly with a library that supports simple polygons but not union/polygonization will recreate substantial missing functionality. Options include a pure-Rust implementation/library or an explicitly bounded native geometry dependency with a browser fallback. T01 must choose and record the tradeoff; later tasks must not each choose their own polygon kernel.
-
-No general game ECS, full B-rep CAD kernel, JVM host, script interpreter or external OpenSCAD process is a prerequisite for initial desktop delivery. JavaScriptCore is a required later plugin dependency, isolated from core and the first-phase executable. Add dependencies against named behavior/scenarios. Feature-gate native HTTP/jobs/storage and keep core/IO free of mandatory native services. Early WASM compile smoke checks reduce future browser adaptation cost; a shipping browser UI is still later work.
+Keyboard-accessible menus, text/IME input, focus, shortcut suppression/restoration, enabled/checked state and viewport event ownership are release requirements. UI pointer events reach the model only when they fall inside the laid-out viewport and are not consumed by a control.
 
 ## State contracts: T46 decision before T02–T06 implementation
 
@@ -87,9 +87,9 @@ Precision proposal: f64 modeling coordinates, f32 GPU positions relative to a ch
 
 ## Shared UI model
 
-Define one action tree that maps commands into menu locations, toolbar groups, palette tags, shortcuts and tutorial action IDs. `Ctrl+Shift+P` exposes every available command. Tool registration supplies its label, category, command, parameter hints and enabled/checked state. Window menu/panel registry and toolbar visibility are similarly generated. File/render/selection callbacks become canonical commands before the second UI is built.
+Define one action tree that maps commands into menu locations, ribbon groups, palette tags, shortcuts and tutorial action IDs. `Ctrl+Shift+P` exposes every available command. Tool registration supplies its label, category, command, parameter hints and enabled/checked state. Window menu/panel registry and ribbon visibility are similarly generated. File/render/selection callbacks become canonical commands before the GPUI shell is built.
 
-Desktop Menus, Buttons and Hybrid are presentations of the same session. Profile switching changes layout and visibility only. Use an explicit viewport rectangle after menu/panel layout; camera project/unproject, picking, overlays, HTTP screen input and captures all receive it. UI handles focus first; normalized input reaches the model only when unconsumed. Keep model commands separate from text-widget edit commands to avoid shortcut collisions.
+Desktop Menus, Buttons and Hybrid are presentations of the same session. Profile switching changes layout and visibility only. Use the GPUI viewport's measured content rectangle; convert logical coordinates and scale exactly once at the GPUI/raylib boundary. Camera projection, picking, overlays, automation screen input and captures share that mapping. GPUI handles focus first; normalized input reaches the model only when unconsumed. Keep model commands separate from text-widget edit commands to avoid shortcut collisions.
 
 MacOS native menu integration, if selected, adapts the same action tree and state queries. A native menu cannot own a second undo stack or duplicate file-operation logic. Window/panel state and menu checkmarks read actual state after loads/undo/async completion.
 
@@ -120,8 +120,9 @@ JSC values/callbacks belong to a runtime executor with explicit GC/context lifet
 | ADR01 | Accepted scope: desktop first, browser later, Android deferred | Plan/release gates |
 | ADR02 | Accepted scope: menus plus button interface; desktop menu profile default proposed | T08 validates behavior and default preference |
 | ADR03 | Accepted scope: Groovy/JVM plugin execution and developer CLI/TUI deferred; initial desktop has no plugin runtime | T42 capability/unknown-data audit |
-| ADR04 | Superseded: initial eframe/egui shell and later Bevy UI direction; retain Bevy GPU viewport | Closed by user scope decision; see ADR05 |
-| ADR05 | Accepted: egui application shell via Bevy integration; custom Bevy model viewport | T58 compatibility, interaction, visual and performance proof |
+| ADR04 | Superseded: initial eframe/egui and Bevy UI/rendering directions | Historical; see ADR05 and ADR06 |
+| ADR05 | Superseded: egui application shell with Bevy model viewport | Historical migration handoff; see ADR06 |
+| ADR06 | Accepted direction: GPUI shell, raylib-rs viewport, headless session; no CPU frame readback | T59 native-surface proof, T60 removal and C39–C41 |
 | ADR05 | Proposed: f64 kernel and triangle/segment semantics; canonical vertex/layout/override storage decided before implementation | T46 then T02/T03; C01/C02/C32 |
 | ADR06 | Proposed: sparse schema-17 compatibility reader/writer, explicit defaults allowed | T05/T09 Kotlin reopen proof; no new incompatible format under version 17 |
 | ADR07 | Proposed change: transaction boundaries instead of 3.5 s undo coalescing | T04 documents policy and legacy-history replay |

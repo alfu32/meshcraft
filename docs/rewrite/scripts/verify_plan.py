@@ -50,7 +50,7 @@ def main():
                 errors.append(task["id"] + " missing design document " + path)
         if task["phase"] not in ("desktop", "browser", "plugins"):
             errors.append(task["id"] + " unknown phase " + task["phase"])
-        if task["status"] not in ("planned", "in_progress", "complete", "blocked"):
+        if task["status"] not in ("planned", "in_progress", "complete", "blocked", "superseded"):
             errors.append(task["id"] + " unknown status " + task["status"])
         if task["phase"] == "desktop" and any(tasks.get(dependency, {}).get("phase") in ("browser", "plugins") for dependency in task["dependencies"]):
             errors.append(task["id"] + " initial desktop task depends on later delivery")

@@ -1,6 +1,6 @@
 # ADR-05: egui application shell with a Bevy model viewport
 
-- Status: Accepted; implementation tracked by high-priority [T58](../rewrite/handoffs/T58.md) and [issue #20](https://github.com/alfu32/meshcraft/issues/20).
+- Status: Superseded by [ADR-06](ADR-06-gpui-raylib.md) and high-priority [issue #21](https://github.com/alfu32/meshcraft/issues/21). Retained as a record of the egui/Bevy migration attempt; issue #20 is closed as wont-fix after the architecture changed.
 - Date: 2026-10-19
 - Supersedes: The Bevy UI direction recorded in [ADR-04](ADR-04-ui-stack.md). ADR-04 remains historical.
 

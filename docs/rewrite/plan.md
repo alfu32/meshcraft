@@ -1,6 +1,6 @@
 # Implementation and agent handoff plan
 
-`tasks.json` is the authoritative task registry: 59 tasks, 207 assignable slices, explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. T00–T04, T06, T10–T15, T19, T20, T25, T46, T51–T53, T55–T57 are closed; T57 is an administrative scope closure, not a claim that its Bevy UI acceptance passed. T05, T07–T09, T16, T17, T21, T22, T39, T54 remain in progress; T58 is in progress at high priority. The Bevy GPU renderer and custom model viewport remain; the application shell is moving from Bevy UI to egui integrated through `bevy_egui` (#20). The workspace has a normalized document with cuboid/copy/object/array operations, schema-17 project read/write, a desktop save/open service, a perspective orbit camera with schema-17 camera-state persistence, six orthographic views, and a walkthrough camera with movement, support, jump/gravity, and runtime tuning. These are partial task slices: most modeling domains, recovery, and complete legacy DTO coverage remain open. Task slices are deliberately smaller than a whole feature family, especially arrays, formats, domains and rendering. Existing task IDs are stable; T46 is an early gate despite its appended number.
+`tasks.json` is the authoritative task registry: 61 tasks, with explicit dependencies, target modules, source read sets, requirements, acceptance suites and completion conditions. The accepted desktop stack is GPUI + raylib-rs; T58 and issue #20 are superseded, and high-priority T59/T60 track the new stack proof and removal of the retired implementation (#21). T59 is the current implementation gate: prove a native raylib viewport inside GPUI without per-frame CPU readback and keep command/session APIs renderer-neutral. Preserve all headless commands and the normalized object model. The supplied recordings capture large object-array construction and subsequent orbit/zoom/selection work; the second shows an unresponsive legacy app. C41 makes this workflow a stress regression. Existing task IDs remain stable, and T46 is still an early gate despite its appended number.
 
 ## Delivery scope
 
@@ -15,7 +15,8 @@ T46 uses [object-model.md](object-model.md) and its measured fixture evidence to
 | Milestone | Tasks / ready work | Demonstration required |
 | --- | --- | --- |
 | M0: evidence and normalized contracts | T00/T01, then T46 before T02–T06 | Fixture/oracle and stack proof; owner/identity/layout/migration decision; f64 math, normalized document/IDs, undo, sparse reader, shared commands |
-| M1: working desktop shell | T07–T12, T08 menus, T09 storage | Open/display/save a fixture, navigate, snap, select, choose profile and drive commands with correct focus |
+| M0a: replacement viewport integration | T59 before T60 | GPUI hosts live raylib-rs rendering in the actual viewport bounds without CPU framebuffer readback; input, DPI/resize and shutdown are verified |
+| M1: working desktop shell | T07–T12, T08 menus, T09 storage, T60 | Open/display/save a fixture, navigate, snap, select, and drive headless commands from GPUI with correct focus |
 | M2: everyday direct modeling | T13–T20, T36, T39, T41 as dependencies allow | Draw/mesh/annotate/extrude/transform/paint/group, all relevant panels, common interchange, reliable menu/button/automation parity |
 | M3: advanced modeling | T21–T27 | Every array variant, cutting, sections/intersections, sweeps/revolve, primitives, mechanical and object booleans |
 | M4: editable domains and dynamic objects | T28–T34 | Voxel/architecture/HVAC parameters and handles, hotspot graphs/runtime overrides, xref bundle refresh/reopen |
@@ -24,7 +25,7 @@ T46 uses [object-model.md](object-model.md) and its measured fixture evidence to
 | M7: browser delivery | T45 | Standalone WASM runtime, component API/events, browser files/storage, docs/tutorial integration and browser-specific checks |
 | M8: native JavaScriptCore plugins | T47–T50 | Engine/binding/platform proofs, activation context/SDK, lifecycle/contributions/manager UI, C33 sample/package qualification |
 
-Milestones are demonstrable capability groups, not strict numeric task order. Dependency readiness controls execution. T25 primitive generators are complete after T14; T36 common IO follows T16; T41 structured automation follows T12/T09 and should run before advanced tools. T39 lighting/capture can run alongside advanced modeling. M6 must complete all initial desktop requirements, not just the minimal slice.
+Milestones are demonstrable capability groups, not strict numeric task order. Dependency readiness controls execution. T25 primitive generators are complete after T14; T36 common IO follows T16; T41 structured automation follows T12/T09 and should run before advanced tools. T39 lighting/capture can run alongside advanced modeling. T59 must pass before UI/renderer cutover; no CPU readback fallback is allowed. M6 must complete all initial desktop requirements, not just the minimal slice.
 
 M7 and M8 are independent required successors to M6; neither blocks the initial desktop gate or waits for the other. Native JSC plugins do not automatically imply browser plugin execution. T46's early gate uses schema/data probes; full C32 editor/resource assertions mature in core/object/runtime tasks and desktop qualification, so the design gate does not depend on implementing its own downstream editor.
 
@@ -36,28 +37,28 @@ Do not assign calendar estimates until T00 measurements and T01 stack experiment
 | --- | --- | --- |
 | Core/geometry | T46 then T02–T04, T13–T16, T19–T27 | Ratify normalized ownership first; one owner freezes contracts; geometry agents use bounded source slices/modules |
 | IO/storage | T05/T09, T34, T36–T38 | Codec work can proceed after canonical DTO contract; document publication/storage has one owner |
-| UI/input | T07/T08/T10–T12/T17, feature panels | Shared action-tree/focus/session owner; feature agents add registrations rather than editing a giant UI file |
+| UI/input | T07/T08/T10–T12/T17, feature panels | GPUI owns shell/focus; bind JSON settings and shared commands through the headless session |
 | Domains | T28–T33/T35 | Independent generators after object/path/selection contracts; coordinate shared instance/attachment invalidation |
-| Render | T07/T39/T40 | Snapshots and revision semantics frozen with core; shading work does not mutate documents |
+| Render | T07/T39/T40/T59 | T59 proves the host-surface contract; raylib owns batches/picking, and shading work does not mutate documents |
 | Automation/docs/qualification | T00/T41–T44 | Starts scenario/fixture work early; validates every feature incrementally; no live-Groovy dependency |
 | Browser (later) | T45 | Uses established host services; native code paths are capability-gated |
 | Native plugins (later) | T47–T50 | JSC runtime owner and stable context/SDK over normalized host services; parallel with browser after desktop |
 
-For a small team, combine lanes without changing dependency contracts. Parallelize files/modules with clear ownership; never ask several agents to redesign Document, CommandDescriptor or ToolEvent independently. Shared interfaces receive small coordinator-reviewed patches; downstream workers consume them. Do not create branches/worktrees or commits automatically without the user's instruction.
+For a small team, combine lanes without changing dependency contracts. Keep the GPUI/raylib integration spike under one owner because native windowing and GPU context ownership are coupled. Never redesign Document, CommandDescriptor or ToolEvent independently. Shared interfaces receive small coordinator-reviewed patches; downstream work consumes them. Commit and push coherent progress regularly as requested by the user; do not add the local reference movie files.
 
 ## Task index
 
 | Task | Output |
 | --- | --- |
 | T00 | Hashed legacy fixtures, scenarios, recorded baseline and historical-shape evidence |
-| T01 | Chosen/locked stack and proven menu/polygon/native/WASM contracts |
+| T01 | Initial Rust stack baseline and geometry proof (historical; replacement integration is T59) |
 | T02 | Numerical geometry, planes/predicates/transforms and tolerances |
 | T03 | Canonical stores, IDs, prototype/instance state and cache revisions |
 | T04 | Transactions and bounded undo |
 | T05 | All sparse DTOs, model/history reader/writer and unknown-field preservation |
 | T06 | Commands, action metadata, host effects and completion model |
-| T07 | Desktop window, basic GPU viewport and input ownership |
-| T08 | Desktop Menus/Buttons/Hybrid presentations and menu focus behavior |
+| T07 | GPUI desktop window, raylib viewport bounds and normalized input ownership |
+| T08 | GPUI Menus/Buttons/Hybrid presentations and menu focus behavior |
 | T09 | File commands/dialogs, staged load, serialized safe saves and recovery |
 | T10 | Orbit, orthographic and walkthrough cameras |
 | T11 | Snapping, grid and oriented guides |
@@ -106,6 +107,10 @@ For a small team, combine lanes without changing dependency contracts. Paralleli
 | T54 | Persistent oriented cursor and context-safe guide placement (#8, #9) |
 | T55 | Persistent recent project list, File menu and palette access (#10) |
 | T56 | Two-opposite-corner Cuboid primitive in Primitives (#11) |
+| T57 | Close the rejected Bevy UI direction; historical scope closure (#19) |
+| T58 | egui/Bevy migration prototype; superseded and removed from the target stack (#20) |
+| T59 | Prove GPUI + raylib-rs viewport embedding and framework-neutral session boundary (#21, high priority) |
+| T60 | Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority) |
 
 ## How a small-context agent takes over
 
@@ -116,7 +121,7 @@ For a small team, combine lanes without changing dependency contracts. Paralleli
 5. Implement only the slice and its meaningful scenario assertions. Every new operation registers menus/buttons/palette/automation metadata, enabled/checked rules, result selection, cancellation and undo behavior where applicable. Test the relevant core/codec/UI cases as needed by the change.
 6. Handoff in `docs/rewrite/handoffs/Txx.md`: completed slice numbers, exported APIs, changed paths, checks with results, deliberate differences, blockers and next ready slice. Target at most 250 words; link large logs/fixtures instead of pasting them. Update `tasks.json.status` only after all slices and completion conditions pass.
 
-Task statuses: `planned`, `in_progress`, `complete`, `blocked`. A missing dependency is “not ready,” not an implementation blocker. A blocked slice records a concrete unmet prerequisite and independent work continues. Completion capsules can have per-slice status until the whole task qualifies. Future agents must not mark a task complete merely because enums/widgets compile.
+Task statuses: `planned`, `in_progress`, `complete`, `blocked`, `superseded`. A missing dependency is “not ready,” not an implementation blocker. A blocked slice records a concrete unmet prerequisite and independent work continues. Superseded tasks are terminal historical records and do not satisfy dependencies. Completion capsules can have per-slice status until the whole task qualifies. Future agents must not mark a task complete merely because enums/widgets compile.
 
 ## Validation sequence
 
@@ -130,7 +135,9 @@ At each milestone, run `python3 docs/rewrite/scripts/verify_plan.py` for handoff
 | --- | --- | --- |
 | Sparse defaults/zero axes and historical shape ambiguity | T00/T05 | Loads appear successful but models collapse or metadata disappears |
 | Polygon clipping/holes/JTS replacement | T01/T02 | Cutting/domain tools each need incompatible ad-hoc fixes |
-| New menus change focus and viewport mapping | T01/T08 | Wrong picks, leaked shortcuts, duplicate commits and broken captures |
+| New menus change focus and viewport mapping | T59/T08 | Wrong picks, leaked shortcuts, duplicate commits and broken captures |
+| raylib cannot render inside GPUI without readback or broken event ownership | T59 | Window/context mismatch forces a platform-specific bridge; do not build a CPU-copy production path |
+| Large array operation stalls the UI or viewport | T59/T60/T21/T44 | Dense modeling workflow becomes unusable; preserve command progress and keep camera/input responsive |
 | Prototype/instance/local axes and override identity | T03/T16/T32 | Shared instances corrupt each other; hotspots/xrefs cannot round-trip |
 | No-op overrides/copied child trees become canonical Rust state | T46 before T02/T03/T05 | Repeated geometry/hierarchy survives the rewrite and leaks into the public plugin API |
 | Undo snapshots and async save ordering | T04/T09 | Memory blow-up, stale overwrite or accidental data loss |
