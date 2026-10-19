@@ -13,7 +13,7 @@ Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
 - **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Revalidate geometric preview/text feedback for the raylib viewport.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
-- **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: Linux X11/XWayland hosting, resize and shutdown work in the prototype; finish scene sync and choose a supported production embedding path.
+- **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: Native hosting and shutdown work; the expanded disabled CAD shell and target-centered orbit pass unit checks. Recheck live child bounds after the layout change, then finish scene sync and choose a supported production embedding path.
 
 ## Architecture change
 
