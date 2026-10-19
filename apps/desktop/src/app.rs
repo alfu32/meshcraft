@@ -2339,6 +2339,60 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_top_level_occurrences(&self) -> Vec<OccurrenceRef> {
+        self.top_level_occurrences()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn select_native_object_from_inspector(
+        &mut self,
+        occurrence: &OccurrenceRef,
+        edit: bool,
+    ) -> Result<(), String> {
+        if self.document.resolve_occurrence(occurrence).is_none() {
+            return Err("the selected object no longer exists".to_owned());
+        }
+        self.set_selection([occurrence.clone()]);
+        self.selection_click_tracker.reset();
+        if edit {
+            self.selection
+                .set_context(EditContext::Occurrence(occurrence.clone()));
+            self.status = format!("Editing object instance at path {:?}.", occurrence.path);
+        } else {
+            self.status = "Selected 1 object.".to_owned();
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn rename_native_selected_object(&mut self, name: &str) -> Result<bool, String> {
+        let selected = self.selected_occurrences();
+        if selected.len() != 1 {
+            return Err("select one object instance before renaming it".to_owned());
+        }
+        let occurrence = &selected[0];
+        let definition_id = self
+            .document
+            .resolve_occurrence(occurrence)
+            .map(|resolved| resolved.definition.id)
+            .ok_or_else(|| "the selected object no longer exists".to_owned())?;
+        match self.commit_document_edit("Rename object", |document| {
+            document.rename_definition(definition_id, name)
+        }) {
+            Ok(changed) => {
+                if changed {
+                    self.status = format!("Renamed object to ‘{}’.", name.trim());
+                }
+                Ok(changed)
+            }
+            Err(error) => {
+                self.status = error.clone();
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn set_native_cursor_snap(&mut self, snap: Option<SnapResult>) {
         self.cursor_snap = snap;
     }
@@ -11265,6 +11319,73 @@ mod tests {
             position,
         );
         assert!(app.selection.summary().faces >= 2);
+    }
+
+    #[test]
+    fn native_selected_object_rename_is_transactional_and_undoable() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("cube", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .expect("cuboid occurrence is valid");
+        app.handle_native_selection_click(
+            Some(SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Occurrence,
+            }),
+            egui::Modifiers::default(),
+            100,
+            meshcraft_core::geometry::Vec2::ZERO,
+        );
+
+        assert!(app.rename_native_selected_object("renamed cube").unwrap());
+        assert_eq!(
+            "renamed cube",
+            app.document
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .definition
+                .name
+        );
+        assert!(app.can_undo_document());
+
+        app.run_command("edit.undo");
+
+        assert_eq!(
+            "cube",
+            app.document
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .definition
+                .name
+        );
+    }
+
+    #[test]
+    fn native_object_inspector_selects_instances_and_enters_edit_context() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("cube", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
+            .expect("cuboid occurrence is valid");
+
+        assert!(app.native_top_level_occurrences().contains(&occurrence));
+        app.select_native_object_from_inspector(&occurrence, false)
+            .expect("the inspector can select a valid object instance");
+        assert_eq!(
+            vec![SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Occurrence,
+            }],
+            app.native_selection_targets()
+        );
+
+        app.select_native_object_from_inspector(&occurrence, true)
+            .expect("the inspector can enter a valid object instance");
+        assert_eq!(
+            EditContext::Occurrence(occurrence),
+            app.native_edit_context()
+        );
     }
 
     #[test]

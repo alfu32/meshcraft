@@ -11,21 +11,25 @@ use bevy::{
     image::{Image as BevyImage, TextureAtlas, TextureAtlasLayout},
     input::keyboard::KeyboardInput,
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollPixelsPerLine},
+    input_focus::InputFocus,
     light::{GlobalAmbientLight, NotShadowCaster, ShadowFilteringMethod},
     mesh::{Mesh, PrimitiveTopology},
     pbr::StandardMaterial,
     picking::hover::Hovered,
     prelude::*,
     render::render_resource::{Extent3d, Face, TextureDimension, TextureFormat},
+    text::{EditableText, TextCursorStyle, TextEdit},
     transform::TransformSystems,
-    ui::Pressed,
-    ui_widgets::{Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TrackClick},
+    ui::{InteractionDisabled, Pressed},
+    ui_widgets::{
+        Activate, Button, Slider, SliderRange, SliderThumb, SliderValue, TextInput, TrackClick,
+    },
     window::{PrimaryWindow, WindowPlugin, WindowResizeConstraints, WindowResolution},
 };
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
 use meshcraft_core::{
-    document::{Document, GeometryBundle, Rgba8},
+    document::{DefinitionId, Document, GeometryBundle, OccurrenceRef, Rgba8},
     geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
     selection::{EditContext, SelectedEntity, SelectionKind, SelectionMode, SelectionTarget},
 };
@@ -46,9 +50,19 @@ struct SceneDocument {
     selected_edges: usize,
     selection_targets: Vec<SelectionTarget>,
     selected_vertex_positions: Vec<ModelVec3>,
+    selected_object_count: usize,
+    selected_object_definition_id: Option<DefinitionId>,
+    selected_object_name: Option<String>,
+    object_entries: Vec<NativeObjectEntry>,
     occurrences: usize,
     triangles: usize,
     segments: usize,
+}
+
+#[derive(Clone)]
+struct NativeObjectEntry {
+    occurrence: OccurrenceRef,
+    name: String,
 }
 
 #[derive(Resource, Default)]
@@ -116,10 +130,43 @@ enum NativeInspectorText {
         generation: u64,
         revision: u64,
     },
+    Object {
+        generation: u64,
+        revision: u64,
+        selection_revision: u64,
+    },
 }
 
 #[derive(Component)]
 struct NativeModelSettingsEditorButton;
+
+#[derive(Component)]
+struct NativeRenameObjectButton;
+
+#[derive(Component)]
+struct NativeObjectNameInput {
+    generation: u64,
+    revision: u64,
+    selection_revision: u64,
+    definition_id: Option<DefinitionId>,
+}
+
+#[derive(Component)]
+struct NativeObjectListContainer {
+    generation: u64,
+    revision: u64,
+}
+
+#[derive(Component)]
+struct NativeObjectListRow {
+    occurrence: OccurrenceRef,
+}
+
+#[derive(Resource, Default)]
+struct NativeObjectListClick {
+    entity: Option<Entity>,
+    at_seconds: f64,
+}
 
 #[derive(Resource, Default)]
 struct NativeToolsContextMenuState {
@@ -406,6 +453,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let selection = session.native_selection_summary();
     let selection_targets = session.native_selection_targets();
     let selected_vertex_positions = selected_vertex_positions(&document, &selection_targets);
+    let (selected_object_count, selected_object_definition_id, selected_object_name) =
+        selected_object_info(&document, &selection_targets);
+    let object_entries = native_object_entries(&document, session.native_top_level_occurrences());
     let mut app = App::new();
     app.insert_resource(SceneDocument {
         document,
@@ -420,6 +470,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         selected_edges: selection.edges,
         selection_targets,
         selected_vertex_positions,
+        selected_object_count,
+        selected_object_definition_id,
+        selected_object_name,
+        object_entries,
         occurrences,
         triangles,
         segments,
@@ -432,6 +486,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .insert_resource(NativeToolbarDrag::default())
     .insert_resource(NativeToolsContextMenuState::default())
     .insert_resource(NativeRightClickGesture::default())
+    .insert_resource(NativeObjectListClick::default())
     .insert_resource(NativeViewportOverlay::default())
     .insert_resource(RenderedSelectionRevision(0))
     .insert_resource(LightingSettings::default())
@@ -474,7 +529,13 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             sync_lighting_sliders,
             update_slider_thumbs,
             apply_lighting_settings,
-            (sync_scene_document, sync_native_settings_sections).chain(),
+            (
+                sync_scene_document,
+                sync_native_settings_sections,
+                sync_native_object_name_input,
+                sync_native_object_list,
+            )
+                .chain(),
             sync_toolbar_button_states,
             sync_context_menu_command_states,
             update_scene_meshes,
@@ -530,6 +591,58 @@ fn selected_vertex_positions(document: &Document, selection: &[SelectionTarget])
             position.is_finite().then_some(position)
         })
         .collect()
+}
+
+fn selected_object_info(
+    document: &Document,
+    selection: &[SelectionTarget],
+) -> (usize, Option<DefinitionId>, Option<String>) {
+    let selected: Vec<_> = selection
+        .iter()
+        .filter(|target| target.entity == SelectedEntity::Occurrence)
+        .collect();
+    if selected.len() != 1 {
+        return (selected.len(), None, None);
+    }
+    let Some(resolved) = document.resolve_occurrence(&selected[0].occurrence) else {
+        return (selected.len(), None, None);
+    };
+    (
+        1,
+        Some(resolved.definition.id),
+        Some(resolved.definition.name.clone()),
+    )
+}
+
+fn native_object_entries(
+    document: &Document,
+    occurrences: Vec<OccurrenceRef>,
+) -> Vec<NativeObjectEntry> {
+    occurrences
+        .into_iter()
+        .filter_map(|occurrence| {
+            let name = document
+                .resolve_occurrence(&occurrence)?
+                .definition
+                .name
+                .clone();
+            Some(NativeObjectEntry { occurrence, name })
+        })
+        .collect()
+}
+
+fn object_selection_summary(scene: &SceneDocument) -> String {
+    match scene.selected_object_count {
+        0 => "No object selected".to_owned(),
+        1 => format!(
+            "1 object selected\nDefinition {}",
+            scene.selected_object_definition_id.map_or_else(
+                || "unavailable".to_owned(),
+                |definition| definition.0.to_string()
+            )
+        ),
+        count => format!("{count} objects selected"),
+    }
 }
 
 fn create_native_icon_atlas(
@@ -1147,7 +1260,71 @@ fn setup_ui(
                     selection_revision: scene.selection_revision,
                 },
             );
-            inspector_section(panel, "Object", "No object selected\nName");
+            inspector_dynamic_section(
+                panel,
+                "Object",
+                object_selection_summary(&scene),
+                NativeInspectorText::Object {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                    selection_revision: scene.selection_revision,
+                },
+            );
+            panel.spawn((
+                Text::new("Name"),
+                TextFont::from_font_size(13.0),
+                TextColor::WHITE,
+                Node {
+                    width: Val::Percent(100.0),
+                    padding: UiRect::left(px(4)),
+                    ..default()
+                },
+            ));
+            panel.spawn((
+                TextInput,
+                EditableText::new(scene.selected_object_name.as_deref().unwrap_or_default()),
+                TextCursorStyle::default(),
+                NativeUiInteraction,
+                Hovered::default(),
+                NativeObjectNameInput {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                    selection_revision: scene.selection_revision,
+                    definition_id: scene.selected_object_definition_id,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    height: px(27),
+                    padding: UiRect::horizontal(px(6)),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.16, 0.17, 0.18)),
+                BorderColor::all(Color::srgb(0.08, 0.08, 0.08)),
+                TextFont::from_font_size(13.0),
+                TextColor::WHITE,
+            ));
+            panel
+                .spawn((
+                    Button,
+                    NativeUiInteraction,
+                    Hovered::default(),
+                    NativeRenameObjectButton,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(26),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.22, 0.24, 0.28)),
+                ))
+                .with_child((
+                    Text::new("Rename Object"),
+                    TextFont::from_font_size(12.0),
+                    TextColor::WHITE,
+                ))
+                .observe(rename_selected_native_object);
             inspector_dynamic_section(
                 panel,
                 "Objects",
@@ -1157,6 +1334,26 @@ fn setup_ui(
                     revision: scene.revision,
                 },
             );
+            panel
+                .spawn((
+                    NativeObjectListContainer {
+                        generation: scene.generation,
+                        revision: scene.revision,
+                    },
+                    NativeUiInteraction,
+                    Hovered::default(),
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: px(118),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(2),
+                        padding: UiRect::all(px(4)),
+                        overflow: Overflow::scroll_y(),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.18, 0.19, 0.20)),
+                ))
+                .with_children(|rows| spawn_native_object_rows(rows, &scene));
             inspector_dynamic_section(
                 panel,
                 "Model Settings",
@@ -1590,6 +1787,41 @@ fn inspector_dynamic_section(
     ));
 }
 
+fn spawn_native_object_rows(parent: &mut ChildSpawnerCommands, scene: &SceneDocument) {
+    for entry in &scene.object_entries {
+        let selected = scene.selection_targets.iter().any(|target| {
+            target.entity == SelectedEntity::Occurrence && target.occurrence == entry.occurrence
+        });
+        parent
+            .spawn((
+                Button,
+                NativeUiInteraction,
+                Hovered::default(),
+                NativeObjectListRow {
+                    occurrence: entry.occurrence.clone(),
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: px(23),
+                    padding: UiRect::horizontal(px(5)),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.12, 0.38, 0.62)
+                } else {
+                    Color::srgb(0.23, 0.24, 0.25)
+                }),
+            ))
+            .with_child((
+                Text::new(entry.name.clone()),
+                TextFont::from_font_size(13.0),
+                TextColor(Color::WHITE),
+            ))
+            .observe(select_native_object_row);
+    }
+}
+
 fn model_settings_summary(document: &Document) -> String {
     let settings = document.model_settings();
     format!(
@@ -1647,6 +1879,21 @@ fn sync_native_settings_sections(
                     selection_revision: scene.selection_revision,
                 };
                 selection_summary(&scene)
+            }
+            NativeInspectorText::Object {
+                generation,
+                revision,
+                selection_revision,
+            } if generation != scene.generation
+                || revision != scene.revision
+                || selection_revision != scene.selection_revision =>
+            {
+                *marker = NativeInspectorText::Object {
+                    generation: scene.generation,
+                    revision: scene.revision,
+                    selection_revision: scene.selection_revision,
+                };
+                object_selection_summary(&scene)
             }
             NativeInspectorText::Objects {
                 generation,
@@ -2095,6 +2342,110 @@ fn open_native_model_settings_editor(
     }
 }
 
+fn rename_selected_native_object(
+    event: On<Activate>,
+    buttons: Query<(), With<NativeRenameObjectButton>>,
+    names: Query<&EditableText, With<NativeObjectNameInput>>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    if !buttons.contains(event.entity) {
+        return;
+    }
+    let Ok(name) = names.single() else {
+        return;
+    };
+    let _ = session.rename_native_selected_object(&name.value().to_string());
+}
+
+fn select_native_object_row(
+    event: On<Activate>,
+    rows: Query<&NativeObjectListRow>,
+    time: Res<Time>,
+    mut click: ResMut<NativeObjectListClick>,
+    mut session: NonSendMut<MeshcraftApp>,
+) {
+    let Ok(row) = rows.get(event.entity) else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    let edit = click.entity == Some(event.entity) && now - click.at_seconds <= 0.45;
+    if edit {
+        *click = NativeObjectListClick::default();
+    } else {
+        click.entity = Some(event.entity);
+        click.at_seconds = now;
+    }
+    let _ = session.select_native_object_from_inspector(&row.occurrence, edit);
+}
+
+fn sync_native_object_name_input(
+    scene: Res<SceneDocument>,
+    input_focus: Res<InputFocus>,
+    mut commands: Commands,
+    mut names: Query<(Entity, &mut EditableText, &mut NativeObjectNameInput)>,
+    mut rename_buttons: Query<(Entity, &mut BackgroundColor), With<NativeRenameObjectButton>>,
+) {
+    if let Ok((entity, mut name, mut state)) = names.single_mut() {
+        let selection_changed = state.selection_revision != scene.selection_revision
+            || state.definition_id != scene.selected_object_definition_id;
+        let document_changed =
+            state.generation != scene.generation || state.revision != scene.revision;
+        if selection_changed || (document_changed && input_focus.get() != Some(entity)) {
+            name.editor_mut()
+                .set_text(scene.selected_object_name.as_deref().unwrap_or_default());
+            name.queue_edit(TextEdit::TextEnd(false));
+            state.generation = scene.generation;
+            state.revision = scene.revision;
+            state.selection_revision = scene.selection_revision;
+            state.definition_id = scene.selected_object_definition_id;
+        }
+        if scene.selected_object_definition_id.is_some() {
+            commands.entity(entity).remove::<InteractionDisabled>();
+        } else {
+            commands.entity(entity).insert(InteractionDisabled);
+        }
+    }
+    let enabled = scene.selected_object_definition_id.is_some();
+    for (entity, mut background) in &mut rename_buttons {
+        if enabled {
+            commands.entity(entity).remove::<InteractionDisabled>();
+            background.0 = Color::srgb(0.22, 0.24, 0.28);
+        } else {
+            commands.entity(entity).insert(InteractionDisabled);
+            background.0 = Color::srgb(0.14, 0.15, 0.16);
+        }
+    }
+}
+
+fn sync_native_object_list(
+    scene: Res<SceneDocument>,
+    mut commands: Commands,
+    mut containers: Query<(Entity, &mut NativeObjectListContainer)>,
+    mut rows: Query<(&NativeObjectListRow, &mut BackgroundColor)>,
+) {
+    for (entity, mut state) in &mut containers {
+        if state.generation == scene.generation && state.revision == scene.revision {
+            continue;
+        }
+        state.generation = scene.generation;
+        state.revision = scene.revision;
+        commands.entity(entity).despawn_related::<Children>();
+        commands
+            .entity(entity)
+            .with_children(|parent| spawn_native_object_rows(parent, &scene));
+    }
+    for (row, mut background) in &mut rows {
+        let selected = scene.selection_targets.iter().any(|target| {
+            target.entity == SelectedEntity::Occurrence && target.occurrence == row.occurrence
+        });
+        background.0 = if selected {
+            Color::srgb(0.12, 0.38, 0.62)
+        } else {
+            Color::srgb(0.23, 0.24, 0.25)
+        };
+    }
+}
+
 fn toggle_command_palette(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<CommandPaletteState>,
@@ -2426,13 +2777,18 @@ fn route_native_escape(
 
 fn route_native_guide_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
+    input_focus: Res<InputFocus>,
     palette: Res<CommandPaletteState>,
     context_menu: Res<NativeToolsContextMenuState>,
     toolbar_drag: Res<NativeToolbarDrag>,
     ui_interactions: Query<(Option<&Hovered>, Has<Pressed>), With<NativeUiInteraction>>,
     mut session: NonSendMut<MeshcraftApp>,
 ) {
-    if palette.open || context_menu.open || toolbar_drag.active_index.is_some() {
+    if input_focus.get().is_some()
+        || palette.open
+        || context_menu.open
+        || toolbar_drag.active_index.is_some()
+    {
         return;
     }
     let over_interactive_ui = ui_interactions
@@ -2733,12 +3089,16 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
     let generation = session.document_generation();
     let revision = session.document_revision();
     let mut refresh_selected_vertices = false;
+    let mut refresh_object_panel = false;
+    let mut refresh_object_list = false;
     if scene.generation != generation || scene.revision != revision {
         scene.document = session.document_snapshot();
         scene.generation = generation;
         scene.revision = revision;
         (scene.occurrences, scene.triangles, scene.segments) = scene_counts(&scene.document);
         refresh_selected_vertices = true;
+        refresh_object_panel = true;
+        refresh_object_list = true;
     }
     let status = session.status_text();
     if scene.status != status {
@@ -2758,10 +3118,22 @@ fn sync_scene_document(mut scene: ResMut<SceneDocument>, session: NonSend<Meshcr
         scene.selected_edges = summary.edges;
         scene.selection_targets = session.native_selection_targets();
         refresh_selected_vertices = true;
+        refresh_object_panel = true;
     }
     if refresh_selected_vertices {
         scene.selected_vertex_positions =
             selected_vertex_positions(&scene.document, &scene.selection_targets);
+    }
+    if refresh_object_panel {
+        (
+            scene.selected_object_count,
+            scene.selected_object_definition_id,
+            scene.selected_object_name,
+        ) = selected_object_info(&scene.document, &scene.selection_targets);
+    }
+    if refresh_object_list {
+        scene.object_entries =
+            native_object_entries(&scene.document, session.native_top_level_occurrences());
     }
 }
 
@@ -4005,19 +4377,23 @@ mod tests {
         BevyImage, Button, CommandCatalog, CommandPaletteOverlay, CommandPaletteParameterError,
         CommandPaletteParameterHint, CommandPaletteParameterInput, CommandPaletteParameterPanel,
         CommandPaletteResult, CommandPaletteResultLabel, CommandPaletteState,
-        ConstructionGuideKind, DispatchCommand, LightingChannel, LightingSettings, NativeCursorDot,
-        NativeIconAtlas, NativeInspectorText, NativeModelSettingsEditorButton,
+        ConstructionGuideKind, DispatchCommand, EditContext, InputFocus, LightingChannel,
+        LightingSettings, NativeCursorDot, NativeIconAtlas, NativeInspectorText,
+        NativeModelSettingsEditorButton, NativeObjectListClick, NativeObjectListContainer,
+        NativeObjectListRow, NativeObjectNameInput, NativeRenameObjectButton,
         NativeRightClickGesture, NativeToolbarDrag, NativeToolsContextMenuState,
         NativeUiInteraction, NativeViewportOverlay, SceneDocument, SelectionStatsText,
         ShadowFilter, SnapResult, TextureAtlasLayout, back_face_color, build_scene_meshes,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
-        dispatch_toolbar_command, line_mesh, model_settings_summary,
-        native_segment_intersects_rect, native_triangle_intersects_rect, objects_summary,
-        open_native_model_settings_editor, polyline_settings_summary, refresh_status,
-        route_native_guide_shortcuts, scene_counts, search_command_ids, selected_vertex_positions,
-        selection_summary, submit_palette_parameters, sync_command_palette_parameter_ui,
-        sync_command_palette_states, sync_native_cursor_dot, sync_native_settings_sections,
-        sync_toolbar_button_states, tool_context_groups, triangle_mesh, update_right_click_gesture,
+        dispatch_toolbar_command, line_mesh, model_settings_summary, native_object_entries,
+        native_segment_intersects_rect, native_triangle_intersects_rect, object_selection_summary,
+        objects_summary, open_native_model_settings_editor, polyline_settings_summary,
+        refresh_status, rename_selected_native_object, route_native_guide_shortcuts, scene_counts,
+        search_command_ids, select_native_object_row, selected_object_info,
+        selected_vertex_positions, selection_summary, submit_palette_parameters,
+        sync_command_palette_parameter_ui, sync_command_palette_states, sync_native_cursor_dot,
+        sync_native_object_list, sync_native_settings_sections, sync_toolbar_button_states,
+        tool_context_groups, triangle_mesh, update_right_click_gesture,
     };
     use crate::MeshcraftApp;
     use bevy::{
@@ -4027,6 +4403,8 @@ mod tests {
             App, BackgroundColor, ButtonInput, Color, Display, KeyCode, Node, Text, TextColor,
             Update, Val, Vec2, Vec3, default,
         },
+        text::EditableText,
+        time::Time,
         ui::Pressed,
         ui_widgets::Activate,
     };
@@ -4034,7 +4412,7 @@ mod tests {
     use meshcraft_core::{
         document::Document,
         geometry::Vec3 as ModelVec3,
-        selection::{SelectedEntity, SelectionTarget},
+        selection::{SelectedEntity, SelectionMode, SelectionTarget},
     };
 
     #[test]
@@ -4192,6 +4570,10 @@ mod tests {
             selected_edges: 0,
             selection_targets: Vec::new(),
             selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
             occurrences: 0,
             triangles: 0,
             segments: 0,
@@ -4510,6 +4892,10 @@ mod tests {
             selected_edges: 0,
             selection_targets: Vec::new(),
             selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
             occurrences,
             triangles,
             segments,
@@ -4561,6 +4947,7 @@ mod tests {
             keyboard.press(key);
             let mut app = App::new();
             app.insert_resource(keyboard)
+                .insert_resource(InputFocus::default())
                 .insert_resource(CommandPaletteState::default())
                 .insert_resource(NativeToolsContextMenuState::default())
                 .insert_resource(NativeToolbarDrag::default())
@@ -4629,12 +5016,15 @@ mod tests {
         keyboard.press(KeyCode::KeyG);
         let mut app = App::new();
         app.insert_resource(keyboard)
+            .insert_resource(InputFocus::default())
             .insert_resource(CommandPaletteState::default())
             .insert_resource(NativeToolsContextMenuState::default())
             .insert_resource(NativeToolbarDrag::default())
             .insert_non_send(session)
             .add_systems(Update, route_native_guide_shortcuts);
-        app.world_mut().spawn((NativeUiInteraction, Pressed));
+        let ui_entity = app.world_mut().spawn((NativeUiInteraction, Pressed)).id();
+        app.world_mut()
+            .insert_resource(InputFocus::from_entity(ui_entity));
 
         app.update();
 
@@ -4680,6 +5070,217 @@ mod tests {
     }
 
     #[test]
+    fn native_object_inspector_renames_the_selected_definition_transactionally() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_line_segment("original", ModelVec3::ZERO, ModelVec3::X)
+            .expect("object occurrence is valid");
+        let target = SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        };
+        let mut session =
+            MeshcraftApp::new_native_session(document.clone(), "Ready".to_owned(), None);
+        session.apply_native_selection_region(vec![target], false, SelectionMode::Replace);
+        let selection_targets = session.native_selection_targets();
+        let (selected_object_count, selected_object_definition_id, selected_object_name) =
+            selected_object_info(&document, &selection_targets);
+        let object_entries = native_object_entries(&document, vec![occurrence.clone()]);
+        let (occurrences, triangles, segments) = scene_counts(&document);
+        let scene = SceneDocument {
+            document,
+            generation: 1,
+            revision: session.document_revision(),
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: session.native_selection_revision(),
+            selected_objects: 1,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets,
+            selected_vertex_positions: Vec::new(),
+            selected_object_count,
+            selected_object_definition_id,
+            selected_object_name,
+            object_entries,
+            occurrences,
+            triangles,
+            segments,
+        };
+        assert!(object_selection_summary(&scene).contains("1 object selected"));
+        let mut app = App::new();
+        app.insert_resource(scene)
+            .insert_non_send(session)
+            .add_observer(rename_selected_native_object);
+        app.world_mut().spawn((
+            NativeObjectNameInput {
+                generation: 1,
+                revision: 0,
+                selection_revision: 1,
+                definition_id: selected_object_definition_id,
+            },
+            EditableText::new("renamed"),
+        ));
+        let button = app
+            .world_mut()
+            .spawn((Button, NativeRenameObjectButton))
+            .id();
+
+        app.world_mut().trigger(Activate { entity: button });
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert_eq!(
+            "renamed",
+            session
+                .document_snapshot()
+                .resolve_occurrence(&occurrence)
+                .unwrap()
+                .definition
+                .name
+        );
+        assert!(session.native_command_state("edit.undo").enabled);
+    }
+
+    #[test]
+    fn native_object_list_double_click_enters_the_selected_instance() {
+        let mut document = Document::new();
+        let occurrence = document
+            .add_line_segment("object", ModelVec3::ZERO, ModelVec3::X)
+            .expect("object occurrence is valid");
+        let session = MeshcraftApp::new_native_session(document, "Ready".to_owned(), None);
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(NativeObjectListClick::default())
+            .insert_non_send(session)
+            .add_observer(select_native_object_row);
+        let row = app
+            .world_mut()
+            .spawn(NativeObjectListRow {
+                occurrence: occurrence.clone(),
+            })
+            .id();
+
+        app.world_mut().trigger(Activate { entity: row });
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert_eq!(
+            vec![SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Occurrence,
+            }],
+            session.native_selection_targets()
+        );
+        app.insert_non_send(session);
+        app.world_mut().trigger(Activate { entity: row });
+
+        let session = app
+            .world_mut()
+            .remove_non_send::<MeshcraftApp>()
+            .expect("native session remains available");
+        assert_eq!(
+            EditContext::Occurrence(occurrence),
+            session.native_edit_context()
+        );
+    }
+
+    #[test]
+    fn native_object_list_refreshes_rows_and_selection_highlight() {
+        let mut document = Document::new();
+        let first = document
+            .add_line_segment("first", ModelVec3::ZERO, ModelVec3::X)
+            .expect("first object occurrence is valid");
+        let revision = document.revision();
+        let object_entries = native_object_entries(&document, vec![first.clone()]);
+        let (occurrences, triangles, segments) = scene_counts(&document);
+        let mut app = App::new();
+        app.insert_resource(SceneDocument {
+            document,
+            generation: 1,
+            revision,
+            status: "Ready".to_owned(),
+            active_tool: "Select".to_owned(),
+            selection_revision: 0,
+            selected_objects: 0,
+            selected_vertices: 0,
+            selected_faces: 0,
+            selected_edges: 0,
+            selection_targets: Vec::new(),
+            selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries,
+            occurrences,
+            triangles,
+            segments,
+        })
+        .add_systems(Update, sync_native_object_list);
+        let container = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                NativeObjectListContainer {
+                    generation: 0,
+                    revision: 0,
+                },
+            ))
+            .id();
+
+        app.update();
+        let mut rows = app.world_mut().query::<&NativeObjectListRow>();
+        assert_eq!(1, rows.iter(app.world()).count());
+
+        let second = {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            let second = scene
+                .document
+                .add_line_segment("second", ModelVec3::ZERO, ModelVec3::Y)
+                .expect("second object occurrence is valid");
+            scene.revision = scene.document.revision();
+            scene.object_entries =
+                native_object_entries(&scene.document, vec![first.clone(), second.clone()]);
+            second
+        };
+        app.update();
+        assert_eq!(
+            2,
+            rows.iter(app.world()).count(),
+            "document edits rebuild the object rows",
+        );
+
+        {
+            let mut scene = app.world_mut().resource_mut::<SceneDocument>();
+            scene.selection_revision += 1;
+            scene.selection_targets = vec![SelectionTarget {
+                occurrence: first.clone(),
+                entity: SelectedEntity::Occurrence,
+            }];
+        }
+        app.update();
+        let mut rows = app
+            .world_mut()
+            .query::<(&NativeObjectListRow, &BackgroundColor)>();
+        let selected_color = rows
+            .iter(app.world())
+            .find_map(|(row, background)| (row.occurrence == first).then_some(background.0))
+            .expect("selected object row remains visible");
+        assert_eq!(Color::srgb(0.12, 0.38, 0.62), selected_color);
+        assert!(app.world().get_entity(container).is_ok());
+        assert!(
+            app.world_mut()
+                .query::<&NativeObjectListRow>()
+                .iter(app.world())
+                .any(|row| row.occurrence == second)
+        );
+    }
+
+    #[test]
     fn native_inspector_summaries_refresh_after_document_and_selection_changes() {
         let document = Document::new();
         let initial_model_summary = model_settings_summary(&document);
@@ -4700,6 +5301,10 @@ mod tests {
             selected_edges: 0,
             selection_targets: Vec::new(),
             selected_vertex_positions: Vec::new(),
+            selected_object_count: 0,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
             occurrences,
             triangles,
             segments,
@@ -4839,6 +5444,10 @@ mod tests {
             selected_edges: 5,
             selection_targets: Vec::new(),
             selected_vertex_positions: Vec::new(),
+            selected_object_count: 1,
+            selected_object_definition_id: None,
+            selected_object_name: None,
+            object_entries: Vec::new(),
             occurrences: 16,
             triangles: 460,
             segments: 524,
