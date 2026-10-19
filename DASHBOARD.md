@@ -13,7 +13,7 @@ Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
 - **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Revalidate geometric preview/text feedback for the raylib viewport.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
-- **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: Native hosting and shutdown work; populated text menus and ribbon tabs now navigate while command buttons remain disabled. The CAD shell and target-centered orbit pass unit checks, including the vertical drag fix (#22). Live-review the new navigation and child bounds, then finish scene sync and choose a supported production embedding path.
+- **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: Native hosting and shutdown work; populated text menus and ribbon tabs now navigate while command buttons remain disabled. Menus use GPUI Component dropdown popovers, which anchor to each trigger's measured bounds and open on mouse-down; ribbon tabs also switch on mouse-down. `cargo check` and all 9 tests pass. The CAD shell and target-centered orbit pass unit checks, including the vertical drag fix (#22). Live-review dropdown stacking against the raylib child surface, then finish scene sync and choose a supported production embedding path.
 
 ## Architecture change
 

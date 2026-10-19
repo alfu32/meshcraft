@@ -35,6 +35,7 @@ struct ViewportLayout {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ViewportInput {
     OrbitDelta { dx_pixels: f32, dy_pixels: f32 },
+    PanDelta { dx_pixels: f32, dy_pixels: f32 },
     ZoomSteps { steps: f32 },
     ResetCamera,
 }
@@ -265,17 +266,26 @@ fn render_loop(
         }
 
         let pointer_delta = rl.get_mouse_delta();
-        if rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
+        if rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_RIGHT)
             && (pointer_delta.x != 0.0 || pointer_delta.y != 0.0)
         {
+            let shift_held = rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)
+                || rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT);
             sequence += 1;
             apply_input_event(
                 ViewportEvent {
                     protocol_version: 1,
                     sequence,
-                    input: ViewportInput::OrbitDelta {
-                        dx_pixels: pointer_delta.x,
-                        dy_pixels: pointer_delta.y,
+                    input: if shift_held {
+                        ViewportInput::PanDelta {
+                            dx_pixels: pointer_delta.x,
+                            dy_pixels: pointer_delta.y,
+                        }
+                    } else {
+                        ViewportInput::OrbitDelta {
+                            dx_pixels: pointer_delta.x,
+                            dy_pixels: pointer_delta.y,
+                        }
                     },
                 },
                 &bridge,
@@ -312,10 +322,10 @@ fn render_loop(
         }
 
         let mut drawing = rl.begin_drawing(&thread);
-        drawing.clear_background(Color::new(35, 41, 50, 255));
+        drawing.clear_background(Color::new(224, 236, 247, 255));
         {
             let mut scene = drawing.begin_mode3D(camera);
-            scene.draw_grid(24, 1.0);
+            draw_workplane_grid(&mut scene);
             scene.draw_cube(
                 Vector3::new(0.0, 1.0, 0.0),
                 2.0,
@@ -336,17 +346,17 @@ fn render_loop(
             18,
             16,
             20,
-            Color::RAYWHITE,
+            Color::new(36, 48, 61, 255),
         );
         drawing.draw_text(
             &format!(
-                "{}x{} at {:.2}x DPI | drag: orbit, wheel: zoom",
+                "{}x{} at {:.2}x DPI | right-drag: orbit, Shift+right-drag: pan, wheel: zoom",
                 current_size.0, current_size.1, layout.scale
             ),
             18,
             42,
             16,
-            Color::new(180, 204, 228, 255),
+            Color::new(76, 96, 116, 255),
         );
         thread::sleep(Duration::from_millis(1));
     }
@@ -359,6 +369,36 @@ fn render_loop(
         let _ = connection.reparent_window(child_id, root, 0, 0);
         let _ = connection.flush();
     }
+}
+
+fn draw_workplane_grid(scene: &mut impl RaylibDraw3D) {
+    const EXTENT: i32 = 24;
+    let minor = Color::new(132, 149, 164, 255);
+    let major = Color::new(83, 103, 121, 255);
+    for step in -EXTENT..=EXTENT {
+        let position = step as f32;
+        let color = if step % 5 == 0 { major } else { minor };
+        scene.draw_line3D(
+            Vector3::new(-(EXTENT as f32), 0.0, position),
+            Vector3::new(EXTENT as f32, 0.0, position),
+            color,
+        );
+        scene.draw_line3D(
+            Vector3::new(position, 0.0, -(EXTENT as f32)),
+            Vector3::new(position, 0.0, EXTENT as f32),
+            color,
+        );
+    }
+    scene.draw_line3D(
+        Vector3::new(-(EXTENT as f32), 0.005, 0.0),
+        Vector3::new(EXTENT as f32, 0.005, 0.0),
+        Color::new(190, 91, 91, 255),
+    );
+    scene.draw_line3D(
+        Vector3::new(0.0, 0.005, -(EXTENT as f32)),
+        Vector3::new(0.0, 0.005, EXTENT as f32),
+        Color::new(78, 120, 177, 255),
+    );
 }
 
 fn intern_atom(connection: &impl Connection, name: &[u8]) -> Option<u32> {
@@ -434,6 +474,10 @@ fn apply_input_event(
             dx_pixels,
             dy_pixels,
         } => orbit_camera(camera, dx_pixels, dy_pixels),
+        ViewportInput::PanDelta {
+            dx_pixels,
+            dy_pixels,
+        } => pan_camera(camera, dx_pixels, dy_pixels),
         ViewportInput::ZoomSteps { steps } => {
             camera.update_camera_pro(Vector3::zero(), Vector3::zero(), -steps);
         }
@@ -446,6 +490,54 @@ fn apply_input_event(
             );
         }
     }
+}
+
+fn pan_camera(camera: &mut Camera3D, dx_pixels: f32, dy_pixels: f32) {
+    const PAN_SENSITIVITY: f32 = 0.0025;
+
+    let forward = normalize(Vector3::new(
+        camera.target.x - camera.position.x,
+        camera.target.y - camera.position.y,
+        camera.target.z - camera.position.z,
+    ));
+    let Some(forward) = forward else {
+        return;
+    };
+    let Some(right) = normalize(cross(forward, camera.up)) else {
+        return;
+    };
+    let Some(view_up) = normalize(cross(right, forward)) else {
+        return;
+    };
+    let distance = ((camera.target.x - camera.position.x).powi(2)
+        + (camera.target.y - camera.position.y).powi(2)
+        + (camera.target.z - camera.position.z).powi(2))
+    .sqrt();
+    let scale = distance * PAN_SENSITIVITY;
+    let translate_x = (-right.x * dx_pixels + view_up.x * dy_pixels) * scale;
+    let translate_y = (-right.y * dx_pixels + view_up.y * dy_pixels) * scale;
+    let translate_z = (-right.z * dx_pixels + view_up.z * dy_pixels) * scale;
+
+    camera.position.x += translate_x;
+    camera.position.y += translate_y;
+    camera.position.z += translate_z;
+    camera.target.x += translate_x;
+    camera.target.y += translate_y;
+    camera.target.z += translate_z;
+}
+
+fn cross(a: Vector3, b: Vector3) -> Vector3 {
+    Vector3::new(
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    )
+}
+
+fn normalize(vector: Vector3) -> Option<Vector3> {
+    let length = (vector.x * vector.x + vector.y * vector.y + vector.z * vector.z).sqrt();
+    (length > f32::EPSILON)
+        .then(|| Vector3::new(vector.x / length, vector.y / length, vector.z / length))
 }
 
 fn orbit_camera(camera: &mut Camera3D, dx_pixels: f32, dy_pixels: f32) {
@@ -519,7 +611,8 @@ fn publish_viewport_layout(bridge: &ViewportBridge, window: &Window) {
 mod tests {
     use super::{
         Camera3D, MENU_NAMES, RIBBON_TABS, ViewportBridge, ViewportEvent, ViewportInput,
-        apply_input_event, menu_items, orbit_camera, physical_rect, ribbon_groups, viewport_rect,
+        apply_input_event, menu_items, orbit_camera, pan_camera, physical_rect, ribbon_groups,
+        viewport_rect,
     };
     use raylib::prelude::Vector3;
     use std::sync::{Arc, Mutex};
@@ -596,6 +689,57 @@ mod tests {
         assert_eq!(camera.target, target);
         assert!(camera.position.y > initial_y);
         assert!((distance(camera.position, camera.target) - initial_radius).abs() < 1e-4);
+    }
+
+    #[test]
+    fn pan_translates_position_and_target_together_in_the_view_plane() {
+        let mut camera = Camera3D::perspective(
+            Vector3::new(8.0, 7.0, 8.0),
+            Vector3::new(0.0, 0.8, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            45.0,
+        );
+        let initial_offset = Vector3::new(
+            camera.position.x - camera.target.x,
+            camera.position.y - camera.target.y,
+            camera.position.z - camera.target.z,
+        );
+        let initial_distance = distance(camera.position, camera.target);
+        let target_before = camera.target;
+
+        pan_camera(&mut camera, 40.0, -25.0);
+
+        let final_offset = Vector3::new(
+            camera.position.x - camera.target.x,
+            camera.position.y - camera.target.y,
+            camera.position.z - camera.target.z,
+        );
+        assert_ne!(camera.target, target_before);
+        assert!((final_offset.x - initial_offset.x).abs() < 1e-5);
+        assert!((final_offset.y - initial_offset.y).abs() < 1e-5);
+        assert!((final_offset.z - initial_offset.z).abs() < 1e-5);
+        assert!((distance(camera.position, camera.target) - initial_distance).abs() < 1e-4);
+    }
+
+    #[test]
+    fn hotspot_is_in_point_construction_not_entity_or_architecture_tools() {
+        let construction = ribbon_groups("Construction");
+        let point_group = construction
+            .iter()
+            .find(|group| group.title == "Point Construction")
+            .unwrap();
+        let entity_group = construction
+            .iter()
+            .find(|group| group.title == "Entity Construction")
+            .unwrap();
+        assert!(point_group.commands.iter().any(|(id, _)| *id == "hotspot"));
+        assert!(!entity_group.commands.iter().any(|(id, _)| *id == "hotspot"));
+        assert!(
+            ribbon_groups("Architecture")
+                .iter()
+                .flat_map(|group| group.commands)
+                .all(|(id, _)| *id != "hotspot")
+        );
     }
 
     #[test]
@@ -841,7 +985,6 @@ const HOME_GROUPS: &[RibbonGroup] = &[
         namespace: "ribbon/home/entities",
         commands: &[
             ("dimension", "Dimension"),
-            ("hotspot", "Hotspot"),
             ("wall", "Wall"),
             ("slab", "Slab"),
             ("stair", "Stair"),
@@ -866,6 +1009,7 @@ const CONSTRUCTION_GROUPS: &[RibbonGroup] = &[
             ("rectangle", "Rectangle"),
             ("circle", "Circle"),
             ("arc", "Arc"),
+            ("hotspot", "Hotspot"),
         ],
     },
     RibbonGroup {
@@ -875,7 +1019,6 @@ const CONSTRUCTION_GROUPS: &[RibbonGroup] = &[
             ("dimension", "Dimension"),
             ("text", "Text"),
             ("leader", "Leader"),
-            ("hotspot", "Hotspot"),
             ("wall", "Wall"),
             ("slab", "Slab"),
             ("stair", "Stair"),
@@ -984,7 +1127,6 @@ const ARCHITECTURE_GROUPS: &[RibbonGroup] = &[
         title: "Building Services",
         namespace: "ribbon/architecture/services",
         commands: &[
-            ("hotspot", "Hotspot"),
             ("pipe", "Pipe"),
             ("duct", "Duct"),
             ("voxel", "Voxel"),
@@ -1844,7 +1986,7 @@ impl Render for MeshcraftShell {
                         )))
                         .label(tab)
                         .small()
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _, _, cx| {
                             this.active_ribbon_tab = tab;
                             cx.notify();
                         }));
@@ -1869,7 +2011,8 @@ impl Render for MeshcraftShell {
                         )
                         .flex_1()
                         .min_w(px(0.))
-                        .h_full(),
+                        .h_full()
+                        .bg(rgb(0xe0ecf7)),
                     )
                     .child(right_settings_panel()),
             )
@@ -1917,7 +2060,7 @@ fn main() {
                     true
                 });
                 let bridge = bridge.clone();
-                cx.new(|view_cx| {
+                cx.new(move |view_cx| {
                     publish_viewport_layout(&bridge, window);
                     view_cx
                         .observe_window_bounds(

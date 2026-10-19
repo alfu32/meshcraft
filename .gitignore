@@ -2,7 +2,10 @@
 .kode.json
 /target/
 /experiments/stack-gpui-raylib/target/
+.idea
+.kode
+.kode-rs
+.kode.json
 
 # Local reference recordings; do not commit large binary screencasts.
-/docs/Screencast From 2026-10-19 10-42-51.mp4
-/docs/Screencast From 2026-10-19 10-47-07.mp4
+/docs/Screencast*.mp4

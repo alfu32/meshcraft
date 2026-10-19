@@ -34,8 +34,8 @@ use bevy::{
     winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent},
 };
 use bevy_egui::{
-    EguiContexts, EguiFullOutput, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass,
-    PrimaryEguiContext, egui as native_egui,
+    EguiContexts, EguiFullOutput, EguiGlobalSettings, EguiPlugin, EguiPostUpdateSet,
+    EguiPrimaryContextPass, PrimaryEguiContext, egui as native_egui,
 };
 use eframe::egui;
 use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
@@ -788,7 +788,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     .add_systems(
         Startup,
         (
-            setup_scene,
+            (disable_automatic_egui_context, setup_scene).chain(),
             (setup_ui, disable_legacy_bevy_chrome).chain(),
             apply_window_state,
             setup_native_egui_redraw_timer,
@@ -829,6 +829,11 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             .before(EguiPostUpdateSet::ProcessOutput),
     );
     app.run();
+}
+
+fn disable_automatic_egui_context(mut settings: ResMut<EguiGlobalSettings>) {
+    // The UI uses its own 2D camera; leave the 3D viewport camera unmarked.
+    settings.auto_create_primary_context = false;
 }
 
 fn native_egui_shell(

@@ -23,3 +23,15 @@ Run `verify_plan.py` after changing requirements, tasks, acceptance suites, loca
 ## Commits and Pull Requests
 
 The repository history uses Conventional Commit style (for example, `feat(planning): ...`). Keep commits focused and mention the affected task or document area. PRs should explain the behavior or planning change, link relevant requirement/task/scenario IDs, report validation commands and results, and include screenshots for visual changes. Call out unverified assumptions or blocked checks explicitly.
+
+## User requests check
+
+you will periodically check for issues opened on the github issues list using gh, bugs will be treated with priority. features will be either integrated into the existing plan or you will integrate another feature into the features list. rules types of issues apply as a general rule and should be integrated in agents.md and/or the specification.
+
+bugs will be solved with a commit that includes the # issue number ( github will construct a link between the issue and the commit message ).
+features will be integrated containing the issue number in the title of the local description so that upon resolution and commit(s) it will relate to the issue in question.
+
+bugs and features will be closed on resolution
+rules will be closed upon integration as an acknowledgement.
+
+issues labeled as high-priority will be solved with high priority
