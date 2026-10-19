@@ -2,7 +2,7 @@
 
 Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 
-**Counts:** Todo 30 · In progress 8 · Done 22 · Superseded 1 · Total 61
+**Counts:** Todo 29 · In progress 9 · Done 22 · Superseded 1 · Total 61
 
 ## Current in-progress tasks
 
@@ -14,10 +14,11 @@ Updated 2026-10-19. `docs/rewrite/tasks.json` is authoritative.
 - **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Revalidate geometric preview/text feedback for the raylib viewport.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
 - **T59 — Prove GPUI + raylib-rs viewport integration (#21, high priority)**: The raylib 6 offscreen proof renders at 1280×800 and presents frames through a regular GPUI image component, so GPUI overlays remain above the canvas. Release runs sustain 59–60 new images/sec; worker frame work is typically 4–12 ms, with occasional 18 ms samples. This meets the requested 25 FPS floor and 30–60 FPS target for the simple proof scene. The production gate remains open for live viewport input, resize/DPI behavior, and the dense-array workflow.
+- **T60 — Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority)**: Integrate the GPUI shell and offscreen raylib viewport with the existing session, commands, renderer feedback and input; then remove superseded desktop dependencies and modules.
 
 ## Architecture change
 
-The accepted desktop architecture is GPUI for the shell and raylib-rs for the 3D viewport. T58/issue #20 are superseded; high-priority issue #21 tracks the replacement. T59's release proof presents raylib `RenderTexture2D` frames as normal GPUI images at 59–60 updates/sec at 1280×800, fixing menu/viewport stacking in the proof shell. This establishes a promising presentation path, with the real scene, interaction and dense-array performance gates still open. T60 removes Bevy/egui code after replacement behavior is covered. Keep the command registry, JSON command/settings definitions, headless session operations, model and IO behavior.
+The accepted desktop architecture is GPUI for the shell and raylib-rs for the 3D viewport. T58/issue #20 are superseded; high-priority issue #21 tracks the replacement. T59's release proof presents raylib `RenderTexture2D` frames as normal GPUI images at 59–60 updates/sec at 1280×800, fixing menu/viewport stacking in the proof shell. Production integration is active under T60: connect the real document/session, commands, selection, tools, snapping, guides and previews before removing Bevy/egui. Keep the command registry, JSON command/settings definitions, headless session operations, model and IO behavior.
 
 The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Screencast From 2026-10-19 10-47-07.mp4` are intentionally Git-ignored. C41 records the dense object-array, orbit/zoom/selection and responsiveness workflow; the legacy freeze is a regression case.
 
@@ -85,4 +86,4 @@ The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Sc
 | T57 | Close Bevy UI direction; retain GPU viewport (#19, superseded by #20) | Done |
 | T58 | egui shell + Bevy viewport prototype (superseded by GPUI + raylib-rs; #20) | Superseded |
 | T59 | Prove GPUI + raylib-rs viewport integration (#21, high priority) | In progress |
-| T60 | Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority) | Todo |
+| T60 | Remove retired Bevy/egui desktop code while preserving headless commands (#21, high priority) | In progress |
