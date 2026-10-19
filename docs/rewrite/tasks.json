@@ -522,7 +522,7 @@
       "done": [
         "C09 project/unproject/navigation tests pass in both menu and button layouts.",
         "No camera mode silently uses the wrong projection for picking.",
-        "Orbit input and restored perspective poses support pitch from \u221289\u00b0 through +89\u00b0 without reaching the singular camera poles."
+        "Orbit input and restored perspective poses support pitch from −89° through +89° without reaching the singular camera poles."
       ],
       "tool_ids": [],
       "status": "complete"
@@ -1338,7 +1338,7 @@
         "Commit loose selected geometry in the parent and remove source instances only on successful atomic completion; document differences for disjoint/coincident/invalid meshes."
       ],
       "done": [
-        "C20 tests A\u2212B/B\u2212A, output context and source lifecycle explicitly.",
+        "C20 tests A−B/B−A, output context and source lifecycle explicitly.",
         "Robustness limits and deliberate improvements are reported; no OpenSCAD dependency."
       ],
       "tool_ids": [
@@ -2501,7 +2501,7 @@
       ],
       "slices": [
         "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals; include Paint target and selected-object Array previews.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
@@ -2730,7 +2730,7 @@
     },
     {
       "id": "T57",
-      "title": "Migrate desktop rendering and UI to Bevy and Bevy UI (#19)",
+      "title": "Close Bevy UI direction; retain GPU viewport (#19, superseded by #20)",
       "phase": "desktop",
       "dependencies": [
         "T01",
@@ -2774,12 +2774,72 @@
         "Carry viewport correctness requirements for two-sided face rendering, cursor/guides, selection and both-direction window selection into the Bevy renderer and UI acceptance tests."
       ],
       "done": [
-        "The native desktop application uses Bevy's 3D renderer and Bevy UI for its primary window, scene viewport and controls; the viewport no longer projects and redraws all model geometry through egui.",
-        "A Meshcraft document with at least 2,000 entities renders and supports hover/picking with measured frame and interaction latency recorded against the T00 baseline; unchanged geometry is not rebuilt on every frame or pointer move.",
-        "The Bevy UI routes equivalent menu, toolbar, palette and viewport actions through the shared command/session services, and core/IO remain usable without GPU/UI dependencies."
+        "Per user direction, issue #19 is closed as not planned for the Bevy UI direction; the implemented Bevy GPU renderer, scene batches, custom model viewport, picking and interaction remain the foundation.",
+        "The unfinished application shell and UX requirements are explicitly superseded by high-priority issue #20 and replacement task T58; closing T57 does not claim Bevy UI parity or resolve the #18 performance benchmark."
       ],
       "tool_ids": [],
-      "status": "in_progress"
+      "status": "complete"
+    },
+    {
+      "id": "T58",
+      "title": "Replace Bevy UI with egui; retain the Bevy model viewport (#20, high priority)",
+      "phase": "desktop",
+      "dependencies": [
+        "T57"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "R01",
+        "O04"
+      ],
+      "acceptance": [
+        "C17",
+        "C23",
+        "C26",
+        "C39",
+        "C40"
+      ],
+      "targets": [
+        "Cargo.toml",
+        "apps/desktop/Cargo.toml",
+        "apps/desktop/src/bevy_app.rs",
+        "apps/desktop/src/ui/",
+        "docs/decisions/ADR-05-ui-architecture.md",
+        "docs/rewrite/architecture.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/ui/SketchUiOverlay.kt"
+      ],
+      "source_symbols": [
+        "SketchUiOverlay",
+        "buildStandardToolbars",
+        "drawScene"
+      ],
+      "slices": [
+        "Spike a compatible egui/Bevy integration in one native window; prove the egui layout rectangle can define the Bevy camera viewport and verify input capture, render order, DPI/resize and idle behavior. Pin compatible versions and document limitations.",
+        "Audit CADCraft and SolidCraft Apache-2.0 UI crates for independently reusable controls, dialogs, menus, docking, palettes, themes, icons and UI tests; copy/adapt useful components with required license notices and Meshcraft command/session adapters.",
+        "Separate UI presentation state from the Bevy viewport/session bridge; keep Document, commands, selection, tools, undo, persistence and preferences framework-neutral.",
+        "Migrate application menus, toolbars, command palette, inspector/settings, object list, dialogs and status/feedback to egui components with a cohesive theme, readable labels, real text/numeric fields, keyboard focus and tooltips.",
+        "Keep Bevy GPU scene batching, camera, shadows, grid, guides, cursor, selection/marquee overlays, tool previews, ray picking, snapping and model interaction in the custom central viewport.",
+        "Route egui and viewport input by actual layout bounds and UI capture state; preserve shared command IDs, enabled reasons, Escape semantics, object-instance editing, click/double/triple selection and both marquee directions.",
+        "Add interactive UI coverage and visual reviews for editable fields, menus, focus, DPI/resizing, command routing, viewport input ownership, and create/select/transform/settings/object-edit/cancel/save-reopen workflows.",
+        "Measure idle CPU and click-to-visible feedback; repeat T00/#18 frame, hover, pick and edit benchmarks on a reproducible 2,000-entity scene, reporting egui/UI and Bevy rendering costs separately."
+      ],
+      "done": [
+        "A documented, pinned egui/Bevy integration presents the whole desktop shell in one native window, with the central camera viewport matching the remaining content rectangle and reliable UI/viewport input ownership.",
+        "The migrated shell provides cohesive, fully labeled menus, toolbars, searchable command palette, dockable/scrollable inspectors, and usable text/numeric/dropdown/color/checkbox/slider controls; commands remain routed through the shared registry.",
+        "The custom Bevy viewport retains GPU rendering and all current model interaction; core and IO remain independent of UI and GPU types, and idle rendering remains event-driven.",
+        "Useful CADCraft/SolidCraft UI components are reused or explicitly rejected in a recorded audit; copied/adapted code/assets retain Apache-2.0 notices and attribution.",
+        "C40/C17/C23 pass with interactive and visual evidence; 2,000-entity measurements and click-to-visible-selection latency are recorded against T00/#18."
+      ],
+      "tool_ids": [],
+      "status": "planned",
+      "design_docs": [
+        "docs/decisions/ADR-05-ui-architecture.md",
+        "docs/rewrite/architecture.md",
+        "docs/rewrite/handoffs/T58.md"
+      ]
     }
   ]
 }

@@ -1,15 +1,15 @@
 # ADR-04: Cross-platform UI and rendering stack
 
-- Status: Superseded for the native desktop application by the Bevy migration recorded below; retained as history for the first shell and browser adapter.
-- Date: 2026-10-18; superseded 2026-10-19
+- Status: Superseded by [ADR-05](ADR-05-ui-architecture.md); retained as a record of the initial eframe decision and the later Bevy UI direction.
+- Date: 2026-10-18; Bevy UI direction superseded 2026-10-19
 
-## Current decision (2026-10-19)
+## Superseded Bevy UI decision (2026-10-19)
 
-Use Bevy 0.20 for the native desktop application window, ECS scene, GPU 3D renderer, input and Bevy UI. This replaces the initial eframe/egui desktop shell because rendering and hover are too slow on large scenes (#18); the staged migration is high priority under T57 and [issue #19](https://github.com/alfu32/meshcraft/issues/19). Bevy 0.20 requires Rust 1.97.1, so the workspace MSRV is raised accordingly. The normalized document and shared command/session services remain authoritative; Bevy entities and meshes are derived presentation data. Keep `meshcraft-core` and `meshcraft-io` free of Bevy dependencies. The current web adapter is separate and remains on its existing UI stack until the later browser delivery.
+Use Bevy 0.20 for the native desktop window, ECS scene, GPU 3D renderer, input and Bevy UI. This direction was implemented in part under T57, but the user rejected Bevy UI's visual quality and UX. Issue #19 was closed as not planned for that UI approach; its Bevy GPU renderer and custom model viewport remain the foundation for replacement task T58 and [issue #20](https://github.com/alfu32/meshcraft/issues/20). This closure records a scope change and does not claim the old Bevy UI acceptance or the #18 performance benchmark is complete. Bevy 0.20 requires Rust 1.97.1, so the workspace MSRV was raised accordingly. The normalized document and shared command/session services remain authoritative; Bevy entities and meshes are derived presentation data. Keep `meshcraft-core` and `meshcraft-io` free of Bevy dependencies. The browser adapter remains separate until the later browser delivery.
 
-The first Bevy vertical slice must load real Meshcraft data, render its entities without rebuilding unchanged geometry per frame, and expose actions through Bevy UI. Pin Bevy 0.20.0 in Cargo manifests after validating its native platform feature set and build; do not claim a performance improvement until C39 records measurements against the T00 baseline.
+The retained Bevy viewport loads real Meshcraft data and renders entities as GPU meshes with camera, grid and lighting. C39 still requires measurements against the T00 baseline; do not claim a performance improvement until those measurements are recorded.
 
-## Decision
+## Original initial decision (2026-10-18)
 
 Use `eframe`/`egui` 0.37.0 as the initial application and UI layer. It supplies the native event loop through winit, a shared native/WASM UI, and the WGPU renderer. Pin `eframe` to `=0.37.0`; set the project MSRV to Rust 1.95 and pin the development toolchain to Rust 1.99.1. Keep the UI independent of the normalized document contracts gated by T46.
 
