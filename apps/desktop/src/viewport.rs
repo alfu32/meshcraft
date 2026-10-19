@@ -6022,7 +6022,7 @@ mod tests {
         let mut viewport = Viewport::default();
         let document = meshcraft_core::document::Document::new();
         let context = egui::Context::default();
-        let field_id = egui::Id::unique("wheel-focus-field");
+        let field_id = egui::Id::new("wheel-focus-field");
         let mut text = String::new();
 
         let mut run_frame = |events: Vec<Event>| {
@@ -6096,7 +6096,6 @@ mod tests {
                 unit: egui::MouseWheelUnit::Point,
                 delta: Vec2::new(0.0, -120.0),
                 phase: egui::TouchPhase::Move,
-                source: egui::MouseWheelSource::Unknown,
                 modifiers: Modifiers::default(),
             },
         ]);

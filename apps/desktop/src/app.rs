@@ -5162,28 +5162,25 @@ impl MeshcraftApp {
             ReplacementTarget::OpenProject(_) => "open another project",
         };
         let mut decision = None;
-        egui::Modal::new(egui::Id::unique("document-replacement-confirmation")).show(
-            context,
-            |ui| {
-                ui.set_min_width(360.0);
-                ui.heading("Unsaved changes");
-                ui.label(format!("Save changes before you {target_label}?"));
-                ui.horizontal(|ui| {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if ui.button("Save").clicked() {
-                        decision = Some(ReplacementDecision::Save);
-                    }
-                    #[cfg(target_arch = "wasm32")]
-                    ui.add_enabled(false, egui::Button::new("Save"));
-                    if ui.button("Discard").clicked() {
-                        decision = Some(ReplacementDecision::Discard);
-                    }
-                    if ui.button("Cancel").clicked() {
-                        decision = Some(ReplacementDecision::Cancel);
-                    }
-                });
-            },
-        );
+        egui::Modal::new(egui::Id::new("document-replacement-confirmation")).show(context, |ui| {
+            ui.set_min_width(360.0);
+            ui.heading("Unsaved changes");
+            ui.label(format!("Save changes before you {target_label}?"));
+            ui.horizontal(|ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                if ui.button("Save").clicked() {
+                    decision = Some(ReplacementDecision::Save);
+                }
+                #[cfg(target_arch = "wasm32")]
+                ui.add_enabled(false, egui::Button::new("Save"));
+                if ui.button("Discard").clicked() {
+                    decision = Some(ReplacementDecision::Discard);
+                }
+                if ui.button("Cancel").clicked() {
+                    decision = Some(ReplacementDecision::Cancel);
+                }
+            });
+        });
         if let Some(decision) = decision {
             self.resolve_document_replacement(decision);
         }
@@ -8867,7 +8864,7 @@ impl MeshcraftApp {
         let mut selected_command = None;
         let focus_search = std::mem::take(&mut self.focus_command_search);
         egui::Window::new("Command Palette")
-            .id(egui::Id::unique("command-palette"))
+            .id(egui::Id::new("command-palette"))
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .collapsible(false)
             .resizable(false)
@@ -9212,10 +9209,7 @@ impl MeshcraftApp {
             );
             vertical_offset += size + 26.0;
             egui::Window::new(*label)
-                .id(egui::Id::unique(egui::IdSalt::new((
-                    "legacy-floating-toolbar",
-                    stem,
-                ))))
+                .id(egui::Id::new(("legacy-floating-toolbar", stem)))
                 .default_pos(position)
                 .resizable(false)
                 .collapsible(false)
@@ -9432,7 +9426,7 @@ impl MeshcraftApp {
             } else {
                 format!("Distance: {}", self.drawing_tool.numeric_input())
             };
-            egui::Area::new(egui::Id::unique("drawing-distance-input"))
+            egui::Area::new(egui::Id::new("drawing-distance-input"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(position)
                 .show(ui.ctx(), |ui| {
@@ -9451,7 +9445,7 @@ impl MeshcraftApp {
                     self.revolve_tool_state.numeric_input()
                 )
             };
-            egui::Area::new(egui::Id::unique("revolve-angle-input"))
+            egui::Area::new(egui::Id::new("revolve-angle-input"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(position)
                 .show(ui.ctx(), |ui| {
@@ -9468,7 +9462,7 @@ impl MeshcraftApp {
                 "Transform value: {}",
                 self.transform_tool_state.numeric_input()
             );
-            egui::Area::new(egui::Id::unique("transform-numeric-input"))
+            egui::Area::new(egui::Id::new("transform-numeric-input"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(position)
                 .show(ui.ctx(), |ui| {
@@ -9490,7 +9484,7 @@ impl MeshcraftApp {
                     format!("Signed distance: {}", self.push_pull_numeric_input)
                 }
             });
-            egui::Area::new(egui::Id::unique("push-pull-feedback"))
+            egui::Area::new(egui::Id::new("push-pull-feedback"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(position)
                 .show(ui.ctx(), |ui| {
@@ -10240,6 +10234,37 @@ impl MeshcraftApp {
     }
 
     fn show_workspace(&mut self, ui: &mut egui::Ui) {
+        self.show_workspace_inner(ui, false);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn show_native_bevy_workspace(&mut self, ui: &mut egui::Ui) {
+        self.show_workspace_inner(ui, true);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_bevy_viewport_rect(&self) -> [f32; 4] {
+        [
+            self.viewport_rect.left(),
+            self.viewport_rect.top(),
+            self.viewport_rect.width(),
+            self.viewport_rect.height(),
+        ]
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_command_palette_open(&self) -> bool {
+        self.command_palette_open
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_overlay_blocks_viewport_input(&self) -> bool {
+        self.command_palette_open
+            || self.recent_projects_dialog_open
+            || self.pending_replacement.is_some()
+    }
+
+    fn show_workspace_inner(&mut self, ui: &mut egui::Ui, bevy_viewport: bool) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.poll_project_load();
@@ -10503,6 +10528,7 @@ impl MeshcraftApp {
         {
             self.run_command("tool.cycle.modification");
         } else if shortcuts_allowed
+            && !bevy_viewport
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -10524,6 +10550,7 @@ impl MeshcraftApp {
             }
             self.run_command("view.grid_guide");
         } else if shortcuts_allowed
+            && !bevy_viewport
             && ui.input(|input| {
                 !input.modifiers.ctrl
                     && !input.modifiers.shift
@@ -10579,8 +10606,16 @@ impl MeshcraftApp {
 
         let mut viewport_response = None;
         ui.horizontal(|ui| {
-            viewport_response =
-                Some(self.show_viewport(ui, Vec2::new(viewport_width, content_height)));
+            if bevy_viewport {
+                let (rect, _) = ui.allocate_exact_size(
+                    Vec2::new(viewport_width, content_height),
+                    egui::Sense::hover(),
+                );
+                self.viewport_rect = rect;
+            } else {
+                viewport_response =
+                    Some(self.show_viewport(ui, Vec2::new(viewport_width, content_height)));
+            }
             if show_inspector {
                 ui.allocate_ui_with_layout(
                     Vec2::new(420.0, content_height),
@@ -11397,6 +11432,50 @@ mod tests {
         output
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run_native_workspace_frame(
+        app: &mut MeshcraftApp,
+        context: &egui::Context,
+    ) -> egui::FullOutput {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 900.0))),
+                ..Default::default()
+            },
+            |root_ui| {
+                let context = root_ui.ctx().clone();
+                let mut workspace_ui = egui::Ui::new(
+                    context.clone(),
+                    egui::Id::new("meshcraft-native-workspace"),
+                    egui::UiBuilder::new()
+                        .layer_id(egui::LayerId::background())
+                        .max_rect(context.viewport_rect()),
+                );
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(&mut workspace_ui, |ui| app.show_native_bevy_workspace(ui));
+            },
+        );
+        output.textures_delta.clear();
+        output
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_bevy_workspace_renders_full_chrome_and_a_viewport() {
+        let mut app = test_app();
+        let context = egui::Context::default();
+
+        let output = run_native_workspace_frame(&mut app, &context);
+
+        assert!(app.viewport_rect.width() > 600.0);
+        assert!(app.viewport_rect.height() > 400.0);
+        assert!(
+            !output.shapes.is_empty(),
+            "native shell must draw UI shapes"
+        );
+    }
+
     #[test]
     fn viewport_world_mapping_uses_the_real_menu_and_button_layout_rects() {
         let expected_world = Vec3::ZERO;
@@ -11562,7 +11641,6 @@ mod tests {
                     unit: egui::MouseWheelUnit::Point,
                     delta: Vec2::new(0.0, -120.0),
                     phase: egui::TouchPhase::Move,
-                    source: egui::MouseWheelSource::Unknown,
                     modifiers: Modifiers::default(),
                 },
             ],

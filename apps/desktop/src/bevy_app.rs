@@ -34,10 +34,11 @@ use bevy::{
     winit::WinitSettings,
 };
 use bevy_egui::{
-    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass, egui as native_egui,
+    EguiContexts, EguiPlugin, EguiPostUpdateSet, EguiPrimaryContextPass, PrimaryEguiContext,
+    egui as native_egui,
 };
 use eframe::egui;
-use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState, CommandValueType};
+use meshcraft_core::commands::{CommandDescriptor, CommandPayload, CommandState};
 use meshcraft_core::{
     document::{DefinitionId, Document, GeometryBundle, OccurrenceRef, Rgba8, VertexId},
     geometry::{Vec2 as ModelVec2, Vec3 as ModelVec3},
@@ -145,14 +146,8 @@ struct NativeEguiInputCapture {
 }
 
 #[derive(Resource, Default)]
-struct NativeEguiSearch {
-    ribbon_tab: String,
-}
-
-#[derive(Resource, Default)]
 struct NativeEguiLayout {
-    viewport_width_points: Option<f32>,
-    viewport_top_points: Option<f32>,
+    viewport_rect_points: Option<[f32; 4]>,
 }
 
 #[derive(Resource)]
@@ -180,6 +175,9 @@ struct NativeToolbarWindow {
     icon_size: u32,
     flow_top_down: bool,
 }
+
+#[derive(Component)]
+struct NativeLegacyBevyChrome;
 
 #[derive(Component)]
 struct NativeToolbarDragHandle(usize);
@@ -736,7 +734,6 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     })
     .insert_resource(CommandPaletteState::default())
     .insert_resource(NativeEguiInputCapture::default())
-    .insert_resource(NativeEguiSearch::default())
     .insert_resource(NativeEguiLayout::default())
     .insert_resource(NativeSelectionDrag::default())
     .insert_resource(NativeToolbarDrag::default())
@@ -768,52 +765,24 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
         ..default()
     }))
     .add_plugins(EguiPlugin::default())
-    .add_systems(Startup, (setup_scene, setup_ui, apply_window_state))
+    .add_systems(
+        Startup,
+        (
+            setup_scene,
+            (setup_ui, disable_legacy_bevy_chrome).chain(),
+            apply_window_state,
+        ),
+    )
     .add_systems(EguiPrimaryContextPass, native_egui_shell)
     .add_systems(
         Update,
         (
             (route_native_escape, route_native_guide_shortcuts).chain(),
             orbit_camera,
-            toggle_command_palette,
-            handle_command_palette_keyboard,
-            refresh_command_palette,
-            sync_command_palette_states,
-            sync_command_palette_parameter_ui,
-            sync_native_toolbar_visibility,
-            sync_native_inspector_visibility,
-            (
-                sync_native_ui_preferences,
-                sync_native_ui_setting_inputs,
-                sync_native_ui_setting_labels,
-                sync_native_ui_preference_presentation,
-                update_native_permanent_grid,
-            )
-                .chain(),
-            sync_native_context_menu_ui,
             map_native_egui_viewport,
-            drag_native_toolbars,
-            sync_lighting_sliders,
-            update_slider_thumbs,
             apply_lighting_settings,
-            (
-                sync_native_selection_display_state,
-                sync_scene_document,
-                sync_native_settings_sections,
-                sync_native_selection_table,
-                sync_native_model_settings_inputs,
-                sync_native_object_name_input,
-                sync_native_object_list,
-            )
-                .chain(),
-            (
-                sync_toolbar_button_states,
-                sync_context_menu_command_states,
-                update_scene_meshes,
-                update_selection_meshes,
-                refresh_status,
-            )
-                .chain(),
+            (sync_scene_document,).chain(),
+            (update_scene_meshes, update_selection_meshes, refresh_status).chain(),
         )
             .chain(),
     )
@@ -836,399 +805,40 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
 
 fn native_egui_shell(
     mut contexts: EguiContexts,
-    commands: Res<CommandCatalog>,
-    toolbars: Res<ToolbarCatalog>,
-    scene: Res<SceneDocument>,
-    mut search: ResMut<NativeEguiSearch>,
     mut palette: ResMut<CommandPaletteState>,
     mut capture: ResMut<NativeEguiInputCapture>,
     mut layout: ResMut<NativeEguiLayout>,
     mut session: NonSendMut<MeshcraftApp>,
-    windows: Query<&Window, With<PrimaryWindow>>,
 ) -> Result {
     let context = contexts.ctx_mut()?;
-    let (screen_width, screen_height) = windows
-        .single()
-        .map(|window| (window.width(), window.height()))
-        .unwrap_or((1280.0, 800.0));
-    let mut requested_command = None;
-
-    let chrome = native_egui::Color32::from_rgb(31, 35, 43);
-    let panel = native_egui::Color32::from_rgb(39, 44, 53);
-    let mut model_settings = scene.document.model_settings().clone();
-    let mut model_settings_changed = false;
-    native_egui::Area::new(native_egui::Id::new("meshcraft-menu-bar"))
-        .anchor(native_egui::Align2::LEFT_TOP, native_egui::Vec2::ZERO)
-        .order(native_egui::Order::Foreground)
-        .show(context, |ui| {
-            native_egui::Frame::new().fill(chrome).show(ui, |ui| {
-                ui.set_min_width(screen_width - 280.0);
-                ui.set_min_height(30.0);
-                native_egui::MenuBar::new().ui(ui, |ui| {
-                    ui.strong("◈ Meshcraft");
-                    ui.separator();
-                    for menu in [
-                        "File",
-                        "Edit",
-                        "View",
-                        "Insert",
-                        "Format",
-                        "Tools",
-                        "Draw",
-                        "Dimension",
-                        "Modify",
-                        "Window",
-                        "Help",
-                    ] {
-                        ui.menu_button(menu, |ui| {
-                            for command in &commands.0 {
-                                let in_menu =
-                                    std::iter::once(command.presentation.menu_path.as_slice())
-                                        .chain(
-                                            command
-                                                .presentation
-                                                .menu_aliases
-                                                .iter()
-                                                .map(Vec::as_slice),
-                                        )
-                                        .any(|path| {
-                                            path.first()
-                                                .is_some_and(|part| part.eq_ignore_ascii_case(menu))
-                                        });
-                                if !in_menu {
-                                    continue;
-                                }
-                                let state = session.native_command_state(command.id.as_str());
-                                let response = ui.add_enabled(
-                                    state.enabled,
-                                    native_egui::Button::new(&command.label),
-                                );
-                                if !state.enabled {
-                                    if let Some(reason) = state.disabled_reason.as_deref() {
-                                        response.clone().on_hover_text(reason);
-                                    }
-                                }
-                                if response.clicked() {
-                                    requested_command = Some(command.id.to_string());
-                                    ui.close();
-                                }
-                            }
-                        });
-                    }
-                    ui.with_layout(
-                        native_egui::Layout::right_to_left(native_egui::Align::Center),
-                        |ui| {
-                            ui.label(format!("{}  ·  {}", scene.status, scene.active_tool));
-                        },
-                    );
-                });
-            })
+    context.set_visuals(native_egui::Visuals::dark());
+    let mut workspace_ui = native_egui::Ui::new(
+        context.clone(),
+        native_egui::Id::new("meshcraft-native-workspace"),
+        native_egui::UiBuilder::new()
+            .layer_id(native_egui::LayerId::background())
+            .max_rect(context.viewport_rect()),
+    );
+    native_egui::CentralPanel::default()
+        .frame(native_egui::Frame::NONE)
+        .show(&mut workspace_ui, |ui| {
+            session.show_native_bevy_workspace(ui)
         });
 
-    native_egui::Area::new(native_egui::Id::new("meshcraft-ribbon"))
-        .anchor(native_egui::Align2::LEFT_TOP, native_egui::vec2(0.0, 30.0))
-        .order(native_egui::Order::Foreground)
-        .show(context, |ui| {
-            native_egui::Frame::new().fill(panel).show(ui, |ui| {
-                ui.set_min_width(screen_width - 280.0);
-                ui.set_min_height(84.0);
-                ui.horizontal(|ui| {
-                    ui.strong("DESIGN");
-                    ui.separator();
-                    for (title, _) in &toolbars.0 {
-                        if search.ribbon_tab.is_empty() {
-                            search.ribbon_tab = title.clone();
-                        }
-                        if ui
-                            .selectable_label(search.ribbon_tab == *title, title)
-                            .clicked()
-                        {
-                            search.ribbon_tab.clone_from(title);
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("⌕  Commands  Ctrl+Shift+P").clicked() {
-                        palette.open = true;
-                        palette.query.clear();
-                        palette.selected_index = 0;
-                    }
-                });
-                ui.separator();
-                if let Some((_, items)) = toolbars
-                    .0
-                    .iter()
-                    .find(|(title, _)| title == &search.ribbon_tab)
-                {
-                    native_egui::ScrollArea::horizontal().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            for command in items {
-                                let state = session.native_command_state(command.id.as_str());
-                                let label = command.presentation.icon_key.as_deref().map_or_else(
-                                    || command.label.clone(),
-                                    |icon| format!("{}  {}", icon, command.label),
-                                );
-                                let response = ui.add_enabled(
-                                    state.enabled,
-                                    native_egui::Button::new(label)
-                                        .min_size(native_egui::vec2(76.0, 34.0)),
-                                );
-                                if !state.enabled {
-                                    if let Some(reason) = state.disabled_reason.as_deref() {
-                                        response.clone().on_hover_text(reason);
-                                    }
-                                }
-                                if response.clicked() {
-                                    requested_command = Some(command.id.to_string());
-                                }
-                            }
-                        });
-                    });
-                }
-            })
-        });
-
-    let inspector = native_egui::Area::new(native_egui::Id::new("meshcraft-inspector"))
-        .anchor(native_egui::Align2::RIGHT_TOP, native_egui::Vec2::ZERO)
-        .order(native_egui::Order::Foreground)
-        .show(context, |ui| native_egui::Frame::new().fill(panel).show(ui, |ui| {
-            ui.set_min_width(280.0);
-            ui.set_max_width(360.0);
-            ui.heading("Properties");
-            ui.label(format!("{} object instances · {} faces · {} lines", scene.occurrences, scene.triangles, scene.segments));
-            ui.separator();
-            native_egui::ScrollArea::vertical().max_height(screen_height - 26.0).show(ui, |ui| {
-            ui.collapsing("Selection", |ui| {
-                if scene.selected_objects + scene.selected_faces + scene.selected_edges + scene.selected_vertices == 0 {
-                    ui.weak("Nothing selected. Pick geometry in the viewport or use a selection command.");
-                } else {
-                    ui.label(format!("Objects  {}", scene.selected_objects));
-                    ui.label(format!("Faces  {}", scene.selected_faces));
-                    ui.label(format!("Edges  {}", scene.selected_edges));
-                    ui.label(format!("Vertices  {}", scene.selected_vertices));
-                }
-            });
-            ui.collapsing("Model Settings", |ui| {
-                if let Some(schema) = commands.0.iter().find(|item| item.id.as_str() == "model.update_settings") {
-                    for parameter in &schema.parameters {
-                        ui.horizontal(|ui| {
-                            ui.label(parameter.name.replace('_', " "));
-                            let changed = match parameter.name.as_str() {
-                                "unit_name" => ui.text_edit_singleline(&mut model_settings.unit_name).changed(),
-                                "unit_size" => ui.add(native_egui::DragValue::new(&mut model_settings.unit_size).speed(0.01).range(0.0001..=1_000_000.0)).changed(),
-                                "grid_size" => ui.add(native_egui::DragValue::new(&mut model_settings.grid_size).speed(0.01).range(0.0001..=1_000_000.0)).changed(),
-                                "circle_segments" => ui.add(native_egui::DragValue::new(&mut model_settings.circle_segments).range(3..=256)).changed(),
-                                "snap_radius" => ui.add(native_egui::DragValue::new(&mut model_settings.snap_radius).speed(0.25).range(0.0..=128.0)).changed(),
-                                "arc_max_length" => ui.add(native_egui::DragValue::new(&mut model_settings.arc_max_length).speed(0.01).range(0.001..=1_000.0)).changed(),
-                                "double_line_size" => ui.add(native_egui::DragValue::new(&mut model_settings.double_line_size).speed(0.01).range(0.001..=1_000.0)).changed(),
-                                "double_line_offset" => ui.add(native_egui::DragValue::new(&mut model_settings.double_line_offset).speed(0.01).range(-1_000.0..=1_000.0)).changed(),
-                                _ => false,
-                            };
-                            model_settings_changed |= changed;
-                        });
-                    }
-                } else {
-                    ui.weak("No model settings schema is registered.");
-                }
-                for command_id in ["view.model_settings", "view.polyline_settings", "view.architecture_settings", "view.hvac_settings", "view.hotspot_settings", "view.random_tool_settings"] {
-                    if let Some(command) = commands.0.iter().find(|item| item.id.as_str() == command_id) {
-                        if ui.button(format!("Open {}…", command.label)).clicked() { requested_command = Some(command_id.to_owned()); }
-                    }
-                }
-            });
-            ui.collapsing("Objects", |ui| {
-                if scene.object_entries.is_empty() { ui.weak("No object instances in the scene."); }
-                for entry in &scene.object_entries { ui.label(&entry.name); }
-            });
-            ui.label("Meshcraft · Bevy GPU viewport");
-            });
-        }));
-    layout.viewport_width_points = Some(inspector.response.rect.left());
-    layout.viewport_top_points = Some(114.0);
-
-    if palette.open {
-        let mut open = palette.open;
-        let mut submit_parameters = false;
-        let mut close_palette = false;
-        native_egui::Window::new("Commands")
-            .open(&mut open)
-            .anchor(
-                native_egui::Align2::CENTER_BOTTOM,
-                native_egui::vec2(0.0, -52.0),
-            )
-            .default_width(560.0)
-            .resizable(false)
-            .show(context, |ui| {
-                ui.label("Search commands · Enter to run · Esc to close");
-                if let Some(command_id) = palette.pending_command.as_deref() {
-                    if let Some(command) = commands
-                        .0
-                        .iter()
-                        .find(|item| item.id.as_str() == command_id)
-                    {
-                        ui.strong(&command.label);
-                        ui.label("Enter parameters using the registered JSON schema:");
-                        ui.horizontal_wrapped(|ui| {
-                            for parameter in &command.parameters {
-                                ui.weak(format!(
-                                    "{}: {:?}{}",
-                                    parameter.name,
-                                    parameter.value_type,
-                                    if parameter.required {
-                                        " · required"
-                                    } else {
-                                        ""
-                                    }
-                                ));
-                            }
-                        });
-                        ui.add(
-                            native_egui::TextEdit::multiline(&mut palette.parameter_json)
-                                .desired_rows(4)
-                                .desired_width(f32::INFINITY),
-                        );
-                        if let Some(error) = palette.parameter_error.as_deref() {
-                            ui.colored_label(native_egui::Color32::LIGHT_RED, error);
-                        }
-                        if ui.button("Run command").clicked() {
-                            submit_parameters = true;
-                        }
-                        return;
-                    }
-                }
-                let input = ui.add(
-                    native_egui::TextEdit::singleline(&mut palette.query)
-                        .hint_text("Type a command name or keyword…")
-                        .desired_width(f32::INFINITY),
-                );
-                input.request_focus();
-                let query = palette.query.to_lowercase();
-                native_egui::ScrollArea::vertical()
-                    .max_height(280.0)
-                    .show(ui, |ui| {
-                        for command in &commands.0 {
-                            if !query.trim().is_empty()
-                                && !command.label.to_lowercase().contains(&query)
-                                && !command.id.as_str().contains(&query)
-                                && !command.category.to_lowercase().contains(&query)
-                            {
-                                continue;
-                            }
-                            let state = session.native_command_state(command.id.as_str());
-                            let response = ui.add_enabled(
-                                state.enabled,
-                                native_egui::Button::new(format!(
-                                    "{}    {}",
-                                    command.label, command.category
-                                ))
-                                .frame(false),
-                            );
-                            if !state.enabled {
-                                if let Some(reason) = state.disabled_reason.as_deref() {
-                                    response.clone().on_hover_text(reason);
-                                }
-                            }
-                            if response.clicked() {
-                                requested_command = Some(command.id.to_string());
-                                close_palette = true;
-                            }
-                            if response.has_focus()
-                                && ui.input(|i| i.key_pressed(native_egui::Key::Enter))
-                            {
-                                requested_command = Some(command.id.to_string());
-                                close_palette = true;
-                            }
-                        }
-                    });
-            });
-        if close_palette {
-            open = false;
-        }
-        palette.open = open;
-        if submit_parameters {
-            submit_palette_parameters(&mut palette, &mut session);
-        }
-    }
-
-    if let Some(command_id) = requested_command {
-        let command = commands
-            .0
-            .iter()
-            .find(|item| item.id.as_str() == command_id);
-        if command.is_some_and(|item| !item.parameters.is_empty()) {
-            palette.open = true;
-            palette.pending_command = Some(command_id.clone());
-            palette.parameter_json = command.map_or_else(String::new, |item| {
-                let values = item
-                    .parameters
-                    .iter()
-                    .map(|parameter| {
-                        let value = match parameter.value_type {
-                            CommandValueType::Boolean => serde_json::Value::Bool(false),
-                            CommandValueType::Integer | CommandValueType::Number => {
-                                serde_json::json!(0)
-                            }
-                            CommandValueType::String => serde_json::Value::String(String::new()),
-                            CommandValueType::Array => serde_json::Value::Array(Vec::new()),
-                            CommandValueType::Object => {
-                                serde_json::Value::Object(serde_json::Map::new())
-                            }
-                            CommandValueType::Any => serde_json::Value::Null,
-                        };
-                        (parameter.name.clone(), value)
-                    })
-                    .collect::<serde_json::Map<_, _>>();
-                serde_json::to_string_pretty(&values).unwrap_or_else(|_| "{}".to_owned())
-            });
-        }
-        let result = if command.is_some_and(|item| !item.parameters.is_empty()) {
-            None
-        } else {
-            Some(session.dispatch_command(&command_id, &CommandPayload::default()))
-        };
-        if result.is_some_and(|result| result.accepted) {
-            info!("egui dispatched {command_id}");
-        }
-    }
-
-    if model_settings_changed {
-        let mut payload = CommandPayload::default();
-        payload.values.insert(
-            "unit_name".to_owned(),
-            serde_json::json!(model_settings.unit_name),
-        );
-        payload.values.insert(
-            "unit_size".to_owned(),
-            serde_json::json!(model_settings.unit_size),
-        );
-        payload.values.insert(
-            "grid_size".to_owned(),
-            serde_json::json!(model_settings.grid_size),
-        );
-        payload.values.insert(
-            "circle_segments".to_owned(),
-            serde_json::json!(model_settings.circle_segments),
-        );
-        payload.values.insert(
-            "snap_radius".to_owned(),
-            serde_json::json!(model_settings.snap_radius),
-        );
-        payload.values.insert(
-            "arc_max_length".to_owned(),
-            serde_json::json!(model_settings.arc_max_length),
-        );
-        payload.values.insert(
-            "double_line_size".to_owned(),
-            serde_json::json!(model_settings.double_line_size),
-        );
-        payload.values.insert(
-            "double_line_offset".to_owned(),
-            serde_json::json!(model_settings.double_line_offset),
-        );
-        session.dispatch_command("model.update_settings", &payload);
-    }
-
-    capture.pointer_over_ui = context.is_pointer_over_egui();
-    capture.keyboard_captured = context.egui_wants_keyboard_input();
+    let viewport_rect = session.native_bevy_viewport_rect();
+    layout.viewport_rect_points = Some(viewport_rect);
+    palette.open = session.native_command_palette_open();
+    let pointer_in_viewport = context.pointer_interact_pos().is_some_and(|position| {
+        position.x >= viewport_rect[0]
+            && position.y >= viewport_rect[1]
+            && position.x < viewport_rect[0] + viewport_rect[2]
+            && position.y < viewport_rect[1] + viewport_rect[3]
+    });
+    capture.pointer_over_ui = session.native_overlay_blocks_viewport_input()
+        || context.egui_is_using_pointer()
+        || (!pointer_in_viewport && context.is_pointer_over_egui());
+    capture.keyboard_captured =
+        context.egui_wants_keyboard_input() || session.native_overlay_blocks_viewport_input();
     Ok(())
 }
 
@@ -1240,29 +850,15 @@ fn map_native_egui_viewport(
     let (Ok(window), Ok(mut camera)) = (windows.single(), cameras.single_mut()) else {
         return;
     };
-    let viewport_width = layout
-        .viewport_width_points
-        .unwrap_or_else(|| window.width())
-        .clamp(1.0, window.width());
-    let scale = window.scale_factor();
-    let viewport_top = layout.viewport_top_points.unwrap_or(0.0).max(0.0);
-    let physical_height = window.physical_height().max(1);
-    let top_pixels = (viewport_top * scale)
-        .round()
-        .clamp(0.0, physical_height.saturating_sub(1) as f32) as u32;
-    let physical_size = native_egui_viewport_physical_size(
+    let viewport_rect =
+        layout
+            .viewport_rect_points
+            .unwrap_or([0.0, 0.0, window.width(), window.height()]);
+    let requested = native_egui_viewport_physical_rect(
         UVec2::new(window.physical_width(), window.physical_height()),
-        scale,
-        viewport_width,
+        window.scale_factor(),
+        viewport_rect,
     );
-    let requested = Viewport {
-        physical_position: UVec2::new(0, top_pixels),
-        physical_size: UVec2::new(
-            physical_size.x,
-            physical_height.saturating_sub(top_pixels).max(1),
-        ),
-        ..default()
-    };
     if camera.viewport.as_ref().is_none_or(|current| {
         current.physical_position != requested.physical_position
             || current.physical_size != requested.physical_size
@@ -1271,15 +867,30 @@ fn map_native_egui_viewport(
     }
 }
 
-fn native_egui_viewport_physical_size(
+fn native_egui_viewport_physical_rect(
     window_physical_size: UVec2,
     scale_factor: f32,
-    viewport_width_points: f32,
-) -> UVec2 {
-    let width = (viewport_width_points * scale_factor)
+    viewport_rect_points: [f32; 4],
+) -> Viewport {
+    let full_width = window_physical_size.x.max(1);
+    let full_height = window_physical_size.y.max(1);
+    let x = (viewport_rect_points[0] * scale_factor)
         .round()
-        .clamp(1.0, window_physical_size.x.max(1) as f32) as u32;
-    UVec2::new(width, window_physical_size.y.max(1))
+        .clamp(0.0, full_width.saturating_sub(1) as f32) as u32;
+    let y = (viewport_rect_points[1] * scale_factor)
+        .round()
+        .clamp(0.0, full_height.saturating_sub(1) as f32) as u32;
+    let width = (viewport_rect_points[2] * scale_factor)
+        .round()
+        .clamp(1.0, full_width.saturating_sub(x).max(1) as f32) as u32;
+    let height = (viewport_rect_points[3] * scale_factor)
+        .round()
+        .clamp(1.0, full_height.saturating_sub(y).max(1) as f32) as u32;
+    Viewport {
+        physical_position: UVec2::new(x, y),
+        physical_size: UVec2::new(width, height),
+        ..default()
+    }
 }
 
 #[derive(Resource)]
@@ -1582,6 +1193,15 @@ fn setup_scene(
             ..default()
         },
         Transform::from_xyz(-8.0, 18.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        Camera2d,
+        PrimaryEguiContext,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
     ));
     commands.spawn((
         Camera3d::default(),
@@ -1988,6 +1608,7 @@ fn setup_ui(
     commands.entity(root).with_children(|root| {
         root.spawn((
             NativeInspectorPanel,
+            NativeLegacyBevyChrome,
             NativeUiInteraction,
             Hovered::default(),
             Node {
@@ -2074,6 +1695,7 @@ fn setup_ui(
                     icon_size: ui_preferences.value.toolbar_icon_size,
                     flow_top_down: ui_preferences.value.toolbar_flow_top_down,
                 },
+                NativeLegacyBevyChrome,
                 NativeUiInteraction,
                 Hovered::default(),
                 Node {
@@ -2136,6 +1758,7 @@ fn setup_ui(
         }
         root.spawn((
             NativeInspectorPanel,
+            NativeLegacyBevyChrome,
             NativeUiInteraction,
             Hovered::default(),
             Node {
@@ -2417,6 +2040,7 @@ fn setup_ui(
                 ..default()
             },
             Button,
+            NativeLegacyBevyChrome,
             NativeUiInteraction,
             Hovered::default(),
             BackgroundColor(Color::srgb(0.12, 0.38, 0.62)),
@@ -2429,6 +2053,7 @@ fn setup_ui(
         ))
         .observe(open_command_palette);
         root.spawn((
+            NativeLegacyBevyChrome,
             Node {
                 position_type: PositionType::Absolute,
                 top: percent(22.0),
@@ -2560,6 +2185,7 @@ fn setup_ui(
             Pickable::IGNORE,
         ));
         root.spawn((
+            NativeLegacyBevyChrome,
             Node {
                 position_type: PositionType::Absolute,
                 left: px(0),
@@ -2695,6 +2321,12 @@ fn setup_ui(
             TextColor(Color::WHITE),
         ));
     });
+}
+
+fn disable_legacy_bevy_chrome(mut legacy: Query<&mut Node, With<NativeLegacyBevyChrome>>) {
+    for mut node in &mut legacy {
+        node.display = Display::None;
+    }
 }
 
 fn inspector_section(parent: &mut ChildSpawnerCommands, title: &str, body: &str) {
@@ -3601,7 +3233,7 @@ fn spawn_tool_button(
 
 fn sync_native_toolbar_visibility(
     session: NonSend<MeshcraftApp>,
-    mut toolbars: Query<(&NativeToolbarWindow, &mut Node)>,
+    mut toolbars: Query<(&NativeToolbarWindow, &mut Node), Without<NativeLegacyBevyChrome>>,
 ) {
     let visibility = session.native_toolbar_visibility();
     for (toolbar, mut node) in &mut toolbars {
@@ -3801,7 +3433,7 @@ fn update_native_permanent_grid(
 
 fn sync_native_inspector_visibility(
     session: NonSend<MeshcraftApp>,
-    mut inspectors: Query<&mut Node, With<NativeInspectorPanel>>,
+    mut inspectors: Query<&mut Node, (With<NativeInspectorPanel>, Without<NativeLegacyBevyChrome>)>,
 ) {
     let display = if session.native_panels_visible() {
         Display::Flex
@@ -4890,12 +4522,15 @@ fn sync_command_palette_parameter_ui(
 
 fn route_native_escape(
     keyboard: Res<ButtonInput<KeyCode>>,
+    egui_capture: Option<Res<NativeEguiInputCapture>>,
     mut palette: ResMut<CommandPaletteState>,
     mut drag: ResMut<NativeSelectionDrag>,
     mut context_menu: ResMut<NativeToolsContextMenuState>,
     mut session: NonSendMut<MeshcraftApp>,
 ) {
-    if !keyboard.just_pressed(KeyCode::Escape) {
+    if !keyboard.just_pressed(KeyCode::Escape)
+        || egui_capture.is_some_and(|capture| capture.keyboard_captured)
+    {
         return;
     }
     drag.start = None;
@@ -4912,6 +4547,7 @@ fn route_native_escape(
 fn route_native_guide_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
     input_focus: Res<InputFocus>,
+    egui_capture: Option<Res<NativeEguiInputCapture>>,
     palette: Res<CommandPaletteState>,
     context_menu: Res<NativeToolsContextMenuState>,
     toolbar_drag: Res<NativeToolbarDrag>,
@@ -4922,6 +4558,7 @@ fn route_native_guide_shortcuts(
         return;
     }
     if input_focus.get().is_some()
+        || egui_capture.is_some_and(|capture| capture.keyboard_captured)
         || palette.open
         || context_menu.open
         || toolbar_drag.active_index.is_some()
@@ -5559,10 +5196,12 @@ fn native_viewport_pointer(
     let document_revision_before = session.document_revision();
     let selection_revision_before = session.native_selection_revision();
     let cursor = window.cursor_position();
-    let viewport_width_points = invalidation
-        .egui_layout
-        .viewport_width_points
-        .unwrap_or_else(|| window.width());
+    let viewport_rect_points = invalidation.egui_layout.viewport_rect_points.unwrap_or([
+        0.0,
+        0.0,
+        window.width(),
+        window.height(),
+    ]);
     if invalidation.egui_capture.pointer_over_ui {
         overlay.clear_cursor();
         drag.start = None;
@@ -5644,9 +5283,7 @@ fn native_viewport_pointer(
         mouse.pressed(MouseButton::Right),
         mouse.just_released(MouseButton::Right),
         cursor,
-        cursor.is_some_and(|position| {
-            native_viewport_contains(window, position, viewport_width_points)
-        }),
+        cursor.is_some_and(|position| native_viewport_contains(position, viewport_rect_points)),
     ) {
         context_menu.open = true;
         context_menu.position = position;
@@ -5662,7 +5299,7 @@ fn native_viewport_pointer(
     let mut hover_snap = None;
     let mut hover_point = None;
     if let Some(position) =
-        cursor.filter(|position| native_viewport_contains(window, *position, viewport_width_points))
+        cursor.filter(|position| native_viewport_contains(*position, viewport_rect_points))
     {
         if let Ok(ray) = camera.viewport_to_world(camera_transform, position) {
             let origin = ModelVec3::new(
@@ -5723,8 +5360,8 @@ fn native_viewport_pointer(
         overlay.feedback_screen = None;
     }
     if mouse.just_pressed(MouseButton::Left)
-        && let Some(position) = cursor
-            .filter(|position| native_viewport_contains(window, *position, viewport_width_points))
+        && let Some(position) =
+            cursor.filter(|position| native_viewport_contains(*position, viewport_rect_points))
     {
         if session.active_tool_label() == "Select" {
             drag.start = Some(position);
@@ -6150,11 +5787,13 @@ fn sync_native_selected_vertex_dots(
                 let world = to_bevy_vec3(*position)?;
                 let screen = camera.world_to_viewport(camera_transform, world).ok()?;
                 native_viewport_contains(
-                    window,
                     screen,
-                    layout
-                        .viewport_width_points
-                        .unwrap_or_else(|| window.width()),
+                    layout.viewport_rect_points.unwrap_or([
+                        0.0,
+                        0.0,
+                        window.width(),
+                        window.height(),
+                    ]),
                 )
                 .then_some(screen)
             })
@@ -6239,11 +5878,11 @@ fn update_right_click_gesture(
     menu_position
 }
 
-fn native_viewport_contains(window: &Window, position: Vec2, right_edge: f32) -> bool {
-    position.x >= 270.0
-        && position.x < right_edge
-        && position.y >= 58.0
-        && position.y <= window.height() - 32.0
+fn native_viewport_contains(position: Vec2, rect: [f32; 4]) -> bool {
+    position.x >= rect[0]
+        && position.y >= rect[1]
+        && position.x < rect[0] + rect[2]
+        && position.y < rect[1] + rect[3]
 }
 
 fn native_modifiers(keyboard: &ButtonInput<KeyCode>) -> egui::Modifiers {
@@ -6876,7 +6515,7 @@ mod tests {
         ToolbarCatalog, apply_native_model_settings, apply_native_polyline_settings,
         apply_native_ui_preferences, back_face_color, build_scene_meshes_with_policy,
         command_payload_from_json, create_native_icon_atlas, dispatch_palette_command,
-        dispatch_toolbar_command, line_mesh, native_egui_viewport_physical_size,
+        dispatch_toolbar_command, line_mesh, native_egui_viewport_physical_rect,
         native_model_setting_fields, native_object_entries, native_polyline_setting_fields,
         native_segment_intersects_rect, native_toolbar_dimensions, native_toolbar_position,
         native_triangle_intersects_rect, object_selection_summary, objects_summary,
@@ -8591,15 +8230,22 @@ mod tests {
     }
 
     #[test]
-    fn egui_viewport_width_maps_logical_points_to_physical_pixels() {
-        assert_eq!(
-            UVec2::new(1350, 1200),
-            native_egui_viewport_physical_size(UVec2::new(1920, 1200), 1.5, 900.0)
+    fn egui_viewport_rect_maps_logical_bounds_to_physical_pixels() {
+        let viewport = native_egui_viewport_physical_rect(
+            UVec2::new(2400, 1800),
+            2.0,
+            [160.0, 90.0, 1040.0, 810.0],
         );
-        assert_eq!(
+        assert_eq!(UVec2::new(320, 180), viewport.physical_position);
+        assert_eq!(UVec2::new(2080, 1620), viewport.physical_size);
+
+        let clamped = native_egui_viewport_physical_rect(
             UVec2::new(1920, 1200),
-            native_egui_viewport_physical_size(UVec2::new(1920, 1200), 2.0, 2000.0)
+            2.0,
+            [900.0, 500.0, 2000.0, 1000.0],
         );
+        assert_eq!(UVec2::new(1800, 1000), clamped.physical_position);
+        assert_eq!(UVec2::new(120, 200), clamped.physical_size);
     }
 
     #[test]
