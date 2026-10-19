@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native_spatial::{NativeSpatialIndex, NativeSpatialPrimitive};
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{
@@ -794,6 +796,8 @@ pub struct Viewport {
     frame_pending: bool,
     adaptive_grid_cloud: Option<AdaptiveGridCloud>,
     derived: DerivedIndexCache,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_pick_index: Option<NativeSpatialIndex>,
 }
 
 impl Default for Viewport {
@@ -817,11 +821,22 @@ impl Default for Viewport {
             frame_pending: false,
             adaptive_grid_cloud: None,
             derived: DerivedIndexCache::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_pick_index: None,
         }
     }
 }
 
 impl Viewport {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn invalidate_document_caches(&mut self) {
+        self.derived = DerivedIndexCache::default();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.native_pick_index = None;
+        }
+    }
+
     pub fn set_grid_normal_axis(&mut self, axis: GridNormalAxis) {
         self.grid_normal_axis = axis;
     }
@@ -2603,138 +2618,77 @@ impl Viewport {
             return None;
         }
         let direction = ray_direction.try_normalized(1.0e-12)?;
-        let occurrences = document.scene_geometry_refs().ok()?;
+        if self
+            .native_pick_index
+            .as_ref()
+            .is_none_or(|index| index.revision() != document.revision())
+        {
+            self.native_pick_index = NativeSpatialIndex::build(document).ok();
+        }
+        let index = self.native_pick_index.as_ref()?;
+        let candidates = index.query_ray(ray_origin, direction, radius);
         let mut nearest_face_depth = None::<f64>;
         let mut nearest = None::<(f64, u8, SelectionTarget)>;
 
-        for occurrence in &occurrences {
-            if !scope.contains(document, occurrence) {
-                continue;
-            }
-            let (Some(resolved), Some(geometry)) = (
-                document.resolve_occurrence(occurrence),
-                document.effective_geometry(occurrence),
-            ) else {
+        for item in &candidates {
+            let NativeSpatialPrimitive::Triangle([a, b, c]) = item.primitive else {
                 continue;
             };
-            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
+            if !scope.contains(document, &item.target.occurrence)
+                || !policy.can_draw(SelectionKind::Face)
+                || policy.state(SelectionKind::Face).wireframe
             {
-                for triangle in geometry.triangles.values() {
-                    let [Some(a), Some(b), Some(c)] = triangle
-                        .vertices
-                        .map(|reference| geometry.vertex_position(reference))
-                    else {
-                        continue;
-                    };
-                    if let Some(depth) = ray_triangle_distance(
-                        ray_origin,
-                        direction,
-                        resolved.world_transform.transform_point(a),
-                        resolved.world_transform.transform_point(b),
-                        resolved.world_transform.transform_point(c),
-                    ) {
-                        nearest_face_depth =
-                            Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
-                    }
-                }
+                continue;
+            }
+            if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
+                nearest_face_depth =
+                    Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
             }
         }
 
-        for occurrence in &occurrences {
-            if !scope.contains(document, occurrence) {
+        for item in &candidates {
+            let target = &item.target;
+            if !scope.contains(document, &target.occurrence) {
                 continue;
             }
-            let (Some(resolved), Some(geometry)) = (
-                document.resolve_occurrence(occurrence),
-                document.effective_geometry(occurrence),
-            ) else {
-                continue;
-            };
-
-            if policy.can_select(SelectionKind::Vertex) {
-                for (vertex_id, vertex) in &geometry.vertices {
-                    let point = resolved.world_transform.transform_point(vertex.position);
+            match item.primitive {
+                NativeSpatialPrimitive::Vertex(point)
+                    if policy.can_select(SelectionKind::Vertex) =>
+                {
                     let depth = (point - ray_origin).dot(direction);
-                    if depth < 0.0 || nearest_face_depth.is_some_and(|face| depth > face + radius) {
-                        continue;
-                    }
-                    let closest = ray_origin + direction * depth;
-                    if (point - closest).length() <= radius {
-                        consider_ray_selection_hit(
-                            &mut nearest,
-                            depth,
-                            0,
-                            SelectionTarget {
-                                occurrence: occurrence.clone(),
-                                entity: SelectedEntity::Vertex(*vertex_id),
-                            },
-                        );
+                    if depth >= 0.0
+                        && !nearest_face_depth.is_some_and(|face| depth > face + radius)
+                        && (point - (ray_origin + direction * depth)).length() <= radius
+                    {
+                        consider_ray_selection_hit(&mut nearest, depth, 0, target.clone());
                     }
                 }
-            }
-
-            if policy.can_select(SelectionKind::Edge) {
-                for segment in geometry.segments.values() {
-                    let (Some(start), Some(end)) = (
-                        geometry.vertex_position(segment.endpoints[0]),
-                        geometry.vertex_position(segment.endpoints[1]),
-                    ) else {
-                        continue;
-                    };
-                    let start = resolved.world_transform.transform_point(start);
-                    let end = resolved.world_transform.transform_point(end);
+                NativeSpatialPrimitive::Segment([start, end])
+                    if policy.can_select(SelectionKind::Edge) =>
+                {
                     let Some((depth, miss_distance)) =
                         ray_segment_distance(ray_origin, direction, start, end)
                     else {
                         continue;
                     };
-                    if depth < 0.0
-                        || miss_distance > radius
-                        || nearest_face_depth.is_some_and(|face| depth > face + radius)
+                    if miss_distance <= radius
+                        && !nearest_face_depth.is_some_and(|face| depth > face + radius)
                     {
-                        continue;
+                        consider_ray_selection_hit(&mut nearest, depth, 1, target.clone());
                     }
-                    consider_ray_selection_hit(
-                        &mut nearest,
-                        depth,
-                        1,
-                        SelectionTarget {
-                            occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Segment(segment.id),
-                        },
-                    );
                 }
-            }
-
-            if policy.can_select(SelectionKind::Face)
-                && !policy.state(SelectionKind::Face).wireframe
-            {
-                for triangle in geometry.triangles.values() {
-                    let [Some(a), Some(b), Some(c)] = triangle
-                        .vertices
-                        .map(|reference| geometry.vertex_position(reference))
-                    else {
-                        continue;
-                    };
-                    let Some(depth) = ray_triangle_distance(
-                        ray_origin,
-                        direction,
-                        resolved.world_transform.transform_point(a),
-                        resolved.world_transform.transform_point(b),
-                        resolved.world_transform.transform_point(c),
-                    ) else {
-                        continue;
-                    };
-                    consider_ray_selection_hit(
-                        &mut nearest,
-                        depth,
-                        2,
-                        SelectionTarget {
-                            occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Triangle(triangle.id),
-                        },
-                    );
+                NativeSpatialPrimitive::Triangle([a, b, c])
+                    if policy.can_select(SelectionKind::Face)
+                        && !policy.state(SelectionKind::Face).wireframe =>
+                {
+                    if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
+                        consider_ray_selection_hit(&mut nearest, depth, 2, target.clone());
+                    }
                 }
+                NativeSpatialPrimitive::Vertex(_)
+                | NativeSpatialPrimitive::Segment(_)
+                | NativeSpatialPrimitive::Triangle(_)
+                | NativeSpatialPrimitive::Occurrence => {}
             }
         }
 
@@ -2742,26 +2696,16 @@ impl Viewport {
             return Some(target);
         }
 
-        for occurrence in occurrences {
-            if occurrence.is_scene_root()
-                || !scope.contains(document, &occurrence)
+        for item in candidates {
+            if !matches!(item.primitive, NativeSpatialPrimitive::Occurrence)
+                || item.target.occurrence.is_scene_root()
+                || !scope.contains(document, &item.target.occurrence)
                 || !policy.can_select(SelectionKind::Object)
             {
                 continue;
             }
-            let Some(bounds) = self.derived.world_bounds(document, &occurrence) else {
-                continue;
-            };
-            if let Some(depth) = ray_aabb_distance(ray_origin, direction, bounds) {
-                consider_ray_selection_hit(
-                    &mut nearest,
-                    depth,
-                    3,
-                    SelectionTarget {
-                        occurrence,
-                        entity: SelectedEntity::Occurrence,
-                    },
-                );
+            if let Some(depth) = ray_aabb_distance(ray_origin, direction, item.bounds) {
+                consider_ray_selection_hit(&mut nearest, depth, 3, item.target.clone());
             }
         }
 
@@ -2832,7 +2776,7 @@ impl Viewport {
     /// Snaps a native view ray to visible geometry, including locked entities.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn snap_point_on_ray(
-        &self,
+        &mut self,
         document: &Document,
         ray_origin: Vec3,
         ray_direction: Vec3,
@@ -2844,59 +2788,44 @@ impl Viewport {
             return None;
         }
         let direction = ray_direction.try_normalized(1.0e-12)?;
-        let occurrences = document.scene_geometry_refs().ok()?;
+        if self
+            .native_pick_index
+            .as_ref()
+            .is_none_or(|index| index.revision() != document.revision())
+        {
+            self.native_pick_index = NativeSpatialIndex::build(document).ok();
+        }
+        let index = self.native_pick_index.as_ref()?;
+        let candidates = index.query_ray(ray_origin, direction, radius);
         let mut nearest_face_depth = None::<f64>;
         let mut nearest = None::<(f64, u8, SnapResult)>;
-        for occurrence in &occurrences {
-            if !scope.contains(document, occurrence) {
-                continue;
-            }
-            let (Some(resolved), Some(geometry)) = (
-                document.resolve_occurrence(occurrence),
-                document.effective_geometry(occurrence),
-            ) else {
+        for item in &candidates {
+            let NativeSpatialPrimitive::Triangle([a, b, c]) = item.primitive else {
                 continue;
             };
-            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
+            if !scope.contains(document, &item.target.occurrence)
+                || !policy.can_draw(SelectionKind::Face)
+                || policy.state(SelectionKind::Face).wireframe
             {
-                for triangle in geometry.triangles.values() {
-                    let [Some(a), Some(b), Some(c)] = triangle
-                        .vertices
-                        .map(|reference| geometry.vertex_position(reference))
-                    else {
-                        continue;
-                    };
-                    let world =
-                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
-                    if let Some(depth) =
-                        ray_triangle_distance(ray_origin, direction, world[0], world[1], world[2])
-                    {
-                        nearest_face_depth =
-                            Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
-                    }
-                }
+                continue;
+            }
+            if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
+                nearest_face_depth =
+                    Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
             }
         }
 
-        for occurrence in occurrences {
-            if !scope.contains(document, &occurrence) {
+        for item in candidates {
+            if !scope.contains(document, &item.target.occurrence) {
                 continue;
             }
-            let (Some(resolved), Some(geometry)) = (
-                document.resolve_occurrence(&occurrence),
-                document.effective_geometry(&occurrence),
-            ) else {
-                continue;
-            };
-            if policy.can_draw(SelectionKind::Vertex) {
-                for vertex in geometry.vertices.values() {
-                    let point = resolved.world_transform.transform_point(vertex.position);
+            match item.primitive {
+                NativeSpatialPrimitive::Vertex(point) if policy.can_draw(SelectionKind::Vertex) => {
                     let depth = (point - ray_origin).dot(direction);
-                    if depth < 0.0 || nearest_face_depth.is_some_and(|face| depth > face + radius) {
-                        continue;
-                    }
-                    let distance = (point - (ray_origin + direction * depth)).length();
-                    if distance <= radius {
+                    if depth >= 0.0
+                        && !nearest_face_depth.is_some_and(|face| depth > face + radius)
+                        && (point - (ray_origin + direction * depth)).length() <= radius
+                    {
                         consider_ray_snap(
                             &mut nearest,
                             depth,
@@ -2910,17 +2839,9 @@ impl Viewport {
                         );
                     }
                 }
-            }
-            if policy.can_draw(SelectionKind::Edge) {
-                for segment in geometry.segments.values() {
-                    let (Some(start), Some(end)) = (
-                        geometry.vertex_position(segment.endpoints[0]),
-                        geometry.vertex_position(segment.endpoints[1]),
-                    ) else {
-                        continue;
-                    };
-                    let start = resolved.world_transform.transform_point(start);
-                    let end = resolved.world_transform.transform_point(end);
+                NativeSpatialPrimitive::Segment([start, end])
+                    if policy.can_draw(SelectionKind::Edge) =>
+                {
                     let Some((depth, miss_distance)) =
                         ray_segment_distance(ray_origin, direction, start, end)
                     else {
@@ -2945,18 +2866,10 @@ impl Viewport {
                         },
                     );
                 }
-            }
-            if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe
-            {
-                for triangle in geometry.triangles.values() {
-                    let [Some(a), Some(b), Some(c)] = triangle
-                        .vertices
-                        .map(|reference| geometry.vertex_position(reference))
-                    else {
-                        continue;
-                    };
-                    let [a, b, c] =
-                        [a, b, c].map(|point| resolved.world_transform.transform_point(point));
+                NativeSpatialPrimitive::Triangle([a, b, c])
+                    if policy.can_draw(SelectionKind::Face)
+                        && !policy.state(SelectionKind::Face).wireframe =>
+                {
                     let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
                         continue;
                     };
@@ -2975,6 +2888,10 @@ impl Viewport {
                         },
                     );
                 }
+                NativeSpatialPrimitive::Vertex(_)
+                | NativeSpatialPrimitive::Segment(_)
+                | NativeSpatialPrimitive::Triangle(_)
+                | NativeSpatialPrimitive::Occurrence => {}
             }
         }
         nearest.map(|(_, _, snap)| snap)
@@ -7121,6 +7038,29 @@ mod tests {
                     &locked_faces,
                 )
                 .map(|snap| snap.kind)
+        );
+
+        let second_occurrence = document
+            .add_cuboid(
+                "second cube",
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(4.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let second_target = viewport
+            .pick_selection_target_on_ray(
+                &document,
+                Vec3::new(5.0, 1.0, 10.0),
+                direction,
+                0.05,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .expect("the updated index finds the newly added object");
+        assert_eq!(second_occurrence, second_target.occurrence);
+        assert_eq!(
+            Some(document.revision()),
+            viewport.native_pick_index.as_ref().map(|i| i.revision())
         );
     }
 

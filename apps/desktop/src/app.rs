@@ -2373,7 +2373,7 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn native_snap_point_on_ray(
-        &self,
+        &mut self,
         origin: Vec3,
         direction: Vec3,
         radius: f64,
@@ -4753,6 +4753,7 @@ impl MeshcraftApp {
     ) -> CommandResult {
         self.remember_recent_project(path);
         self.document = project.document;
+        self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.saved_revision = self.document.revision();
         self.autosave_observed_revision = self.document.revision();
