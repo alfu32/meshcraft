@@ -1755,38 +1755,413 @@ fn command_label(command: &CommandDescriptor) -> &str {
     command.label.rsplit("> ").next().unwrap_or(&command.label)
 }
 
-fn ribbon_command_matches(tab: &str, command: &CommandDescriptor) -> bool {
-    let id = command.id.as_str();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RibbonCommandSpec {
+    key: &'static str,
+    label: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RibbonGroupSpec {
+    title: &'static str,
+    namespace: &'static str,
+    commands: &'static [RibbonCommandSpec],
+}
+
+macro_rules! ribbon_commands {
+    ($(($key:literal, $label:literal)),* $(,)?) => {
+        &[$(RibbonCommandSpec { key: $key, label: $label }),*]
+    };
+}
+
+const HOME_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Construction",
+        namespace: "ribbon/home/construction",
+        commands: ribbon_commands![
+            ("point", "Point"),
+            ("line", "Line"),
+            ("polyline", "Polyline"),
+            ("double-line", "2-Line"),
+            ("meshed-double-line", "Mesh 2-Line"),
+            ("closed-mesh", "Planar Mesh"),
+            ("rectangle", "Rectangle"),
+            ("circle", "Circle")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Modify Selection",
+        namespace: "ribbon/home/modify",
+        commands: ribbon_commands![
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("move", "Move"),
+            ("copy", "Copy"),
+            ("rotate-3d", "Rotate 3D"),
+            ("scale", "Scale"),
+            ("stretch", "Stretch"),
+            ("extrude", "Extrude")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Arrays & Objects",
+        namespace: "ribbon/home/arrays",
+        commands: ribbon_commands![
+            ("make-object", "Make Object"),
+            ("edit-object", "Edit Object"),
+            ("linear-array", "Linear"),
+            ("planar-array", "Planar"),
+            ("spatial-array", "Spatial"),
+            ("rotational-array", "Rotate"),
+            ("helical-array", "Helical")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Entities & View",
+        namespace: "ribbon/home/entities",
+        commands: ribbon_commands![
+            ("dimension", "Dimension"),
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame"),
+            ("orbit", "Orbit"),
+            ("zoom", "Zoom")
+        ],
+    },
+];
+const CONSTRUCTION_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Point Construction",
+        namespace: "ribbon/construction/points",
+        commands: ribbon_commands![
+            ("point", "Point"),
+            ("line", "Line"),
+            ("construction-polyline", "Polyline"),
+            ("double-line", "2-Line"),
+            ("meshed-double-line", "Mesh 2-Line"),
+            ("closed-mesh", "Closed Mesh"),
+            ("rectangle", "Rectangle"),
+            ("circle", "Circle"),
+            ("arc", "Arc"),
+            ("hotspot", "Hotspot")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Entity Construction",
+        namespace: "ribbon/construction/entities",
+        commands: ribbon_commands![
+            ("dimension", "Dimension"),
+            ("text", "Text"),
+            ("leader", "Leader"),
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Primitives & Services",
+        namespace: "ribbon/construction/primitives",
+        commands: ribbon_commands![
+            ("cuboid", "Cuboid"),
+            ("sphere", "Sphere"),
+            ("cylinder", "Cylinder"),
+            ("cone", "Cone"),
+            ("voxel", "Voxel"),
+            ("pipe", "Pipe"),
+            ("duct", "Duct")
+        ],
+    },
+];
+const MODIFY_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Selection",
+        namespace: "ribbon/modify/selection",
+        commands: ribbon_commands![
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("select-connected", "Connected"),
+            ("select-coplanar", "Coplanar"),
+            ("select-all", "Select All")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Transforms",
+        namespace: "ribbon/modify/transforms",
+        commands: ribbon_commands![
+            ("move", "Move"),
+            ("copy", "Copy"),
+            ("rotate-3d", "Rotate 3D"),
+            ("rotate-copy-3d", "Rotate Copy"),
+            ("scale", "Scale"),
+            ("stretch", "Stretch"),
+            ("extrude", "Extrude"),
+            ("mirror", "Mirror")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Surface & Path",
+        namespace: "ribbon/modify/surface",
+        commands: ribbon_commands![
+            ("offset", "Offset"),
+            ("sweep", "Sweep"),
+            ("fillet", "Fillet"),
+            ("chamfer", "Chamfer"),
+            ("planar-regularize", "Regularize"),
+            ("surface-remesh", "Remesh")
+        ],
+    },
+];
+const ARRAY_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Selection Arrays",
+        namespace: "ribbon/arrays/spread",
+        commands: ribbon_commands![
+            ("linear-array", "Linear Spread"),
+            ("planar-array", "Planar Spread"),
+            ("spatial-array", "Spatial Spread")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Rotational Arrays",
+        namespace: "ribbon/arrays/rotational",
+        commands: ribbon_commands![
+            ("rotational-array", "Rotational"),
+            ("helical-array", "Helical")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Objects",
+        namespace: "ribbon/arrays/objects",
+        commands: ribbon_commands![
+            ("make-object", "Make Object"),
+            ("edit-object", "Edit Object"),
+            ("place-object", "Place Instance"),
+            ("explode-object", "Explode")
+        ],
+    },
+];
+const ARCHITECTURE_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Architecture",
+        namespace: "ribbon/architecture/building",
+        commands: ribbon_commands![
+            ("wall", "Wall"),
+            ("slab", "Slab"),
+            ("stair", "Stair"),
+            ("frame", "Frame"),
+            ("door", "Door"),
+            ("window", "Window")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Building Services",
+        namespace: "ribbon/architecture/services",
+        commands: ribbon_commands![
+            ("pipe", "Pipe"),
+            ("duct", "Duct"),
+            ("voxel", "Voxel"),
+            ("dimension", "Dimension"),
+            ("text", "Text")
+        ],
+    },
+];
+const INSPECT_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Inspect",
+        namespace: "ribbon/inspect/measure",
+        commands: ribbon_commands![
+            ("distance", "Distance"),
+            ("dimension", "Dimension"),
+            ("selection-info", "Selection Info"),
+            ("object-info", "Object Info")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Selection",
+        namespace: "ribbon/inspect/selection",
+        commands: ribbon_commands![
+            ("select", "Select"),
+            ("window-select", "Window"),
+            ("select-connected", "Connected"),
+            ("select-coplanar", "Coplanar")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Model",
+        namespace: "ribbon/inspect/model",
+        commands: ribbon_commands![
+            ("objects", "Objects"),
+            ("hotspots", "Hotspots"),
+            ("walls", "Walls"),
+            ("dimensions", "Dimensions")
+        ],
+    },
+];
+const VIEW_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Camera",
+        namespace: "ribbon/view/camera",
+        commands: ribbon_commands![
+            ("orbit", "Orbit"),
+            ("pan", "Pan"),
+            ("zoom", "Zoom"),
+            ("fit-model", "Fit Model"),
+            ("reset-camera", "Reset")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Projection & Grid",
+        namespace: "ribbon/view/grid",
+        commands: ribbon_commands![
+            ("perspective", "Perspective"),
+            ("orthographic", "Orthographic"),
+            ("permanent-grid", "Grid"),
+            ("guides", "Guides"),
+            ("snap-settings", "Snapping")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Rendering",
+        namespace: "ribbon/view/render",
+        commands: ribbon_commands![
+            ("realtime-render", "RT"),
+            ("global-illumination", "GI"),
+            ("stop-render", "Stop"),
+            ("save-render", "Save Image")
+        ],
+    },
+];
+const SETTINGS_RIBBON_GROUPS: &[RibbonGroupSpec] = &[
+    RibbonGroupSpec {
+        title: "Model Settings",
+        namespace: "ribbon/settings/model",
+        commands: ribbon_commands![
+            ("unit-name", "Unit Name"),
+            ("unit-size", "Unit Size"),
+            ("grid-size", "Grid Size"),
+            ("circle-segments", "Circle Segments"),
+            ("snap-radius", "Snap Radius")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Interface",
+        namespace: "ribbon/settings/ui",
+        commands: ribbon_commands![
+            ("ui-text-size", "Text Size"),
+            ("toolbar-size", "Toolbar Size"),
+            ("permanent-grid", "Permanent Grid"),
+            ("arrange-toolbars", "Arrange Toolbars")
+        ],
+    },
+    RibbonGroupSpec {
+        title: "Domain Settings",
+        namespace: "ribbon/settings/domain",
+        commands: ribbon_commands![
+            ("architecture-settings", "Architecture"),
+            ("hvac-settings", "HVAC"),
+            ("hotspot-settings", "Hotspots"),
+            ("shader-settings", "Shaders")
+        ],
+    },
+];
+
+fn ribbon_groups(tab: &str) -> &'static [RibbonGroupSpec] {
     match tab {
-        "Construction" => {
-            id.starts_with("tool.") || id.starts_with("geometry.") || id.starts_with("entity.")
-        }
-        "Modify" => {
-            id.starts_with("transform.")
-                || id.starts_with("selection.")
-                || id.starts_with("tool.")
-                || id.starts_with("geometry.")
-        }
-        "Arrays" => id.contains("array") || id.contains("spread"),
-        "Architecture" => ["wall", "slab", "stair", "frame", "hvac", "pipe", "duct"]
-            .iter()
-            .any(|needle| id.contains(needle)),
-        "Inspect" => {
-            id.starts_with("selection.")
-                || id.contains("dimension")
-                || id.contains("measure")
-                || id.contains("hotspot")
-        }
-        "View" => id.starts_with("view.") || id.starts_with("render."),
-        "Settings" => id.starts_with("model.") || id.starts_with("ui.") || id.contains("settings"),
-        _ => {
-            id.starts_with("file.")
-                || id.starts_with("edit.")
-                || id.starts_with("tool.")
-                || id.starts_with("object.")
-                || id.starts_with("view.")
-        }
+        "Construction" => CONSTRUCTION_RIBBON_GROUPS,
+        "Modify" => MODIFY_RIBBON_GROUPS,
+        "Arrays" => ARRAY_RIBBON_GROUPS,
+        "Architecture" => ARCHITECTURE_RIBBON_GROUPS,
+        "Inspect" => INSPECT_RIBBON_GROUPS,
+        "View" => VIEW_RIBBON_GROUPS,
+        "Settings" => SETTINGS_RIBBON_GROUPS,
+        _ => HOME_RIBBON_GROUPS,
     }
+}
+
+fn ribbon_command_for_key<'a>(
+    key: &str,
+    catalog: &'a [CommandDescriptor],
+) -> Option<&'a CommandDescriptor> {
+    let ids: &[&str] = match key {
+        "line" => &["tool.builtin.line", "tool.line"],
+        "point" => &["tool.builtin.point"],
+        "polyline" => &["tool.builtin.polyline"],
+        "construction-polyline" => &["tool.builtin.construction_line"],
+        "double-line" => &["tool.builtin.double_line"],
+        "meshed-double-line" => &["tool.builtin.ribbon_3d"],
+        "closed-mesh" => &["tool.builtin.polyline_mesh"],
+        "rectangle" => &["tool.builtin.rectangle", "tool.rectangle"],
+        "circle" => &["tool.builtin.circle"],
+        "arc" => &["tool.builtin.arc"],
+        "hotspot" => &["hotspot.begin_placement"],
+        "select" | "window-select" => &["tool.select"],
+        "move" => &["tool.builtin.move"],
+        "copy" => &["edit.copy_selection"],
+        "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],
+        "rotate-copy-3d" => &["tool.builtin.rotate_2"],
+        "scale" => &["tool.builtin.scale"],
+        "stretch" => &["tool.builtin.stretch"],
+        "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
+        "mirror" => &["tool.builtin.mirror"],
+        "make-object" => &["object.create_from_selection"],
+        "edit-object" => &["selection.edit_object"],
+        "place-object" => &["object.place_selected_definition"],
+        "explode-object" => &["object.explode_selection"],
+        "dimension" => &["tool.builtin.linear_dimension"],
+        "text" => &["tool.builtin.text"],
+        "wall" => &["tool.builtin.arch_wall"],
+        "slab" => &["tool.builtin.arch_slab"],
+        "stair" => &["tool.builtin.arch_stair"],
+        "frame" => &[
+            "tool.builtin.arch_window_frame",
+            "tool.builtin.arch_door_frame",
+        ],
+        "door" => &["tool.builtin.arch_door_frame"],
+        "window" => &["tool.builtin.arch_window_frame"],
+        "cuboid" => &["tool.cuboid"],
+        "sphere" => &["tool.builtin.primitive_sphere"],
+        "cylinder" => &["tool.builtin.primitive_cylinder"],
+        "cone" => &["tool.builtin.primitive_cone"],
+        "voxel" => &["tool.builtin.voxel"],
+        "pipe" => &["tool.builtin.hvac_plumbing"],
+        "duct" => &["tool.builtin.hvac_ventilation"],
+        "distance" => &["tool.distance"],
+        "offset" => &["tool.builtin.line_offset"],
+        "sweep" => &[
+            "tool.builtin.extrude_swipe",
+            "tool.builtin.extrude_swipe_3d",
+        ],
+        "planar-regularize" => &["tool.builtin.mesh_regularize"],
+        "surface-remesh" => &["tool.builtin.surface_remesh"],
+        "linear-array" => &["tool.builtin.copy_multiple"],
+        "planar-array" => &["tool.builtin.planar_translate_multiple"],
+        "spatial-array" => &["tool.builtin.volumetric_translate_multiple"],
+        "rotational-array" => &["tool.builtin.rotational_array"],
+        "helical-array" => &["tool.builtin.helical_array"],
+        "orbit" => &["view.orbit"],
+        "pan" | "zoom" => &[],
+        "fit-model" => &["view.frame_document"],
+        "reset-camera" => &["view.camera.reset"],
+        "orthographic" => &["view.camera.orthographic"],
+        "permanent-grid" => &["view.grid.toggle"],
+        "guides" => &["view.guides.toggle"],
+        "selection-info" => &["view.selection"],
+        "object-info" => &["view.object_info"],
+        "objects" => &["view.objects"],
+        "architecture-settings" => &["view.architecture_settings"],
+        "hvac-settings" => &["view.hvac_settings"],
+        "hotspot-settings" => &["view.hotspot_settings"],
+        "shader-settings" => &["view.panel.shaders.toggle"],
+        "realtime-render" => &["render.raytrace"],
+        "global-illumination" => &["render.global_illumination"],
+        "stop-render" => &["render.stop"],
+        "save-render" => &["render.save"],
+        _ => return None,
+    };
+    ids.iter()
+        .find_map(|id| catalog.iter().find(|command| command.id.as_str() == *id))
 }
 
 fn menu_x(menu: &str) -> f32 {
@@ -1820,6 +2195,91 @@ fn panel_section(title: impl Into<SharedString>, body: impl IntoElement) -> impl
                 .child(title),
         )
         .child(body)
+}
+
+fn readonly_setting(
+    id: &'static str,
+    label: &'static str,
+    value: &'static str,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .gap(px(3.))
+        .child(div().text_xs().text_color(rgb(0x9faebb)).child(label))
+        .child(
+            div()
+                .w_full()
+                .px(px(6.))
+                .py(px(4.))
+                .bg(rgb(0x1c2229))
+                .text_sm()
+                .text_color(rgb(0xc1cad4))
+                .child(value),
+        )
+}
+
+fn readonly_setting_pair(
+    left_id: &'static str,
+    left_label: &'static str,
+    left_value: &'static str,
+    right_id: &'static str,
+    right_label: &'static str,
+    right_value: &'static str,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .gap(px(6.))
+        .child(
+            div()
+                .flex_1()
+                .child(readonly_setting(left_id, left_label, left_value)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .child(readonly_setting(right_id, right_label, right_value)),
+        )
+}
+
+fn readonly_check(id: &'static str, label: &'static str, checked: bool) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .text_sm()
+        .text_color(rgb(0xc1cad4))
+        .child(
+            div()
+                .w(px(14.))
+                .h(px(14.))
+                .border_1()
+                .border_color(rgb(0x646d79))
+                .bg(if checked {
+                    rgb(0x3d6388)
+                } else {
+                    rgb(0x30363e)
+                }),
+        )
+        .child(label)
+}
+
+fn disabled_setting_actions(
+    namespace: &'static str,
+    actions: &[(&'static str, &'static str)],
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_wrap()
+        .gap(px(4.))
+        .children(actions.iter().map(|(id, label)| {
+            Button::new(SharedString::from(format!("settings/{namespace}/{id}")))
+                .label(*label)
+                .small()
+                .disabled(true)
+        }))
 }
 
 impl Render for MeshcraftShell {
@@ -1915,34 +2375,71 @@ impl Render for MeshcraftShell {
                 }
             }));
 
-        let ribbon_commands = MeshcraftApp::command_catalog()
-            .into_iter()
-            .filter(|command| ribbon_command_matches(self.active_ribbon_tab, command))
-            .collect::<Vec<_>>();
+        let ribbon_catalog = MeshcraftApp::command_catalog();
+        let ribbon_group_specs = ribbon_groups(self.active_ribbon_tab);
         let ribbon = div()
-            .h(px(78.))
+            .h(px(104.))
             .flex()
             .items_start()
-            .gap(px(4.))
-            .px(px(7.))
-            .py(px(5.))
+            .gap(px(2.))
+            .px(px(5.))
+            .py(px(3.))
             .bg(rgb(0x202833))
-            .overflow_x_scrollbar()
-            .children(ribbon_commands.into_iter().map(|command| {
-                let id = command.id.as_str().to_owned();
-                let label = command_label(&command).to_owned();
-                let enabled = command_enabled(&self.session, &command);
-                let tooltip = command.presentation.palette_path.clone();
-                Button::new(command_button_id("ribbon", &command))
-                    .label(label)
-                    .small()
-                    .compact()
-                    .tooltip(tooltip)
-                    .disabled(!enabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.dispatch(&id);
-                        cx.notify();
-                    }))
+            .children(ribbon_group_specs.iter().map(|group| {
+                div()
+                    .id(group.namespace)
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .gap(px(3.))
+                    .px(px(6.))
+                    .border_r_1()
+                    .border_color(rgb(0x3b4654))
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(0x9caec3))
+                            .child(group.title),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .w_full()
+                            .items_center()
+                            .gap(px(3.))
+                            .children(group.commands.iter().map(|spec| {
+                                let button_id = SharedString::from(format!(
+                                    "{}/{}/{}",
+                                    group.namespace, group.title, spec.key
+                                ));
+                                if let Some(command) =
+                                    ribbon_command_for_key(spec.key, &ribbon_catalog)
+                                {
+                                    let id = command.id.as_str().to_owned();
+                                    let enabled = command_enabled(&self.session, command);
+                                    let tooltip = command.presentation.palette_path.clone();
+                                    Button::new(button_id)
+                                        .label(spec.label)
+                                        .small()
+                                        .compact()
+                                        .tooltip(tooltip)
+                                        .disabled(!enabled)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.dispatch(&id);
+                                            cx.notify();
+                                        }))
+                                } else {
+                                    Button::new(button_id)
+                                        .label(spec.label)
+                                        .small()
+                                        .compact()
+                                        .disabled(true)
+                                }
+                            })),
+                    )
             }));
 
         let toolbar_visibility = self.session.native_toolbar_visibility();
@@ -2382,6 +2879,428 @@ impl Render for MeshcraftShell {
                     format!("Grid extent: {} steps", ui_preferences.grid_extent),
                 )),
         );
+        let legacy_settings_panels = [
+            panel_section(
+                "Polyline Settings",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting(
+                        "polyline/arc-max-length",
+                        "Arc max length",
+                        "0.500",
+                    ))
+                    .child(readonly_setting(
+                        "polyline/double-line-size",
+                        "Double line size",
+                        "1.000",
+                    ))
+                    .child(readonly_setting(
+                        "polyline/double-line-offset",
+                        "Double line offset",
+                        "0.500",
+                    )),
+            ),
+            panel_section(
+                "Vector Text",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting("vector-text/text", "Text", "TEXT"))
+                    .child(readonly_setting_pair(
+                        "vector-text/size",
+                        "Size",
+                        "1.000",
+                        "vector-text/tracking",
+                        "Tracking",
+                        "0.100",
+                    ))
+                    .child(readonly_setting(
+                        "vector-text/line-spacing",
+                        "Line spacing",
+                        "1.250",
+                    ))
+                    .child(readonly_setting(
+                        "vector-text/glyph-source",
+                        "Glyph source file (.octd / .ttf / .otf)",
+                        "embedded:alphabet",
+                    ))
+                    .child(disabled_setting_actions(
+                        "vector-text",
+                        &[
+                            ("load-glyph-source", "Load Glyph Source"),
+                            ("browse-glyph-source", "Browse…"),
+                        ],
+                    )),
+            ),
+            panel_section(
+                "Architecture - Walls",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text(
+                        "Default construction settings · Walls (0 selected)",
+                    ))
+                    .child(readonly_setting_pair(
+                        "walls/name",
+                        "Wall name",
+                        "",
+                        "walls/thickness",
+                        "Wall thickness",
+                        "0.200",
+                    ))
+                    .child(readonly_setting_pair(
+                        "walls/height",
+                        "Wall height",
+                        "2.700",
+                        "walls/inclination",
+                        "Wall inclination (deg)",
+                        "0.000",
+                    ))
+                    .child(readonly_setting_pair(
+                        "walls/exterior-color",
+                        "Wall exterior color",
+                        "edededff",
+                        "walls/interior-color",
+                        "Wall interior color",
+                        "d6d6d6ff",
+                    )),
+            ),
+            panel_section(
+                "Architecture - Slabs",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Slabs (0 selected)"))
+                    .child(readonly_setting_pair(
+                        "slabs/name",
+                        "Slab name",
+                        "",
+                        "slabs/thickness",
+                        "Slab thickness",
+                        "0.200",
+                    ))
+                    .child(readonly_setting_pair(
+                        "slabs/top-color",
+                        "Slab top color",
+                        "edededff",
+                        "slabs/bottom-color",
+                        "Slab bottom color",
+                        "d6d6d6ff",
+                    ))
+                    .child(readonly_setting(
+                        "slabs/side-color",
+                        "Slab side color",
+                        "e0e0e0ff",
+                    )),
+            ),
+            panel_section(
+                "Architecture - Stairs",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Stairs (0 selected)"))
+                    .child(readonly_setting_pair(
+                        "stairs/name",
+                        "Stair name",
+                        "",
+                        "stairs/height",
+                        "Stair height",
+                        "2.700",
+                    ))
+                    .child(readonly_setting_pair(
+                        "stairs/steps",
+                        "Stair steps",
+                        "14",
+                        "stairs/support-thickness",
+                        "Stair support thickness",
+                        "0.200",
+                    ))
+                    .child(readonly_check(
+                        "stairs/left-rail-grid",
+                        "Stair left rail grid",
+                        true,
+                    ))
+                    .child(readonly_check(
+                        "stairs/right-rail-grid",
+                        "Stair right rail grid",
+                        true,
+                    ))
+                    .child(readonly_setting_pair(
+                        "stairs/tread-color",
+                        "Stair tread color",
+                        "edededff",
+                        "stairs/support-color",
+                        "Stair support color",
+                        "d1d1d1ff",
+                    )),
+            ),
+            panel_section(
+                "Architecture - Frames",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Frames (0 selected)"))
+                    .child(readonly_setting_pair(
+                        "frames/name",
+                        "Frame name",
+                        "",
+                        "frames/depth",
+                        "Frame depth",
+                        "0.120",
+                    ))
+                    .child(readonly_setting_pair(
+                        "frames/width",
+                        "Frame width",
+                        "0.060",
+                        "frames/glazing",
+                        "Frame glazing",
+                        "Enabled",
+                    )),
+            ),
+            panel_section(
+                "HVAC Settings",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting("hvac/plumbing-label", "Plumbing", ""))
+                    .child(readonly_setting_pair(
+                        "hvac/pipe-diameter",
+                        "Pipe diameter",
+                        "0.200",
+                        "hvac/pipe-sides",
+                        "Pipe sides",
+                        "16",
+                    ))
+                    .child(readonly_setting(
+                        "hvac/pipe-color",
+                        "Pipe color",
+                        "b3d1f2ff",
+                    ))
+                    .child(readonly_check(
+                        "hvac/auto-join",
+                        "Ventilation auto join",
+                        false,
+                    ))
+                    .child(readonly_setting_pair(
+                        "hvac/duct-width",
+                        "Duct width",
+                        "0.500",
+                        "hvac/duct-height",
+                        "Duct height",
+                        "0.250",
+                    ))
+                    .child(readonly_setting_pair(
+                        "hvac/hump-span",
+                        "Hump half span",
+                        "0.625",
+                        "hvac/hump-clearance",
+                        "Hump clearance",
+                        "0.050",
+                    ))
+                    .child(readonly_setting(
+                        "hvac/duct-color",
+                        "Duct color",
+                        "d1d1d1ff",
+                    )),
+            ),
+            panel_section(
+                "Hotspot Settings",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Default hotspot settings"))
+                    .child(readonly_setting("hotspot/name", "Name", ""))
+                    .child(readonly_setting_pair(
+                        "hotspot/operation",
+                        "Operation",
+                        "MOVE",
+                        "hotspot/shape",
+                        "Shape",
+                        "CIRCLE",
+                    ))
+                    .child(readonly_setting("hotspot/color", "Color", "338cf2ff"))
+                    .child(stat_text("Attached: edges 0 · faces 0"))
+                    .child(stat_text("Reference: none"))
+                    .child(disabled_setting_actions(
+                        "hotspot",
+                        &[
+                            ("attach-selection", "Attach Selection"),
+                            ("select-attached", "Select Attached"),
+                            ("pick-reference", "Pick Reference"),
+                            ("clear-reference", "Clear Reference"),
+                            ("add-at-cursor", "Add At Cursor"),
+                            ("delete-selected", "Delete Selected"),
+                        ],
+                    )),
+            ),
+            panel_section(
+                "Random Tools",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting(
+                        "random/fuzzy-offset",
+                        "Fuzzy offset strength [0...100]",
+                        "1",
+                    ))
+                    .child(stat_text("Random Surface Array"))
+                    .child(readonly_setting("random/copy-count", "Copy count", "12"))
+                    .child(readonly_setting_pair(
+                        "random/scale-fuzz",
+                        "Scale fuzz [0...100]",
+                        "0",
+                        "random/rotation-fuzz",
+                        "Rotation fuzz [0...100]",
+                        "0",
+                    ))
+                    .child(readonly_check(
+                        "random/align-normal",
+                        "Align to surface normal",
+                        true,
+                    )),
+            ),
+            panel_section(
+                "Planar Regularize / Surface Remesh",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting(
+                        "remesh/subdivisions",
+                        "Subdivisions",
+                        "12",
+                    ))
+                    .child(readonly_setting(
+                        "remesh/tolerance",
+                        "Planar / projection tolerance",
+                        "0.05",
+                    )),
+            ),
+            panel_section(
+                "Tutorials",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(stat_text("Mode: Idle · Step: 0/0"))
+                    .child(readonly_setting(
+                        "tutorials/lesson",
+                        "Tutorial",
+                        "01A. Full House Exterior",
+                    ))
+                    .child(readonly_setting(
+                        "tutorials/step",
+                        "Lesson",
+                        "01. Lines / Extrude-swipe",
+                    ))
+                    .child(disabled_setting_actions(
+                        "tutorials",
+                        &[
+                            ("record", "Record"),
+                            ("stop-recording", "Stop Rec"),
+                            ("play", "Play"),
+                            ("pause", "Pause"),
+                            ("stop", "Stop"),
+                        ],
+                    )),
+            ),
+            panel_section(
+                "Shader Settings",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .child(readonly_setting_pair(
+                        "shader/shadow-value",
+                        "Shadow value",
+                        "0.59",
+                        "shader/shadow-alpha",
+                        "Shadow alpha",
+                        "0.50",
+                    ))
+                    .child(readonly_setting_pair(
+                        "shader/directional-value",
+                        "Directional value",
+                        "0.73",
+                        "shader/directional-alpha",
+                        "Directional alpha",
+                        "1.00",
+                    ))
+                    .child(readonly_setting_pair(
+                        "shader/ambient-value",
+                        "Ambient value",
+                        "0.59",
+                        "shader/ambient-alpha",
+                        "Ambient alpha",
+                        "1.00",
+                    ))
+                    .child(readonly_setting_pair(
+                        "shader/specular-value",
+                        "Specular value",
+                        "0.20",
+                        "shader/specular-alpha",
+                        "Specular alpha",
+                        "0.95",
+                    ))
+                    .child(readonly_setting_pair(
+                        "shader/shadow-bias",
+                        "Shadow bias",
+                        "2500.00",
+                        "shader/normal-bias",
+                        "Normal bias",
+                        "5620.00",
+                    ))
+                    .child(readonly_check("shader/use-csm", "Use CSM", true))
+                    .child(readonly_check("shader/dither", "Dither Shadows", false)),
+            ),
+            panel_section(
+                "Help / About",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.))
+                    .px(px(8.))
+                    .pb(px(7.))
+                    .text_sm()
+                    .text_color(rgb(0xc1cad4))
+                    .child("Meshcraft · GPUI shell with offscreen raylib viewport")
+                    .child("Desktop · Commands remain UI-independent"),
+            ),
+        ];
         let right_panel = div()
             .id("settings-inspector")
             .w(px(330.))
@@ -2408,6 +3327,7 @@ impl Render for MeshcraftShell {
             .child(object_panel)
             .child(model_panel)
             .child(ui_settings_panel)
+            .children(legacy_settings_panels)
             .child(panel_section(
                 "Viewport & Guides",
                 div()
@@ -2662,8 +3582,63 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
 mod tests {
     use super::{
         GridNormalAxis, OrbitCamera, SnapKind, ViewportBridge, ViewportLayout, grid_point_on_ray,
+        ribbon_command_for_key, ribbon_groups,
     };
+    use crate::MeshcraftApp;
     use meshcraft_core::geometry::Vec3;
+
+    #[test]
+    fn experiment_ribbon_structure_and_command_bindings_are_preserved() {
+        let commands = MeshcraftApp::command_catalog();
+        for tab in [
+            "Home",
+            "Construction",
+            "Modify",
+            "Arrays",
+            "Architecture",
+            "Inspect",
+            "View",
+            "Settings",
+        ] {
+            let groups = ribbon_groups(tab);
+            assert!(!groups.is_empty(), "{tab} has ribbon groups");
+            for group in groups {
+                assert!(
+                    !group.commands.is_empty(),
+                    "{tab} / {} has buttons",
+                    group.title
+                );
+            }
+        }
+
+        for (key, id) in [
+            ("line", "tool.builtin.line"),
+            ("move", "tool.builtin.move"),
+            ("copy", "edit.copy_selection"),
+            ("rotate-copy-3d", "tool.builtin.rotate_2"),
+            ("make-object", "object.create_from_selection"),
+            ("linear-array", "tool.builtin.copy_multiple"),
+            ("planar-array", "tool.builtin.planar_translate_multiple"),
+            (
+                "spatial-array",
+                "tool.builtin.volumetric_translate_multiple",
+            ),
+            ("rotational-array", "tool.builtin.rotational_array"),
+            ("helical-array", "tool.builtin.helical_array"),
+            ("hotspot", "hotspot.begin_placement"),
+            ("wall", "tool.builtin.arch_wall"),
+            ("reset-camera", "view.camera.reset"),
+            ("permanent-grid", "view.grid.toggle"),
+            ("guides", "view.guides.toggle"),
+            ("architecture-settings", "view.architecture_settings"),
+            ("hvac-settings", "view.hvac_settings"),
+            ("realtime-render", "render.raytrace"),
+        ] {
+            let command = ribbon_command_for_key(key, &commands)
+                .unwrap_or_else(|| panic!("ribbon button {key} should be connected"));
+            assert_eq!(command.id.as_str(), id, "{key} binds to {id}");
+        }
+    }
 
     #[test]
     fn grid_snap_intersects_each_configured_workplane() {
