@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Meshcraft" Manufacturer="Meshcraft" Version="$(var.Version)"
+           UpgradeCode="FC578B9A-987F-4685-9EAD-0E7DDA246A30" Scope="perMachine" Compressed="yes" Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Meshcraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="AppIcon" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <StandardDirectory Id="ProgramFiles6432Folder"><Directory Id="INSTALLFOLDER" Name="Meshcraft" /></StandardDirectory>
+    <Feature Id="Main" Title="Meshcraft" Level="1"><ComponentGroupRef Id="MeshcraftFiles" /><ComponentRef Id="MenuShortcut" /></Feature>
+    <StandardDirectory Id="ProgramMenuFolder"><Directory Id="MeshcraftMenu" Name="Meshcraft">
+      <Component Id="MenuShortcut" Guid="*">
+        <Shortcut Id="StartMeshcraft" Name="Meshcraft" Target="[INSTALLFOLDER]meshcraft.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RemoveFolder Id="RemoveMeshcraftMenu" On="uninstall" />
+        <RegistryValue Root="HKLM" Key="Software\Meshcraft" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Directory></StandardDirectory>
+  </Package>
+  <Fragment><ComponentGroup Id="MeshcraftFiles" Directory="INSTALLFOLDER"><Files Include="$(var.Stage)\**" /></ComponentGroup></Fragment>
+</Wix>

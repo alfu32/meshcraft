@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Bundle non-driver ELF dependencies and enforce the declared glibc ceiling."""
+
+import argparse
+import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+from common import ROOT, sha
+
+# The OS supplies glibc, its loader, and the GPU/GL/Vulkan driver stack.
+SYSTEM = {
+    "libc.so.6",
+    "libm.so.6",
+    "libpthread.so.0",
+    "libdl.so.2",
+    "librt.so.1",
+    "libresolv.so.2",
+    "libutil.so.1",
+    "ld-linux-x86-64.so.2",
+    "ld-linux-aarch64.so.1",
+    "libGL.so.1",
+    "libEGL.so.1",
+    "libGLX.so.0",
+    "libGLdispatch.so.0",
+    "libOpenGL.so.0",
+    "libvulkan.so.1",
+    "libgcc_s.so.1",
+    "libstdc++.so.6",
+}
+
+
+def glibc(path):
+    text = subprocess.check_output(["readelf", "--version-info", str(path)], text=True)
+    versions = re.findall(r"GLIBC_(\d+(?:\.\d+)+)", text)
+    return max(versions, key=lambda v: tuple(map(int, v.split("."))), default="0.0")
+
+
+def bundle(binary, target, output, ceiling):
+    if target not in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"):
+        raise ValueError("Native dependency bundling requires Linux GNU")
+    machine = subprocess.check_output(["readelf", "-h", str(binary)], text=True)
+    expected = (
+        "AArch64" if target.startswith("aarch64") else "Advanced Micro Devices X86-64"
+    )
+    if expected not in machine:
+        raise ValueError("ELF architecture differs from release target")
+    cache = subprocess.check_output(["ldconfig", "-p"], text=True)
+    paths = {}
+    for line in cache.splitlines():
+        match = re.match(r"\s*(\S+) \(.*\) => (.*)", line)
+        if match:
+            paths.setdefault(match[1], Path(match[2]))
+    output.mkdir(parents=True, exist_ok=True)
+    if any(output.iterdir()):
+        raise ValueError("Native bundle output must be empty")
+    pending = [("bin/meshcraft", binary)]
+    # These are also loaded dynamically by GPUI/font-kit on Linux.
+    for name in [
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
+        "libxkbcommon.so.0",
+        "libxkbcommon-x11.so.0",
+        "libX11-xcb.so.1",
+        "libXcursor.so.1",
+        "libXrandr.so.2",
+        "libXinerama.so.1",
+        "libXi.so.6",
+        "libXrender.so.1",
+    ]:
+        if name not in paths:
+            raise ValueError("Missing dynamic runtime dependency: " + name)
+        pending.append(("lib/" + name, paths[name]))
+    seen = set()
+    external = set()
+    records = []
+    while pending:
+        name, source = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        dest = output / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, dest)
+        dest.chmod(0o755)
+        subprocess.run(
+            [
+                "patchelf",
+                "--set-rpath",
+                "$ORIGIN/../lib" if name.startswith("bin/") else "$ORIGIN",
+                str(dest),
+            ],
+            check=True,
+        )
+        required = glibc(dest)
+        if tuple(map(int, required.split("."))) > tuple(map(int, ceiling.split("."))):
+            raise ValueError(
+                name + " requires GLIBC_" + required + ", newer than " + ceiling
+            )
+        needed = re.findall(
+            r"Shared library: \[(.*?)\]",
+            subprocess.check_output(["readelf", "-d", str(dest)], text=True),
+        )
+        records.append(
+            dict(
+                file=name,
+                minimumGlibc=required,
+                needed=needed,
+                sha256=sha(dest.read_bytes()),
+            )
+        )
+        if name.startswith("lib/"):
+            owner = None
+            for candidate in [source, source.resolve()]:
+                result = subprocess.run(
+                    ["dpkg-query", "-S", str(candidate)], text=True, capture_output=True
+                )
+                if result.returncode == 0:
+                    owner = result.stdout.split(": ", 1)[0].split(":")[0]
+                    break
+            notice = Path("/usr/share/doc") / (owner or "") / "copyright"
+            if not owner or not notice.is_file():
+                raise ValueError("Missing native library notice: " + str(source))
+            dest_notice = output / "notices/native" / owner / "copyright"
+            dest_notice.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(notice, dest_notice)
+        for dependency in needed:
+            if dependency in SYSTEM:
+                external.add(dependency)
+            else:
+                if dependency not in paths:
+                    raise ValueError("Unresolved library " + dependency)
+                pending.append(("lib/" + dependency, paths[dependency]))
+    # A minimal font set/config also works inside the isolated Snap runtime.
+    fonts = Path("/usr/share/fonts/truetype/dejavu")
+    if not fonts.is_dir():
+        raise ValueError("fonts-dejavu-core is required for native packaging")
+    shutil.copytree(fonts, output / "share/fonts")
+    (output / "etc/fonts").mkdir(parents=True)
+    shutil.copyfile(
+        ROOT / "packaging/linux/fonts.conf", output / "etc/fonts/fonts.conf"
+    )
+    (output / "notices/native/fonts-dejavu-core").mkdir(parents=True)
+    shutil.copyfile(
+        "/usr/share/doc/fonts-dejavu-core/copyright",
+        output / "notices/native/fonts-dejavu-core/copyright",
+    )
+    shutil.copytree(
+        "/usr/share/common-licenses",
+        output / "notices/native/common-licenses",
+        symlinks=False,
+    )
+    report = dict(
+        schemaVersion=1,
+        target=target,
+        buildGlibcCeiling=ceiling,
+        minimumGlibc=max(
+            (r["minimumGlibc"] for r in records),
+            key=lambda v: tuple(map(int, v.split("."))),
+        ),
+        externalSystemLibraries=sorted(external),
+        elf=sorted(records, key=lambda r: r["file"]),
+    )
+    (output / "native-manifest.json").write_text(
+        json.dumps(report, sort_keys=True, indent=2) + "\n"
+    )
+    print(
+        "Bundled "
+        + str(len(records))
+        + " ELF files; minimum glibc "
+        + report["minimumGlibc"]
+    )
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--binary", type=Path, required=True)
+    p.add_argument("--target", required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--max-glibc", default="2.27")
+    a = p.parse_args()
+    bundle(a.binary, a.target, a.output, a.max_glibc)

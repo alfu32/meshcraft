@@ -130,7 +130,7 @@ WASM build/serve, browser file open/import/download and local recovery; custom e
 
 ## C31 — Release qualification
 
-Linux/Windows/macOS packages launch, open legacy files, save/recover, use menus/shortcuts/dialogs, export and close cleanly. Complete all in-scope requirement/task mappings, measured performance report and deliberate-difference ledger. Verify docs/assets/provenance/build metadata and absence of mandatory Android/JVM/Groovy/TUI dependencies. Initial desktop release does not wait for C30/browser or C33/JavaScriptCore plugins; those have separate required delivery gates. No placeholders or unimplemented commands are reported as finished features.
+Linux/Windows/macOS packages launch, open legacy files, save/recover, use menus/shortcuts/dialogs, export and close cleanly. Manual release dispatch uses the selected existing tag, matches the literal app version and immutable source SHA, and rejects incomplete six-target artifact/checksum matrices. Audit old-sysroot Linux ELF requirements independently of the hosted runner; unsigned MSIX is an explicit deferred-signing output, not a signed installability proof. Complete all in-scope requirement/task mappings, measured performance report and deliberate-difference ledger. Verify docs/assets/provenance/build metadata and absence of mandatory Android/JVM/Groovy/TUI dependencies. Initial desktop release does not wait for C30/browser or C33/JavaScriptCore plugins; those have separate required delivery gates. No placeholders or unimplemented commands are reported as finished features.
 
 ## C32 — Normalized object ownership and effective-content equivalence
 

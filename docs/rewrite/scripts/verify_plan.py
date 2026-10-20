@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -9,9 +11,17 @@ WORKSPACE = ROOT.parents[1]
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Validate the rewrite handoff and pinned source evidence")
+    parser.add_argument("--source-root", type=Path, help="Explicit pinned legacy checkout (CI); inventory is not modified")
+    args = parser.parse_args()
     registry = json.loads((ROOT / "tasks.json").read_text())
     inventory = json.loads((ROOT / "source-inventory.json").read_text())
     errors = []
+    source_root = args.source_root or Path(inventory["source"])
+    if args.source_root:
+        result = subprocess.run(["git", "-C", str(source_root), "rev-parse", "HEAD"], capture_output=True, text=True)
+        if result.returncode or result.stdout.strip() != inventory["head"]:
+            errors.append("Legacy source checkout differs from pinned inventory revision")
     tasks = {task["id"]: task for task in registry["tasks"]}
     if len(tasks) != len(registry["tasks"]):
         errors.append("Duplicate task IDs")
@@ -43,7 +53,7 @@ def main():
                 errors.append(task["id"] + " unknown scenario " + scenario)
             covered_scenarios.add(scenario)
         for path in task["source_paths"]:
-            if not (Path(inventory["source"]) / path).is_file():
+            if not (source_root / path).is_file():
                 errors.append(task["id"] + " missing source " + path)
         for path in task.get("design_docs", []):
             if not (WORKSPACE / path).is_file():

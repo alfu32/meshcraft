@@ -1,0 +1,6 @@
+.git
+target
+experiments/stack-gpui-raylib/target
+docs
+*.octd
+*.bak

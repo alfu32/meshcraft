@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Meshcraft
+Comment=3D construction and modeling
+Exec=meshcraft %f
+Icon=meshcraft
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=application/x-meshcraft;

@@ -4259,7 +4259,7 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "eframe",

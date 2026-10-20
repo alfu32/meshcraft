@@ -2132,7 +2132,8 @@
         "docs/rewrite/qualification/",
         "crates/meshcraft-desktop/",
         "packaging/",
-        ".github/workflows/"
+        ".github/workflows/",
+        "scripts/release/"
       ],
       "source_paths": [
         ".github/workflows/release.yml",
@@ -2150,14 +2151,14 @@
         "Run whole feature/format/document matrices and complete menu mapping for all 74 built-ins plus non-tool actions; audit enabled/checked/focus behavior on each desktop OS.",
         "Measure T00 scenarios and optimize demonstrated bottlenecks only: raw load, revisioned indexes, orthographic queries, frustum culling, incremental chunks, preview and undo memory.",
         "Record deliberate differences, known unsupported subsets and executed versus manual results. Resolve release naming/app IDs/aliases without changing legacy file meaning.",
-        "Package Linux/Windows/macOS builds, provenance/assets/docs/command references and install/open/save/export/close smoke tests. Enforce no Android/Groovy/TUI requirement."
+        "Package Linux/Windows/macOS builds, provenance/assets/docs/command references and install/open/save/export/close smoke tests. Enforce no Android/Groovy/TUI requirement. Prepare the manual six-native-target pipeline with existing-tag dispatch, literal app-version matching, audited old-glibc Linux compilation, portable ZIP/tar.gz plus AppImage/Snap/MSI/MSIX/DMG, mandatory complete-matrix digests, and deferred MSIX signing (2026-10-20). Native GUI qualification remains separate."
       ],
       "done": [
         "All initial desktop requirements are mapped to passing evidence or explicitly reviewed limitations; no placeholder command counts as complete.",
         "C23/C26/C31 report is concrete and desktop release is independent of browser delivery."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]

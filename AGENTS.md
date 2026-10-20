@@ -25,6 +25,10 @@ Run `verify_plan.py` after changing requirements, tasks, acceptance suites, loca
 The repository history uses Conventional Commit style (for example, `feat(planning): ...`). Keep commits focused and mention the affected task or document area. PRs should explain the behavior or planning change, link relevant requirement/task/scenario IDs, report validation commands and results, and include screenshots for visual changes. Call out unverified assumptions or blocked checks explicitly.
 Tags are important in this process so each time you commit dont forget to tag according to semver rules and increase the harcoded app version in the app toml (versionise before committing). Major version incrementation is my responsibility.
 
+## Manual desktop releases
+
+Use `.github/workflows/distribution.yaml` with `workflow_dispatch` at an existing version tag; do not add a redundant tag/source input or create/move tags in the workflow. The tag must match the hardcoded desktop app version. Preserve the six-target native matrix and portable/AppImage/Snap/MSI/MSIX/DMG artifacts documented in `packaging/README.md`. Linux compilation and native dependency collection use the old-glibc container, with an ELF version ceiling; a newer hosted runner is only the orchestrator. MSIX signing stays deferred until the user prepares repository secrets. Packaging helpers use the standard library and have checks via `python3 -m unittest discover -s scripts/release -p 'test_*.py' -v`.
+
 ## User requests check
 
 you will periodically check for issues opened on the github issues list using gh, bugs will be treated with priority. features will be either integrated into the existing plan or you will integrate another feature into the features list. rules types of issues apply as a general rule and should be integrated in agents.md and/or the specification.

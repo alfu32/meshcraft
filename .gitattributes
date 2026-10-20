@@ -1,0 +1,2 @@
+# Pinned upstream notices/patches remain byte-identical to their recorded SHA-256.
+packaging/licenses/appimage-runtime/** -whitespace

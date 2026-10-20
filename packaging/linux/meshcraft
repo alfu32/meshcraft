@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+app_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Prefer desktop/driver-provider libraries when available; the audited bundle
+# supplies missing dependencies. In particular XKB must match the host Compose data.
+case $(uname -m) in
+  x86_64) app_triplet=x86_64-linux-gnu ;;
+  aarch64) app_triplet=aarch64-linux-gnu ;;
+  *) echo 'Unsupported Meshcraft architecture' >&2; exit 1 ;;
+esac
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/lib/$app_triplet:/usr/lib/$app_triplet:/lib64:/usr/lib64:/lib:/usr/lib:$app_root/lib"
+export FONTCONFIG_FILE="$app_root/etc/fonts/fonts.conf"
+exec "$app_root/bin/meshcraft" "$@"

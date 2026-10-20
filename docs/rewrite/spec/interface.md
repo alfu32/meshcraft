@@ -185,6 +185,8 @@ Source: `K/WebRuntimeBridge.kt`, browser bridge Java code, web build/component t
 
 Rust release gates include reproducible locked toolchain/dependencies, packaged launch/open/save smoke checks and platform-specific dialog/shortcut/menu verification. Store submission, Android distribution, and changing licensing terms are separate decisions. Retain existing tutorials/docs content and adapt runtime integration.
 
+**User-requested release workflow (2026-10-20).** Use the manual build/release workflow and six-target matrix from the Rust Kode project: Linux x86_64/aarch64, Windows x64/ARM64 and macOS Intel/Apple Silicon. Every target produces ZIP and tar.gz; add AppImage/Snap on Linux, MSI/MSIX on Windows and DMG on macOS. Dispatch at the existing tag reference, without a second tag parameter. Require tag, literal desktop app version, source revision and packaged file manifests to agree before publication. Commit with an incremented literal app version, then create the matching SemVer tag; the user controls major-version increments. Compile native Linux code against the oldest verified practical sysroot and audit the resulting glibc symbol floor; a current orchestration runner must not set the binary ABI baseline. MSIX signing is deferred pending repository secrets. See [packaging instructions](../../../packaging/README.md).
+
 Source: build/release files, `assets`, `docs-site`. Acceptance: C31.
 
 ### O04 Responsiveness and performance
