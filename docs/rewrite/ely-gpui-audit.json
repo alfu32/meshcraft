@@ -1,0 +1,22 @@
+{
+  "reviewed_at": "2026-10-20",
+  "repository": "https://git.zacharyzhang.com/ZacharyZhang-NY/Ely-GPUI-Components",
+  "commit": "7f7a715d797d8450eed4f17ae8002b5427d01d28",
+  "tree": "6a9d32407494bebbbf1e156b1ab87e6fa3065145",
+  "archive_sha256": "5112c9bbdd1f1439f4c1dd1ec0bcfa08f9d0b271b53bbf1a07592742ec42cf85",
+  "cargo_lock_sha256": "8e1e1d4091257d7ed4153d7da826cdf08405505ba2b70f0b84d9ffd6dfcc571f",
+  "cargo_toml_sha256": "9eb62f416bc3493cc1434e7fc40205cf0600a1b06ea7ba30e9024aec1f343bdd",
+  "license_sha256": "c69028b5957f4ded637dc55a4a412b209c014414ece49efefa60fa811a4c0312",
+  "lock_package_count": 814,
+  "registry_packages_with_checksums": 813,
+  "git_dependencies_in_lock": [],
+  "source_scan_scope": "Tracked first-party src tree, Cargo manifests/lock, initialization, network-capable modules, logging, scripts, frontend/CI separation; selected GPUI dependency paths. Not a line-by-line review of every dependency.",
+  "production_dependencies_changed": false,
+  "validation": {
+    "offline_isolated_linux_check": "passed; rustc 1.99.1; 2m22s; cargo check --offline --locked --lib",
+    "offline_isolated_tests": "passed; 2150 tests, 0 failed, 0 ignored; test compile 3m48s, execution 103.42s; cargo test --offline --locked --lib --features test-support -- --test-threads=2",
+    "dependency_advisory_scan": "not run; cargo-audit unavailable",
+    "native_ui_e2e": "not run",
+    "latest_kit_with_pinned_ely_resolution": "fails, expected: gpui-kit 0.8.0 requires gpui-pre =0.3.9 but Ely requires =0.3.8; reproduced via isolated Cargo metadata probe"
+  }
+}

@@ -1,6 +1,6 @@
 # Dashboard
 
-Updated 2026-10-20. Latest verified slice: fixed unbounded GPU frame-atlas retention; GPUI feedback text, compact searchable palette and left-aligned dropdowns are implemented. 235 desktop tests pass; a 600-update memory exercise stays near 271 MiB RSS. GitHub issues were closed by the user; local unfinished tasks remain tracked below. `docs/rewrite/tasks.json` is authoritative.
+Updated 2026-10-20. Ely GPUI investigation (#26) completed under T17/T60: pinned Linux build and 2,150 sandboxed library tests pass; bounded telemetry/network review and GPUI migration assessment are documented. Recommendation: vendored proof before cutover. Production dependencies remain unchanged. Latest verified slice: fixed unbounded GPU frame-atlas retention; GPUI feedback text, compact searchable palette and left-aligned dropdowns are implemented. 235 desktop tests pass; a 600-update memory exercise stays near 271 MiB RSS. GitHub issues were closed by the user; local unfinished tasks remain tracked below. `docs/rewrite/tasks.json` is authoritative.
 
 **Counts:** Todo 27 · In progress 11 · Done 22 · Superseded 1 · Total 61
 
@@ -9,7 +9,7 @@ Updated 2026-10-20. Latest verified slice: fixed unbounded GPU frame-atlas reten
 - **T05 — Implement sparse legacy DTO reading and model/history containers**: Finish sparse legacy DTO/model-history compatibility.
 - **T09 — Implement desktop document service and safe storage**: Complete safe desktop project storage/recovery.
 - **T16 — Implement reusable objects, placement and explode**: Finish reusable object editing and explode behavior.
-- **T17 — Complete GPUI inspectors, settings and preferences**: Editable model/UI controls, grid normal, normal/thick model line widths, persisted settings accordion and shader AA are wired. Toolbars remain expanded. Buttons keep text beside 419 transparent SVG icons. Broader inspector/domain acceptance remains open; see [T17](docs/rewrite/handoffs/T17.md).
+- **T17 — Complete GPUI inspectors, settings and preferences (#26)**: Editable model/UI controls, grid normal, normal/thick model line widths, persisted settings accordion and shader AA are wired. Toolbars remain expanded. Buttons keep text beside 419 transparent SVG icons. Ely toolkit investigation (#26) is complete; see [the audit and migration assessment](docs/rewrite/ely-gpui-review.md). Broader inspector/domain acceptance remains open; see [T17](docs/rewrite/handoffs/T17.md).
 - **T21 — Port every copy and array state machine**: Complete the remaining array state machines and adapters.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
 - **T39 — Complete real-time lighting, shadows and view capture (#13)**: Implemented the raylib light-camera shadow pass, directional/ambient face shading, black authored lines, three-plane guides/local point field, grid-line snapping, reversed orbit and staged Escape. The extended transparent SVG atlas generates at build time. Tight light-camera clip bounds fix detached shadows (analytic ground projection IoU 0.937). GPU checks pass for ground/entity receivers, black model line widths and all three shader AA qualities; 233 regular desktop tests pass. The full GPUI shell builds/runs with generated icons. Lighting controls are session-local; capture, legacy lighting persistence and broader T39 quality acceptance remain open. See [T39](docs/rewrite/handoffs/T39.md).
@@ -45,7 +45,7 @@ The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Sc
 | T14 | Implement basic planar shape tools | Done |
 | T15 | Port transforms, stretch variants and painting | Done |
 | T16 | Implement reusable objects, placement and explode | In progress |
-| T17 | Complete GPUI inspectors, JSON-driven settings, preferences and command coverage | In progress |
+| T17 | Complete GPUI inspectors, JSON-driven settings, preferences and command coverage (#26) | In progress |
 | T18 | Implement dimensions, bitmap text and vector glyph text | Todo |
 | T19 | Implement paths, offsets, outlines and mesh creation | Done |
 | T20 | Implement region push/pull | Done |

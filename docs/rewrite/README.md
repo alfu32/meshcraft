@@ -57,6 +57,7 @@ The inventory is navigation data, not a substitute for behavior specifications. 
 | `spec/interface.md` | Both desktop interfaces, panels, rendering, external surfaces |
 | `compatibility.md` | Sparse JSON, transforms, history, formats, APIs, migration |
 | `history.md` | Historical layers and deliberate sequencing changes |
+| `ely-gpui-review.md` | Pinned Ely toolkit review, telemetry/vendoring assessment and GPUI migration difficulty (#26) |
 | `architecture.md` | Rust boundaries, contracts, numerical and compatibility decisions |
 | `../decisions/ADR-06-gpui-raylib.md` | Accepted GPUI shell/raylib viewport architecture and integration gates |
 | `../UI-3D_renderer.md` | Desktop layout, renderer boundary, interaction and performance requirements |

@@ -826,7 +826,7 @@
     },
     {
       "id": "T17",
-      "title": "Complete GPUI inspectors, JSON-driven settings, preferences and command coverage",
+      "title": "Complete GPUI inspectors, JSON-driven settings, preferences and command coverage (#26)",
       "phase": "desktop",
       "dependencies": [
         "T08",
@@ -862,7 +862,8 @@
       "slices": [
         "Implement selection/object/prototype/model/tool settings and registry-based panel visibility; later domain panels plug into this model.",
         "Separate model settings, session selection/camera state and application preferences; validate fields and emit transactions only for valid edits.",
-        "Persist profile/layout and recover offscreen panels; complete current command/menu mapping, status/measurement/context feedback and shortcut focus tests."
+        "Persist profile/layout and recover offscreen panels; complete current command/menu mapping, status/measurement/context feedback and shortcut focus tests.",
+        "Evaluate Ely GPUI under #26: pinned-source availability, component coverage, telemetry/supply-chain review, vendoring and GPUI upgrade difficulty before any production migration."
       ],
       "done": [
         "Every ready operation is reachable in Desktop Menus and Buttons; no hidden-toolbar dependency.",
