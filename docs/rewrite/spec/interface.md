@@ -216,3 +216,9 @@ Commands/menu actions share the host registry, enabled/checked state and undo se
 Freeze identity/query/operation boundaries with F10, then implement the engine adapter and context in T47–T50. Engine binding, promise integration, interruption semantics and Linux/Windows/macOS packaging are proof tasks, not assumptions. Full custom plugin entity schemas are a subsequent extension; declarative plugin data must not become a second uncontrolled object model.
 
 Design: `../plugins.md`, `../object-model.md`. Acceptance: C18, C32, C33.
+
+The native window has a permanent title bar with close, minimize and
+maximize/restore controls, independent of menu/ribbon visibility. The script and
+material editors leave these controls accessible. The canvas and picking offset
+include the title-bar height. Arrange Toolbars is omitted from the fixed GPUI
+ribbon.

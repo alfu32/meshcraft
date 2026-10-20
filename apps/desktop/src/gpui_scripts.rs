@@ -491,7 +491,7 @@ pub(super) fn overlay(
                     cx.notify();
                 })),
         );
-    let mut modal = div().id("script/modal").absolute().inset_0().occlude().p(px(24.)).flex().flex_col().gap(px(10.)).bg(rgb(0x1b222b))
+    let mut modal = div().id("script/modal").absolute().inset_0().top(px(layout::TITLE_BAR_HEIGHT)).occlude().p(px(24.)).flex().flex_col().gap(px(10.)).bg(rgb(0x1b222b))
         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
         .capture_action(cx.listener(|this,_:&gpui_component::input::MoveUp,window,cx|{if api::navigate(this,"up",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
         .capture_action(cx.listener(|this,_:&gpui_component::input::MoveDown,window,cx|{if api::navigate(this,"down",window,cx){cx.stop_propagation();}else{cx.propagate();}}))

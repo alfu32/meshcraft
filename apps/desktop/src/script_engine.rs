@@ -499,3 +499,44 @@ function onAnimationFrame(instance,model){
         }
     }
 }
+
+#[cfg(test)]
+mod construction_tests {
+    use super::*;
+    use meshcraft_core::document::{
+        GeometryBundle,
+        scripts::{Drawable, ScriptFrame, ScriptState},
+    };
+    fn run(source: &str) -> serde_json::Value {
+        let session = Session::new(&serde_json::Value::Null).unwrap();
+        session.evaluate(&serde_json::json!({"id":"part","geometry":[],"hotspots":{},"time":0,"deltaTime":0,"source":{"source":format!("function onAnimationFrame(){{{source}}}")}})).unwrap()
+    }
+    #[test]
+    fn script_transforms_points_and_nested_geometry_without_mutation() {
+        let out = run(
+            "const p=new Point(2,0,0,'p'); const q=translate(new Point(1,0,0))(rotate(new Point(1,0,0),new Point(0,1,0),90)(p));if(p.x!==2||Math.abs(q.x-2)>1e-9||Math.abs(q.z+1)>1e-9)throw Error('rotation');if(abs(sin(90)-1)>1e-9||norm(new Point(3,4,0))!==5)throw Error('math');const c=cuboid(new Point(),new Point(2,3,4),'body');return [c,withIds(scale(new Point(-1,1,1))(c),'mirror'),rectangle(new Point(),new Point(2,0,3),'r'),circle(new Point(),2),polyline([new Point(),new Point(2,0,0)])];",
+        );
+        let items: Vec<Drawable> = serde_json::from_value(out["items"].clone()).unwrap();
+        let frame =
+            ScriptFrame::build(&GeometryBundle::default(), items, ScriptState::default()).unwrap();
+        assert_eq!(26, frame.geometry.triangles.len());
+        assert_eq!(41, frame.geometry.segments.len());
+    }
+    #[test]
+    fn script_builds_concave_polygons_and_extrusions_and_seeded_random_values() {
+        let out = run(
+            "const p=[new Point(),new Point(3,0,0),new Point(3,0,3),new Point(1,0,1),new Point(0,0,3)];if(JSON.stringify(rands(0,1,5,8))!==JSON.stringify(rands(0,1,5,8)))throw Error('seed');if(lookup(0.5,[[0,0],[1,10]])!==5)throw Error('lookup');return [polygon(p,'poly'),linear_extrude(2,p,'extrude'),color([1,0,0,0.5])(cylinder(new Point(),1,2,'cylinder',undefined,12))];",
+        );
+        let items: Vec<Drawable> = serde_json::from_value(out["items"].clone()).unwrap();
+        let frame =
+            ScriptFrame::build(&GeometryBundle::default(), items, ScriptState::default()).unwrap();
+        assert_eq!(67, frame.geometry.triangles.len());
+        assert!(
+            frame
+                .geometry
+                .triangles
+                .values()
+                .any(|f| f.color.alpha == 128)
+        );
+    }
+}

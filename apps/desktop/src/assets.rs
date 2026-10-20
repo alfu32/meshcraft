@@ -52,6 +52,14 @@ impl gpui::AssetSource for ComponentAssets {
             }
             "icons/close.svg" => include_bytes!("../../../assets/gpui/close.svg"),
             "icons/search.svg" => include_bytes!("../../../assets/gpui/search.svg"),
+            "icons/window-close.svg" => include_bytes!("../../../assets/gpui/close.svg"),
+            "icons/window-minimize.svg" => {
+                include_bytes!("../../../assets/gpui/window-minimize.svg")
+            }
+            "icons/window-maximize.svg" => {
+                include_bytes!("../../../assets/gpui/window-maximize.svg")
+            }
+            "icons/window-restore.svg" => include_bytes!("../../../assets/gpui/window-restore.svg"),
             _ => return Ok(None),
         };
         Ok(Some(std::borrow::Cow::Borrowed(bytes)))
@@ -66,6 +74,10 @@ impl gpui::AssetSource for ComponentAssets {
             "icons/chevrons-up-down.svg",
             "icons/close.svg",
             "icons/search.svg",
+            "icons/window-close.svg",
+            "icons/window-minimize.svg",
+            "icons/window-maximize.svg",
+            "icons/window-restore.svg",
         ]
         .into_iter()
         .filter(|p| p.starts_with(path))

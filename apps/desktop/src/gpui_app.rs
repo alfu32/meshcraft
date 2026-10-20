@@ -38,8 +38,7 @@ use crate::viewport::{
 };
 use gpui::{
     App, Application, Context, Entity, ImageSource, Render, RenderImage, SharedString, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, canvas, div, img, prelude::*, px, rgb,
-    size,
+    Window, WindowBounds, WindowOptions, canvas, div, img, prelude::*, px, rgb, size,
 };
 use gpui_component::{
     Disableable, Sizable, Theme, ThemeMode,
@@ -1631,15 +1630,17 @@ fn viewport_physical_rect(
     left_panel_visible: bool,
 ) -> ViewportLayout {
     use layout::{RIGHT_PANEL_WIDTH as RIGHT_PANEL, STATUS_HEIGHT as STATUS};
-    let header = if menu_bar_visible {
-        layout::MENU_HEIGHT
-    } else {
-        0.
-    } + if ribbon_visible {
-        layout::HEADER_HEIGHT - layout::MENU_HEIGHT
-    } else {
-        0.
-    };
+    let header = layout::TITLE_BAR_HEIGHT
+        + if menu_bar_visible {
+            layout::MENU_HEIGHT
+        } else {
+            0.
+        }
+        + if ribbon_visible {
+            layout::HEADER_HEIGHT - layout::MENU_HEIGHT
+        } else {
+            0.
+        };
     let left = if left_panel_visible {
         layout::LEFT_PANEL_WIDTH
     } else {
@@ -2123,6 +2124,7 @@ impl Render for MeshcraftShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.close_requested {
             window.remove_window();
+            cx.quit();
         }
         if !self.host_watch_started {
             self.host_watch_started = true;
@@ -2661,6 +2663,15 @@ impl Render for MeshcraftShell {
                 .into_any_element()
         });
 
+        let close_view = cx.entity().downgrade();
+        let title_bar = gpui_component::TitleBar::new()
+            .child(div().text_sm().child("Meshcraft"))
+            .on_close_window(move |_, _, cx| {
+                let _ = close_view.update(cx, |shell, cx| {
+                    shell.dispatch("app.quit");
+                    cx.notify();
+                });
+            });
         let mut root = div()
             .id("meshcraft-shell")
             .track_focus(&self.focus)
@@ -2715,6 +2726,7 @@ impl Render for MeshcraftShell {
                 this.shortcut(event);
                 cx.notify();
             }))
+            .child(title_bar)
             .when(preferences.menu_bar_visible, |root| root.child(menu_bar))
             .when(preferences.ribbon_visible, |root| {
                 root.child(ribbon_tabs).child(ribbon)
@@ -2767,15 +2779,16 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(bounds),
-                    titlebar: Some(TitlebarOptions {
+                    titlebar: Some(gpui::TitlebarOptions {
                         title: Some("Meshcraft".into()),
-                        ..Default::default()
+                        ..gpui_component::TitleBar::title_bar_options()
                     }),
                     ..Default::default()
                 },
                 move |window, cx| {
-                    window.on_window_should_close(cx, move |_, _| {
+                    window.on_window_should_close(cx, move |_, cx| {
                         shutdown.stop_and_wait();
+                        cx.quit();
                         true
                     });
                     let bridge_for_view = bridge.clone();
@@ -2830,14 +2843,14 @@ mod tests {
                 for (left, margin) in [(true, 230.), (false, 0.)] {
                     let bounds = viewport_physical_rect(1882., 1043., scale, menu, ribbon, left);
                     assert_eq!(bounds.x, (margin * scale) as i32);
-                    assert_eq!(bounds.y, (header * scale) as i32);
+                    assert_eq!(bounds.y, ((header + 34.) * scale) as i32);
                     assert_eq!(
                         bounds.width,
                         ((1882. - margin - 330.) * scale).round() as u32
                     );
                     assert_eq!(
                         bounds.height,
-                        ((1043. - header - 26.) * scale).round() as u32
+                        ((1043. - header - 34. - 26.) * scale).round() as u32
                     );
                 }
             }

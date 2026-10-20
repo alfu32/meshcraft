@@ -127,3 +127,36 @@ them in `onAnimationFrame`; they persist per instance. Top-level definitions are
 evaluated with the current frame in this first runtime; use instance properties
 for state that must survive between frames. The prototype configuration and query
 facade do not expose document mutation methods.
+
+## Construction and transform helpers (0.9.0)
+
+The JavaScript scope includes functions drawn from the
+[OpenSCAD function reference](https://openscad.org/cheatsheet/), expressed in
+Meshcraft coordinates with Y up and degree angles. This is a JavaScript helper
+API; OpenSCAD source files and its CSG language are not evaluated.
+
+`rectangle(p0,p1,id?,material?)`, `cuboid(p0,p1,id?,material?)`, `polyline(points,id?,material?,closed=false)`
+and `circle(center,radius,resolution=12)` create ordinary drawables. Rectangles use
+two opposite corners sharing a coordinate plane; rotate the output for other
+orientations. Optional IDs default to deterministic call-order IDs. The earlier
+`circle(center,radius,id,material?,segments)` form remains supported.
+
+`translate(delta)(items)`, `scale(sizes)(items)`,
+`rotate(origin,up,degrees)(items)` transform a Point, drawable, or nested list
+without mutating inputs. The final items argument may also be supplied directly.
+Scale accepts a scalar or a Point. Rotation also accepts Euler XYZ degrees or
+`rotate(degrees,axis)`. `mirror(normal)` and `multmatrix(matrix4x4)` compose in the
+same way. Transforms retain entity/point IDs; `withIds(items,prefix)` creates
+independent identities when originals and copies are emitted together. Negative
+scales/reflections correct triangle winding. Hotspot overrides remain in final
+instance coordinates.
+
+Additional construction helpers include `square`, `polygon` (simple planar
+concave outlines), indexed `polyhedron`, `cylinder` with optional top radius, and
+`linear_extrude` of an XZ profile along Y. `color(tint)(items)` applies a material;
+tints accept hex, basic named colors, Color, or normalized RGBA arrays. Vector
+helpers include `dot`, `cross`, `norm`, `normalize`, `distance`, `add`, and
+`subtract`. Degree trigonometry, common scalar math, list/string/type helpers,
+linear `lookup`, and optionally seeded `rands` are available. Ctrl+Space lists the
+functions and examples. Standard JavaScript Math and Array operations remain
+available.

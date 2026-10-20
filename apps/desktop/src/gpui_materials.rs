@@ -180,6 +180,7 @@ pub(super) fn overlay(
         div()
             .absolute()
             .inset_0()
+            .top(px(layout::TITLE_BAR_HEIGHT))
             .flex()
             .items_center()
             .justify_center()

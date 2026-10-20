@@ -5,6 +5,7 @@ use super::{MeshcraftShell, command_enabled, ribbon_command_for_key};
 
 pub(super) const LEFT_PANEL_WIDTH: f32 = 230.0;
 pub(super) const RIGHT_PANEL_WIDTH: f32 = 330.0;
+pub(super) const TITLE_BAR_HEIGHT: f32 = 34.0;
 pub(super) const MENU_HEIGHT: f32 = 34.0;
 pub(super) const TAB_HEIGHT: f32 = 28.0;
 pub(super) const RIBBON_HEIGHT: f32 = 138.0;
@@ -1133,7 +1134,6 @@ const SETTINGS_GROUPS: &[RibbonGroup] = &[
             ("ui-text-size", "Text Size"),
             ("toolbar-size", "Toolbar Size"),
             ("permanent-grid", "Permanent Grid"),
-            ("arrange-toolbars", "Arrange Toolbars"),
         ],
     },
     RibbonGroup {
