@@ -385,7 +385,7 @@ impl Renderer {
             raylib::ffi::rlActiveTextureSlot(1);
             raylib::ffi::rlEnableTexture(self.map.texture().id);
             raylib::ffi::rlActiveTextureSlot(0);
-            raylib::ffi::rlDisableBackfaceCulling();
+            raylib::ffi::rlEnableBackfaceCulling();
         }
         {
             let mut pass = view.begin_shader_mode(shader);
@@ -398,6 +398,11 @@ impl Renderer {
             ];
             triangle(&mut pass, [a, b, c], Color::new(188, 198, 208, 255));
             triangle(&mut pass, [a, c, d], Color::new(188, 198, 208, 255));
+            // The ground is a top-facing receiver; authored open meshes remain two-sided.
+            unsafe {
+                raylib::ffi::rlDrawRenderBatchActive();
+                raylib::ffi::rlDisableBackfaceCulling();
+            }
             for face in &self.faces {
                 if face.wireframe {
                     continue;
@@ -502,15 +507,25 @@ pub(super) fn stroke(
         .try_normalized(1.0e-12)
         .unwrap_or(Vec3::Z);
     let right = forward
-        .cross(Vec3::Y)
+        .cross(camera.up)
         .try_normalized(1.0e-12)
         .unwrap_or(Vec3::X);
     let up = right.cross(forward);
     let side = (right * (-dy) - up * dx) / length;
     let factor = f64::from(width) * (f64::from(camera.field_of_view).to_radians() * 0.5).tan()
         / f64::from(height.max(1.));
-    let offset_a = side * ((a - eye).dot(forward) * factor);
-    let offset_b = side * ((b - eye).dot(forward) * factor);
+    let offset_a = side
+        * (if camera.orthographic {
+            f64::from(camera.distance)
+        } else {
+            (a - eye).dot(forward)
+        } * factor);
+    let offset_b = side
+        * (if camera.orthographic {
+            f64::from(camera.distance)
+        } else {
+            (b - eye).dot(forward)
+        } * factor);
     triangle(view, [a - offset_a, b - offset_b, b + offset_b], color);
     triangle(view, [a - offset_a, b + offset_b, a + offset_a], color);
 }

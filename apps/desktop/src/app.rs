@@ -714,6 +714,7 @@ enum ShellAction {
     SetProfile(UiProfile),
     SetOrthographicView(OrthoView),
     SetWalkthroughView,
+    SetPerspectiveView,
     FrameDocument,
     ResetCamera,
     SetCameraPose,
@@ -1457,6 +1458,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             };
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
         }
+        register_shell_command(&mut registry, "view.camera.perspective", "View> Camera Perspective", "View", "camera perspective orbit", Some("view"), ShellAction::SetPerspectiveView);
         for (view_id, label) in [
             ("top", "Ortho Top"),
             ("bottom", "Ortho Bottom"),
@@ -1564,6 +1566,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Unsupported => CommandKind::HostRequest,
         ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
+        | ShellAction::SetPerspectiveView
         | ShellAction::SetWalkthroughView
         | ShellAction::UpdateUiPreferences
         | ShellAction::FrameDocument
@@ -1774,6 +1777,7 @@ fn register_shell_command(
         | ShellAction::RemoveGuide
         | ShellAction::SetProfile(_)
         | ShellAction::SetOrthographicView(_)
+        | ShellAction::SetPerspectiveView
         | ShellAction::SetWalkthroughView
         | ShellAction::ToggleToolbars
         | ShellAction::SetToolbarVisibility(_, _)
@@ -2660,6 +2664,23 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_begin_walkthrough(&mut self, eye: Vec3, forward: Vec3) {
+        self.viewport.native_walkthrough_pose(eye, forward);
+    }
+    pub(crate) fn native_walkthrough_drag(&mut self, dx: f32, dy: f32, pan: bool) {
+        self.viewport.native_walkthrough_drag(dx, dy, pan);
+    }
+    pub(crate) fn native_step_walkthrough(&mut self, dt: f64, keys: [bool; 7]) -> (Vec3, Vec3) {
+        self.viewport.set_walkthrough_tuning(WalkthroughTuning {
+            move_speed: f64::from(self.preferences.walk_move_speed),
+            jump_velocity: f64::from(self.preferences.walk_jump_velocity),
+            gravity: f64::from(self.preferences.walk_gravity),
+            height_adjust_speed: f64::from(self.preferences.walk_height_adjust_speed),
+        });
+        self.viewport
+            .native_walkthrough_step(&self.document, dt, keys)
+    }
+
     pub fn handle_native_escape(&mut self) {
         self.handle_escape();
     }
@@ -6591,6 +6612,10 @@ impl MeshcraftApp {
                 self.viewport.set_orthographic_view(view);
                 self.status = format!("{} orthographic view selected.", view.id());
             }
+            ShellAction::SetPerspectiveView => {
+                self.viewport.set_perspective_view();
+                self.status = "Perspective camera selected.".into();
+            }
             ShellAction::SetWalkthroughView => {
                 self.viewport.set_walkthrough_view();
                 self.status =
@@ -6598,6 +6623,9 @@ impl MeshcraftApp {
                         .to_owned();
             }
             ShellAction::FrameDocument => {
+                if self.viewport.walkthrough_active() {
+                    self.viewport.set_perspective_view();
+                }
                 self.viewport.request_frame();
                 self.status = "Framed the document in the viewport.".to_owned();
             }

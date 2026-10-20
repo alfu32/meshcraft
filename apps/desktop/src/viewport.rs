@@ -450,7 +450,7 @@ impl OrthoView {
         }
     }
 
-    fn screen_axes(self) -> (Vec3, Vec3, Vec3) {
+    pub(crate) fn screen_axes(self) -> (Vec3, Vec3, Vec3) {
         match self {
             Self::Top => (
                 Vec3::new(1.0, 0.0, 0.0),
@@ -1997,6 +1997,31 @@ impl Viewport {
         self.pan = Vec2::ZERO;
         self.camera_drag = None;
         self.frame_pending = false;
+    }
+
+    pub(crate) fn native_walkthrough_pose(&mut self, eye: Vec3, forward: Vec3) {
+        self.set_walkthrough_view();
+        if let Some(walk) = &mut self.walkthrough {
+            walk.position = eye;
+            walk.yaw = forward.z.atan2(forward.x);
+            walk.pitch = forward.y.clamp(-1., 1.).asin();
+        }
+    }
+
+    pub(crate) fn native_walkthrough_drag(&mut self, dx: f32, dy: f32, pan: bool) {
+        self.drag_walkthrough(egui::PointerButton::Secondary, pan, Vec2::new(dx, dy));
+    }
+
+    pub(crate) fn native_walkthrough_step(
+        &mut self,
+        document: &Document,
+        dt: f64,
+        keys: [bool; 7],
+    ) -> (Vec3, Vec3) {
+        self.update_walkthrough(
+            document, dt, keys[0], keys[1], keys[2], keys[3], keys[4], keys[5], keys[6],
+        );
+        (self.camera_position(), -self.camera_direction())
     }
 
     fn leave_walkthrough(&mut self) {

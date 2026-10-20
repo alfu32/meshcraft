@@ -8,7 +8,7 @@ pub(super) const RIGHT_PANEL_WIDTH: f32 = 330.0;
 pub(super) const TITLE_BAR_HEIGHT: f32 = 34.0;
 pub(super) const MENU_HEIGHT: f32 = 34.0;
 pub(super) const TAB_HEIGHT: f32 = 28.0;
-pub(super) const RIBBON_HEIGHT: f32 = 138.0;
+pub(super) const RIBBON_HEIGHT: f32 = 82.0;
 pub(super) const HEADER_HEIGHT: f32 = MENU_HEIGHT + TAB_HEIGHT + RIBBON_HEIGHT;
 pub(super) const STATUS_HEIGHT: f32 = 26.0;
 use gpui::{
@@ -119,9 +119,10 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     .and_then(crate::assets::gpui_icon)
             })
             .or_else(|| command.and_then(|command| crate::assets::gpui_icon(command.id.as_str())));
+        let ribbon = namespace.starts_with("ribbon/");
         let icon_size = (self.shell.session.native_ui_preferences().toolbar_icon_size as f32
             * 0.75)
-            .clamp(18., 32.);
+            .clamp(18., if ribbon { 22. } else { 32. });
         let button = Button::new(SharedString::from(format!("{namespace}/{key}")))
             .child(
                 div()
@@ -159,9 +160,11 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             )
             .small()
             .px(px(2.))
-            .h(px(
-                self.shell.session.native_ui_preferences().toolbar_icon_size as f32,
-            ))
+            .h(px(if ribbon {
+                24.
+            } else {
+                self.shell.session.native_ui_preferences().toolbar_icon_size as f32
+            }))
             .ghost()
             .compact()
             .tooltip(format!("{label} · {key}"));
@@ -1096,6 +1099,7 @@ const VIEW_GROUPS: &[RibbonGroup] = &[
         commands: &[
             ("perspective", "Perspective"),
             ("orthographic", "Orthographic"),
+            ("walkthrough", "Walkthrough"),
             ("permanent-grid", "Grid"),
             ("guides", "Guides"),
             ("grid-guide", "3D Grid"),

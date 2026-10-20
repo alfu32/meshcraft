@@ -222,3 +222,15 @@ maximize/restore controls, independent of menu/ribbon visibility. The script and
 material editors leave these controls accessible. The canvas and picking offset
 include the title-bar height. Arrange Toolbars is omitted from the fixed GPUI
 ribbon.
+
+### Native camera and compact ribbon (0.10)
+
+The GPUI offscreen viewport supports perspective orbit, six axis-aligned orthographic views,
+and walkthrough. Orthographic rays are parallel; projection, model picking, helpers and pixel-width
+strokes use the same camera basis, including top/bottom views. Right-drag orbits; middle-drag or
+Shift+right-drag pans. Walkthrough uses right-drag to look, WASD/arrows to move, Q/E or PageDown/
+PageUp to adjust eye height, and Space to jump with the existing surface-support and gravity rules.
+Movement stops while the canvas lacks focus, the window is inactive, or a modal/menu is open.
+Perspective and Frame Document leave walkthrough. UI Settings supplies walking speed/jump/gravity.
+The ribbon content is 82 px (previously 138); its buttons use compact 24 px rows and retain labels.
+The ground receiver has only an upper face; authored open meshes still render from both sides.

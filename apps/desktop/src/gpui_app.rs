@@ -91,6 +91,9 @@ struct OrbitCamera {
     pitch: f32,
     distance: f32,
     field_of_view: f32,
+    orthographic: bool,
+    up: Vec3,
+    eye: Option<Vec3>,
 }
 
 impl Default for OrbitCamera {
@@ -101,17 +104,24 @@ impl Default for OrbitCamera {
             pitch: 28.0_f32.to_radians(),
             distance: 15.0,
             field_of_view: 45.0,
+            orthographic: false,
+            up: Vec3::Y,
+            eye: None,
         }
     }
 }
 
 impl OrbitCamera {
     fn orbit_by_drag(&mut self, dx: f32, dy: f32) {
+        self.up = Vec3::Y;
         self.yaw -= dx * 0.005;
         self.pitch = (self.pitch + dy * 0.005).clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
     }
 
     fn position(self) -> Vec3 {
+        if let Some(eye) = self.eye {
+            return eye;
+        }
         let horizontal = self.distance * self.pitch.cos();
         self.target
             + Vec3::new(
@@ -127,12 +137,18 @@ impl OrbitCamera {
         }
         let position = self.position();
         let forward = (self.target - position).try_normalized(1.0e-12)?;
-        let right = forward.cross(Vec3::Y).try_normalized(1.0e-12)?;
+        let right = forward.cross(self.up).try_normalized(1.0e-12)?;
         let up = right.cross(forward).try_normalized(1.0e-12)?;
         let scale = (self.field_of_view.to_radians() * 0.5).tan() as f64;
         let aspect = f64::from(width / height);
         let ndc_x = (2.0 * f64::from(x) / f64::from(width) - 1.0) * aspect * scale;
         let ndc_y = (1.0 - 2.0 * f64::from(y) / f64::from(height)) * scale;
+        if self.orthographic {
+            return Some((
+                position + (right * ndc_x + up * ndc_y) * f64::from(self.distance),
+                forward,
+            ));
+        }
         let direction = (forward + right * ndc_x + up * ndc_y).try_normalized(1.0e-12)?;
         Some((position, direction))
     }
@@ -484,12 +500,21 @@ fn draw_offscreen_scene(
     let position = orbit.position();
     let target_height = target.height() as f32;
     let target_width = target.width() as f32;
-    let camera = Camera3D::perspective(
-        ray_vec3(position),
-        ray_vec3(orbit.target),
-        RayVector3::new(0.0, 1.0, 0.0),
-        orbit.field_of_view,
-    );
+    let camera = if orbit.orthographic {
+        Camera3D::orthographic(
+            ray_vec3(position),
+            ray_vec3(orbit.target),
+            ray_vec3(orbit.up),
+            orbit.distance * 2. * (orbit.field_of_view.to_radians() * 0.5).tan(),
+        )
+    } else {
+        Camera3D::perspective(
+            ray_vec3(position),
+            ray_vec3(orbit.target),
+            ray_vec3(orbit.up),
+            orbit.field_of_view,
+        )
+    };
     let mut drawing = rl.begin_texture_mode(thread, target);
     drawing.clear_background(Color::new(224, 236, 247, 255));
     {
@@ -910,6 +935,9 @@ struct MeshcraftShell {
     cursor_snap: Option<SnapResult>,
     last_pick: Option<PointerPick>,
     camera_drag: Option<(gpui::MouseButton, f32, f32)>,
+    walking: bool,
+    walk_keys: [bool; 7],
+    walk_tick: Instant,
     hotspot_drag: Option<hotspots::Drag>,
     selection_gesture: Option<SelectionGesture>,
     selection_cursor: Option<(f32, f32)>,
@@ -954,6 +982,9 @@ impl MeshcraftShell {
             cursor_snap: None,
             last_pick: None,
             camera_drag: None,
+            walking: false,
+            walk_keys: [false; 7],
+            walk_tick: Instant::now(),
             hotspot_drag: None,
             selection_gesture: None,
             selection_cursor: None,
@@ -1216,11 +1247,54 @@ impl MeshcraftShell {
         if dispatch.accepted {
             match id {
                 "app.quit" => self.close_requested = true,
+                "view.camera.walkthrough" => {
+                    self.walking = true;
+                    self.walk_tick = Instant::now();
+                    self.camera.orthographic = false;
+                    self.camera.up = Vec3::Y;
+                    self.session.native_begin_walkthrough(
+                        self.camera.position(),
+                        (self.camera.target - self.camera.position())
+                            .try_normalized(1e-12)
+                            .unwrap_or(-Vec3::Z),
+                    );
+                }
+                "view.camera.perspective" | "view.camera.orbit" | "view.orbit" => {
+                    self.walking = false;
+                    self.walk_keys = [false; 7];
+                    self.camera.orthographic = false;
+                    self.camera.up = Vec3::Y;
+                    if let Some(eye) = self.camera.eye.take() {
+                        let offset = eye - self.camera.target;
+                        self.camera.yaw = offset.x.atan2(offset.z) as f32;
+                        self.camera.pitch = (offset.y / offset.length()).asin() as f32;
+                    }
+                    self.bridge.publish_camera(self.camera);
+                }
+                id if id == "view.camera.orthographic" || id.starts_with("view.ortho.") => {
+                    self.walking = false;
+                    self.walk_keys = [false; 7];
+                    self.camera.eye = None;
+                    self.camera.orthographic = true;
+                    let view = id
+                        .strip_prefix("view.ortho.")
+                        .and_then(crate::viewport::OrthoView::from_id)
+                        .unwrap_or(crate::viewport::OrthoView::Top);
+                    let (_, up, eye) = view.screen_axes();
+                    self.camera.yaw = eye.x.atan2(eye.z) as f32;
+                    self.camera.pitch = eye.y.asin() as f32;
+                    self.camera.up = up;
+                    self.bridge.publish_camera(self.camera);
+                }
                 "view.camera.reset" => {
+                    self.walking = false;
+                    self.walk_keys = [false; 7];
                     self.camera = OrbitCamera::default();
                     self.bridge.publish_camera(self.camera);
                 }
                 "view.frame_document" => {
+                    self.walking = false;
+                    self.camera.eye = None;
                     self.camera.fit(&self.session.document_snapshot());
                     self.bridge.publish_camera(self.camera);
                 }
@@ -1401,7 +1475,17 @@ impl MeshcraftShell {
             if pressed == Some(button) {
                 let dx = x - last_x;
                 let dy = y - last_y;
-                if modifiers.shift || button == gpui::MouseButton::Middle {
+                if self.walking {
+                    self.session.native_walkthrough_drag(
+                        dx,
+                        dy,
+                        modifiers.shift || button == gpui::MouseButton::Middle,
+                    );
+                    let (eye, forward) = self.session.native_step_walkthrough(0., [false; 7]);
+                    self.camera.eye = Some(eye);
+                    self.camera.target = eye + forward * f64::from(self.camera.distance);
+                    self.bridge.publish_camera(self.camera);
+                } else if modifiers.shift || button == gpui::MouseButton::Middle {
                     self.pan_camera(dx, dy);
                 } else {
                     self.camera.orbit_by_drag(dx, dy);
@@ -1513,7 +1597,7 @@ impl MeshcraftShell {
             .try_normalized(1.0e-12)
             .unwrap_or(Vec3::new(0.0, -1.0, 0.0));
         let right = forward
-            .cross(Vec3::Y)
+            .cross(self.camera.up)
             .try_normalized(1.0e-12)
             .unwrap_or(Vec3::X);
         let up = right
@@ -1534,6 +1618,16 @@ impl MeshcraftShell {
     fn shortcut(&mut self, event: &gpui::KeyDownEvent) {
         let key = event.keystroke.key.to_ascii_lowercase();
         let modifiers = event.keystroke.modifiers;
+        if self.walking
+            && !modifiers.control
+            && !modifiers.alt
+            && !modifiers.platform
+            && !self.viewport_input_blocked()
+            && let Some(index) = walk_key(&key)
+        {
+            self.walk_keys[index] = true;
+            return;
+        }
         if key == "escape" {
             self.open_menu = None;
             self.command_palette_open = false;
@@ -1578,6 +1672,19 @@ impl MeshcraftShell {
         } else if modifiers.control && key == "y" {
             self.dispatch("edit.redo");
         }
+    }
+}
+
+fn walk_key(key: &str) -> Option<usize> {
+    match key {
+        "w" | "up" => Some(0),
+        "s" | "down" => Some(1),
+        "a" | "left" => Some(2),
+        "d" | "right" => Some(3),
+        "e" | "pageup" => Some(4),
+        "q" | "pagedown" => Some(5),
+        "space" => Some(6),
+        _ => None,
     }
 }
 
@@ -1834,7 +1941,7 @@ fn selection_region_in_context(
 fn project_point(camera: OrbitCamera, size: (f32, f32), point: Vec3) -> Option<(f32, f32)> {
     let position = camera.position();
     let forward = (camera.target - position).try_normalized(1.0e-12)?;
-    let right = forward.cross(Vec3::Y).try_normalized(1.0e-12)?;
+    let right = forward.cross(camera.up).try_normalized(1.0e-12)?;
     let up = right.cross(forward).try_normalized(1.0e-12)?;
     let relative = point - position;
     let depth = relative.dot(forward);
@@ -1843,8 +1950,13 @@ fn project_point(camera: OrbitCamera, size: (f32, f32), point: Vec3) -> Option<(
     }
     let tangent = (camera.field_of_view.to_radians() * 0.5).tan() as f64;
     let aspect = f64::from(size.0 / size.1.max(1.0));
-    let x = relative.dot(right) / (depth * tangent * aspect);
-    let y = relative.dot(up) / (depth * tangent);
+    let scale = if camera.orthographic {
+        f64::from(camera.distance)
+    } else {
+        depth
+    };
+    let x = relative.dot(right) / (scale * tangent * aspect);
+    let y = relative.dot(up) / (scale * tangent);
     Some((
         ((x + 1.0) * 0.5 * f64::from(size.0)) as f32,
         ((1.0 - y) * 0.5 * f64::from(size.1)) as f32,
@@ -2078,6 +2190,8 @@ fn ribbon_command_for_key<'a>(
         "reset-camera" => &["view.camera.reset"],
         "front-view" => &["view.ortho.front"],
         "top-view" => &["view.ortho.top"],
+        "perspective" => &["view.camera.perspective"],
+        "walkthrough" => &["view.camera.walkthrough"],
         "orthographic" => &["view.camera.orthographic"],
         "permanent-grid" => &["view.grid.toggle"],
         "guides" => &["view.guides.toggle"],
@@ -2133,6 +2247,9 @@ impl Render for MeshcraftShell {
                     gpui::Timer::after(Duration::from_millis(16)).await;
                     if shell
                         .update(cx, |this, cx| {
+                            if this.walking {
+                                cx.notify();
+                            }
                             let revision = this.session.document_revision();
                             let status = this.session.status_text().to_owned();
                             this.session.poll_native_host_work();
@@ -2154,6 +2271,24 @@ impl Render for MeshcraftShell {
                 }
             })
             .detach();
+        }
+        if self.walking {
+            let now = Instant::now();
+            let dt = now.duration_since(self.walk_tick).as_secs_f64();
+            self.walk_tick = now;
+            if !window.is_window_active()
+                || !self.focus.is_focused(window)
+                || self.viewport_input_blocked()
+                || self.settings.active.is_some()
+            {
+                self.walk_keys = [false; 7];
+            } else {
+                let (eye, forward) = self.session.native_step_walkthrough(dt, self.walk_keys);
+                self.walk_keys[6] = false;
+                self.camera.eye = Some(eye);
+                self.camera.target = eye + forward * f64::from(self.camera.distance);
+                self.bridge.publish_camera(self.camera);
+            }
         }
         let preferences = self.session.native_ui_preferences();
         self.layout = publish_layout(&self.bridge, window, &preferences);
@@ -2369,17 +2504,23 @@ impl Render for MeshcraftShell {
                     cx.notify();
                 }),
             )
-            .on_mouse_down(gpui::MouseButton::Middle, cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                let (x,y) = this.viewport_point(event.position, window);
-                window.focus(&this.focus);
-                this.pointer_down(event.button, x,y,event.modifiers);
-                cx.notify();
-            }))
-            .on_mouse_up(gpui::MouseButton::Middle, cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
-                let (x,y) = this.viewport_point(event.position, window);
-                this.pointer_up(event.button,x,y);
-                cx.notify();
-            }))
+            .on_mouse_down(
+                gpui::MouseButton::Middle,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    let (x, y) = this.viewport_point(event.position, window);
+                    window.focus(&this.focus);
+                    this.pointer_down(event.button, x, y, event.modifiers);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Middle,
+                cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                    let (x, y) = this.viewport_point(event.position, window);
+                    this.pointer_up(event.button, x, y);
+                    cx.notify();
+                }),
+            )
             .on_mouse_move(viewport_bridge_move)
             .on_mouse_up(gpui::MouseButton::Left, viewport_bridge_up_left)
             .on_mouse_up(
@@ -2403,8 +2544,15 @@ impl Render for MeshcraftShell {
                     .text_sm()
                     .text_color(rgb(0x27394b))
                     .child(format!(
-                        "{} · right-drag orbit · middle-drag / Shift+right-drag pan · wheel zoom{}{}",
+                        "{} · {} · middle-drag / Shift+right-drag pan · wheel zoom{}{}",
                         self.session.active_tool_label(),
+                        if self.walking {
+                            "Walkthrough: WASD move · Q/E height · Space jump · right-drag look"
+                        } else if self.camera.orthographic {
+                            "Orthographic · right-drag orbit"
+                        } else {
+                            "Perspective · right-drag orbit"
+                        },
                         if self.session.native_point_input_hint().is_empty() {
                             ""
                         } else {
@@ -2726,6 +2874,11 @@ impl Render for MeshcraftShell {
                 this.shortcut(event);
                 cx.notify();
             }))
+            .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _, _| {
+                if let Some(index) = walk_key(&event.keystroke.key) {
+                    this.walk_keys[index] = false;
+                }
+            }))
             .child(title_bar)
             .when(preferences.menu_bar_visible, |root| root.child(menu_bar))
             .when(preferences.ribbon_visible, |root| {
@@ -2835,9 +2988,9 @@ mod tests {
     fn viewport_bounds_follow_visibility_at_each_dpi() {
         for scale in [1.0, 1.5, 2.0] {
             for (menu, ribbon, header) in [
-                (true, true, 200.),
+                (true, true, 144.),
                 (true, false, 34.),
-                (false, true, 166.),
+                (false, true, 110.),
                 (false, false, 0.),
             ] {
                 for (left, margin) in [(true, 230.), (false, 0.)] {
@@ -2971,6 +3124,32 @@ mod tests {
         assert!(
             (camera.position().distance(camera.target) - f64::from(camera.distance)).abs() < 1.0e-5
         );
+    }
+
+    #[test]
+    fn orthographic_rays_are_parallel_and_round_trip_in_all_axis_views() {
+        use meshcraft_core::geometry::Vec3;
+        for id in ["top", "bottom", "left", "right", "front", "back"] {
+            let (_, up, eye) = crate::viewport::OrthoView::from_id(id)
+                .unwrap()
+                .screen_axes();
+            let camera = OrbitCamera {
+                orthographic: true,
+                up,
+                yaw: eye.x.atan2(eye.z) as f32,
+                pitch: eye.y.asin() as f32,
+                ..Default::default()
+            };
+            let (a, direction) = camera.ray(160., 120., 800., 600.).unwrap();
+            let (b, other) = camera.ray(640., 480., 800., 600.).unwrap();
+            assert!(direction.distance(other) < 1e-9);
+            assert!(a.distance(b) > 1.);
+            for depth in [2., 10., 100.] {
+                let p = super::project_point(camera, (800., 600.), a + direction * depth).unwrap();
+                assert!((p.0 - 160.).abs() < 0.001 && (p.1 - 120.).abs() < 0.001);
+            }
+            assert!(super::project_point(camera, (800., 600.), Vec3::ZERO).is_some());
+        }
     }
 
     #[test]
