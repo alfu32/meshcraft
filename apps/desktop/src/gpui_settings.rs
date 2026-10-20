@@ -724,3 +724,15 @@ fn render_object_field(shell: &MeshcraftShell, label: &'static str) -> Option<gp
             .into_any_element(),
     )
 }
+
+pub(super) fn focus_object_name(
+    shell: &mut MeshcraftShell,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    if let Some(input) = shell.settings.inputs.get("object_name").cloned() {
+        input.update(cx, |input, cx| input.focus(window, cx));
+        shell.settings.active = Some("object_name");
+        cx.notify();
+    }
+}

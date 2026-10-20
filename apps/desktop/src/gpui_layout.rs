@@ -19,18 +19,31 @@ use gpui_component::{
 };
 use meshcraft_core::{commands::CommandDescriptor, document::Document};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub(super) struct SceneCounts {
     edges: usize,
     faces: usize,
     objects: usize,
+    hotspots: usize,
+    prototypes: std::collections::BTreeMap<meshcraft_core::document::DefinitionId, usize>,
 }
 
 impl SceneCounts {
     pub(super) fn from_document(document: &Document) -> Self {
         let mut counts = Self::default();
+        let hotspot_counts = document
+            .definitions()
+            .chain(document.scene_root_definition())
+            .map(|d| (d.id, document.hotspots(d.id).map_or(0, |h| h.len())))
+            .collect::<std::collections::BTreeMap<_, _>>();
         for occurrence in document.scene_geometry_refs().unwrap_or_default() {
-            if !occurrence.path.is_empty() {
+            if let Some(r) = document.resolve_occurrence(&occurrence) {
+                *counts.prototypes.entry(r.definition.id).or_default() += 1;
+                counts.hotspots += hotspot_counts.get(&r.definition.id).copied().unwrap_or(0);
+            }
+            if !occurrence.path.is_empty()
+                && document.scene_container_occurrence().as_ref() != Some(&occurrence)
+            {
                 counts.objects += 1;
             }
             if let Some(geometry) = document.effective_geometry(&occurrence) {
@@ -67,11 +80,20 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         label: &'static str,
     ) -> Button {
         let command = ribbon_command_for_key(key, &self.catalog);
-        let icon = crate::assets::gpui_icon(key).or_else(|| {
-            command
-                .and_then(|command| command.presentation.icon_key.as_deref())
-                .and_then(crate::assets::gpui_icon)
+        let checked = command.is_some_and(|command| {
+            self.shell
+                .session
+                .query_command_state(command.id.as_str())
+                .checked
+                == Some(true)
         });
+        let icon = crate::assets::gpui_icon(key)
+            .or_else(|| {
+                command
+                    .and_then(|command| command.presentation.icon_key.as_deref())
+                    .and_then(crate::assets::gpui_icon)
+            })
+            .or_else(|| command.and_then(|command| crate::assets::gpui_icon(command.id.as_str())));
         let icon_size = (self.shell.session.native_ui_preferences().toolbar_icon_size as f32
             * 0.75)
             .clamp(18., 32.);
@@ -84,11 +106,22 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     .w(px(80.))
                     .min_w(px(0.))
                     .when_some(icon, |row, icon| {
-                        row.child(
-                            img(ImageSource::Render(icon))
-                                .size(px(icon_size))
-                                .flex_none(),
-                        )
+                        let tile = div()
+                            .relative()
+                            .size(px(icon_size))
+                            .flex_none()
+                            .child(img(ImageSource::Render(icon)).size(px(icon_size)));
+                        row.child(tile.when(checked, |tile| {
+                            tile.child(
+                                div()
+                                    .absolute()
+                                    .left(px(0.))
+                                    .top(px(0.))
+                                    .size(px(7.))
+                                    .rounded_full()
+                                    .bg(rgb(0xf45151)),
+                            )
+                        }))
                     })
                     .child(
                         div()
@@ -107,6 +140,13 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             .ghost()
             .compact()
             .tooltip(format!("{label} · {key}"));
+        if key == "rename-object" {
+            return button
+                .disabled(self.shell.session.native_active_object().is_none())
+                .on_click(self.cx.listener(|this, _, window, cx| {
+                    super::settings::focus_object_name(this, window, cx);
+                }));
+        }
         if key == "apply-model-settings" || key == "reset-model-settings" {
             return button.on_click(self.cx.listener(move |this, _, window, cx| {
                 if key == "reset-model-settings" {
@@ -265,7 +305,13 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             let document = &self.shell.cached_document;
             let prototypes = document
                 .definitions()
-                .filter(|definition| definition.id != Document::SCENE_ROOT_DEFINITION_ID)
+                .filter(|definition| {
+                    definition.id != Document::SCENE_ROOT_DEFINITION_ID
+                        && !document
+                            .scene_container_occurrence()
+                            .and_then(|path| document.resolve_occurrence(&path))
+                            .is_some_and(|root| root.definition.id == definition.id)
+                })
                 .collect::<Vec<_>>();
             div()
                 .flex()
@@ -273,33 +319,40 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .gap(px(2.))
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;
-                    let count = document
-                        .occurrence_refs()
-                        .unwrap_or_default()
-                        .iter()
-                        .filter(|occurrence| {
-                            document
-                                .resolve_occurrence(occurrence)
-                                .is_some_and(|r| r.definition.id == id)
-                        })
-                        .count();
+                    let count = self
+                        .shell
+                        .cached_scene_counts
+                        .prototypes
+                        .get(&id)
+                        .copied()
+                        .unwrap_or(0);
                     Button::new(SharedString::from(format!("objects/prototype/{}", id.0)))
-                        .child(div().w_full().child(format!(
-                                "{} · {} · {} instance(s) · #{}",
-                                prototype.name,
-                                if prototype
-                                    .extensions
-                                    .get("k3d.externalReferenceEnabled")
-                                    .and_then(serde_json::Value::as_bool)
-                                    == Some(true)
-                                {
-                                    "external"
-                                } else {
-                                    "internal"
-                                },
-                                count,
-                                id.0
-                            )))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_start()
+                                .w_full()
+                                .min_w(px(0.))
+                                .child(div().truncate().child(prototype.name.clone()))
+                                .child(div().text_xs().text_color(rgb(0xa5adb7)).child(format!(
+                                        "{} · {} instance(s) · #{}",
+                                        if prototype
+                                            .extensions
+                                            .get("k3d.externalReferenceEnabled")
+                                            .and_then(serde_json::Value::as_bool)
+                                            == Some(true)
+                                        {
+                                            "external"
+                                        } else {
+                                            "internal"
+                                        },
+                                        count,
+                                        id.0
+                                    ))),
+                        )
+                        .w_full()
+                        .h(px(46.))
                         .small()
                         .ghost()
                         .tooltip("Double-click to insert an instance of this prototype")
@@ -395,10 +448,19 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
 
     fn stat(&self, label: &'static str, fallback: &'static str) -> gpui::AnyElement {
         let selection = self.shell.session.native_selection_summary();
-        let totals = self.shell.cached_scene_counts;
+        let totals = &self.shell.cached_scene_counts;
         let value = match label {
             "Edges" => format!("{}    {}    ✓    ✓    □", totals.edges, selection.edges),
             "Faces" => format!("{}    {}    ✓    ✓    □", totals.faces, selection.faces),
+            "Hotspots" => format!(
+                "{}    {}    ✓    ✓    □",
+                totals.hotspots,
+                selection
+                    .counts_by_kind
+                    .get(&meshcraft_core::selection::SelectionKind::Hotspot)
+                    .copied()
+                    .unwrap_or(0)
+            ),
             "Objects" => format!("{}    {}    ✓    ✓    □", totals.objects, selection.objects),
             _ => fallback.to_owned(),
         };
@@ -421,8 +483,10 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     "{}: {name}",
                     if editing {
                         "Editing prototype"
-                    } else {
+                    } else if self.shell.session.native_selection_summary().objects > 0 {
                         "Selected instance"
+                    } else {
+                        "Prototype"
                     }
                 )
             },
@@ -1328,6 +1392,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         .p(px(8.))
         .bg(rgb(0x20262e))
         .id("panel/settings-scroll")
+        .track_scroll(&bindings.shell.settings_scroll)
         .overflow_y_scroll()
         .child(setting_section(
             "Selection",
@@ -1721,4 +1786,26 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             bindings,
         )))
     .into_any_element()
+}
+
+pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
+    Some(match id {
+        "selection" => (0, "Selection"),
+        "object" => (1, "Object"),
+        "objects" => (2, "Objects"),
+        "model_settings" => (3, "Model Settings"),
+        "ui_settings" | "profile" => (4, "UI Settings"),
+        "polyline" | "vector_text" => (5, "Polyline & Vector Text"),
+        "architecture_walls"
+        | "architecture_slabs"
+        | "architecture_stairs"
+        | "architecture_frames" => (6, "Architecture — Walls / Slabs / Stairs / Frames"),
+        "hvac" => (7, "HVAC Settings"),
+        "hotspots" => (8, "Hotspot Settings"),
+        "random" => (9, "Random Tools & Surface Remesh"),
+        "tutorials" => (10, "Tutorials"),
+        "shaders" => (11, "Shader Settings"),
+        "help" => (12, "Help / About"),
+        _ => return None,
+    })
 }

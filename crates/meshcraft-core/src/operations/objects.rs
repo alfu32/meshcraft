@@ -91,6 +91,7 @@ enum MeshDeleteOwner {
 }
 
 fn mesh_delete_owner(
+    document: &Document,
     selection: &SelectionSession,
     occurrence: &OccurrenceRef,
     definition: DefinitionId,
@@ -98,7 +99,10 @@ fn mesh_delete_owner(
     let prototype_edit = match &selection.context {
         EditContext::Definition(active) => *active == definition,
         EditContext::Occurrence(active) => active == occurrence,
-        EditContext::Document => occurrence.is_scene_root(),
+        EditContext::Document => {
+            occurrence.is_scene_root()
+                || document.scene_container_occurrence().as_ref() == Some(occurrence)
+        }
     };
     if prototype_edit {
         MeshDeleteOwner::Definition(definition)
@@ -190,19 +194,34 @@ pub fn delete_selection(
                 if !geometry.vertices.contains_key(&id) {
                     return Err(format!("selected vertex {} no longer exists", id.0));
                 }
-                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+                mesh_delete_owner(
+                    document,
+                    selection,
+                    &target.occurrence,
+                    resolved.definition.id,
+                )
             }
             SelectedEntity::Segment(id) => {
                 if !geometry.segments.contains_key(&id) {
                     return Err(format!("selected segment {} no longer exists", id.0));
                 }
-                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+                mesh_delete_owner(
+                    document,
+                    selection,
+                    &target.occurrence,
+                    resolved.definition.id,
+                )
             }
             SelectedEntity::Triangle(id) => {
                 if !geometry.triangles.contains_key(&id) {
                     return Err(format!("selected face {} no longer exists", id.0));
                 }
-                mesh_delete_owner(selection, &target.occurrence, resolved.definition.id)
+                mesh_delete_owner(
+                    document,
+                    selection,
+                    &target.occurrence,
+                    resolved.definition.id,
+                )
             }
             SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => unreachable!(),
         };
@@ -240,6 +259,7 @@ pub fn delete_selection(
                 .cloned()
                 .ok_or_else(|| "the selected mesh owner no longer exists".to_owned())?,
         };
+        let before_hotspot_geometry = geometry.clone();
         for id in &selected.vertices {
             if !geometry.vertices.contains_key(id) {
                 return Err(format!(
@@ -311,6 +331,11 @@ pub fn delete_selection(
                     .get_mut(&id)
                     .expect("definition was validated above")
                     .geometry = geometry;
+                candidate.reconcile_hotspot_topology(
+                    id,
+                    &before_hotspot_geometry,
+                    &crate::document::TopologyRemap::default(),
+                );
             }
             MeshDeleteOwner::Occurrence(occurrence) => {
                 let mut edits = candidate
@@ -326,8 +351,29 @@ pub fn delete_selection(
         }
     }
 
-    if !occurrence_roots.is_empty() {
-        report.occurrences = candidate.remove_selected_occurrences(&occurrence_roots)?;
+    let mut private = Vec::new();
+    for occurrence in occurrence_roots {
+        if let Some(layout) = authored_child_layout(&candidate, &selection.context, &occurrence) {
+            let id = *occurrence
+                .path
+                .last()
+                .ok_or("cannot delete the scene root")?;
+            candidate
+                .child_layouts
+                .get_mut(&layout)
+                .ok_or("parent layout disappeared")?
+                .entries
+                .retain(|entry| entry.id != id);
+            candidate
+                .occurrence_edits
+                .retain(|path, _| !path.path.contains(&id));
+            report.occurrences += 1;
+        } else {
+            private.push(occurrence);
+        }
+    }
+    if !private.is_empty() {
+        report.occurrences += candidate.remove_selected_occurrences(&private)?;
     }
     candidate.hotspot_cache.clear();
     candidate.revision = document
@@ -665,13 +711,16 @@ pub fn group_mesh_selection(
         .ok_or_else(|| "the selected geometry owner no longer exists".to_owned())?;
     let definition_id = resolved.definition.id;
     let source = candidate
-        .effective_geometry(&occurrence)
+        .geometry_in_context(&occurrence, &selection.context)
         .cloned()
         .ok_or_else(|| "the selected geometry owner has no mesh".to_owned())?;
     let prototype_edit = match &selection.context {
         EditContext::Definition(active) => *active == definition_id,
         EditContext::Occurrence(active) => active == &occurrence,
-        EditContext::Document => occurrence.is_scene_root(),
+        EditContext::Document => {
+            occurrence.is_scene_root()
+                || candidate.scene_container_occurrence().as_ref() == Some(&occurrence)
+        }
     };
     let mut selected_domain_ids = BTreeMap::<&'static str, BTreeSet<String>>::new();
     let mut selected_vertices = BTreeSet::new();
@@ -1301,7 +1350,16 @@ pub fn place_definition(
         .ok_or_else(|| "the selected object definition does not exist".to_owned())?;
 
     let (parent_path, parent_world, parent_definition) = match context {
-        EditContext::Document => (Vec::new(), Affine3::IDENTITY, None),
+        EditContext::Document => {
+            if let Some(path) = candidate.scene_container_occurrence() {
+                let r = candidate
+                    .resolve_occurrence(&path)
+                    .ok_or("scene container is missing")?;
+                (path.path.clone(), r.world_transform, Some(r.definition.id))
+            } else {
+                (Vec::new(), Affine3::IDENTITY, None)
+            }
+        }
         EditContext::Occurrence(occurrence) => {
             let resolved = candidate
                 .resolve_occurrence(occurrence)
@@ -1351,7 +1409,17 @@ pub fn place_definition(
     placement_linear.translation =
         local_position - placement_linear.transform_vector(definition.frame.translation);
 
-    let layout_id = if let Some(parent_definition) = parent_definition {
+    let scene_layout = if matches!(context, EditContext::Document) {
+        candidate
+            .scene_container_occurrence()
+            .and_then(|path| candidate.resolve_occurrence(&path))
+            .and_then(|r| r.edits.and_then(|e| e.child_layout))
+    } else {
+        None
+    };
+    let layout_id = if let Some(layout) = scene_layout {
+        layout
+    } else if let Some(parent_definition) = parent_definition {
         match candidate
             .definitions
             .get(&parent_definition)
@@ -2760,4 +2828,94 @@ mod tests {
         assert_eq!(revision + 1, document.revision());
         document.validate().unwrap();
     }
+}
+
+/// Child placements authored in a prototype (or the unique imported scene root) share a layout.
+/// Other nested occurrences retain their existing private-edit behavior.
+pub(crate) fn authored_child_layout(
+    document: &Document,
+    context: &EditContext,
+    child: &OccurrenceRef,
+) -> Option<ChildLayoutId> {
+    if child.path.is_empty() {
+        return None;
+    }
+    let parent = OccurrenceRef {
+        path: child.path[..child.path.len() - 1].to_vec(),
+    };
+    let r = document.resolve_occurrence(&parent)?;
+    match context {
+        EditContext::Occurrence(active) if active == &parent => r.definition.default_child_layout,
+        EditContext::Definition(id) if *id == r.definition.id => r.definition.default_child_layout,
+        EditContext::Document
+            if document.scene_container_occurrence().as_ref() == Some(&parent) =>
+        {
+            r.edits
+                .and_then(|e| e.child_layout)
+                .or(r.definition.default_child_layout)
+        }
+        _ => None,
+    }
+}
+
+pub fn duplicate_occurrence_in_context(
+    document: &mut Document,
+    context: &EditContext,
+    source: &OccurrenceRef,
+    offset: Vec3,
+) -> Result<(OccurrenceRef, Option<OccurrencePathRemap>), String> {
+    let Some(layout) = authored_child_layout(document, context, source) else {
+        return duplicate_occurrence_with_remap(document, source, offset);
+    };
+    if !offset.is_finite() {
+        return Err("copy offset must be finite".into());
+    }
+    let mut draft = document.clone();
+    let r = draft
+        .resolve_occurrence(source)
+        .ok_or("object to copy no longer exists")?;
+    let mut entry = r.entry.cloned().ok_or("cannot copy the scene root")?;
+    if matches!(context, EditContext::Document) {
+        entry.default_edits = r.edits.cloned().unwrap_or_default();
+    }
+    entry.default_edits.legacy_instance_id = None;
+    entry.transform = entry
+        .default_edits
+        .transform
+        .take()
+        .unwrap_or(entry.transform);
+    entry.transform.translation += offset;
+    entry.id = LayoutEntryId(draft.allocate_id());
+    entry.legacy_aliases.clear();
+    let copy = OccurrenceRef {
+        path: [
+            source.path[..source.path.len() - 1].to_vec(),
+            vec![entry.id],
+        ]
+        .concat(),
+    };
+    draft
+        .child_layouts
+        .get_mut(&layout)
+        .ok_or("parent layout no longer exists")?
+        .entries
+        .push(entry);
+    let descendants = draft
+        .occurrence_edits
+        .iter()
+        .filter(|(path, _)| {
+            path.path.starts_with(&source.path) && path.path.len() > source.path.len()
+        })
+        .map(|(p, e)| (p.clone(), e.clone()))
+        .collect::<Vec<_>>();
+    for (old, edits) in descendants {
+        let path = OccurrenceRef {
+            path: [copy.path.clone(), old.path[source.path.len()..].to_vec()].concat(),
+        };
+        draft.occurrence_edits.insert(path, edits);
+    }
+    draft.bump_revision();
+    draft.validate()?;
+    *document = draft;
+    Ok((copy, None))
 }

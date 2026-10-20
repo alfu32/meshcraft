@@ -156,7 +156,8 @@ pub(crate) fn transform_selection_with_path_remaps(
                     ));
                 }
             };
-            let owner = geometry_owner(&selection.context, target, resolved.definition.id);
+            let owner =
+                geometry_owner(document, &selection.context, target, resolved.definition.id);
             let GeometryOwner::Definition(definition) = owner else {
                 return Err(format!(
                     "transforming {field} on an inherited object instance needs occurrence-level domain overrides"
@@ -171,13 +172,13 @@ pub(crate) fn transform_selection_with_path_remaps(
                 .insert(id.clone());
             continue;
         }
-        let owner = geometry_owner(&selection.context, target, resolved.definition.id);
+        let owner = geometry_owner(document, &selection.context, target, resolved.definition.id);
         let group = geometry.entry(owner).or_default();
         group.occurrence_targets.insert(target.occurrence.clone());
         group
             .transform_occurrence
             .get_or_insert_with(|| target.occurrence.clone());
-        let bundle = document.effective_geometry(&target.occurrence);
+        let bundle = document.geometry_in_context(&target.occurrence, &selection.context);
         let Some(bundle) = bundle else {
             continue;
         };
@@ -226,8 +227,9 @@ pub(crate) fn transform_selection_with_path_remaps(
 
     while let Some(occurrence) = selected_objects.pop_first() {
         if copy {
-            let (duplicate, remap) = crate::operations::objects::duplicate_occurrence_with_remap(
+            let (duplicate, remap) = crate::operations::objects::duplicate_occurrence_in_context(
                 &mut candidate,
+                &selection.context,
                 &occurrence,
                 Vec3::ZERO,
             )?;
@@ -238,13 +240,23 @@ pub(crate) fn transform_selection_with_path_remaps(
                 copy_targets = remap_selection_targets(copy_targets, &remap);
                 path_remaps.push(remap);
             }
-            transform_occurrence(&mut candidate, &duplicate, world_transform)?;
+            transform_occurrence(
+                &mut candidate,
+                &duplicate,
+                world_transform,
+                &selection.context,
+            )?;
             copy_targets.insert(SelectionTarget {
                 occurrence: duplicate,
                 entity: SelectedEntity::Occurrence,
             });
             report.copied_occurrences += 1;
-        } else if transform_occurrence(&mut candidate, &occurrence, world_transform)? {
+        } else if transform_occurrence(
+            &mut candidate,
+            &occurrence,
+            world_transform,
+            &selection.context,
+        )? {
             report.transformed_occurrences += 1;
         }
     }
@@ -583,7 +595,12 @@ pub fn paint_selection(
         let Some(resolved) = document.resolve_occurrence(&target.occurrence) else {
             continue;
         };
-        let owner = geometry_owner(&selection.context, &target, resolved.definition.id);
+        let owner = geometry_owner(
+            document,
+            &selection.context,
+            &target,
+            resolved.definition.id,
+        );
         let group = groups.entry(owner).or_default();
         match target.entity {
             SelectedEntity::Segment(id) => {
@@ -706,7 +723,7 @@ pub fn preview_selection_transform(
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
             };
-            if let Some(geometry) = document.effective_geometry(&occurrence) {
+            if let Some(geometry) = document.geometry_in_context(&occurrence, &selection.context) {
                 let vertex_ids = geometry.vertices.keys().copied().collect::<BTreeSet<_>>();
                 let Some(inverse) = resolved
                     .world_transform
@@ -746,7 +763,7 @@ pub fn preview_selection_transform(
                 .resolve_occurrence(&target.occurrence)
                 .ok_or_else(|| "selected annotation occurrence is missing".to_owned())?;
             if !matches!(
-                geometry_owner(&selection.context, target, resolved.definition.id),
+                geometry_owner(document, &selection.context, target, resolved.definition.id),
                 GeometryOwner::Definition(_)
             ) {
                 continue;
@@ -792,7 +809,8 @@ pub fn preview_selection_transform(
             append_preview_annotation(field, &transformed, resolved.world_transform, &mut edges)?;
             continue;
         }
-        let Some(geometry) = document.effective_geometry(&target.occurrence) else {
+        let Some(geometry) = document.geometry_in_context(&target.occurrence, &selection.context)
+        else {
             continue;
         };
         let vertices = selected_by_occurrence
@@ -818,7 +836,7 @@ pub fn preview_selection_transform(
         }
     }
     for (occurrence, vertices) in selected_by_occurrence {
-        let Some(geometry) = document.effective_geometry(&occurrence) else {
+        let Some(geometry) = document.geometry_in_context(&occurrence, &selection.context) else {
             continue;
         };
         let Some(resolved) = document.resolve_occurrence(&occurrence) else {
@@ -1129,6 +1147,7 @@ fn transform_occurrence(
     document: &mut Document,
     occurrence: &OccurrenceRef,
     world_transform: Affine3,
+    context: &EditContext,
 ) -> Result<bool, String> {
     let (placement, mut edits) = {
         let Some(resolved) = document.resolve_occurrence(occurrence) else {
@@ -1167,6 +1186,26 @@ fn transform_occurrence(
         return Ok(false);
     }
     edits.transform = Some(adjusted);
+    if let Some(layout) =
+        crate::operations::objects::authored_child_layout(document, context, occurrence)
+    {
+        let entry = document
+            .child_layouts
+            .get_mut(&layout)
+            .and_then(|l| {
+                l.entries
+                    .iter_mut()
+                    .find(|e| Some(&e.id) == occurrence.path.last())
+            })
+            .ok_or("child placement no longer exists")?;
+        entry.transform = adjusted;
+        entry.default_edits.transform = None;
+        if let Some(edits) = document.occurrence_edits.get_mut(occurrence) {
+            edits.transform = None;
+        }
+        document.bump_revision();
+        return Ok(true);
+    }
     if !document.set_occurrence_edits(occurrence.clone(), edits) {
         return Err("could not store the transformed object instance".to_owned());
     }
@@ -1184,6 +1223,7 @@ fn target_in_context(document: &Document, context: &EditContext, target: &Select
 }
 
 fn geometry_owner(
+    document: &Document,
     context: &EditContext,
     target: &SelectionTarget,
     definition: DefinitionId,
@@ -1193,7 +1233,11 @@ fn geometry_owner(
         EditContext::Occurrence(occurrence) if *occurrence == target.occurrence => {
             GeometryOwner::Definition(definition)
         }
-        _ if target.occurrence.is_scene_root() => GeometryOwner::Definition(definition),
+        _ if target.occurrence.is_scene_root()
+            || document.scene_container_occurrence().as_ref() == Some(&target.occurrence) =>
+        {
+            GeometryOwner::Definition(definition)
+        }
         _ => GeometryOwner::Occurrence(target.occurrence.clone()),
     }
 }
@@ -1469,7 +1513,7 @@ mod tests {
                 && document.resolve_occurrence(&target.occurrence).is_some()
         }));
         let resolved_parent = document.resolve_occurrence(&parent).unwrap();
-        let private_layout = resolved_parent.edits.unwrap().child_layout.unwrap();
+        let private_layout = resolved_parent.definition.default_child_layout.unwrap();
         assert_eq!(
             4,
             document.child_layout(private_layout).unwrap().entries.len()

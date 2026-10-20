@@ -866,6 +866,7 @@ impl Render for RaylibCanvas {
 struct MeshcraftShell {
     focus: gpui::FocusHandle,
     settings: settings::Editors,
+    settings_scroll: gpui::ScrollHandle,
     open_settings_panel: Option<&'static str>,
     collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
     bridge: ViewportBridge,
@@ -878,6 +879,7 @@ struct MeshcraftShell {
     menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     lighting: lighting::Lighting,
     cached_document_revision: Option<u64>,
+    cached_document_generation: Option<u64>,
     cached_edit_context: Option<EditContext>,
     cached_document: Arc<Document>,
     cached_scene_counts: layout::SceneCounts,
@@ -909,6 +911,7 @@ impl MeshcraftShell {
         let mut this = Self {
             focus: cx.focus_handle(),
             settings: settings::Editors::default(),
+            settings_scroll: gpui::ScrollHandle::new(),
             open_settings_panel: Some("UI Settings"),
             collapsed_settings_panels: Default::default(),
             camera: OrbitCamera::default(),
@@ -918,6 +921,7 @@ impl MeshcraftShell {
             menu_bounds: Arc::default(),
             lighting: lighting::Lighting::default(),
             cached_document_revision: None,
+            cached_document_generation: None,
             cached_edit_context: None,
             cached_document: Arc::new(session.document_snapshot()),
             cached_scene_counts: layout::SceneCounts::default(),
@@ -999,9 +1003,11 @@ impl MeshcraftShell {
         let revision = self.session.document_revision();
         let edit_context = self.session.native_edit_context();
         if self.cached_document_revision != Some(revision)
+            || self.cached_document_generation != Some(self.session.document_generation())
             || self.cached_edit_context.as_ref() != Some(&edit_context)
         {
             self.cached_edit_context = Some(edit_context);
+            self.cached_document_generation = Some(self.session.document_generation());
             self.cached_document = Arc::new(self.session.native_document_for_view());
             self.cached_scene_counts = layout::SceneCounts::from_document(&self.cached_document);
             self.cached_document_revision = Some(revision);
@@ -1608,11 +1614,9 @@ fn selection_region_in_context(
             .collect::<Vec<_>>();
         let active_depth = match context {
             EditContext::Occurrence(active) => active.path.len(),
-            _ if occurrence.path.first().is_some_and(|id| {
-                document
-                    .resolve_occurrence(&meshcraft_core::document::OccurrenceRef::root(*id))
-                    .is_some_and(|r| r.definition.name == "Root")
-            }) =>
+            _ if document
+                .scene_container_occurrence()
+                .is_some_and(|root| occurrence.path.starts_with(&root.path)) =>
             {
                 1
             }
@@ -1694,10 +1698,7 @@ fn selection_region_in_context(
         let authored = match context {
             EditContext::Document => {
                 handle.occurrence.is_scene_root()
-                    || (handle.occurrence.path.len() == 1
-                        && document
-                            .resolve_occurrence(&handle.occurrence)
-                            .is_some_and(|r| r.definition.name == "Root"))
+                    || document.scene_container_occurrence().as_ref() == Some(&handle.occurrence)
             }
             EditContext::Occurrence(active) => &handle.occurrence == active,
             EditContext::Definition(id) => document
@@ -2053,6 +2054,13 @@ impl Render for MeshcraftShell {
         if self.cached_document_revision != Some(self.session.document_revision()) {
             self.refresh_scene();
         }
+        if let Some(panel) = self.session.native_take_panel_focus() {
+            if let Some((index, title)) = layout::panel_location(&panel) {
+                self.open_settings_panel = Some(title);
+                self.collapsed_settings_panels.remove(title);
+                self.settings_scroll.scroll_to_top_of_item(index);
+            }
+        }
         settings::prepare(self, window, cx);
         self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();
@@ -2244,6 +2252,30 @@ impl Render for MeshcraftShell {
                         self.session.active_tool_label()
                     )),
             );
+
+        let viewport = viewport.when(
+            self.session.native_edit_context() != EditContext::Document,
+            |viewport| {
+                viewport.child(
+                    div()
+                        .absolute()
+                        .top(px(10.))
+                        .right(px(12.))
+                        .occlude()
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_mouse_up(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            Button::new("viewport/selection.exit_context")
+                                .label("Finish Editing")
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.dispatch("selection.exit_context");
+                                    cx.notify();
+                                })),
+                        ),
+                )
+            },
+        );
 
         let viewport = viewport.when_some(self.feedback.as_ref(), |viewport, feedback| {
             viewport.child(
@@ -2510,6 +2542,14 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     Application::new().run(move |cx: &mut App| {
         gpui_component::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
+        // Strong, consistent button/list hover contrast on the dark shell (#28).
+        {
+            let theme = cx.global_mut::<Theme>();
+            theme.colors.secondary = rgb(0x31465b).into();
+            theme.colors.secondary_hover = rgb(0x4b6682).into();
+            theme.colors.secondary_active = rgb(0x58799a).into();
+            theme.colors.list_hover = rgb(0x405975).into();
+        }
         let requested_size = size(px(window_size[0]), px(window_size[1]));
         let centered = WindowBounds::centered(requested_size, cx);
         let bounds = if maximized {

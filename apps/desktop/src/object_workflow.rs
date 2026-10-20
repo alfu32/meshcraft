@@ -55,7 +55,7 @@ impl MeshcraftApp {
             || self.hotspot_reference_pick
     }
 
-    fn hotspot_owner(&self) -> Result<(OccurrenceRef, DefinitionId, Affine3), String> {
+    pub(super) fn hotspot_owner(&self) -> Result<(OccurrenceRef, DefinitionId, Affine3), String> {
         let occurrence = match &self.selection.context {
             EditContext::Occurrence(active) => active.clone(),
             EditContext::Document => {
@@ -63,15 +63,7 @@ impl MeshcraftApp {
                     OccurrenceRef::scene_root()
                 } else {
                     self.document
-                        .occurrence_refs()?
-                        .into_iter()
-                        .find(|path| {
-                            path.path.len() == 1
-                                && self
-                                    .document
-                                    .resolve_occurrence(path)
-                                    .is_some_and(|r| r.definition.name == "Root")
-                        })
+                        .scene_container_occurrence()
                         .ok_or("scene root is missing")?
                 }
             }
@@ -98,7 +90,11 @@ impl MeshcraftApp {
                 } => Some((target.occurrence.clone(), id.clone())),
                 _ => None,
             })
-            .or_else(|| self.hotspot_inspector.clone());
+            .or_else(|| {
+                self.hotspot_inspector
+                    .clone()
+                    .filter(|(path, _)| self.native_hotspot_authoring_allowed(path))
+            });
         if let Some((path, id)) = selected.as_ref() {
             if let Some(r) = self.document.resolve_occurrence(path) {
                 if let Ok(hotspots) = self.document.hotspots(r.definition.id) {
@@ -115,11 +111,7 @@ impl MeshcraftApp {
         match &self.selection.context {
             EditContext::Document => {
                 occurrence.is_scene_root()
-                    || (occurrence.path.len() == 1
-                        && self
-                            .document
-                            .resolve_occurrence(occurrence)
-                            .is_some_and(|r| r.definition.name == "Root"))
+                    || self.document.scene_container_occurrence().as_ref() == Some(occurrence)
             }
             EditContext::Occurrence(active) => occurrence == active,
             EditContext::Definition(id) => self
@@ -142,6 +134,7 @@ impl MeshcraftApp {
             return;
         }
         self.hotspot_inspector = Some((occurrence.clone(), id.clone()));
+        self.panel_focus = Some("hotspots".into());
         self.selection.apply(
             [SelectionTarget {
                 occurrence,
@@ -165,8 +158,9 @@ impl MeshcraftApp {
         if self.native_hotspot_authoring_allowed(occurrence) && !occurrence.is_scene_root() {
             return Err("finish prototype editing before operating an instance hotspot".into());
         }
+        let context = self.selection.context.clone();
         self.commit_document_edit("Operate instance hotspot", |d| {
-            d.set_hotspot_target(occurrence, id, target_local)
+            d.set_nested_instance_hotspot_default(&context, occurrence, id, target_local)
         })?;
         self.status = "Updated this instance's hotspot value.".into();
         Ok(())
@@ -207,9 +201,8 @@ impl MeshcraftApp {
         let id = self.commit_document_edit("Add prototype hotspot", |d| {
             d.put_hotspot(definition, hotspot)
         })?;
+        self.cancel_active_tool();
         self.select_native_hotspot(path, id.clone(), SelectionMode::Replace);
-        self.tool_cycle_state.cancel_hotspot_placement();
-        self.active_tool = "Select".into();
         Ok(id)
     }
 
@@ -437,6 +430,7 @@ impl MeshcraftApp {
                 self.status = "Attached the selected prototype geometry to the hotspot.".into();
             }
             "reference" => {
+                self.cancel_active_tool();
                 self.hotspot_reference_pick = true;
                 self.active_tool = "Hotspot Reference".into();
                 self.status =
@@ -652,6 +646,7 @@ impl MeshcraftApp {
         let final_result = match result {
             Ok(id) => {
                 self.object_browser_selection = Some(id);
+                self.panel_focus = Some("objects".into());
                 self.status = format!(
                     "{} prototype ready. Double-click it in Objects to insert an instance.",
                     if job.external { "External" } else { "Internal" }
@@ -766,5 +761,55 @@ mod tests {
         app.execute_hotspot_command("delete", &CommandPayload::default());
         assert!(app.document.hotspots(def).unwrap().is_empty());
         assert!(app.selection.selected().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod spatial_view_tests {
+    use super::*;
+    #[test]
+    fn switching_to_authored_prototype_invalidates_the_runtime_pick_mesh() {
+        let mut app = super::super::tests::test_app();
+        let instance = app
+            .document
+            .add_cuboid("Moved by handle", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let def = app
+            .document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let geometry = &app.document.definition(def).unwrap().geometry;
+        let h = Hotspot {
+            id: "move".into(),
+            attached_triangles: geometry
+                .triangles
+                .values()
+                .map(|t| TriangleAttachment::from_triangle(geometry, t))
+                .collect(),
+            ..Hotspot::default()
+        };
+        app.document.put_hotspot(def, h).unwrap();
+        app.document
+            .set_hotspot_target(&instance, "move", Vec3::X * 5.)
+            .unwrap();
+        let direction = -Vec3::Y;
+        assert!(
+            app.pick_native_target(Vec3::new(5.5, 10., 0.5), direction, 0.01)
+                .is_some()
+        );
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        let picked = app
+            .pick_native_target(Vec3::new(0.5, 10., 0.5), direction, 0.01)
+            .unwrap();
+        assert!(matches!(picked.entity, SelectedEntity::Triangle(_)));
+        app.handle_native_escape();
+        assert_eq!(EditContext::Document, app.selection.context);
+        assert!(
+            app.pick_native_target(Vec3::new(5.5, 10., 0.5), direction, 0.01)
+                .is_some()
+        );
     }
 }

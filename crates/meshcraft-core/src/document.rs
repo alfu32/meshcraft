@@ -522,6 +522,21 @@ impl Document {
         }
     }
 
+    /// The legacy scene-root placement is a document container, not a reusable object row.
+    pub fn scene_container_occurrence(&self) -> Option<OccurrenceRef> {
+        let root_id = self.extensions.get("k3d.root_instance_id")?.as_str()?;
+        self.child_layout(self.root_layout)?
+            .entries
+            .iter()
+            .find(|entry| {
+                entry
+                    .legacy_aliases
+                    .iter()
+                    .any(|alias| alias.source == "k3d.instance" && alias.id == root_id)
+            })
+            .map(|entry| OccurrenceRef::root(entry.id))
+    }
+
     pub fn root_layout(&self) -> ChildLayoutId {
         self.root_layout
     }
@@ -960,6 +975,7 @@ impl Document {
             insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
         let definition = self.definitions.get_mut(&definition_id)?;
         definition.geometry = replacement;
+        self.reconcile_hotspot_topology(definition_id, &geometry, &insertion.remap);
         self.bump_revision();
         Some(insertion)
     }
@@ -975,6 +991,7 @@ impl Document {
         let (replacement, insertion) =
             insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
         self.definitions.get_mut(&definition_id)?.geometry = replacement;
+        self.reconcile_hotspot_topology(definition_id, &geometry, &insertion.remap);
         self.bump_revision();
         Some(insertion)
     }
@@ -1242,12 +1259,14 @@ impl Document {
             .ok_or_else(|| format!("missing definition {}", definition_id.0))?
             .geometry
             .clone();
+        let before = geometry.clone();
         let remap = staged.replace_triangles_in_bundle(&mut geometry, sources, replacements)?;
         staged
             .definitions
             .get_mut(&definition_id)
             .expect("definition checked before geometry replacement")
             .geometry = geometry;
+        staged.reconcile_hotspot_topology(definition_id, &before, &remap);
         staged.bump_revision();
         *self = staged;
         Ok(remap)
@@ -1879,6 +1898,31 @@ impl Document {
         mut geometry: GeometryBundle,
         transform: Affine3,
     ) -> Option<OccurrenceRef> {
+        let scene_parent = self.scene_container_occurrence();
+        let (layout, transform) = if let Some(path) = scene_parent.as_ref() {
+            let r = self.resolve_occurrence(path)?;
+            let transform = r
+                .world_transform
+                .inverse(crate::geometry::GeometryTolerance::default())?
+                .compose(transform);
+            let parent_definition = r.definition.id;
+            let layout = r
+                .edits
+                .and_then(|e| e.child_layout)
+                .or(r.definition.default_child_layout);
+            let layout = if let Some(layout) = layout {
+                layout
+            } else {
+                let layout = self.add_child_layout();
+                self.definitions
+                    .get_mut(&parent_definition)?
+                    .default_child_layout = Some(layout);
+                layout
+            };
+            (layout, transform)
+        } else {
+            (self.root_layout, transform)
+        };
         let definition_id = DefinitionId(self.allocate_id());
         geometry.id = GeometryBundleId(self.allocate_id());
         self.definitions.insert(
@@ -1898,7 +1942,7 @@ impl Document {
         );
         let entry_id = LayoutEntryId(self.allocate_id());
         self.child_layouts
-            .get_mut(&self.root_layout)?
+            .get_mut(&layout)?
             .entries
             .push(LayoutEntry {
                 id: entry_id,
@@ -1908,7 +1952,10 @@ impl Document {
                 legacy_aliases: Vec::new(),
             });
         self.bump_revision();
-        Some(OccurrenceRef::root(entry_id))
+        Some(scene_parent.map_or_else(
+            || OccurrenceRef::root(entry_id),
+            |parent| parent.child(entry_id),
+        ))
     }
 
     /// Copies a root placement and its occurrence edits, preserving shared geometry.
@@ -2356,6 +2403,24 @@ impl Document {
             }
         }
         resolved
+    }
+
+    pub fn geometry_in_context(
+        &self,
+        occurrence: &OccurrenceRef,
+        context: &crate::selection::EditContext,
+    ) -> Option<&GeometryBundle> {
+        let r = self.resolve_occurrence(occurrence)?;
+        let authored = match context {
+            crate::selection::EditContext::Occurrence(active) => active == occurrence,
+            crate::selection::EditContext::Definition(id) => *id == r.definition.id,
+            crate::selection::EditContext::Document => occurrence.is_scene_root(),
+        };
+        if authored {
+            Some(&r.definition.geometry)
+        } else {
+            self.effective_geometry(occurrence)
+        }
     }
 
     pub fn effective_geometry(&self, occurrence: &OccurrenceRef) -> Option<&GeometryBundle> {

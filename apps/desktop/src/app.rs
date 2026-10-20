@@ -2129,6 +2129,8 @@ pub struct MeshcraftApp {
     selection: SelectionSession,
     selection_display_policy: SelectionDisplayPolicy,
     selection_click_tracker: SelectionClickTracker,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_spatial_context: Option<(u64, EditContext)>,
     object_name_edit: Option<(DefinitionId, String)>,
     object_browser_selection: Option<DefinitionId>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -2384,6 +2386,10 @@ impl MeshcraftApp {
         let _ = self.poll_autosave(Instant::now());
     }
 
+    pub fn native_take_panel_focus(&mut self) -> Option<String> {
+        self.panel_focus.take()
+    }
+
     pub fn set_native_status(&mut self, text: String) {
         self.status = text;
     }
@@ -2430,11 +2436,10 @@ impl MeshcraftApp {
         {
             let active_depth = match &self.selection.context {
                 EditContext::Occurrence(active) => active.path.len(),
-                _ if target.occurrence.path.first().is_some_and(|id| {
-                    self.document
-                        .resolve_occurrence(&OccurrenceRef::root(*id))
-                        .is_some_and(|r| r.definition.name == "Root")
-                }) =>
+                _ if self
+                    .document
+                    .scene_container_occurrence()
+                    .is_some_and(|root| target.occurrence.path.starts_with(&root.path)) =>
                 {
                     1
                 }
@@ -2494,6 +2499,9 @@ impl MeshcraftApp {
         } else {
             SelectionMode::Replace
         };
+        if target.is_none() && mode == SelectionMode::Replace {
+            self.hotspot_inspector = None;
+        }
         self.selection.apply(target, mode);
         let summary = self.selection.summary();
         self.status = if summary.total() == 0 {
@@ -2711,7 +2719,17 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn native_prepare_spatial_view(&mut self) {
+        let context = (self.document_generation, self.selection.context.clone());
+        if self.native_spatial_context.as_ref() != Some(&context) {
+            self.native_spatial_context = Some(context);
+            self.viewport.invalidate_document_caches();
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn native_cursor_axes(&mut self, snap: SnapResult) -> Option<[Vec3; 3]> {
+        self.native_prepare_spatial_view();
         let edit_view = match &self.selection.context {
             EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
             _ => None,
@@ -2738,6 +2756,7 @@ impl MeshcraftApp {
         direction: Vec3,
         radius: f64,
     ) -> Option<SelectionTarget> {
+        self.native_prepare_spatial_view();
         let edit_view = match &self.selection.context {
             EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
             _ => None,
@@ -2782,6 +2801,7 @@ impl MeshcraftApp {
         radius: f64,
     ) -> Option<SnapResult> {
         // Editing isolates selection, not references: neighboring scene geometry still snaps.
+        self.native_prepare_spatial_view();
         let edit_view = match &self.selection.context {
             EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
             _ => None,
@@ -2943,6 +2963,8 @@ impl MeshcraftApp {
             selection: SelectionSession::default(),
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_spatial_context: None,
             object_name_edit: None,
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2981,28 +3003,19 @@ impl MeshcraftApp {
     }
 
     fn top_level_occurrences(&self) -> Vec<OccurrenceRef> {
-        let occurrences = self.document.occurrence_refs().unwrap_or_default();
-        let root = occurrences
-            .iter()
-            .find(|occurrence| occurrence.path.len() == 1);
-        if let Some(root) = root
-            && self
-                .document
-                .resolve_occurrence(root)
-                .is_some_and(|resolved| resolved.definition.name == "Root")
-        {
-            let children = occurrences
-                .iter()
-                .filter(|occurrence| occurrence.path.len() == 2)
-                .cloned()
-                .collect::<Vec<_>>();
-            if !children.is_empty() {
-                return children;
-            }
-        }
-        occurrences
+        let container = self.document.scene_container_occurrence();
+        self.document
+            .occurrence_refs()
+            .unwrap_or_default()
             .into_iter()
-            .filter(|occurrence| occurrence.path.len() == 1)
+            .filter(|path| {
+                if let Some(root) = container.as_ref() {
+                    (path.path.len() == root.path.len() + 1 && path.path.starts_with(&root.path))
+                        || (path.path.len() == 1 && path != root)
+                } else {
+                    path.path.len() == 1
+                }
+            })
             .collect()
     }
 
@@ -3073,27 +3086,14 @@ impl MeshcraftApp {
             EditContext::Document => {}
         }
 
-        let root_entries = self
-            .document
-            .occurrence_refs()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|occurrence| occurrence.path.len() == 1)
-            .collect::<Vec<_>>();
-        if root_entries.len() == 1
-            && let Some(occurrence) = root_entries.first()
-            && let Some(resolved) = self.document.resolve_occurrence(occurrence)
-            && resolved.definition.name == "Root"
-        {
-            let inverse = resolved
-                .world_transform
-                .inverse(meshcraft_core::geometry::GeometryTolerance::default())
-                .unwrap_or(identity);
-            return (
-                LineOwner::Definition(resolved.definition.id),
-                occurrence.clone(),
-                inverse,
-            );
+        if let Some(occurrence) = self.document.scene_container_occurrence() {
+            if let Some(r) = self.document.resolve_occurrence(&occurrence) {
+                let inverse = r
+                    .world_transform
+                    .inverse(GeometryTolerance::default())
+                    .unwrap_or(identity);
+                return (LineOwner::Definition(r.definition.id), occurrence, inverse);
+            }
         }
         (LineOwner::SceneRoot, OccurrenceRef::scene_root(), identity)
     }
@@ -3337,7 +3337,10 @@ impl MeshcraftApp {
             let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
                 continue;
             };
-            let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+            let Some(geometry) = self
+                .document
+                .geometry_in_context(&target.occurrence, &self.selection.context)
+            else {
                 continue;
             };
             let Some(triangle) = geometry.triangles.get(&triangle_id) else {
@@ -3399,7 +3402,10 @@ impl MeshcraftApp {
             let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
                 continue;
             };
-            let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+            let Some(geometry) = self
+                .document
+                .geometry_in_context(&target.occurrence, &self.selection.context)
+            else {
                 continue;
             };
             let Some(segment) = geometry.segments.get(&segment_id) else {
@@ -3510,9 +3516,13 @@ impl MeshcraftApp {
         let Some(resolved) = self.document.resolve_occurrence(&occurrence) else {
             return CommandResult::failed("The selected geometry graph is no longer available.");
         };
-        let has_instance_geometry = resolved
-            .edits
-            .is_some_and(|edits| edits.geometry_replacement.is_some());
+        let authored = matches!(&self.selection.context, EditContext::Occurrence(active) if active == &occurrence)
+            || matches!(&self.selection.context, EditContext::Definition(id) if *id == resolved.definition.id)
+            || occurrence.is_scene_root();
+        let has_instance_geometry = !authored
+            && resolved
+                .edits
+                .is_some_and(|edits| edits.geometry_replacement.is_some());
         let Some(inverse) = resolved
             .world_transform
             .inverse(GeometryTolerance::default())
@@ -3520,7 +3530,10 @@ impl MeshcraftApp {
             return CommandResult::failed("The selected geometry transform cannot be inverted.");
         };
         let definition = resolved.definition.id;
-        let Some(geometry) = self.document.effective_geometry(&occurrence) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(&occurrence, &self.selection.context)
+        else {
             return CommandResult::failed("The selected geometry graph is no longer available.");
         };
 
@@ -3751,7 +3764,10 @@ impl MeshcraftApp {
         let Some(resolved) = self.document.resolve_occurrence(occurrence) else {
             return Vec::new();
         };
-        let Some(geometry) = self.document.effective_geometry(occurrence) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(occurrence, &self.selection.context)
+        else {
             return Vec::new();
         };
         self.selection
@@ -3998,7 +4014,7 @@ impl MeshcraftApp {
         let (owner, occurrence, inverse) = self.line_geometry_context();
         let geometry = self
             .document
-            .effective_geometry(&occurrence)
+            .geometry_in_context(&occurrence, &self.selection.context)
             .ok_or_else(|| "Extrude Swipe needs an active geometry graph.".to_owned())?;
         let profile = self
             .selection
@@ -4425,11 +4441,10 @@ impl MeshcraftApp {
     ) -> SelectionTarget {
         let depth = match &self.selection.context {
             EditContext::Occurrence(active) => active.path.len(),
-            _ if target.occurrence.path.first().is_some_and(|id| {
-                self.document
-                    .resolve_occurrence(&OccurrenceRef::root(*id))
-                    .is_some_and(|r| r.definition.name == "Root")
-            }) =>
+            _ if self
+                .document
+                .scene_container_occurrence()
+                .is_some_and(|root| target.occurrence.path.starts_with(&root.path)) =>
             {
                 1
             }
@@ -4491,13 +4506,19 @@ impl MeshcraftApp {
         operation: impl FnOnce(&mut Document) -> Result<T, String>,
     ) -> Result<T, String> {
         let mut pending = self.history.begin(&self.document, label);
+        let context = self.selection.context.clone();
         let result = pending
-            .stage(operation)
+            .stage(|draft| match &context {
+                EditContext::Occurrence(active) => draft.edit_prototype(active, operation),
+                EditContext::Document => draft.edit_scene(operation),
+                _ => operation(draft),
+            })
             .map_err(|error| error.to_string())?;
         self.history
             .commit(&mut self.document, pending)
             .map_err(|error| error.to_string())?;
-        self.selection.retain_valid(&self.document);
+        let view = self.native_document_for_view();
+        self.selection.retain_valid(&view);
         Ok(result)
     }
 
@@ -7152,7 +7173,10 @@ impl MeshcraftApp {
         let Some(resolved) = self.document.resolve_occurrence(&source) else {
             return CommandResult::failed("the selected object no longer exists");
         };
-        let Some(geometry) = self.document.effective_geometry(&source) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(&source, &self.selection.context)
+        else {
             return CommandResult::failed("the selected object has no resolved geometry");
         };
         let parent = OccurrenceRef {
@@ -7177,12 +7201,15 @@ impl MeshcraftApp {
                 Some(span.map_or((x, x), |(min, max)| (min.min(x), max.max(x))))
             })
             .map_or(1.0, |(min, max)| max - min);
+        let context = self.selection.context.clone();
         match self.commit_document_edit("Copy object", |document| {
-            modeling_objects::duplicate_occurrence(
+            modeling_objects::duplicate_occurrence_in_context(
                 document,
+                &context,
                 &source,
                 Vec3::new(span_x + 0.5, 0.0, 0.0),
             )
+            .map(|(copy, _)| copy)
         }) {
             Ok(copy) => {
                 self.set_selection([copy.clone()]);
@@ -7419,6 +7446,7 @@ impl MeshcraftApp {
             self.status = "Current tool canceled; Select active.".to_owned();
         } else if !self.selection.selected().is_empty() {
             self.selection.clear();
+            self.hotspot_inspector = None;
             self.status = "Selection cleared.".to_owned();
         } else {
             self.guides.clear();
@@ -8323,7 +8351,10 @@ impl MeshcraftApp {
         let SelectedEntity::Triangle(start_id) = &target.entity else {
             return vec![target.clone()];
         };
-        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(&target.occurrence, &self.selection.context)
+        else {
             return vec![target.clone()];
         };
         let triangle_data = |triangle: &meshcraft_core::document::Triangle| {
@@ -8403,7 +8434,10 @@ impl MeshcraftApp {
         let SelectedEntity::Segment(start_id) = target.entity else {
             return vec![target.clone()];
         };
-        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(&target.occurrence, &self.selection.context)
+        else {
             return vec![target.clone()];
         };
         let Some(start) = geometry.segments.get(&start_id) else {
@@ -8443,7 +8477,10 @@ impl MeshcraftApp {
     }
 
     fn connected_selection_component(&self, target: &SelectionTarget) -> Vec<SelectionTarget> {
-        let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+        let Some(geometry) = self
+            .document
+            .geometry_in_context(&target.occurrence, &self.selection.context)
+        else {
             return vec![target.clone()];
         };
         let mut vertices = BTreeSet::new();
@@ -8604,6 +8641,9 @@ impl MeshcraftApp {
         let point = snap
             .map(|result| result.point)
             .or_else(|| self.viewport.screen_to_construction_plane(rect, position));
+        if self.tool_cycle_state.hotspot_placement_active() {
+            return point.map(|position| ToolPreview::Point { position });
+        }
         if self.revolve_tool_state.active() {
             let point_position = point?;
             self.revolve_tool_state.set_pointer(Some(point_position));
@@ -8709,7 +8749,10 @@ impl MeshcraftApp {
                 let Some(resolved) = self.document.resolve_occurrence(&target.occurrence) else {
                     continue;
                 };
-                let Some(geometry) = self.document.effective_geometry(&target.occurrence) else {
+                let Some(geometry) = self
+                    .document
+                    .geometry_in_context(&target.occurrence, &self.selection.context)
+                else {
                     continue;
                 };
                 match target.entity {
@@ -9027,13 +9070,16 @@ impl MeshcraftApp {
             self.viewport
                 .screen_to_construction_plane(rect, screen_position)
         });
+        let feedback_label = if self.tool_cycle_state.hotspot_placement_active() {
+            "Hotspot"
+        } else {
+            self.active_tool.as_str()
+        };
         let measurement = point
             .map(|point| {
                 self.tool_reference_point().map_or_else(
-                    || point_feedback_text(&self.active_tool, point, unit_name),
-                    |reference| {
-                        vector_feedback_text(&self.active_tool, point - reference, unit_name)
-                    },
+                    || point_feedback_text(feedback_label, point, unit_name),
+                    |reference| vector_feedback_text(feedback_label, point - reference, unit_name),
                 )
             })
             .unwrap_or_default();
@@ -9141,6 +9187,20 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if self.hotspot_reference_pick {
+            let (selected, hotspot) = self.native_hotspot_inspector();
+            return selected.and_then(|(path, _)| {
+                self.document
+                    .resolve_occurrence(&path)
+                    .map(|r| r.world_transform.transform_point(hotspot.position))
+            });
+        }
+        if self.tool_cycle_state.hotspot_placement_active() {
+            return self
+                .hotspot_owner()
+                .ok()
+                .map(|(_, _, world)| world.transform_point(Vec3::ZERO));
+        }
         if self.array_tool_state.active() {
             return self.array_tool_state.points().last().copied();
         }
@@ -10051,7 +10111,10 @@ impl MeshcraftApp {
         let root_objects = self.top_level_occurrences();
         let mut totals = BTreeMap::new();
         for occurrence in self.document.occurrence_refs().unwrap_or_default() {
-            if let Some(geometry) = self.document.effective_geometry(&occurrence) {
+            if let Some(geometry) = self
+                .document
+                .geometry_in_context(&occurrence, &self.selection.context)
+            {
                 *totals.entry(SelectionKind::Vertex).or_insert(0) += geometry.vertices.len();
                 *totals.entry(SelectionKind::Edge).or_insert(0) += geometry.segments.len();
                 *totals.entry(SelectionKind::Face).or_insert(0) += geometry.triangles.len();
@@ -11714,6 +11777,8 @@ mod tests {
             selection: SelectionSession::default(),
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_spatial_context: None,
             object_name_edit: None,
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -15721,7 +15786,7 @@ mod tests {
     }
 
     #[test]
-    fn cut_command_replaces_instance_local_geometry_without_changing_its_prototype() {
+    fn cut_command_in_prototype_editing_updates_the_shared_definition() {
         let mut app = test_app();
         let definition = app
             .document
@@ -15799,7 +15864,7 @@ mod tests {
         let dispatch = app.dispatch_command("tool.builtin.cut_holes_2", &CommandPayload::default());
 
         assert_eq!(CommandCompletion::Completed, dispatch.result.completion);
-        assert_eq!(
+        assert_ne!(
             prototype,
             app.document.definition(definition).unwrap().geometry
         );
@@ -17894,7 +17959,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_selection_duplicates_a_nested_object_only_in_its_parent_instance() {
+    fn copy_selection_in_prototype_editing_updates_the_shared_subscene() {
         let mut app = test_app();
         app.run_command("geometry.add_cuboid");
         app.run_command("object.create_from_selection");
@@ -17929,12 +17994,8 @@ mod tests {
         assert_eq!(parent.path[0], copy.path[0]);
         assert_ne!(child.path[1], copy.path[1]);
         assert!(app.document.resolve_occurrence(&copy).is_some());
-        let private_layout = app
-            .document
-            .occurrence_edits(&parent)
-            .unwrap()
-            .child_layout
-            .unwrap();
+        assert!(app.document.occurrence_edits(&parent).is_none());
+        let private_layout = shared_layout;
         let private_entries = &app.document.child_layout(private_layout).unwrap().entries;
         assert_eq!(2, private_entries.len());
         let original_entry = private_entries
@@ -17947,7 +18008,7 @@ mod tests {
                 .is_some()
         );
         assert_eq!(
-            1,
+            2,
             app.document
                 .child_layout(shared_layout)
                 .unwrap()

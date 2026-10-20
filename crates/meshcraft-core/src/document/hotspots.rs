@@ -232,6 +232,9 @@ impl Document {
             .unwrap_or_default();
         edits.hotspot_positions.clear();
         edits.geometry_replacement = None;
+        edits.child_layout = None;
+        view.occurrence_edits
+            .retain(|path, _| !path.path.starts_with(&occurrence.path));
         view.occurrence_edits.insert(occurrence.clone(), edits);
         view
     }
@@ -648,6 +651,19 @@ fn apply(geometry: &mut GeometryBundle, h: &Hotspot, target: Vec3) -> Result<(),
     for t in &triangles {
         driven.extend(t.vertices.map(|v| v.id));
     }
+    // k3d associates attached edge/face corners through its quantized prototype vertex table.
+    // Preserve that driving relation even when a sparse import retained distinct raw corners.
+    let attached_keys = driven
+        .iter()
+        .filter_map(|id| geometry.vertices.get(id).map(|v| VertexKey::at(v.position)))
+        .collect::<Vec<_>>();
+    driven.extend(
+        geometry
+            .vertices
+            .values()
+            .filter(|v| attached_keys.contains(&VertexKey::at(v.position)))
+            .map(|v| v.id),
+    );
     for vertex in geometry.vertices.values() {
         if h.attached_vertex_ids.iter().any(|id| {
             aliases_match(
@@ -999,5 +1015,206 @@ mod tests {
                 .inverse(GeometryTolerance::default())
                 .is_some()
         );
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    #[test]
+    fn legacy_operator_names_are_preserved_exactly() {
+        for operation in Operation::ALL {
+            let value = serde_json::to_value(operation).unwrap();
+            assert_eq!(Some(operation.name()), value.as_str());
+            assert_eq!(
+                operation,
+                serde_json::from_value::<Operation>(value).unwrap()
+            );
+        }
+    }
+    #[test]
+    fn sparse_import_corner_identities_share_the_attached_vertex_motion() {
+        let mut d = Document::new();
+        let instance = d
+            .add_cuboid("Cube", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let def = d.resolve_occurrence(&instance).unwrap().definition.id;
+        let duplicate = VertexId(d.allocate_id());
+        let geometry = &mut d.definitions.get_mut(&def).unwrap().geometry;
+        let triangle = geometry.triangles.values().next().unwrap().clone();
+        let source = triangle.vertices[0].id;
+        let mut corner = geometry.vertices[&source].clone();
+        corner.id = duplicate;
+        geometry.vertices.insert(duplicate, corner);
+        let attachment = TriangleAttachment::from_triangle(geometry, &triangle);
+        d.put_hotspot(
+            def,
+            Hotspot {
+                id: "h".into(),
+                operation: Operation::Stretch,
+                attached_triangles: vec![attachment],
+                ..Hotspot::default()
+            },
+        )
+        .unwrap();
+        let before = d.definition(def).unwrap().geometry.vertices[&source].position;
+        d.set_hotspot_target(&instance, "h", Vec3::X).unwrap();
+        let result = d.effective_geometry(&instance).unwrap();
+        assert_eq!(before + Vec3::X, result.vertices[&source].position);
+        assert_eq!(
+            result.vertices[&source].position,
+            result.vertices[&duplicate].position
+        );
+    }
+}
+
+impl Document {
+    /// Reconcile legacy attachment records at the topology boundary, using stable source IDs.
+    /// Split faces/edges inherit their driver's binding; deleted elements release it.
+    pub(crate) fn reconcile_hotspot_topology(
+        &mut self,
+        definition: DefinitionId,
+        before: &GeometryBundle,
+        remap: &TopologyRemap,
+    ) {
+        let Ok(mut hotspots) = self.hotspots(definition) else {
+            return;
+        };
+        if hotspots.is_empty() {
+            return;
+        }
+        let Some(after) = self.definition(definition).map(|d| &d.geometry) else {
+            return;
+        };
+        for hotspot in &mut hotspots {
+            hotspot.attached_segments = hotspot
+                .attached_segments
+                .iter()
+                .flat_map(|attachment| {
+                    let source = before
+                        .segments
+                        .values()
+                        .find(|s| attachment.matches(before, s));
+                    let Some(source) = source else {
+                        return vec![attachment.clone()];
+                    };
+                    let targets = remap
+                        .segments
+                        .get(&source.id)
+                        .cloned()
+                        .unwrap_or_else(|| vec![source.id]);
+                    targets
+                        .into_iter()
+                        .filter_map(|id| {
+                            after
+                                .segments
+                                .get(&id)
+                                .map(|s| SegmentAttachment::from_segment(after, s))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            hotspot.attached_triangles = hotspot
+                .attached_triangles
+                .iter()
+                .flat_map(|attachment| {
+                    let source = before
+                        .triangles
+                        .values()
+                        .find(|t| attachment.matches(before, t));
+                    let Some(source) = source else {
+                        return vec![attachment.clone()];
+                    };
+                    let targets = remap
+                        .triangles
+                        .get(&source.id)
+                        .cloned()
+                        .unwrap_or_else(|| vec![source.id]);
+                    targets
+                        .into_iter()
+                        .filter_map(|id| {
+                            after
+                                .triangles
+                                .get(&id)
+                                .map(|t| TriangleAttachment::from_triangle(after, t))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            hotspot.attached_vertex_ids = hotspot
+                .attached_vertex_ids
+                .iter()
+                .flat_map(|id| {
+                    let source = before.vertices.values().find(|v| {
+                        aliases_match(&v.legacy_aliases, id, format!("vertex-{}", v.id.0))
+                    });
+                    let Some(source) = source else {
+                        return vec![id.clone()];
+                    };
+                    let targets = remap
+                        .vertices
+                        .get(&source.id)
+                        .cloned()
+                        .unwrap_or_else(|| vec![source.id]);
+                    targets
+                        .into_iter()
+                        .filter_map(|id| {
+                            after.vertices.get(&id).map(|v| {
+                                v.legacy_aliases
+                                    .first()
+                                    .map(|a| a.id.clone())
+                                    .unwrap_or_else(|| format!("vertex-{}", v.id.0))
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+        }
+        let raw = serde_json::to_value(hotspots).expect("finite reconciled hotspot fields");
+        let d = self.definitions.get_mut(&definition).unwrap();
+        d.domain_data.insert("hotspots".into(), raw);
+        d.extensions.remove("k3d.hotspots");
+        d.domain_entity_ids.remove("hotspots");
+        self.hotspot_cache.clear();
+    }
+}
+
+#[cfg(test)]
+mod topology_binding_tests {
+    use super::*;
+    #[test]
+    fn a_split_attached_edge_keeps_both_bindings_and_drives_the_new_intersection() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let edge = d
+            .append_line_segment_to_definition(root, Vec3::ZERO, Vec3::X * 2.)
+            .unwrap();
+        let g = &d.definition(root).unwrap().geometry;
+        let binding = SegmentAttachment::from_segment(g, &g.segments[&edge]);
+        d.put_hotspot(
+            root,
+            Hotspot {
+                id: "h".into(),
+                attached_segments: vec![binding],
+                ..Hotspot::default()
+            },
+        )
+        .unwrap();
+        d.append_line_segment_to_definition(root, Vec3::new(1., 0., -1.), Vec3::new(1., 0., 1.))
+            .unwrap();
+        let h = d.hotspots(root).unwrap().pop().unwrap();
+        assert_eq!(2, h.attached_segments.len());
+        let evaluated = d.evaluate_hotspots(&OccurrenceRef::scene_root()).unwrap();
+        evaluated.geometry.validate().unwrap();
+        for binding in h.attached_segments {
+            assert!(
+                d.definition(root)
+                    .unwrap()
+                    .geometry
+                    .segments
+                    .values()
+                    .any(|s| binding.matches(&d.definition(root).unwrap().geometry, s))
+            );
+        }
     }
 }

@@ -948,16 +948,15 @@ mod tests {
         let private_layout = document
             .resolve_occurrence(&parent)
             .unwrap()
-            .edits
-            .unwrap()
-            .child_layout
+            .definition
+            .default_child_layout
             .unwrap();
         assert_eq!(
             4,
             document.child_layout(private_layout).unwrap().entries.len()
         );
         assert_eq!(
-            2,
+            4,
             document.child_layout(child_layout).unwrap().entries.len()
         );
         let peer_child = document

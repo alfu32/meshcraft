@@ -219,7 +219,7 @@ fn load_startup_document(
     Ok(Some((
         imported,
         format!(
-            "Opened {} · {top_level_count} top-level objects imported read-only{history_status}{repair_status}.",
+            "Opened {} · {top_level_count} top-level object instances ready for editing{history_status}{repair_status}.",
             path.display(),
         ),
     )))

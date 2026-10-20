@@ -826,7 +826,7 @@
     },
     {
       "id": "T17",
-      "title": "Complete GPUI inspectors, JSON-driven settings, preferences and command coverage (#26)",
+      "title": "Complete GPUI inspectors, JSON-driven settings, preferences and command coverage (#26, #28)",
       "phase": "desktop",
       "dependencies": [
         "T08",
