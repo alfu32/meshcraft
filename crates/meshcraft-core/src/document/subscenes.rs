@@ -22,6 +22,18 @@ impl Document {
         external_path: Option<&str>,
         replace: Option<DefinitionId>,
     ) -> Result<DefinitionId, String> {
+        self.import_subscene_reusing(source, name, external_path, replace, &BTreeSet::new(), None)
+    }
+
+    pub(super) fn import_subscene_reusing(
+        &mut self,
+        source: &Document,
+        name: &str,
+        external_path: Option<&str>,
+        replace: Option<DefinitionId>,
+        reuse: &BTreeSet<DefinitionId>,
+        mut copied_edits: Option<&mut Vec<(OccurrenceRef, InstanceEdits)>>,
+    ) -> Result<DefinitionId, String> {
         source.validate()?;
         if name.trim().is_empty() {
             return Err("object prototype name cannot be empty".into());
@@ -92,16 +104,50 @@ impl Document {
         };
         let root = replace.unwrap_or_else(|| DefinitionId(draft.allocate_id()));
         ids.definitions.insert(Self::SCENE_ROOT_DEFINITION_ID, root);
+        let reused = reuse
+            .iter()
+            .copied()
+            .filter(|id| *id != Self::SCENE_ROOT_DEFINITION_ID && draft.definition(*id).is_some())
+            .collect::<BTreeSet<_>>();
+        let reused_layouts = reused
+            .iter()
+            .filter_map(|id| source.definition(*id).and_then(|d| d.default_child_layout))
+            .filter(|id| draft.child_layout(*id).is_some())
+            .collect::<BTreeSet<_>>();
         for definition in source.definitions() {
-            ids.definitions
-                .insert(definition.id, DefinitionId(draft.allocate_id()));
+            let id = if reused.contains(&definition.id) {
+                definition.id
+            } else {
+                DefinitionId(draft.allocate_id())
+            };
+            ids.definitions.insert(definition.id, id);
+            if reused.contains(&definition.id) {
+                ids.vertices
+                    .extend(definition.geometry.vertices.keys().map(|id| (*id, *id)));
+                ids.segments
+                    .extend(definition.geometry.segments.keys().map(|id| (*id, *id)));
+                ids.triangles
+                    .extend(definition.geometry.triangles.keys().map(|id| (*id, *id)));
+            }
         }
         for layout in source.child_layouts.values() {
-            ids.layouts
-                .insert(layout.id, ChildLayoutId(draft.allocate_id()));
+            ids.layouts.insert(
+                layout.id,
+                if reused_layouts.contains(&layout.id) {
+                    layout.id
+                } else {
+                    ChildLayoutId(draft.allocate_id())
+                },
+            );
             for entry in &layout.entries {
-                ids.entries
-                    .insert(entry.id, LayoutEntryId(draft.allocate_id()));
+                ids.entries.insert(
+                    entry.id,
+                    if reused_layouts.contains(&layout.id) {
+                        entry.id
+                    } else {
+                        LayoutEntryId(draft.allocate_id())
+                    },
+                );
             }
         }
         // Persist native IDs as aliases when a component is moved into another document.
@@ -121,6 +167,9 @@ impl Document {
             }
         }
         for layout in source.child_layouts.values() {
+            if reused_layouts.contains(&layout.id) {
+                continue;
+            }
             let mut copy = layout.clone();
             copy.id = ids.layouts[&layout.id];
             for entry in &mut copy.entries {
@@ -128,20 +177,31 @@ impl Document {
                 entry.id = ids.entries[&original];
                 entry.definition = ids.definitions[&entry.definition];
                 // Every imported scene placement becomes a default child instance in the subscene.
-                let original_path = source
-                    .occurrence_refs()?
-                    .into_iter()
-                    .find(|path| path.path.last() == Some(&original));
-                let edits = original_path
-                    .as_ref()
-                    .and_then(|p| source.occurrence_edits(p))
-                    .unwrap_or(&entry.default_edits);
+                let original_path = if copied_edits.is_none() {
+                    source
+                        .occurrence_refs()?
+                        .into_iter()
+                        .find(|path| path.path.last() == Some(&original))
+                } else {
+                    None
+                };
+                let edits = if copied_edits.is_some() {
+                    &entry.default_edits
+                } else {
+                    original_path
+                        .as_ref()
+                        .and_then(|p| source.occurrence_edits(p))
+                        .unwrap_or(&entry.default_edits)
+                };
                 entry.default_edits = remap_edits(edits, &ids, &mut draft)?;
                 entry.default_edits.legacy_instance_id = None;
             }
             draft.child_layouts.insert(copy.id, copy);
         }
         for definition in source.definitions.values() {
+            if reused.contains(&definition.id) {
+                continue;
+            }
             let mut copy = definition.clone();
             copy.id = ids.definitions[&definition.id];
             copy.geometry = remap_geometry(&definition.geometry, &ids, &mut draft);
@@ -271,6 +331,14 @@ impl Document {
         for id in old_layouts {
             if !used_layouts.contains(&id) {
                 draft.child_layouts.remove(&id);
+            }
+        }
+        if let Some(output) = copied_edits.as_mut() {
+            for (path, edits) in &source.occurrence_edits {
+                let mapped = OccurrenceRef {
+                    path: path.path.iter().map(|id| ids.entries[id]).collect(),
+                };
+                output.push((mapped, remap_edits(edits, &ids, &mut draft)?));
             }
         }
         draft.bump_revision();

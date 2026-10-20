@@ -199,3 +199,43 @@ Use deterministic dependency evaluation with revisioned immutable inputs and a b
 Source: `GroupScene.GroupNode`, hotspot recompute/apply helpers; `GroupInstanceDto`. Acceptance: C15, C16.
 
 The [object workflow with retained screenshots](objects.md) refines prototype/instance interaction and hotspot authoring/runtime requirements for M26/M27.
+
+### Native annotation delivery (0.11, D05 / C14)
+
+Dim takes two endpoints followed by an offset point. Preview and committed geometry use the
+perpendicular offset line with two witnesses, arrowheads and a measured model-unit label. Text
+takes one placement point. The new Leader tool takes an arrow anchor, elbow and label position;
+it stores its path as `leaderPoints` in a text record. These are bitmap/billboard labels presented
+by GPUI, with depth-tested line geometry in the offscreen viewport. Vector glyph construction
+(D06), and rendering text as plane-oriented glyph geometry, remain separate work.
+
+The Annotations accordion edits defaults while an annotation tool is active. Escape returns to
+Select and retains the created annotation; selected label/size properties can then be edited.
+An empty dimension label displays the measured length. Backspace removes a pending point.
+Annotations participate in click/window/crossing selection, visibility/editability policies,
+Move/Rotate/Scale and copy mode, Delete, undo/redo, clipboard operations and project persistence.
+Prototype annotations stay inherited and require prototype editing for changes. Leader control
+points transform with their labels. Creation feedback reports coordinates relative to the last
+relevant picked point.
+
+### Clipboard and orientation (0.11)
+
+Copy (Ctrl/Cmd+C), Cut (Ctrl/Cmd+X), Paste (Ctrl/Cmd+V) use a portable Meshcraft selection payload
+on the system clipboard. Copy is non-mutating; Cut deletes only after preparing its payload;
+Paste is one undoable transaction in the active construction context. Paste retains the copied
+coordinates; use Move to reposition, or supply a world-space `offset` to the command. Supported
+payloads are object instances, vertices/segments/faces, dimensions and text/leader annotations,
+including mixed selections. Same-document instance pastes share their original prototype and
+copy per-instance state and descendant overrides; another document imports the required graph
+and material catalog. Mesh/annotation fragments enter the active graph rather than becoming
+inherited, read-only object content. Unselected geometry and document metadata are excluded.
+
+Copy as Script (Ctrl/Cmd+Shift+C) writes a unified JavaScript object definition containing the
+currently evaluated selected segment/face/object geometry, world placement and displayed colors.
+It can be pasted into the script editor or pasted into the model to create a scripted prototype.
+This is a geometry snapshot; it does not reconstruct the source object's generator logic.
+
+Flip reverses selected segment endpoint order and triangle winding without moving vertices or
+changing primitive IDs/materials. One transaction flips all supported selected primitives. Applying
+Flip twice restores their orientation. Explicitly selected segments show a constant-pixel arrowhead
+following their endpoint order, making path orientation visible before sweep/extrusion.

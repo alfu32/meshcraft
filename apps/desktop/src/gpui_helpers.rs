@@ -29,7 +29,12 @@ pub(super) fn snap(
     guides: &[ConstructionGuide],
     geometry: Option<SnapResult>,
 ) -> Option<SnapResult> {
-    if geometry.is_some_and(|snap| matches!(snap.kind, SnapKind::Endpoint | SnapKind::Line)) {
+    if geometry.is_some_and(|snap| {
+        matches!(
+            snap.kind,
+            SnapKind::Endpoint | SnapKind::Midpoint | SnapKind::Line
+        )
+    }) {
         return geometry;
     }
     if !spacing.is_finite() || spacing <= 0.0 {

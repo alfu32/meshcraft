@@ -1,3 +1,7 @@
+#[path = "annotation_workflow.rs"]
+mod annotation_workflow;
+#[path = "clipboard_workflow.rs"]
+mod clipboard_workflow;
 #[path = "materials_workflow.rs"]
 mod materials_workflow;
 #[path = "object_workflow.rs"]
@@ -684,7 +688,10 @@ enum ShellAction {
     PlaceGuide(ConstructionGuideKind),
     RemoveGuide,
     AddCuboid,
+    AnnotationSettings,
+    FlipSelection,
     CopySelection,
+    ClipboardAction(&'static str),
     DeleteSelection,
     ClearSelection,
     EnterEditContext,
@@ -863,11 +870,11 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::Redo,
             ),
             (
-                "edit.copy_selection",
-                "Edit> Copy Selection",
+                "edit.duplicate_selection",
+                "Edit> Duplicate Selection",
                 "Edit",
                 "duplicate clone",
-                None,
+                Some("copy"),
                 ShellAction::CopySelection,
             ),
             (
@@ -1431,6 +1438,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "primitive_cylinder" => ShellAction::SelectToolAlias("Cylinder"),
                 "primitive_cone" => ShellAction::SelectToolAlias("Cone"),
                 "primitive_pill" => ShellAction::SelectToolAlias("Pill"),
+                "linear_dimension" => ShellAction::SelectToolAlias("Linear Dimension"),
+                "text" => ShellAction::SelectToolAlias("Text"),
                 "object_place" => ShellAction::BeginObjectPlacement,
                 _ => ShellAction::Unsupported,
             };
@@ -1459,6 +1468,13 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
         }
         register_shell_command(&mut registry, "view.camera.perspective", "View> Camera Perspective", "View", "camera perspective orbit", Some("view"), ShellAction::SetPerspectiveView);
+        for (id, label, action) in [("edit.cut_selection", "Cut", "cut"), ("edit.paste", "Paste", "paste"),
+            ("edit.copy_as_script", "Copy as Script", "script"), ("edit.copy_selection", "Copy", "copy")] {
+            register_shell_command(&mut registry, id, &format!("Edit> {label}"), "Edit", "clipboard cut copy paste script", Some(if action == "paste" { "paste" } else { "copy" }), ShellAction::ClipboardAction(action));
+        }
+        register_shell_command(&mut registry, "geometry.flip_selection", "Modify> Flip Direction / Normals", "Modify", "reverse face normal segment direction winding", Some("mirror"), ShellAction::FlipSelection);
+        register_shell_command(&mut registry, "tool.leader", "Dimension> Leader", "Dimension", "annotation leader arrow label", Some("leader"), ShellAction::SelectToolAlias("Leader"));
+        register_shell_command(&mut registry, "annotation.update", "Dimension> Apply Annotation Properties", "Dimension", "label text size dimension leader", Some("text"), ShellAction::AnnotationSettings);
         for (view_id, label) in [
             ("top", "Ortho Top"),
             ("bottom", "Ortho Bottom"),
@@ -1541,7 +1557,10 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::HotspotAction(_)
         | ShellAction::MaterialAction(_)
         | ShellAction::AddCuboid
+        | ShellAction::AnnotationSettings
+        | ShellAction::FlipSelection
         | ShellAction::CopySelection
+        | ShellAction::ClipboardAction(_)
         | ShellAction::DeleteSelection
         | ShellAction::FaceOutline
         | ShellAction::PolylineMesh
@@ -1761,6 +1780,15 @@ fn register_shell_command(
             .to_owned(),
         );
     }
+    if let Some(shortcut) = match id {
+        "edit.copy_selection" => Some("Ctrl+C"),
+        "edit.cut_selection" => Some("Ctrl+X"),
+        "edit.paste" => Some("Ctrl+V"),
+        "edit.copy_as_script" => Some("Ctrl+Shift+C"),
+        _ => None,
+    } {
+        descriptor.shortcut = Some(shortcut.into());
+    }
     if id == "edit.delete_selection" {
         descriptor.shortcut = Some("Delete".to_owned());
     }
@@ -1919,6 +1947,14 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("field_of_view", CommandValueType::Number),
             ("near", CommandValueType::Number),
             ("far", CommandValueType::Number),
+        ],
+        "annotation.update" => &[
+            ("text", CommandValueType::String),
+            ("size", CommandValueType::Number),
+        ],
+        "edit.paste" => &[
+            ("clipboard", CommandValueType::String),
+            ("offset", CommandValueType::Array),
         ],
         "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
         _ => &[],
@@ -2152,6 +2188,8 @@ pub struct MeshcraftApp {
     panel_focus: Option<String>,
     document: Document,
     document_generation: u64,
+    annotations: annotation_workflow::AnnotationState,
+    clipboard: clipboard_workflow::ClipboardState,
     saved_revision: u64,
     #[cfg(not(target_arch = "wasm32"))]
     autosave_observed_revision: u64,
@@ -2591,6 +2629,19 @@ impl MeshcraftApp {
     ) {
         let targets = targets
             .into_iter()
+            .map(|target| {
+                if matches!(
+                    target.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Dimension | SelectionKind::Text,
+                        ..
+                    }
+                ) {
+                    self.native_normalize_selection_target(target)
+                } else {
+                    target
+                }
+            })
             .filter(|target| self.native_target_editable(target))
             .collect::<Vec<_>>();
         self.selection.apply(targets, mode);
@@ -2667,6 +2718,12 @@ impl MeshcraftApp {
     pub(crate) fn native_begin_walkthrough(&mut self, eye: Vec3, forward: Vec3) {
         self.viewport.native_walkthrough_pose(eye, forward);
     }
+    pub(crate) fn native_walkthrough_animating(&self) -> bool {
+        self.viewport.native_walkthrough_animating()
+    }
+    pub(crate) fn native_walkthrough_scroll(&mut self, steps: f32) {
+        self.viewport.native_walkthrough_scroll(steps);
+    }
     pub(crate) fn native_walkthrough_drag(&mut self, dx: f32, dy: f32, pan: bool) {
         self.viewport.native_walkthrough_drag(dx, dy, pan);
     }
@@ -2706,6 +2763,10 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_selection_contains(&self, target: &SelectionTarget) -> bool {
+        self.selection.selected().contains(target)
+    }
+
     pub fn native_selection_targets(&self) -> Vec<SelectionTarget> {
         self.selection.selected().iter().cloned().collect()
     }
@@ -3043,6 +3104,8 @@ impl MeshcraftApp {
             panel_focus: None,
             document,
             document_generation: 0,
+            annotations: Default::default(),
+            clipboard: Default::default(),
             saved_revision,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: saved_revision,
@@ -4546,6 +4609,14 @@ impl MeshcraftApp {
         &self,
         mut target: SelectionTarget,
     ) -> SelectionTarget {
+        if let EditContext::Definition(id) = self.selection.context
+            && self
+                .document
+                .resolve_occurrence(&target.occurrence)
+                .is_some_and(|r| r.definition.id == id)
+        {
+            return target;
+        }
         let depth = match &self.selection.context {
             EditContext::Occurrence(active) => active.path.len(),
             _ if self
@@ -5603,6 +5674,10 @@ impl MeshcraftApp {
     }
 
     fn activate_tool(&mut self, tool: &str) {
+        self.annotations.points.clear();
+        if matches!(tool, "Linear Dimension" | "Text" | "Leader") {
+            self.panel_focus = Some("annotations".into());
+        }
         self.tool_cycle_state.cancel_hotspot_placement();
         self.hotspot_reference_pick = false;
         self.object_place_tool_state.cancel();
@@ -5772,6 +5847,15 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn handle_native_tool_key(&mut self, key: &str, shift: bool) -> bool {
+        if key == "backspace"
+            && matches!(
+                self.active_tool.as_str(),
+                "Linear Dimension" | "Text" | "Leader"
+            )
+        {
+            self.annotations.points.pop();
+            return true;
+        }
         if !shift && self.set_path_segment_key(key) {
             return true;
         }
@@ -5788,9 +5872,22 @@ impl MeshcraftApp {
         true
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn native_point_input_hint(&self) -> &'static str {
-        if self.polyline_tool_state.active() {
+        if self.active_tool == "Linear Dimension" {
+            match self.annotations.points.len() {
+                0 => "Dimension: pick first endpoint",
+                1 => "Dimension: pick second endpoint",
+                _ => "Dimension: pick offset position",
+            }
+        } else if self.active_tool == "Leader" {
+            match self.annotations.points.len() {
+                0 => "Leader: pick arrow anchor",
+                1 => "Leader: pick elbow",
+                _ => "Leader: pick label position",
+            }
+        } else if self.active_tool == "Text" {
+            "Text: set label in Annotations, then pick its position"
+        } else if self.polyline_tool_state.active() {
             "Enter finish · A arc · C circular · L line · Shift+L next tool · Esc cancel"
         } else if self.mesh_tool_state.active() {
             "Enter finish chain · Backspace undo point · Esc cancel"
@@ -6137,7 +6234,21 @@ impl MeshcraftApp {
                     Err(error) => return CommandResult::failed(error),
                 }
             }
+            ShellAction::AnnotationSettings => return self.annotation_settings(payload),
+            ShellAction::FlipSelection => {
+                let selection = self.selection.clone();
+                return match self.commit_document_edit("Flip direction / normals", |doc| {
+                    modeling_transforms::flip_selection(doc, &selection)
+                }) {
+                    Ok(count) => {
+                        self.status = format!("Flipped {count} selected primitive(s).");
+                        CommandResult::completed()
+                    }
+                    Err(e) => CommandResult::failed(e),
+                };
+            }
             ShellAction::CopySelection => return self.copy_selection(),
+            ShellAction::ClipboardAction(action) => return self.clipboard_action(action, payload),
             ShellAction::DeleteSelection => {
                 if self.selection.selected().iter().any(|target| {
                     matches!(
@@ -6160,8 +6271,13 @@ impl MeshcraftApp {
                 self.selection.clear();
                 self.object_name_edit = None;
                 self.status = format!(
-                    "Deleted {} object(s), {} vertex/vertices, {} edge(s) and {} face(s).",
-                    deleted.occurrences, deleted.vertices, deleted.segments, deleted.triangles
+                    "Deleted {} object(s), {} vertex/vertices, {} edge(s), {} face(s), {} dimension(s) and {} text/leader(s).",
+                    deleted.occurrences,
+                    deleted.vertices,
+                    deleted.segments,
+                    deleted.triangles,
+                    deleted.dimensions,
+                    deleted.texts
                 );
                 let mut result = CommandResult::completed();
                 result
@@ -7196,7 +7312,32 @@ impl MeshcraftApp {
                 CommandState::disabled("start Object Place before changing glue behavior")
             };
         }
-        if id == "edit.copy_selection" {
+        if matches!(
+            id,
+            "edit.copy_selection" | "edit.cut_selection" | "edit.copy_as_script"
+        ) {
+            return if self.selection.selected().is_empty() {
+                CommandState::disabled("select elements first")
+            } else {
+                CommandState::default()
+            };
+        }
+        if id == "edit.paste" {
+            return CommandState::default();
+        }
+        if id == "geometry.flip_selection" {
+            return if self.selection.selected().iter().any(|t| {
+                matches!(
+                    t.entity,
+                    SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+                ) && self.native_target_editable(t)
+            }) {
+                CommandState::default()
+            } else {
+                CommandState::disabled("select editable segments or faces to flip")
+            };
+        }
+        if id == "edit.duplicate_selection" {
             return if self.selection.selected().len() == 1
                 && self
                     .selection
@@ -7744,6 +7885,7 @@ impl MeshcraftApp {
     }
 
     fn cancel_active_tool(&mut self) {
+        self.annotations.points.clear();
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
         self.array_tool_state.cancel();
@@ -8003,6 +8145,15 @@ impl MeshcraftApp {
             };
             if let Err(error) = result {
                 self.status = error;
+            }
+            return;
+        }
+        if matches!(
+            self.active_tool.as_str(),
+            "Linear Dimension" | "Text" | "Leader"
+        ) {
+            if let Some(point) = construction_point {
+                self.annotation_click(point);
             }
             return;
         }
@@ -8929,6 +9080,12 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if matches!(
+            self.active_tool.as_str(),
+            "Linear Dimension" | "Text" | "Leader"
+        ) {
+            return snap.and_then(|s| self.annotation_preview(s.point));
+        }
         if self.rotational_array_tool_state.active() {
             let point = snap.map(|result| result.point).or_else(|| {
                 pointer
@@ -9563,6 +9720,12 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if matches!(
+            self.active_tool.as_str(),
+            "Linear Dimension" | "Text" | "Leader"
+        ) {
+            return self.annotations.points.last().copied();
+        }
         if self.hotspot_reference_pick {
             let (selected, hotspot) = self.native_hotspot_inspector();
             return selected.and_then(|(path, _)| {
@@ -12129,6 +12292,8 @@ mod tests {
             panel_focus: None,
             document: Document::new(),
             document_generation: 0,
+            annotations: Default::default(),
+            clipboard: Default::default(),
             saved_revision: 0,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: 0,
@@ -13503,7 +13668,7 @@ mod tests {
             "Circle",
             "Push/Pull",
             "Move",
-            "Copy Selection",
+            "Copy",
             "Rotate",
             "Stretch",
             "Point Construction",
@@ -18687,9 +18852,9 @@ mod tests {
             occurrence: child.clone(),
             entity: SelectedEntity::Occurrence,
         });
-        assert!(app.query_command_state("edit.copy_selection").enabled);
+        assert!(app.query_command_state("edit.duplicate_selection").enabled);
 
-        let result = app.dispatch_command("edit.copy_selection", &CommandPayload::default());
+        let result = app.dispatch_command("edit.duplicate_selection", &CommandPayload::default());
 
         assert_eq!(CommandCompletion::Completed, result.result.completion);
         let copy = app.selected_occurrences()[0].clone();
@@ -18984,7 +19149,7 @@ mod tests {
             ("edit.undo", "history revert"),
             ("edit.redo", "history restore"),
             ("geometry.add_cuboid", "cuboid"),
-            ("edit.copy_selection", "duplicate"),
+            ("edit.copy_selection", "clipboard"),
             ("object.create_from_selection", "prototype"),
             ("object.explode_selection", "explode"),
             ("object.place_selected_definition", "place object"),

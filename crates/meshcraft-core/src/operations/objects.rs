@@ -42,6 +42,8 @@ pub struct ExplodeContent {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DeleteReport {
+    pub dimensions: usize,
+    pub texts: usize,
     pub occurrences: usize,
     pub vertices: usize,
     pub segments: usize,
@@ -73,7 +75,12 @@ impl OccurrencePathRemap {
 
 impl DeleteReport {
     pub fn deleted_count(&self) -> usize {
-        self.occurrences + self.vertices + self.segments + self.triangles
+        self.occurrences
+            + self.vertices
+            + self.segments
+            + self.triangles
+            + self.dimensions
+            + self.texts
     }
 }
 
@@ -126,7 +133,12 @@ pub fn can_delete_selection(document: &Document, selection: &SelectionSession) -
                 SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
                 SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
                 SelectedEntity::Triangle(id) => geometry.triangles.contains_key(&id),
-                SelectedEntity::SemanticHandle { .. } => false,
+                SelectedEntity::SemanticHandle { kind, .. } => {
+                    crate::operations::copy::selected_annotation_record(
+                        document, selection, target, kind,
+                    )
+                    .is_some()
+                }
             }
         })
 }
@@ -141,10 +153,13 @@ pub fn delete_selection(
         return Err("select objects or mesh entities to delete".to_owned());
     }
     for target in selection.selected() {
-        if matches!(target.entity, SelectedEntity::SemanticHandle { .. }) {
-            return Err(
-                "delete this semantic selection through its domain-specific command".to_owned(),
-            );
+        if let SelectedEntity::SemanticHandle { kind, .. } = target.entity
+            && crate::operations::copy::selected_annotation_record(
+                document, selection, target, kind,
+            )
+            .is_none()
+        {
+            return Err("open the prototype to delete inherited annotations, or use the entity's domain command".into());
         }
         if document.resolve_occurrence(&target.occurrence).is_none() {
             return Err("a selected object or mesh owner no longer exists".to_owned());
@@ -176,10 +191,12 @@ pub fn delete_selection(
 
     let mut mesh_selections = BTreeMap::<MeshDeleteOwner, MeshDeleteSet>::new();
     for target in selection.selected() {
-        if target.entity == SelectedEntity::Occurrence
-            || occurrence_roots
-                .iter()
-                .any(|occurrence| target.occurrence.path.starts_with(&occurrence.path))
+        if matches!(
+            target.entity,
+            SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. }
+        ) || occurrence_roots
+            .iter()
+            .any(|occurrence| target.occurrence.path.starts_with(&occurrence.path))
         {
             continue;
         }
@@ -240,12 +257,70 @@ pub fn delete_selection(
         }
     }
 
-    if occurrence_roots.is_empty() && mesh_selections.is_empty() {
+    let mut domain_deletes = BTreeMap::<(DefinitionId, &'static str), BTreeSet<String>>::new();
+    for target in selection.selected() {
+        if occurrence_roots
+            .iter()
+            .any(|p| target.occurrence.path.starts_with(&p.path))
+        {
+            continue;
+        }
+        if let SelectedEntity::SemanticHandle { kind, id } = &target.entity {
+            let field = groupable_domain_field(*kind).ok_or("unsupported annotation delete")?;
+            let definition = document
+                .resolve_occurrence(&target.occurrence)
+                .ok_or("annotation owner is missing")?
+                .definition
+                .id;
+            domain_deletes
+                .entry((definition, field))
+                .or_default()
+                .insert(id.clone());
+        }
+    }
+    if occurrence_roots.is_empty() && mesh_selections.is_empty() && domain_deletes.is_empty() {
         return Err("the selection contains no deletable objects or mesh entities".to_owned());
     }
 
     let mut candidate = document.clone();
     let mut report = DeleteReport::default();
+    for ((definition, field), deleted) in domain_deletes {
+        let d = candidate
+            .definitions
+            .get_mut(&definition)
+            .ok_or("annotation owner is missing")?;
+        let identities = d
+            .domain_entity_ids
+            .get(field)
+            .ok_or("annotation identities are missing")?
+            .clone();
+        let key = format!("k3d.{field}");
+        let records = d
+            .extensions
+            .get(&key)
+            .and_then(Value::as_array)
+            .ok_or("annotation records are missing")?;
+        let remaining = identities
+            .iter()
+            .zip(records)
+            .filter(|(id, _)| !deleted.contains(*id))
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect::<Vec<_>>();
+        let records = Value::Array(remaining.iter().map(|(_, r)| r.clone()).collect());
+        if d.domain_data.contains_key(field) {
+            d.domain_data.insert(field.into(), records.clone());
+        }
+        d.extensions.insert(key, records);
+        d.domain_entity_ids.insert(
+            field.into(),
+            remaining.into_iter().map(|(id, _)| id).collect(),
+        );
+        if field == "dimensions" {
+            report.dimensions += deleted.len();
+        } else {
+            report.texts += deleted.len();
+        }
+    }
     for (owner, selected) in mesh_selections {
         let mut geometry = match &owner {
             MeshDeleteOwner::Definition(id) => candidate
@@ -557,6 +632,17 @@ pub(crate) fn transform_annotation_record(
         "texts" => &[("position", true), ("normal", false), ("axisU", false)],
         _ => return Err(format!("legacy {field} explode is not supported")),
     };
+    if let Some(points) = object.get_mut("leaderPoints").and_then(Value::as_array_mut) {
+        for value in points {
+            let point: Vec3 = serde_json::from_value(value.clone())
+                .map_err(|_| "leader point must be a 3D vector")?;
+            if !point.is_finite() {
+                return Err("leader point must be finite".into());
+            }
+            *value = serde_json::to_value(transform.transform_point(point))
+                .map_err(|e| e.to_string())?;
+        }
+    }
     let mut original_axis_u = None;
     let mut original_normal = None;
     for (key, is_point) in vector_fields {

@@ -234,3 +234,12 @@ Movement stops while the canvas lacks focus, the window is inactive, or a modal/
 Perspective and Frame Document leave walkthrough. UI Settings supplies walking speed/jump/gravity.
 The ribbon content is 82 px (previously 138); its buttons use compact 24 px rows and retain labels.
 The ground receiver has only an upper face; authored open meshes still render from both sides.
+
+### Native workflow follow-up (0.11)
+
+The ribbon content height is 97 px, adding 15 px to the compact 0.10 layout while retaining 24 px
+button rows and labels. Canvas bounds and high-DPI picking follow that height. Native snapping
+includes segment and triangle-edge midpoints, prioritized with endpoints ahead of nearest-edge
+and face hits, and preserved through the grid/helper layer. Occluded features remain excluded.
+The Annotations settings accordion supplies label and text-size inputs. Edit contains clipboard
+commands and Copy as Script; Modify contains Flip. Selected segment arrows are viewport feedback.

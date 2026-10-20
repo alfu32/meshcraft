@@ -76,7 +76,7 @@ fn target_in_selection_context(
     }
 }
 
-fn selected_annotation_record<'a>(
+pub(crate) fn selected_annotation_record<'a>(
     document: &'a Document,
     selection: &SelectionSession,
     target: &SelectionTarget,
@@ -92,7 +92,10 @@ fn selected_annotation_record<'a>(
     };
     let resolved = document.resolve_occurrence(&target.occurrence)?;
     let definition_context = match &selection.context {
-        EditContext::Document => target.occurrence.is_scene_root(),
+        EditContext::Document => {
+            target.occurrence.is_scene_root()
+                || document.scene_container_occurrence().as_ref() == Some(&target.occurrence)
+        }
         EditContext::Definition(definition) => resolved.definition.id == *definition,
         EditContext::Occurrence(occurrence) => occurrence == &target.occurrence,
     };

@@ -4,6 +4,8 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod annotations;
+pub mod clipboard;
 pub mod derived;
 pub mod hotspots;
 pub mod materials;

@@ -14,6 +14,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "gpui_annotations.rs"]
+mod annotations;
 #[path = "gpui_helpers.rs"]
 mod helpers;
 #[path = "gpui_hotspots.rs"]
@@ -118,6 +120,18 @@ impl OrbitCamera {
         self.pitch = (self.pitch + dy * 0.005).clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
     }
 
+    fn set_perspective(&mut self) {
+        let offset = self.position() - self.target;
+        self.yaw = offset.x.atan2(offset.z) as f32;
+        self.pitch = (offset.y / offset.length().max(1e-12))
+            .clamp(-1., 1.)
+            .asin() as f32;
+        self.pitch = self.pitch.clamp(-85_f32.to_radians(), 85_f32.to_radians());
+        self.eye = None;
+        self.up = Vec3::Y;
+        self.orthographic = false;
+    }
+
     fn position(self) -> Vec3 {
         if let Some(eye) = self.eye {
             return eye;
@@ -188,6 +202,7 @@ impl OrbitCamera {
 #[derive(Clone)]
 struct RenderScene {
     document: Arc<Document>,
+    annotations: Arc<Vec<meshcraft_core::document::annotations::Annotation>>,
     grid_visible: bool,
     grid_normal_axis: String,
     grid_extent: i32,
@@ -211,6 +226,7 @@ impl Default for RenderScene {
     fn default() -> Self {
         Self {
             document: Arc::new(Document::new()),
+            annotations: Arc::default(),
             grid_visible: true,
             grid_normal_axis: "y".to_owned(),
             grid_extent: 32,
@@ -520,6 +536,13 @@ fn draw_offscreen_scene(
     {
         let mut view = drawing.begin_mode3D(camera);
         lighting.draw(&mut view, scene_data, orbit, target_height);
+        annotations::draw(
+            &mut view,
+            scene_data,
+            orbit,
+            target_height,
+            &lighting.selection,
+        );
         if scene_data.grid_visible {
             draw_grid(
                 &mut view,
@@ -910,6 +933,8 @@ impl Render for RaylibCanvas {
 }
 
 struct MeshcraftShell {
+    annotations: annotations::Ui,
+    cached_annotations: Arc<Vec<meshcraft_core::document::annotations::Annotation>>,
     scripts: scripts::ScriptsUi,
     materials: materials::MaterialsUi,
     focus: gpui::FocusHandle,
@@ -960,6 +985,8 @@ impl MeshcraftShell {
             presented_image: None,
         });
         let mut this = Self {
+            annotations: Default::default(),
+            cached_annotations: Arc::default(),
             materials: materials::MaterialsUi::default(),
             scripts: scripts::ScriptsUi::default(),
             focus: cx.focus_handle(),
@@ -1007,6 +1034,24 @@ impl MeshcraftShell {
         this
     }
 
+    fn dispatch_with_clipboard(&mut self, id: &str, cx: &mut Context<Self>) {
+        if id == "edit.paste" {
+            self.sync_clipboard(cx);
+        }
+        self.dispatch(id);
+    }
+
+    fn sync_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self.session.native_take_clipboard_write() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        }
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        self.session.native_set_clipboard(text);
+    }
+
     fn toggle_command_palette(&mut self) {
         self.command_palette_open = !self.command_palette_open;
         self.open_menu = None;
@@ -1033,7 +1078,7 @@ impl MeshcraftShell {
                             if let Some(command) = command {
                                 this.command_palette_open = false;
                                 window.focus(&this.focus);
-                                this.dispatch(command.id.as_str());
+                                this.dispatch_with_clipboard(command.id.as_str(), cx);
                             }
                         }
                         _ => {}
@@ -1066,6 +1111,7 @@ impl MeshcraftShell {
             self.cached_document_generation = Some(self.session.document_generation());
             self.cached_document = Arc::new(self.session.native_document_for_view());
             self.cached_scene_counts = layout::SceneCounts::from_document(&self.cached_document);
+            self.cached_annotations = Arc::new(self.cached_document.annotations());
             self.cached_document_revision = Some(revision);
         }
         let (preview, feedback, cursor_axes) = match (self.cursor_snap, self.cursor_local) {
@@ -1140,6 +1186,7 @@ impl MeshcraftShell {
                     )
                 });
         self.bridge.publish_scene(RenderScene {
+            annotations: Arc::clone(&self.cached_annotations),
             document: Arc::clone(&self.cached_document),
             grid_visible: preferences.show_permanent_grid,
             grid_normal_axis: match preferences.grid_normal_axis {
@@ -1262,13 +1309,7 @@ impl MeshcraftShell {
                 "view.camera.perspective" | "view.camera.orbit" | "view.orbit" => {
                     self.walking = false;
                     self.walk_keys = [false; 7];
-                    self.camera.orthographic = false;
-                    self.camera.up = Vec3::Y;
-                    if let Some(eye) = self.camera.eye.take() {
-                        let offset = eye - self.camera.target;
-                        self.camera.yaw = offset.x.atan2(offset.z) as f32;
-                        self.camera.pitch = (offset.y / offset.length()).asin() as f32;
-                    }
+                    self.camera.set_perspective();
                     self.bridge.publish_camera(self.camera);
                 }
                 id if id == "view.camera.orthographic" || id.starts_with("view.ortho.") => {
@@ -1293,6 +1334,9 @@ impl MeshcraftShell {
                     self.bridge.publish_camera(self.camera);
                 }
                 "view.frame_document" => {
+                    if self.walking {
+                        self.camera.set_perspective();
+                    }
                     self.walking = false;
                     self.camera.eye = None;
                     self.camera.fit(&self.session.document_snapshot());
@@ -1555,11 +1599,14 @@ impl MeshcraftShell {
             };
             self.session
                 .apply_native_selection_region(targets, crossing, mode);
-        } else if let Some(pick) = self.last_pick {
+        } else {
             if !self.session.native_pointer_tool_active() {
-                let mut target =
-                    self.session
-                        .pick_native_target(pick.origin, pick.direction, pick.radius);
+                let mut target = annotations::hit(self, x, y).or_else(|| {
+                    self.last_pick.and_then(|pick| {
+                        self.session
+                            .pick_native_target(pick.origin, pick.direction, pick.radius)
+                    })
+                });
                 if gesture.modifiers.alt
                     && let Some(target) = target.as_mut()
                     && !target.occurrence.is_scene_root()
@@ -1575,7 +1622,7 @@ impl MeshcraftShell {
                     now,
                     ModelVec2::new(f64::from(x), f64::from(y)),
                 );
-            } else {
+            } else if let Some(pick) = self.last_pick {
                 let target =
                     self.session
                         .pick_native_target(pick.origin, pick.direction, pick.radius);
@@ -1611,6 +1658,14 @@ impl MeshcraftShell {
     }
 
     fn zoom_camera(&mut self, steps: f32) {
+        if self.walking {
+            self.session.native_walkthrough_scroll(steps);
+            let (eye, forward) = self.session.native_step_walkthrough(0., [false; 7]);
+            self.camera.eye = Some(eye);
+            self.camera.target = eye + forward * f64::from(self.camera.distance);
+            self.bridge.publish_camera(self.camera);
+            return;
+        }
         self.camera.distance = (self.camera.distance * (-steps * 0.12).exp()).clamp(0.25, 1.0e6);
         self.bridge.publish_camera(self.camera);
     }
@@ -1625,6 +1680,11 @@ impl MeshcraftShell {
             && !self.viewport_input_blocked()
             && let Some(index) = walk_key(&key)
         {
+            if !self.walk_keys.iter().any(|key| *key)
+                && !self.session.native_walkthrough_animating()
+            {
+                self.walk_tick = Instant::now();
+            }
             self.walk_keys[index] = true;
             return;
         }
@@ -1667,6 +1727,16 @@ impl MeshcraftShell {
         } else if self.command_palette_open || self.open_menu.is_some() {
         } else if key == "delete" {
             self.dispatch("edit.delete_selection");
+        } else if (modifiers.control || modifiers.platform) && key == "c" {
+            self.dispatch(if modifiers.shift {
+                "edit.copy_as_script"
+            } else {
+                "edit.copy_selection"
+            });
+        } else if (modifiers.control || modifiers.platform) && key == "x" {
+            self.dispatch("edit.cut_selection");
+        } else if (modifiers.control || modifiers.platform) && key == "v" {
+            self.dispatch("edit.paste");
         } else if modifiers.control && key == "z" {
             self.dispatch("edit.undo");
         } else if modifiers.control && key == "y" {
@@ -1909,6 +1979,34 @@ fn selection_region_in_context(
             }
         }
     }
+    for annotation in document.annotations() {
+        let mut points = annotation
+            .edges
+            .iter()
+            .flatten()
+            .copied()
+            .chain([annotation.position])
+            .filter_map(|p| project_point(camera, size, p))
+            .collect::<Vec<_>>();
+        if let Some([x0, y0, x1, y1]) = annotations::label_rect(&annotation, camera, size) {
+            points.extend([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]);
+        }
+        if points.is_empty() {
+            continue;
+        }
+        let hit = if crossing {
+            points.iter().any(|p| rect_contains(region, p.0, p.1))
+                || points
+                    .windows(2)
+                    .any(|p| segment_intersects_rect(p[0], p[1], region))
+        } else {
+            points.iter().all(|p| rect_contains(region, p.0, p.1))
+        };
+        if hit {
+            selected.push(annotation.target);
+        }
+        points.clear();
+    }
     for handle in hotspots::handles(document) {
         let authored = match context {
             EditContext::Document => {
@@ -2136,12 +2234,17 @@ fn ribbon_command_for_key<'a>(
         "delete-hotspot" => &["hotspot.delete"],
         "select" | "window-select" | "select-operator" => &["tool.select"],
         "move" => &["tool.builtin.move"],
-        "copy" | "move-copy" => &["tool.move_copy"],
+        "copy" => &["edit.copy_selection"],
+        "cut" => &["edit.cut_selection"],
+        "paste" => &["edit.paste"],
+        "copy-as-script" => &["edit.copy_as_script"],
+        "move-copy" => &["tool.move_copy"],
         "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],
         "rotate-copy-3d" | "rotate-copy" => &["tool.rotate_copy"],
         "scale" => &["tool.builtin.scale"],
         "stretch" => &["tool.builtin.stretch"],
         "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
+        "flip" => &["geometry.flip_selection"],
         "mirror" => &["tool.builtin.mirror"],
         "make-object" | "create-object" => &["object.create_from_selection"],
         "edit-object" | "edit-definition" => &["selection.edit_object"],
@@ -2151,6 +2254,7 @@ fn ribbon_command_for_key<'a>(
         "array" => &["object.array_selection"],
         "dimension" => &["tool.builtin.linear_dimension"],
         "text" => &["tool.builtin.text"],
+        "leader" => &["tool.leader"],
         "wall" => &["tool.builtin.arch_wall"],
         "slab" => &["tool.builtin.arch_slab"],
         "stair" => &["tool.builtin.arch_stair"],
@@ -2236,6 +2340,9 @@ fn ribbon_command_for_key<'a>(
 
 impl Render for MeshcraftShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(text) = self.session.native_take_clipboard_write() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        }
         if self.close_requested {
             window.remove_window();
             cx.quit();
@@ -2247,7 +2354,10 @@ impl Render for MeshcraftShell {
                     gpui::Timer::after(Duration::from_millis(16)).await;
                     if shell
                         .update(cx, |this, cx| {
-                            if this.walking {
+                            if this.walking
+                                && (this.walk_keys.iter().any(|key| *key)
+                                    || this.session.native_walkthrough_animating())
+                            {
                                 cx.notify();
                             }
                             let revision = this.session.document_revision();
@@ -2282,13 +2392,12 @@ impl Render for MeshcraftShell {
                 || self.settings.active.is_some()
             {
                 self.walk_keys = [false; 7];
-            } else {
-                let (eye, forward) = self.session.native_step_walkthrough(dt, self.walk_keys);
-                self.walk_keys[6] = false;
-                self.camera.eye = Some(eye);
-                self.camera.target = eye + forward * f64::from(self.camera.distance);
-                self.bridge.publish_camera(self.camera);
             }
+            let (eye, forward) = self.session.native_step_walkthrough(dt, self.walk_keys);
+            self.walk_keys[6] = false;
+            self.camera.eye = Some(eye);
+            self.camera.target = eye + forward * f64::from(self.camera.distance);
+            self.bridge.publish_camera(self.camera);
         }
         let preferences = self.session.native_ui_preferences();
         self.layout = publish_layout(&self.bridge, window, &preferences);
@@ -2334,6 +2443,7 @@ impl Render for MeshcraftShell {
             }
         }
         settings::prepare(self, window, cx);
+        annotations::prepare(self, window, cx);
         self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();
         if let Some(frame) = frame.as_ref() {
@@ -2544,7 +2654,7 @@ impl Render for MeshcraftShell {
                     .text_sm()
                     .text_color(rgb(0x27394b))
                     .child(format!(
-                        "{} · {} · middle-drag / Shift+right-drag pan · wheel zoom{}{}",
+                        "{} · {} · middle-drag / Shift+right-drag pan · wheel {}{}{}",
                         self.session.active_tool_label(),
                         if self.walking {
                             "Walkthrough: WASD move · Q/E height · Space jump · right-drag look"
@@ -2553,6 +2663,7 @@ impl Render for MeshcraftShell {
                         } else {
                             "Perspective · right-drag orbit"
                         },
+                        if self.walking { "move" } else { "zoom" },
                         if self.session.native_point_input_hint().is_empty() {
                             ""
                         } else {
@@ -2562,6 +2673,7 @@ impl Render for MeshcraftShell {
                     )),
             );
 
+        let viewport = viewport.children(annotations::labels(self));
         let viewport = viewport.when(!self.scripts.errors.is_empty(), |view| {
             view.child(
                 div()
@@ -2713,7 +2825,7 @@ impl Render for MeshcraftShell {
                                     gpui::MouseButton::Left,
                                     cx.listener(move |this, _, _, cx| {
                                         this.open_menu = None;
-                                        this.dispatch(&id);
+                                        this.dispatch_with_clipboard(&id, cx);
                                         cx.notify();
                                     }),
                                 )
@@ -2797,7 +2909,7 @@ impl Render for MeshcraftShell {
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.command_palette_open = false;
                                     window.focus(&this.focus);
-                                    this.dispatch(&id);
+                                    this.dispatch_with_clipboard(&id, cx);
                                     cx.notify();
                                 }))
                         })),
@@ -2830,6 +2942,11 @@ impl Render for MeshcraftShell {
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if (event.keystroke.modifiers.control || event.keystroke.modifiers.platform)
+                    && event.keystroke.key == "v"
+                {
+                    this.sync_clipboard(cx);
+                }
                 if scripts::capture_key(this, event, window, cx) {
                     cx.stop_propagation();
                 }
@@ -2988,15 +3105,15 @@ mod tests {
     fn viewport_bounds_follow_visibility_at_each_dpi() {
         for scale in [1.0, 1.5, 2.0] {
             for (menu, ribbon, header) in [
-                (true, true, 144.),
+                (true, true, 159.),
                 (true, false, 34.),
-                (false, true, 110.),
+                (false, true, 125.),
                 (false, false, 0.),
             ] {
                 for (left, margin) in [(true, 230.), (false, 0.)] {
                     let bounds = viewport_physical_rect(1882., 1043., scale, menu, ribbon, left);
                     assert_eq!(bounds.x, (margin * scale) as i32);
-                    assert_eq!(bounds.y, ((header + 34.) * scale) as i32);
+                    assert_eq!(bounds.y, ((header + 34.) * scale).round() as i32);
                     assert_eq!(
                         bounds.width,
                         ((1882. - margin - 330.) * scale).round() as u32
@@ -3084,7 +3201,8 @@ mod tests {
         for (key, id) in [
             ("line", "tool.builtin.line"),
             ("move", "tool.builtin.move"),
-            ("copy", "tool.move_copy"),
+            ("copy", "edit.copy_selection"),
+            ("move-copy", "tool.move_copy"),
             ("rotate-copy-3d", "tool.rotate_copy"),
             ("make-object", "object.create_from_selection"),
             ("linear-array", "tool.builtin.copy_multiple"),
@@ -3149,6 +3267,30 @@ mod tests {
                 assert!((p.0 - 160.).abs() < 0.001 && (p.1 - 120.).abs() < 0.001);
             }
             assert!(super::project_point(camera, (800., 600.), Vec3::ZERO).is_some());
+        }
+    }
+
+    #[test]
+    fn leaving_a_vertical_view_keeps_perspective_and_walkthrough_camera_bases_valid() {
+        use meshcraft_core::geometry::Vec3;
+        for sign in [-1., 1.] {
+            let mut camera = OrbitCamera {
+                pitch: sign * std::f32::consts::FRAC_PI_2,
+                up: Vec3::Z,
+                orthographic: true,
+                ..Default::default()
+            };
+            camera.set_perspective();
+            assert!(camera.ray(400., 300., 800., 600.).is_some());
+            assert!(super::project_point(camera, (800., 600.), Vec3::ZERO).is_some());
+            let mut controller = crate::viewport::Viewport::default();
+            controller.native_walkthrough_pose(Vec3::Y * 2., Vec3::Y * f64::from(sign));
+            let (_, forward) = controller.native_walkthrough_step(
+                &meshcraft_core::document::Document::new(),
+                0.,
+                [false; 7],
+            );
+            assert!(forward.cross(Vec3::Y).length() > 0.01);
         }
     }
 

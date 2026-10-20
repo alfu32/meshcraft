@@ -8,7 +8,7 @@ pub(super) const RIGHT_PANEL_WIDTH: f32 = 330.0;
 pub(super) const TITLE_BAR_HEIGHT: f32 = 34.0;
 pub(super) const MENU_HEIGHT: f32 = 34.0;
 pub(super) const TAB_HEIGHT: f32 = 28.0;
-pub(super) const RIBBON_HEIGHT: f32 = 82.0;
+pub(super) const RIBBON_HEIGHT: f32 = 97.0;
 pub(super) const HEADER_HEIGHT: f32 = MENU_HEIGHT + TAB_HEIGHT + RIBBON_HEIGHT;
 pub(super) const STATUS_HEIGHT: f32 = 26.0;
 use gpui::{
@@ -196,8 +196,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                         .unwrap_or(false),
                 )
                 .disabled(!command_enabled(&self.shell.session, command))
-                .on_click(self.cx.listener(move |this, _, _, cx| {
-                    this.dispatch(&id);
+                .on_click(self.cx.listener(move |this, _, window, cx| {
+                    window.focus(&this.focus);
+                    this.dispatch_with_clipboard(&id, cx);
                     cx.notify();
                 }))
         } else {
@@ -872,7 +873,7 @@ const HOME_GROUPS: &[RibbonGroup] = &[
             ("select", "Select"),
             ("window-select", "Window"),
             ("move", "Move"),
-            ("copy", "Copy"),
+            ("move-copy", "Move Copy"),
             ("rotate-3d", "Rotate 3D"),
             ("scale", "Scale"),
             ("stretch", "Stretch"),
@@ -969,13 +970,14 @@ const MODIFY_GROUPS: &[RibbonGroup] = &[
         namespace: "ribbon/modify/transforms",
         commands: &[
             ("move", "Move"),
-            ("copy", "Copy"),
+            ("move-copy", "Move Copy"),
             ("rotate-3d", "Rotate 3D"),
             ("rotate-copy-3d", "Rotate Copy"),
             ("scale", "Scale"),
             ("stretch", "Stretch"),
             ("extrude", "Extrude"),
             ("mirror", "Mirror"),
+            ("flip", "Flip"),
         ],
     },
     RibbonGroup {
@@ -1414,6 +1416,8 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
                 ("create-object", "Object"),
                 ("explode", "Explode"),
                 ("paste", "Paste"),
+                ("cut", "Cut"),
+                ("copy-as-script", "Copy Script"),
                 ("array", "Array"),
             ],
             bindings,
@@ -1635,6 +1639,11 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         .child(setting_section(
             "Materials",
             super::materials::panel(bindings.shell, bindings.cx),
+            bindings,
+        ))
+        .child(setting_section(
+            "Annotations",
+            super::annotations::panel(bindings.shell, bindings.cx),
             bindings,
         ))
         .child(setting_section(
@@ -1984,19 +1993,20 @@ pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
         "object" => (1, "Object"),
         "objects" => (2, "Objects"),
         "materials" => (3, "Materials"),
-        "model_settings" => (4, "Model Settings"),
-        "ui_settings" | "profile" => (5, "UI Settings"),
-        "polyline" | "vector_text" => (6, "Polyline & Vector Text"),
+        "annotations" => (4, "Annotations"),
+        "model_settings" => (5, "Model Settings"),
+        "ui_settings" | "profile" => (6, "UI Settings"),
+        "polyline" | "vector_text" => (7, "Polyline & Vector Text"),
         "architecture_walls"
         | "architecture_slabs"
         | "architecture_stairs"
-        | "architecture_frames" => (7, "Architecture — Walls / Slabs / Stairs / Frames"),
-        "hvac" => (8, "HVAC Settings"),
-        "hotspots" => (9, "Hotspot Settings"),
-        "random" => (10, "Random Tools & Surface Remesh"),
-        "tutorials" => (11, "Tutorials"),
-        "shaders" => (12, "Shader Settings"),
-        "help" => (13, "Help / About"),
+        | "architecture_frames" => (8, "Architecture — Walls / Slabs / Stairs / Frames"),
+        "hvac" => (9, "HVAC Settings"),
+        "hotspots" => (10, "Hotspot Settings"),
+        "random" => (11, "Random Tools & Surface Remesh"),
+        "tutorials" => (12, "Tutorials"),
+        "shaders" => (13, "Shader Settings"),
+        "help" => (14, "Help / About"),
         _ => return None,
     })
 }

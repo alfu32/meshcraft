@@ -610,6 +610,106 @@ fn transform_domain_selections(
     Ok(())
 }
 
+/// Reverse oriented mesh primitives without changing vertices, colors or material assignments.
+pub fn flip_selection(
+    document: &mut Document,
+    selection: &SelectionSession,
+) -> Result<usize, String> {
+    let selected = selection
+        .selected()
+        .iter()
+        .filter(|target| target_in_context(document, &selection.context, target))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut groups = BTreeMap::<GeometryOwner, (BTreeSet<SegmentId>, BTreeSet<TriangleId>)>::new();
+    for target in selected {
+        let Some(resolved) = document.resolve_occurrence(&target.occurrence) else {
+            continue;
+        };
+        let owner = geometry_owner(
+            document,
+            &selection.context,
+            &target,
+            resolved.definition.id,
+        );
+        let group = groups.entry(owner).or_default();
+        match target.entity {
+            SelectedEntity::Segment(id) => {
+                group.0.insert(id);
+            }
+            SelectedEntity::Triangle(id) => {
+                group.1.insert(id);
+            }
+            _ => {}
+        }
+    }
+    if groups.is_empty()
+        || groups
+            .values()
+            .all(|(edges, faces)| edges.is_empty() && faces.is_empty())
+    {
+        return Err("Flip requires selected segments or faces".to_owned());
+    }
+
+    let mut candidate = document.clone();
+    let mut count = 0;
+    for (owner, (edges, faces)) in groups {
+        let mut geometry = match &owner {
+            GeometryOwner::Definition(id) => candidate
+                .definition(*id)
+                .ok_or("definition is missing")?
+                .geometry
+                .clone(),
+            GeometryOwner::Occurrence(path) => candidate
+                .effective_geometry(path)
+                .ok_or("geometry is missing")?
+                .clone(),
+        };
+        for id in edges {
+            if let Some(edge) = geometry.segments.get_mut(&id) {
+                edge.endpoints.swap(0, 1);
+                count += 1;
+            }
+        }
+        for id in faces {
+            if let Some(face) = geometry.triangles.get_mut(&id) {
+                face.vertices.swap(1, 2);
+                count += 1;
+            }
+        }
+        match owner {
+            GeometryOwner::Definition(id) => {
+                candidate
+                    .definitions
+                    .get_mut(&id)
+                    .ok_or("definition is missing")?
+                    .geometry = geometry
+            }
+            GeometryOwner::Occurrence(path) => {
+                let mut edits = candidate
+                    .occurrence_edits(&path)
+                    .cloned()
+                    .unwrap_or_default();
+                edits.geometry_replacement = Some(geometry);
+                if !candidate.set_occurrence_edits(path, edits) {
+                    return Err("cannot store flipped geometry".into());
+                }
+            }
+        }
+    }
+    if count == 0 {
+        return Err("Flip requires selected segments or faces".into());
+    }
+    candidate.validate()?;
+    candidate.hotspot_cache.clear();
+    candidate.revision = document
+        .revision()
+        .checked_add(1)
+        .ok_or("revision exhausted")?;
+    *document = candidate;
+    Ok(count)
+}
+
 /// Applies the current RGBA value to selected faces and edges in the active edit context.
 pub fn paint_selection(
     document: &mut Document,
@@ -1051,16 +1151,36 @@ fn append_preview_annotation(
             };
             let start = to_world(start)?;
             let end = to_world(end)?;
-            output.push([start, end]);
             if let Some(offset) = vector("offset")? {
                 let offset = to_world(offset)?;
-                output.extend([[start, offset], [end, offset]]);
+                if let Some([a, b]) =
+                    crate::document::annotations::dimension_points(start, end, offset)
+                {
+                    output.extend([[start, a], [end, b], [a, b]]);
+                }
+            } else {
+                output.push([start, end]);
             }
         }
         "texts" => {
             let Some(position) = vector("position")? else {
                 return Ok(());
             };
+            if let Some(points) = record
+                .get("leaderPoints")
+                .and_then(serde_json::Value::as_array)
+            {
+                let mut path = points
+                    .iter()
+                    .map(|p| {
+                        serde_json::from_value::<Vec3>(p.clone())
+                            .map_err(|_| "invalid leader point".to_owned())
+                            .and_then(to_world)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                path.push(to_world(position)?);
+                output.extend(path.windows(2).map(|p| [p[0], p[1]]));
+            }
             let size = record
                 .get("size")
                 .and_then(serde_json::Value::as_f64)
@@ -1932,7 +2052,7 @@ mod tests {
             affine_translation(Vec3::new(2.0, 3.0, 4.0)),
         )
         .unwrap();
-        assert!(preview.contains(&[Vec3::new(2.0, 3.0, 4.0), Vec3::new(3.0, 3.0, 4.0),]));
+        assert!(preview.contains(&[Vec3::new(2.0, 4.0, 4.0), Vec3::new(3.0, 4.0, 4.0),]));
 
         let report = transform_selection(
             &mut document,
@@ -2035,5 +2155,49 @@ mod tests {
         assert!(error.contains("occurrence-level domain overrides"));
         assert_eq!(before, document);
         assert!(document.validate().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod flip_tests {
+    use super::*;
+    #[test]
+    fn flip_is_an_involution_on_endpoint_order_and_winding_without_moving_vertices() {
+        let mut doc = Document::new();
+        let path = doc
+            .add_cuboid("box", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let original = doc.effective_geometry(&path).unwrap().clone();
+        let edge = *original.segments.keys().next().unwrap();
+        let face = *original.triangles.keys().next().unwrap();
+        let mut selection = SelectionSession::default();
+        for entity in [
+            SelectedEntity::Segment(edge),
+            SelectedEntity::Triangle(face),
+        ] {
+            selection.select(SelectionTarget {
+                occurrence: path.clone(),
+                entity,
+            });
+        }
+        assert_eq!(2, flip_selection(&mut doc, &selection).unwrap());
+        let flipped = doc.effective_geometry(&path).unwrap();
+        assert_eq!(original.vertices, flipped.vertices);
+        assert_eq!(
+            original.segments[&edge].endpoints[0],
+            flipped.segments[&edge].endpoints[1]
+        );
+        assert_eq!(
+            original.triangles[&face].vertices[1],
+            flipped.triangles[&face].vertices[2]
+        );
+        assert_eq!(2, flip_selection(&mut doc, &selection).unwrap());
+        assert_eq!(&original, doc.effective_geometry(&path).unwrap());
+        assert_eq!(
+            &original,
+            &doc.definition(doc.resolve_occurrence(&path).unwrap().definition.id)
+                .unwrap()
+                .geometry
+        );
     }
 }

@@ -2004,7 +2004,22 @@ impl Viewport {
         if let Some(walk) = &mut self.walkthrough {
             walk.position = eye;
             walk.yaw = forward.z.atan2(forward.x);
-            walk.pitch = forward.y.clamp(-1., 1.).asin();
+            walk.pitch = forward
+                .y
+                .clamp(-1., 1.)
+                .asin()
+                .clamp(-89_f64.to_radians(), 89_f64.to_radians());
+        }
+    }
+
+    pub(crate) fn native_walkthrough_animating(&self) -> bool {
+        self.walkthrough.is_some_and(|walk| !walk.grounded)
+    }
+
+    pub(crate) fn native_walkthrough_scroll(&mut self, steps: f32) {
+        if let Some(walk) = &mut self.walkthrough {
+            walk.position +=
+                walk.forward() * (f64::from(steps) * self.walkthrough_tuning.move_speed * 0.1);
         }
     }
 
@@ -2062,8 +2077,10 @@ impl Viewport {
                 .cross(forward)
                 .try_normalized(1.0e-12)
                 .unwrap_or(Vec3::Y);
-            walkthrough.position += right * (-f64::from(delta.x) * WALK_PAN_UNITS_PER_PIXEL);
-            walkthrough.position += screen_up * (f64::from(delta.y) * WALK_PAN_UNITS_PER_PIXEL);
+            let movement = right * (-f64::from(delta.x) * WALK_PAN_UNITS_PER_PIXEL)
+                + screen_up * (f64::from(delta.y) * WALK_PAN_UNITS_PER_PIXEL);
+            walkthrough.position += movement;
+            walkthrough.eye_offset = (walkthrough.eye_offset + movement.y).clamp(-5., 60.);
         } else if button == egui::PointerButton::Secondary {
             walkthrough.yaw += f64::from(delta.x) * WALK_LOOK_RADIANS_PER_PIXEL;
             walkthrough.pitch = (walkthrough.pitch
@@ -2871,7 +2888,8 @@ impl Viewport {
                                 point,
                                 normal: Vec3::Y,
                                 kind: SnapKind::Endpoint,
-                                screen_distance: 0.0,
+                                screen_distance: (point - (ray_origin + direction * depth)).length()
+                                    as f32,
                             },
                         );
                     }
@@ -2879,6 +2897,30 @@ impl Viewport {
                 NativeSpatialPrimitive::Segment([start, end])
                     if policy.can_draw(SelectionKind::Edge) =>
                 {
+                    for (point, kind) in [
+                        (start, SnapKind::Endpoint),
+                        (end, SnapKind::Endpoint),
+                        ((start + end) * 0.5, SnapKind::Midpoint),
+                    ] {
+                        let depth = (point - ray_origin).dot(direction);
+                        let miss = (point - ray_origin - direction * depth).length();
+                        if depth >= 0.
+                            && miss <= radius
+                            && !nearest_face_depth.is_some_and(|face| depth > face + radius)
+                        {
+                            consider_ray_snap(
+                                &mut nearest,
+                                depth,
+                                0,
+                                SnapResult {
+                                    point,
+                                    normal: Vec3::Y,
+                                    kind,
+                                    screen_distance: miss as f32,
+                                },
+                            );
+                        }
+                    }
                     let Some((depth, miss_distance)) =
                         ray_segment_distance(ray_origin, direction, start, end)
                     else {
@@ -2904,13 +2946,62 @@ impl Viewport {
                     );
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
-                    if policy.can_draw(SelectionKind::Face)
-                        && !policy.target_wireframe(document, &item.target) =>
+                    if policy.can_draw(SelectionKind::Face) =>
                 {
-                    let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
+                    let Some(normal) = (b - a).cross(c - a).try_normalized(1e-12) else {
                         continue;
                     };
-                    let Some(normal) = (b - a).cross(c - a).try_normalized(1.0e-12) else {
+                    for [start, end] in [[a, b], [b, c], [c, a]] {
+                        for (point, kind) in [
+                            (start, SnapKind::Endpoint),
+                            ((start + end) * 0.5, SnapKind::Midpoint),
+                        ] {
+                            let depth = (point - ray_origin).dot(direction);
+                            let miss = (point - ray_origin - direction * depth).length();
+                            if depth >= 0.
+                                && miss <= radius
+                                && !nearest_face_depth.is_some_and(|face| depth > face + radius)
+                            {
+                                consider_ray_snap(
+                                    &mut nearest,
+                                    depth,
+                                    0,
+                                    SnapResult {
+                                        point,
+                                        normal,
+                                        kind,
+                                        screen_distance: miss as f32,
+                                    },
+                                );
+                            }
+                        }
+                        if let Some((depth, miss)) =
+                            ray_segment_distance(ray_origin, direction, start, end)
+                            && depth >= 0.
+                            && miss <= radius
+                            && !nearest_face_depth.is_some_and(|face| depth > face + radius)
+                        {
+                            consider_ray_snap(
+                                &mut nearest,
+                                depth,
+                                1,
+                                SnapResult {
+                                    point: closest_point_on_segment(
+                                        ray_origin + direction * depth,
+                                        start,
+                                        end,
+                                    ),
+                                    normal,
+                                    kind: SnapKind::Line,
+                                    screen_distance: miss as f32,
+                                },
+                            );
+                        }
+                    }
+                    if policy.target_wireframe(document, &item.target) {
+                        continue;
+                    }
+                    let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
                         continue;
                     };
                     consider_ray_snap(
@@ -2943,7 +3034,7 @@ impl Viewport {
         snap: SnapResult,
         ground_normal: Vec3,
     ) -> Option<[Vec3; 3]> {
-        let segment_axis = if snap.kind == SnapKind::Line {
+        let segment_axis = if matches!(snap.kind, SnapKind::Line | SnapKind::Midpoint) {
             if self
                 .native_pick_index
                 .as_ref()
@@ -5145,9 +5236,11 @@ fn consider_ray_snap(
     }
     if nearest
         .as_ref()
-        .is_none_or(|(best_depth, best_priority, _)| {
-            depth < *best_depth - 1.0e-6
-                || ((depth - *best_depth).abs() <= 1.0e-6 && priority < *best_priority)
+        .is_none_or(|(best_depth, best_priority, best)| {
+            priority < *best_priority
+                || (priority == *best_priority
+                    && (snap.screen_distance < best.screen_distance
+                        || (snap.screen_distance == best.screen_distance && depth < *best_depth)))
         })
     {
         *nearest = Some((depth, priority, snap));
@@ -7136,7 +7229,7 @@ mod tests {
             .expect("the enclosing object remains selectable");
         assert_eq!(SelectedEntity::Occurrence, locked_pick.entity);
         assert_eq!(
-            Some(SnapKind::Face),
+            Some(SnapKind::Midpoint),
             viewport
                 .snap_point_on_ray(
                     &document,
@@ -7487,5 +7580,68 @@ mod tests {
             .unwrap();
         let midpoint = viewport.world_to_screen(rect, Vec3::new(0.0, 1.0, 4.0));
         assert_eq!(viewport.pick(rect, &document, midpoint), Some(line));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod native_midpoint_tests {
+    use super::*;
+    #[test]
+    fn native_midpoints_capture_nearby_rays_and_beat_nearest_line_points() {
+        let mut doc = Document::new();
+        doc.append_planar_mesh_to_scene_root(
+            vec![Vec3::new(-2., 0., 0.), Vec3::new(2., 0., 0.)],
+            vec![[0, 1]],
+            vec![],
+        )
+        .unwrap();
+        let mut viewport = Viewport::default();
+        let snap = viewport
+            .snap_point_on_ray(
+                &doc,
+                Vec3::new(0.04, 5., 0.),
+                -Vec3::Y,
+                0.1,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Midpoint, snap.kind);
+        assert!(snap.point.distance(Vec3::ZERO) < 1e-12);
+        let ordinary = viewport
+            .snap_point_on_ray(
+                &doc,
+                Vec3::new(0.4, 5., 0.),
+                -Vec3::Y,
+                0.1,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Line, ordinary.kind);
+        viewport.invalidate_document_caches();
+        let mut face = Document::new();
+        face.append_planar_mesh_to_scene_root(
+            vec![
+                Vec3::new(-2., 0., 0.),
+                Vec3::new(2., 0., 0.),
+                Vec3::new(0., 0., 3.),
+            ],
+            vec![[0, 1]],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+        let snap = viewport
+            .snap_point_on_ray(
+                &face,
+                Vec3::new(-0.98, 5., 1.52),
+                -Vec3::Y,
+                0.1,
+                SnapScope::Document,
+                &SelectionDisplayPolicy::default(),
+            )
+            .unwrap();
+        assert_eq!(SnapKind::Midpoint, snap.kind);
+        assert!(snap.point.distance(Vec3::new(-1., 0., 1.5)) < 1e-12);
     }
 }

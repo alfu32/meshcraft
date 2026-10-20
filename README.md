@@ -10,10 +10,12 @@ The desktop workspace combines a 3D viewport with menus, labeled tool buttons, a
 
 - **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
 - **Shape meshes:** extrusion and Push/Pull, sweeps, ribbons, revolve, offsets and outlines.
-- **Transform and repeat:** move, rotate, scale, stretch, move a copy, rotate a copy and arrays.
+- **Transform and repeat:** move, rotate, scale, stretch, move a copy, rotate a copy and arrays; reverse face normals and segment direction with Flip.
 - **Work precisely:** geometry and grid snapping, construction guides, workplanes, live geometry previews, and relative distance and coordinate feedback.
 - **Control selection and display:** select individual elements, connected geometry or regions; inspect totals and selection counts; set visibility, editability and wireframe display by entity type.
-- **Inspect your model:** orbit, pan and zoom in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
+- **Inspect your model:** perspective and orthographic views, orbit, pan, zoom and walkthrough navigation in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
+- **Annotate designs:** dimensions, text and leaders, with editable labels and sizes.
+- **Reuse selections:** system cut/copy/paste and Copy as Script for an editable JavaScript geometry snapshot.
 - **Materials:** create and edit named RGBA materials, assign them to selections, and see their colors and transparency in the viewport. Optional texture paths, U/V sizes and shading types are retained for future rendering work.
 - **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
 
@@ -41,7 +43,7 @@ Meshcraft is under active development. The following capabilities are planned; t
 - **JavaScript plugins:** extend the application through a JavaScriptCore runtime and a versioned application API.
 - **Built-in architecture tools:** walls, slabs, openings, stairs and frames, alongside plumbing and ventilation tools.
 - **Photorealistic rendering:** offline rendering for presentation images, complementing the interactive shaded viewport.
-- **Annotations:** dimensions, leaders and text for documenting designs.
+- **Vector annotations:** glyph-based vector text and additional annotation presentation options.
 
 The [development dashboard](DASHBOARD.md) tracks implemented behavior, validation and remaining work. The [rewrite guide](docs/rewrite/README.md) links the detailed specifications, architecture and implementation plan.
 
