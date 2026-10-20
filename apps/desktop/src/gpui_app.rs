@@ -64,21 +64,7 @@ use raylib::{
 use serde_json::{Value, json};
 
 const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
-const MENU_NAMES: &[&str] = &[
-    "File",
-    "Edit",
-    "View",
-    "Insert",
-    "Format",
-    "Draw",
-    "Dimension",
-    "Modify",
-    "Objects",
-    "Tools",
-    "Render",
-    "Window",
-    "Help",
-];
+use crate::app::DROPDOWN_MENU_NAMES as MENU_NAMES;
 const RIBBON_TABS: &[&str] = &[
     "Home",
     "Construction",
@@ -1280,6 +1266,9 @@ impl MeshcraftShell {
     fn toggle_ui_preference(&mut self, field: &str) {
         let preferences = self.session.native_ui_preferences();
         let current = match field {
+            "menu_bar_visible" => preferences.menu_bar_visible,
+            "ribbon_visible" => preferences.ribbon_visible,
+            "left_panel_visible" => preferences.left_panel_visible,
             "show_permanent_grid" => preferences.show_permanent_grid,
             "show_construction_guides" => preferences.show_construction_guides,
             "auto_collapse_toolbars" => preferences.auto_collapse_toolbars,
@@ -1633,30 +1622,55 @@ fn labeled_command(
         .into_any_element()
 }
 
-fn viewport_physical_rect(width: f32, height: f32, scale: f32) -> ViewportLayout {
-    use layout::{
-        HEADER_HEIGHT as HEADER, LEFT_PANEL_WIDTH as LEFT_PANEL, RIGHT_PANEL_WIDTH as RIGHT_PANEL,
-        STATUS_HEIGHT as STATUS,
+fn viewport_physical_rect(
+    width: f32,
+    height: f32,
+    scale: f32,
+    menu_bar_visible: bool,
+    ribbon_visible: bool,
+    left_panel_visible: bool,
+) -> ViewportLayout {
+    use layout::{RIGHT_PANEL_WIDTH as RIGHT_PANEL, STATUS_HEIGHT as STATUS};
+    let header = if menu_bar_visible {
+        layout::MENU_HEIGHT
+    } else {
+        0.
+    } + if ribbon_visible {
+        layout::HEADER_HEIGHT - layout::MENU_HEIGHT
+    } else {
+        0.
+    };
+    let left = if left_panel_visible {
+        layout::LEFT_PANEL_WIDTH
+    } else {
+        0.
     };
     ViewportLayout {
-        x: (LEFT_PANEL * scale).round() as i32,
-        y: (HEADER * scale).round() as i32,
-        width: ((width - LEFT_PANEL - RIGHT_PANEL).max(1.0) * scale)
+        x: (left * scale).round() as i32,
+        y: (header * scale).round() as i32,
+        width: ((width - left - RIGHT_PANEL).max(1.0) * scale)
             .round()
             .max(1.0) as u32,
-        height: ((height - HEADER - STATUS).max(1.0) * scale)
+        height: ((height - header - STATUS).max(1.0) * scale)
             .round()
             .max(1.0) as u32,
         scale,
     }
 }
 
-fn publish_layout(bridge: &ViewportBridge, window: &Window) -> ViewportLayout {
+fn publish_layout(
+    bridge: &ViewportBridge,
+    window: &Window,
+    preferences: &crate::app::NativeUiPreferences,
+) -> ViewportLayout {
     let size = window.viewport_size();
     let layout = viewport_physical_rect(
         f32::from(size.width),
         f32::from(size.height),
         window.scale_factor(),
+        preferences.menu_bar_visible,
+        preferences.ribbon_visible,
+        preferences.left_panel_visible,
     );
     bridge.publish_layout(layout);
     layout
@@ -2139,7 +2153,18 @@ impl Render for MeshcraftShell {
             })
             .detach();
         }
-        self.layout = publish_layout(&self.bridge, window);
+        let preferences = self.session.native_ui_preferences();
+        self.layout = publish_layout(&self.bridge, window, &preferences);
+        if self.open_menu.is_some_and(|menu| {
+            !preferences.menu_bar_visible
+                || !preferences
+                    .menu_visibility
+                    .get(menu)
+                    .copied()
+                    .unwrap_or(true)
+        }) {
+            self.open_menu = None;
+        }
         let rem = px(16.0 * self.session.native_ui_preferences().ui_text_scale);
         if cx.global::<Theme>().font_size != rem {
             cx.global_mut::<Theme>().font_size = rem;
@@ -2193,36 +2218,48 @@ impl Render for MeshcraftShell {
                     .text_color(rgb(0xe8eff7))
                     .child("Meshcraft"),
             )
-            .children(MENU_NAMES.iter().copied().map(|menu| {
-                let active = self.open_menu == Some(menu);
-                let button = Button::new(SharedString::from(format!("menu/{menu}")))
-                    .label(menu)
-                    .xsmall()
-                    .text()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            this.toggle_menu(menu);
-                            cx.notify();
-                        }),
-                    );
-                let bounds_store = Arc::clone(&self.menu_bounds);
-                div()
-                    .relative()
-                    .child(if active { button.primary() } else { button })
-                    .child(
-                        canvas(
-                            move |bounds, _, _| {
-                                if let Ok(mut menu_bounds) = bounds_store.lock() {
-                                    menu_bounds.insert(menu, bounds);
-                                }
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-            }))
+            .children(
+                MENU_NAMES
+                    .iter()
+                    .copied()
+                    .filter(|menu| {
+                        preferences
+                            .menu_visibility
+                            .get(*menu)
+                            .copied()
+                            .unwrap_or(true)
+                    })
+                    .map(|menu| {
+                        let active = self.open_menu == Some(menu);
+                        let button = Button::new(SharedString::from(format!("menu/{menu}")))
+                            .label(menu)
+                            .xsmall()
+                            .text()
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.toggle_menu(menu);
+                                    cx.notify();
+                                }),
+                            );
+                        let bounds_store = Arc::clone(&self.menu_bounds);
+                        div()
+                            .relative()
+                            .child(if active { button.primary() } else { button })
+                            .child(
+                                canvas(
+                                    move |bounds, _, _| {
+                                        if let Ok(mut menu_bounds) = bounds_store.lock() {
+                                            menu_bounds.insert(menu, bounds);
+                                        }
+                                    },
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .size_full(),
+                            )
+                    }),
+            )
             .child(div().flex_1())
             .child(
                 Button::new("commands/open")
@@ -2436,7 +2473,9 @@ impl Render for MeshcraftShell {
             .flex()
             .flex_1()
             .min_h(px(0.))
-            .child(left_panel)
+            .when(preferences.left_panel_visible, |body| {
+                body.child(left_panel)
+            })
             .child(viewport)
             .child(right_panel);
         let status = div()
@@ -2676,9 +2715,10 @@ impl Render for MeshcraftShell {
                 this.shortcut(event);
                 cx.notify();
             }))
-            .child(menu_bar)
-            .child(ribbon_tabs)
-            .child(ribbon)
+            .when(preferences.menu_bar_visible, |root| root.child(menu_bar))
+            .when(preferences.ribbon_visible, |root| {
+                root.child(ribbon_tabs).child(ribbon)
+            })
             .child(body)
             .child(status);
         if let Some(popup) = popup {
@@ -2741,14 +2781,14 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                     let bridge_for_view = bridge.clone();
                     let shell = cx.new(|view_cx| {
                         let bridge_for_observer = bridge_for_view.clone();
-                        publish_layout(&bridge_for_view, window);
+                        publish_layout(&bridge_for_view, window, &session.native_ui_preferences());
                         view_cx
                         .observe_window_bounds(
                             window,
                             move |view: &mut MeshcraftShell,
                                   window: &mut Window,
                                   cx: &mut Context<MeshcraftShell>| {
-                                view.layout = publish_layout(&bridge_for_observer, window);
+                                view.layout = publish_layout(&bridge_for_observer, window, &view.session.native_ui_preferences());
                                 cx.notify();
                             },
                         )
@@ -2779,13 +2819,28 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn viewport_bounds_match_the_tagged_shell_at_each_dpi() {
+    fn viewport_bounds_follow_visibility_at_each_dpi() {
         for scale in [1.0, 1.5, 2.0] {
-            let bounds = viewport_physical_rect(1882.0, 1043.0, scale);
-            assert_eq!(bounds.x, (230.0 * scale) as i32);
-            assert_eq!(bounds.y, (200.0 * scale) as i32);
-            assert_eq!(bounds.width, (1322.0 * scale) as u32);
-            assert_eq!(bounds.height, (817.0 * scale).round() as u32);
+            for (menu, ribbon, header) in [
+                (true, true, 200.),
+                (true, false, 34.),
+                (false, true, 166.),
+                (false, false, 0.),
+            ] {
+                for (left, margin) in [(true, 230.), (false, 0.)] {
+                    let bounds = viewport_physical_rect(1882., 1043., scale, menu, ribbon, left);
+                    assert_eq!(bounds.x, (margin * scale) as i32);
+                    assert_eq!(bounds.y, (header * scale) as i32);
+                    assert_eq!(
+                        bounds.width,
+                        ((1882. - margin - 330.) * scale).round() as u32
+                    );
+                    assert_eq!(
+                        bounds.height,
+                        ((1043. - header - 26.) * scale).round() as u32
+                    );
+                }
+            }
         }
     }
 

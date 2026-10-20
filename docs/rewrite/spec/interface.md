@@ -51,6 +51,16 @@ The requested table and shader preset are retained as [table reference](../refer
 
 Source: `K/ui/SketchUiOverlay.kt`, callback wiring `K/Main.kt:1038`, settings classes. Acceptance: C17, C22, C23.
 
+**GPUI layout visibility (2026-10-20).** UI Settings provides saved visibility
+controls for the entire menu bar, each dropdown (File, Edit, View, Insert, Format,
+Draw, Dimension, Modify, Objects, Tools, Render, Window, Help), the ribbon including
+its tabs, and the left tool panel. All are visible by default, including when
+loading older preferences. Individual dropdown choices survive hiding/revealing
+the menu bar. Hiding a section removes its reserved layout space and updates
+viewport resolution and pointer/picking offsets at every DPI. Any hidden menu
+popup closes. UI Settings on the right and Ctrl+Shift+P remain available to
+restore the layout. Preferences do not modify the document or its undo history.
+
 ### U04 Preferences, status, and feedback
 
 **Observed + new profile preference.** Persist application workspace profile, panel/toolbar layout/visibility, UI scale/line widths, grid presentation and navigation tuning separately from model settings. Reset-layout must recover panels placed outside a changed monitor configuration. Status shows active tool, cursor screen/world coordinates, snap label, numeric input, operation messages, load/save progress and edit context.

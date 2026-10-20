@@ -431,6 +431,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     fn check(&mut self, label: &'static str, fallback: bool) -> gpui::AnyElement {
         let preferences = self.shell.session.native_ui_preferences();
         let binding = match label {
+            "Show menu bar" => Some(("menu_bar_visible", preferences.menu_bar_visible)),
+            "Show ribbon" => Some(("ribbon_visible", preferences.ribbon_visible)),
+            "Show left panel" => Some(("left_panel_visible", preferences.left_panel_visible)),
             "Accordion settings panels" => Some((
                 "accordion_settings_panels",
                 preferences.accordion_settings_panels,
@@ -489,6 +492,32 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         } else {
             row.into_any_element()
         }
+    }
+
+    fn menu_check(&mut self, menu: &'static str) -> gpui::AnyElement {
+        let visible = self
+            .shell
+            .session
+            .native_ui_preferences()
+            .menu_visibility
+            .get(menu)
+            .copied()
+            .unwrap_or(true);
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .child(
+                Checkbox::new(SharedString::from(format!("settings/menu/{menu}")))
+                    .label(menu)
+                    .checked(visible)
+                    .on_click(self.cx.listener(move |this, visible: &bool, _, cx| {
+                        let mut menus = this.session.native_ui_preferences().menu_visibility;
+                        menus.insert(menu.to_owned(), *visible);
+                        this.update_ui_preference("menu_visibility", serde_json::json!(menus));
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
     }
 
     fn stat(&self, label: &'static str, fallback: &'static str) -> gpui::AnyElement {
@@ -1655,6 +1684,21 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .flex()
                 .flex_col()
                 .gap(px(7.))
+                .child(setting_check("Show menu bar", true, bindings))
+                .child(setting_check("Show ribbon", true, bindings))
+                .child(setting_check("Show left panel", true, bindings))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0xc2c8d0))
+                        .child("Dropdown menus"),
+                )
+                .children(super::MENU_NAMES.chunks(2).map(|menus| {
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .children(menus.iter().copied().map(|menu| bindings.menu_check(menu)))
+                }))
                 .child(setting_pair(
                     "UI text size",
                     "1x",

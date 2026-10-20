@@ -1885,6 +1885,10 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("double_line_offset", CommandValueType::Number),
         ],
         "ui.update_preferences" => &[
+            ("menu_bar_visible", CommandValueType::Boolean),
+            ("menu_visibility", CommandValueType::Object),
+            ("ribbon_visible", CommandValueType::Boolean),
+            ("left_panel_visible", CommandValueType::Boolean),
             ("ui_text_scale", CommandValueType::Number),
             ("auto_collapse_toolbars", CommandValueType::Boolean),
             ("accordion_settings_panels", CommandValueType::Boolean),
@@ -1983,10 +1987,30 @@ fn legacy_toolbar_command_ids(stem: &str) -> Vec<String> {
     ids
 }
 
+pub(crate) const DROPDOWN_MENU_NAMES: &[&str] = &[
+    "File",
+    "Edit",
+    "View",
+    "Insert",
+    "Format",
+    "Draw",
+    "Dimension",
+    "Modify",
+    "Objects",
+    "Tools",
+    "Render",
+    "Window",
+    "Help",
+];
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 struct Preferences {
     profile: UiProfile,
+    menu_bar_visible: bool,
+    menu_visibility: BTreeMap<String, bool>,
+    ribbon_visible: bool,
+    left_panel_visible: bool,
     toolbars_visible: bool,
     toolbar_visibility: BTreeMap<String, bool>,
     toolbar_positions: BTreeMap<String, [f32; 2]>,
@@ -2015,6 +2039,10 @@ struct Preferences {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NativeUiPreferences {
+    pub menu_bar_visible: bool,
+    pub menu_visibility: BTreeMap<String, bool>,
+    pub ribbon_visible: bool,
+    pub left_panel_visible: bool,
     pub ui_text_scale: f32,
     pub auto_collapse_toolbars: bool,
     pub accordion_settings_panels: bool,
@@ -2047,6 +2075,10 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             profile: UiProfile::DesktopMenus,
+            menu_bar_visible: true,
+            menu_visibility: BTreeMap::new(),
+            ribbon_visible: true,
+            left_panel_visible: true,
             toolbars_visible: true,
             toolbar_visibility: LEGACY_TOOLBARS
                 .iter()
@@ -2225,6 +2257,10 @@ impl MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn native_ui_preferences(&self) -> NativeUiPreferences {
         NativeUiPreferences {
+            menu_bar_visible: self.preferences.menu_bar_visible,
+            menu_visibility: self.preferences.menu_visibility.clone(),
+            ribbon_visible: self.preferences.ribbon_visible,
+            left_panel_visible: self.preferences.left_panel_visible,
             ui_text_scale: self.preferences.ui_text_scale,
             auto_collapse_toolbars: self.preferences.auto_collapse_toolbars,
             accordion_settings_panels: self.preferences.accordion_settings_panels,
@@ -2254,6 +2290,16 @@ impl MeshcraftApp {
         let preferences = &self.preferences;
         let mut payload = CommandPayload::default();
         payload.values.extend([
+            (
+                "menu_bar_visible".into(),
+                json!(preferences.menu_bar_visible),
+            ),
+            ("menu_visibility".into(), json!(preferences.menu_visibility)),
+            ("ribbon_visible".into(), json!(preferences.ribbon_visible)),
+            (
+                "left_panel_visible".into(),
+                json!(preferences.left_panel_visible),
+            ),
             ("ui_text_scale".to_owned(), json!(preferences.ui_text_scale)),
             (
                 "accordion_settings_panels".to_owned(),
@@ -6769,6 +6815,9 @@ impl MeshcraftApp {
             }
         }
         for (name, target) in [
+            ("menu_bar_visible", &mut preferences.menu_bar_visible),
+            ("ribbon_visible", &mut preferences.ribbon_visible),
+            ("left_panel_visible", &mut preferences.left_panel_visible),
             (
                 "auto_collapse_toolbars",
                 &mut preferences.auto_collapse_toolbars,
@@ -6793,6 +6842,22 @@ impl MeshcraftApp {
                     Ok(value) => *target = value,
                     Err(error) => return CommandResult::failed(error),
                 }
+            }
+        }
+        if let Some(value) = payload.values.get("menu_visibility") {
+            let Some(menus) = value.as_object() else {
+                return CommandResult::failed("menu_visibility must be an object");
+            };
+            for (name, value) in menus {
+                if !DROPDOWN_MENU_NAMES.contains(&name.as_str()) {
+                    return CommandResult::failed(format!("unknown dropdown menu {name:?}"));
+                }
+                let Some(visible) = value.as_bool() else {
+                    return CommandResult::failed(format!(
+                        "menu_visibility.{name} must be boolean"
+                    ));
+                };
+                preferences.menu_visibility.insert(name.clone(), visible);
             }
         }
         if payload.values.contains_key("antialiasing_quality") {
@@ -12852,6 +12917,60 @@ mod tests {
         let serialized = serde_json::to_string(&app.preferences).unwrap();
         let restored: Preferences = serde_json::from_str(&serialized).unwrap();
         assert_eq!(app.preferences, restored);
+    }
+
+    #[test]
+    fn shell_visibility_persists_and_invalid_updates_are_atomic() {
+        let mut app = test_app();
+        let document = app.document.clone();
+        let mut payload = CommandPayload::default();
+        payload.values.extend([
+            ("menu_bar_visible".into(), json!(false)),
+            ("ribbon_visible".into(), json!(false)),
+            ("left_panel_visible".into(), json!(false)),
+            (
+                "menu_visibility".into(),
+                json!({"File":false,"Render":false}),
+            ),
+        ]);
+        assert!(
+            app.dispatch_command("ui.update_preferences", &payload)
+                .accepted
+        );
+        let native = app.native_ui_preferences();
+        assert!(!native.menu_bar_visible && !native.ribbon_visible && !native.left_panel_visible);
+        assert_eq!(Some(&false), native.menu_visibility.get("File"));
+        assert_eq!(app.document, document);
+        assert!(!app.document_is_dirty());
+        let encoded = serde_json::to_string(&app.preferences).unwrap();
+        let restored: Preferences = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(app.preferences, restored);
+        let roundtrip_payload = app.native_ui_preferences_payload();
+        assert!(
+            app.dispatch_command("ui.update_preferences", &roundtrip_payload)
+                .accepted
+        );
+        assert_eq!(app.preferences, restored);
+        for invalid in [
+            json!({"Unknown":true}),
+            json!({"File":"hidden"}),
+            json!(false),
+        ] {
+            payload
+                .values
+                .insert("menu_bar_visible".into(), json!(true));
+            payload.values.insert("menu_visibility".into(), invalid);
+            assert_eq!(
+                CommandCompletion::Failed,
+                app.dispatch_command("ui.update_preferences", &payload)
+                    .result
+                    .completion
+            );
+            assert_eq!(app.preferences, restored);
+        }
+        let legacy: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(legacy.menu_bar_visible && legacy.ribbon_visible && legacy.left_panel_visible);
+        assert!(legacy.menu_visibility.is_empty());
     }
 
     #[test]

@@ -72,6 +72,13 @@ Load current xref examples with companions, a moved/relative bundle, missing ref
 
 Menu and button access for open/save/import/export, every tool family, undo/delete/group, camera/grid, panels and settings. Switch profiles mid-draft, resize/reopen, reset offscreen layouts, edit text/numeric fields and inspect status. Test DPI, keyboard focus, visible enabled/checked state, errors and load/save progress. No plugin-manager/console workflow is required initially.
 
+For C17/C23 native GPUI layout visibility, toggle the menu bar, each dropdown,
+ribbon and left panel in UI Settings. Confirm hidden items disappear, canvas space
+expands, picking remains aligned at multiple DPIs and the right-side UI Settings
+and Ctrl+Shift+P can restore everything. Restart to verify persistence, including
+individual dropdown choices while the menu bar is hidden. Document/undo state
+must remain unchanged, and older preferences default to the full layout.
+
 ## C18 — Shared command semantics
 
 Invoke the same operation via menu, toolbar, palette and structured automation; compare canonical document state, active tool, selection, dirty revision and undo count. Verify command discovery/preconditions/parameters, wrong-context diagnostics, pending versus complete jobs and absence of unsupported deferred commands. Tool activation alone does not generate undo.
