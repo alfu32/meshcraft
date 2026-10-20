@@ -1,8 +1,91 @@
 //! Non-persistent editor selection and edit-context state.
 
-use crate::document::{DefinitionId, Document, OccurrenceRef, SegmentId, TriangleId, VertexId};
+use crate::document::{
+    DefinitionId, Document, GeometryBundle, OccurrenceRef, SegmentId, TriangleId, VertexId,
+};
 use crate::geometry::{Vec2, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Positional adjacency used only for connected selection; never welds authored geometry.
+pub const CONNECTION_DISTANCE: f64 = 1.0e-2;
+
+pub struct GeometryConnections(BTreeMap<VertexId, VertexId>);
+
+impl GeometryConnections {
+    pub fn new(geometry: &GeometryBundle) -> Self {
+        let mut parents = geometry
+            .vertices
+            .keys()
+            .map(|id| (*id, *id))
+            .collect::<BTreeMap<_, _>>();
+        let corners = geometry
+            .segments
+            .values()
+            .flat_map(|s| s.endpoints)
+            .chain(geometry.triangles.values().flat_map(|t| t.vertices));
+        let points = geometry
+            .vertices
+            .values()
+            .map(|v| (v.id, v.position))
+            .chain(corners.filter_map(|r| geometry.vertex_position(r).map(|p| (r.id, p))));
+        let mut seen = BTreeSet::new();
+        let mut buckets = BTreeMap::<[i64; 3], Vec<(VertexId, Vec3)>>::new();
+        for (id, point) in points {
+            if !point.is_finite()
+                || !seen.insert((id, point.x.to_bits(), point.y.to_bits(), point.z.to_bits()))
+            {
+                continue;
+            }
+            let cell =
+                [point.x, point.y, point.z].map(|v| (v / CONNECTION_DISTANCE).floor() as i64);
+            for x in -1..=1 {
+                for y in -1..=1 {
+                    for z in -1..=1 {
+                        let [Some(a), Some(b), Some(c)] = [
+                            cell[0].checked_add(x),
+                            cell[1].checked_add(y),
+                            cell[2].checked_add(z),
+                        ] else {
+                            continue;
+                        };
+                        if let Some(neighbors) = buckets.get(&[a, b, c]) {
+                            for &(other, position) in neighbors {
+                                if point.distance(position) <= CONNECTION_DISTANCE {
+                                    let a = connection_root(&mut parents, id);
+                                    let b = connection_root(&mut parents, other);
+                                    parents.insert(a.max(b), a.min(b));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            buckets.entry(cell).or_default().push((id, point));
+        }
+        for id in geometry.vertices.keys() {
+            connection_root(&mut parents, *id);
+        }
+        Self(parents)
+    }
+
+    pub fn representative(&self, id: VertexId) -> VertexId {
+        self.0.get(&id).copied().unwrap_or(id)
+    }
+}
+
+fn connection_root(parents: &mut BTreeMap<VertexId, VertexId>, id: VertexId) -> VertexId {
+    let mut root = id;
+    while parents[&root] != root {
+        root = parents[&root];
+    }
+    let mut next = id;
+    while next != root {
+        let parent = parents[&next];
+        parents.insert(next, root);
+        next = parent;
+    }
+    root
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionKind {

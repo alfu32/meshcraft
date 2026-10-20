@@ -1504,7 +1504,7 @@ impl MeshcraftShell {
             .cross(forward)
             .try_normalized(1.0e-12)
             .unwrap_or(Vec3::Y);
-        let scale = f64::from(self.camera.distance * 0.0025);
+        let scale = f64::from(self.camera.distance * 0.00125);
         let delta = (right * (-f64::from(dx)) + up * f64::from(dy)) * scale;
         self.camera.target += delta;
         self.bridge.publish_camera(self.camera);

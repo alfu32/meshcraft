@@ -74,3 +74,9 @@ Ran the rebuilt app at 1800×1000 on the isolated display, opening a temporary c
 | Pending Push/Pull volume and readable edges | [Extrusion preview](../references/interaction-performance/extrude-preview.png) |
 
 T51/T60 and broad performance/platform acceptance remain in progress. Open GitHub #27 concerns future shading/frustum work and is not resolved by these selection optimizations; postponed #26 remains unchanged.
+
+## Follow-up tolerance and pan tuning — 0.4.1
+
+Connected and coplanar face/line selection now uses a non-mutating spatial adjacency graph at `1e-2` model units. Separate vertex identities and sparse raw corner positions can connect by proximity. Adjacent buckets are checked by actual distance; connected expansion traverses indexed adjacency instead of repeatedly scanning the whole graph. Authoritative geometry and legacy topology insertion tolerances stay intact. A regression connects faces/lines across a 0.006-unit gap, excludes a separate fragment beyond tolerance, and verifies the document is unchanged.
+
+Middle and Shift+right panning use half the previous multiplier (`distance × 0.00125` rather than `distance × 0.0025`). **495 workspace tests pass** (228 core, 247 desktop, 15 IO, 5 CLI); build, strict Clippy, formatting and plan validation pass. The connection-distance notation is interpreted as `1e-2`, pending any correction to the optional clarification.

@@ -30,6 +30,8 @@ Rust must separate raw insertion/deserialization from editing insertion with seg
 
 Primitive semantics and IDs do not require storing a repeated Vector3 on each segment/triangle corner. F10 evaluates a per-bundle stable vertex table with indexed primitives; a corner reference may carry a sparse position offset when a legacy alias shares identity across slightly different serialized coordinates. This preserves coincident independent identities and legacy slot aliases. Base geometry, authored instance edits and generated runtime geometry must not become three competing authorities.
 
+**User-requested selection tolerance (2026-10-20).** Connected/coplanar selection joins endpoint positions within `1e-2` local model units, including distinct stable vertex identities and raw corner offsets. This is a derived selection graph, not authoritative welding or a change to the legacy line/face insertion tolerances. Bucket-neighbor queries check Euclidean distance across cell boundaries.
+
 Source: `K/model/DraftLineStore.kt`: `addSegment`, raw insertion, cleanup; `DraftFaceStore.kt`: `addPolygon`, `appendTriangleRaw`, `cutBySegmentInPlane`; `ModelCleanup.kt`. Acceptance: C02, C03, C04.
 
 ### F04 Prototypes, instances, and overrides

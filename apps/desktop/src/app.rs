@@ -30,8 +30,8 @@ use meshcraft_core::operations::revolve as modeling_revolve;
 use meshcraft_core::operations::sweep::{self as modeling_sweep, SweepMesh, SweepProfileSegment};
 use meshcraft_core::operations::transforms as modeling_transforms;
 use meshcraft_core::selection::{
-    EditContext, SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
-    SelectionMode, SelectionSession, SelectionTarget,
+    CONNECTION_DISTANCE, EditContext, GeometryConnections, SelectedEntity, SelectionClickTracker,
+    SelectionDisplayPolicy, SelectionKind, SelectionMode, SelectionSession, SelectionTarget,
 };
 use meshcraft_core::tools::{
     DrawingTool, DrawingToolState, ToolCycle, ToolCycleEffect, ToolCycleState, ToolEffect,
@@ -8553,6 +8553,7 @@ impl MeshcraftApp {
         else {
             return vec![target.clone()];
         };
+        let connections = GeometryConnections::new(geometry);
         let triangle_data = |triangle: &meshcraft_core::document::Triangle| {
             let [Some(a), Some(b), Some(c)] = triangle
                 .vertices
@@ -8561,7 +8562,13 @@ impl MeshcraftApp {
                 return None;
             };
             let normal = (b - a).cross(c - a).try_normalized(1.0e-12)?;
-            Some((triangle.vertices.map(|vertex| vertex.id), a, normal))
+            Some((
+                triangle
+                    .vertices
+                    .map(|vertex| connections.representative(vertex.id)),
+                a,
+                normal,
+            ))
         };
         let Some(start_triangle) = geometry.triangles.get(start_id) else {
             return vec![target.clone()];
@@ -8572,7 +8579,7 @@ impl MeshcraftApp {
         let is_coplanar = |triangle: &meshcraft_core::document::Triangle| {
             triangle_data(triangle).is_some_and(|(_, point, normal)| {
                 normal.dot(start_normal).abs() >= 1.0 - 1.0e-8
-                    && (point - start_point).dot(start_normal).abs() <= 1.0e-7
+                    && (point - start_point).dot(start_normal).abs() <= CONNECTION_DISTANCE
             })
         };
         let mut coplanar_vertices = BTreeMap::new();
@@ -8639,28 +8646,34 @@ impl MeshcraftApp {
         let Some(start) = geometry.segments.get(&start_id) else {
             return vec![target.clone()];
         };
-        let mut vertices = start
-            .endpoints
-            .iter()
-            .map(|vertex| vertex.id)
-            .collect::<BTreeSet<_>>();
-        let mut segments = BTreeSet::from([start_id]);
-        loop {
-            let mut changed = false;
-            for segment in geometry.segments.values() {
-                if segment
-                    .endpoints
-                    .iter()
-                    .any(|vertex| vertices.contains(&vertex.id))
-                {
-                    changed |= segments.insert(segment.id);
-                    for vertex in &segment.endpoints {
-                        changed |= vertices.insert(vertex.id);
-                    }
-                }
+        let connections = GeometryConnections::new(geometry);
+        let mut by_vertex = BTreeMap::<VertexId, Vec<_>>::new();
+        for segment in geometry.segments.values() {
+            for vertex in segment.endpoints {
+                by_vertex
+                    .entry(connections.representative(vertex.id))
+                    .or_default()
+                    .push(segment.id);
             }
-            if !changed {
-                break;
+        }
+        let mut pending = start
+            .endpoints
+            .map(|r| connections.representative(r.id))
+            .to_vec();
+        let mut vertices = BTreeSet::new();
+        let mut segments = BTreeSet::new();
+        while let Some(vertex) = pending.pop() {
+            if !vertices.insert(vertex) {
+                continue;
+            }
+            for id in by_vertex.get(&vertex).into_iter().flatten() {
+                if segments.insert(*id) {
+                    pending.extend(
+                        geometry.segments[id]
+                            .endpoints
+                            .map(|r| connections.representative(r.id)),
+                    );
+                }
             }
         }
         segments
@@ -8700,41 +8713,56 @@ impl MeshcraftApp {
         if vertices.is_empty() {
             return vec![target.clone()];
         }
-        let mut segments = BTreeSet::new();
-        let mut triangles = BTreeSet::new();
-        loop {
-            let mut changed = false;
-            for segment in geometry.segments.values() {
-                if segment
-                    .endpoints
-                    .iter()
-                    .any(|vertex| vertices.contains(&vertex.id))
-                {
-                    changed |= segments.insert(segment.id);
-                    let before = vertices.len();
-                    vertices.extend(segment.endpoints.map(|vertex| vertex.id));
-                    changed |= vertices.len() != before;
-                }
-            }
-            for triangle in geometry.triangles.values() {
-                if triangle
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertices.contains(&vertex.id))
-                {
-                    changed |= triangles.insert(triangle.id);
-                    let before = vertices.len();
-                    vertices.extend(triangle.vertices.map(|vertex| vertex.id));
-                    changed |= vertices.len() != before;
-                }
-            }
-            if !changed {
-                break;
+        let connections = GeometryConnections::new(geometry);
+        let mut by_vertex = BTreeMap::<VertexId, Vec<SelectedEntity>>::new();
+        for s in geometry.segments.values() {
+            for r in s.endpoints {
+                by_vertex
+                    .entry(connections.representative(r.id))
+                    .or_default()
+                    .push(SelectedEntity::Segment(s.id));
             }
         }
-        let mut targets = vertices
-            .into_iter()
-            .filter(|id| geometry.vertices.contains_key(id))
+        for t in geometry.triangles.values() {
+            for r in t.vertices {
+                by_vertex
+                    .entry(connections.representative(r.id))
+                    .or_default()
+                    .push(SelectedEntity::Triangle(t.id));
+            }
+        }
+        let mut pending = vertices
+            .iter()
+            .map(|id| connections.representative(*id))
+            .collect::<Vec<_>>();
+        vertices.clear();
+        let mut segments = BTreeSet::new();
+        let mut triangles = BTreeSet::new();
+        while let Some(vertex) = pending.pop() {
+            if !vertices.insert(vertex) {
+                continue;
+            }
+            for entity in by_vertex.get(&vertex).into_iter().flatten() {
+                match *entity {
+                    SelectedEntity::Segment(id) if segments.insert(id) => pending.extend(
+                        geometry.segments[&id]
+                            .endpoints
+                            .map(|r| connections.representative(r.id)),
+                    ),
+                    SelectedEntity::Triangle(id) if triangles.insert(id) => pending.extend(
+                        geometry.triangles[&id]
+                            .vertices
+                            .map(|r| connections.representative(r.id)),
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        let mut targets = geometry
+            .vertices
+            .keys()
+            .copied()
+            .filter(|id| vertices.contains(&connections.representative(*id)))
             .map(|id| SelectionTarget {
                 occurrence: target.occurrence.clone(),
                 entity: SelectedEntity::Vertex(id),
@@ -19028,6 +19056,71 @@ mod tests {
 
         assert_eq!(1, app.selection.selected().len());
         assert!(app.selection.selected().contains(&second_target));
+    }
+
+    #[test]
+    fn connected_selection_bridges_small_gaps_without_welding_or_selecting_distant_geometry() {
+        let mut app = test_app();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let (edges, faces) = app
+            .document
+            .append_colored_indexed_mesh_to_definition(
+                root,
+                vec![
+                    Vec3::ZERO,
+                    Vec3::X,
+                    Vec3::Z,
+                    Vec3::new(1.006, 0., 0.),
+                    Vec3::new(0.006, 0., 1.),
+                    Vec3::new(1., 0., 1.),
+                    Vec3::new(0.02, 0., 0.),
+                    Vec3::new(1.02, 0., 0.),
+                    Vec3::new(0.02, 0., -1.),
+                ],
+                vec![
+                    ([0, 1], Rgba8::WHITE),
+                    ([3, 5], Rgba8::WHITE),
+                    ([6, 8], Rgba8::WHITE),
+                ],
+                vec![
+                    ([0, 1, 2], Rgba8::WHITE),
+                    ([3, 5, 4], Rgba8::WHITE),
+                    ([6, 7, 8], Rgba8::WHITE),
+                ],
+            )
+            .unwrap();
+        let before = app.document.clone();
+        let face = SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::Triangle(faces[0]),
+        };
+        assert_eq!(2, app.coplanar_faces(&face).len());
+        let line = SelectionTarget {
+            entity: SelectedEntity::Segment(edges[0]),
+            ..face.clone()
+        };
+        assert_eq!(2, app.connected_line_segments(&line).len());
+        let connected = app.connected_selection_component(&face);
+        assert_eq!(
+            2,
+            connected
+                .iter()
+                .filter(|t| matches!(t.entity, SelectedEntity::Triangle(_)))
+                .count()
+        );
+        assert_eq!(
+            6,
+            connected
+                .iter()
+                .filter(|t| matches!(t.entity, SelectedEntity::Vertex(_)))
+                .count()
+        );
+        assert!(
+            !connected
+                .iter()
+                .any(|t| t.entity == SelectedEntity::Triangle(faces[2]))
+        );
+        assert_eq!(before, app.document);
     }
 
     #[test]
