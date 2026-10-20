@@ -667,6 +667,7 @@ enum ShellAction {
     FinishToolInput,
     UndoToolPoint,
     ToggleTransformCopyMode,
+    BeginCopyTransform(bool),
     PaintSelection,
     FaceOutline,
     PolylineMesh,
@@ -1061,6 +1062,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 Some("distance"),
                 ShellAction::FocusToolDistance,
             ),
+            ("tool.move_copy", "Modify> Move Copy", "Modify", "copy move duplicate geometry", Some("copy"), ShellAction::BeginCopyTransform(false)),
+            ("tool.rotate_copy", "Modify> Rotate Copy", "Modify", "copy rotate duplicate geometry", Some("rotate-copy"), ShellAction::BeginCopyTransform(true)),
             (
                 "tool.copy_mode",
                 "Tool> Toggle Copy Mode",
@@ -1511,6 +1514,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
     match action {
         ShellAction::SelectTool(_)
         | ShellAction::SelectToolAlias(_)
+        | ShellAction::BeginCopyTransform(_)
         | ShellAction::CycleTool(_)
         | ShellAction::BeginObjectPlacement
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
@@ -1580,7 +1584,9 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
     match action {
         ShellAction::Undo => CommandStateQuery::UndoAvailable,
         ShellAction::Redo => CommandStateQuery::RedoAvailable,
-        ShellAction::CopySelection => CommandStateQuery::SelectionAvailable,
+        ShellAction::CopySelection | ShellAction::BeginCopyTransform(_) => {
+            CommandStateQuery::SelectionAvailable
+        }
         ShellAction::FaceOutline => CommandStateQuery::SelectionAvailable,
         ShellAction::PolylineMesh => CommandStateQuery::SelectionAvailable,
         ShellAction::CutSelectedFaces(_) => CommandStateQuery::SelectionAvailable,
@@ -2697,6 +2703,12 @@ impl MeshcraftApp {
                     surface_normal: (snap.kind == SnapKind::Face).then_some(snap.normal),
                 }));
         }
+        if self.push_pull_reference.is_some() {
+            self.push_pull_pointer = Some(snap.point);
+        }
+        self.transform_tool_state.set_pointer(Some(snap.point));
+        self.mesh_tool_state.set_pointer(Some(snap.point));
+        self.line_offset_tool_state.set_pointer(Some(snap.point));
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ONE);
         let preview = self.tool_preview(rect, Some(screen_position), Some(snap));
         let feedback =
@@ -5854,6 +5866,16 @@ impl MeshcraftApp {
                 self.drawing_tool.handle(ToolEvent::Backspace);
                 self.status = "Removed the last typed character or pending point.".to_owned();
             }
+            ShellAction::BeginCopyTransform(rotate) => {
+                self.activate_tool(if rotate { "Rotate 2" } else { "Move" });
+                self.transform_tool_state.set_copy_mode(true);
+                self.status = if rotate {
+                    "Rotate Copy: pick center, reference, then final angle point. The source stays unchanged."
+                } else {
+                    "Move Copy: pick reference and destination. The source stays unchanged."
+                }.into();
+                return CommandResult::completed();
+            }
             ShellAction::ToggleTransformCopyMode => {
                 if !self.transform_tool_state.toggle_copy_mode() {
                     return CommandResult::failed(
@@ -6998,6 +7020,22 @@ impl MeshcraftApp {
         {
             return CommandState::disabled("select an edge or face to paint");
         }
+        if matches!(id, "tool.move_copy" | "tool.rotate_copy")
+            && !self.selection.selected().is_empty()
+        {
+            return CommandState {
+                checked: Some(
+                    self.transform_tool_state.copy_mode()
+                        && self.active_tool
+                            == if id == "tool.move_copy" {
+                                "Move"
+                            } else {
+                                "Rotate 2"
+                            },
+                ),
+                ..Default::default()
+            };
+        }
         if id == "tool.copy_mode" {
             return CommandState {
                 checked: Some(self.transform_tool_state.copy_mode()),
@@ -7603,13 +7641,27 @@ impl MeshcraftApp {
         commit: meshcraft_core::tools::transforms::TransformCommit,
     ) -> Result<modeling_transforms::TransformReport, String> {
         let mut next_selection = self.selection.clone();
-        let report = self.commit_document_edit("Transform selection", |document| {
-            modeling_transforms::transform_selection(
-                document,
-                &mut next_selection,
-                commit.transform,
-                commit.copy,
+        let connected = matches!(
+            self.transform_tool_state.active(),
+            Some(
+                TransformTool::Stretch | TransformTool::StretchScale | TransformTool::RotateStretch
             )
+        );
+        let report = self.commit_document_edit("Transform selection", |document| {
+            if connected && !commit.copy {
+                modeling_transforms::stretch_selection(
+                    document,
+                    &mut next_selection,
+                    commit.transform,
+                )
+            } else {
+                modeling_transforms::transform_selection(
+                    document,
+                    &mut next_selection,
+                    commit.transform,
+                    commit.copy,
+                )
+            }
         })?;
         self.selection = next_selection;
         self.selection.retain_valid(&self.document);
@@ -8940,12 +8992,20 @@ impl MeshcraftApp {
         }
         if self.transform_tool_state.active().is_some() {
             let point = point?;
-            if let Some(transform) = self.transform_tool_state.preview(Some(point))
-                && let Ok(edges) = modeling_transforms::preview_selection_transform(
-                    &self.document,
-                    &self.selection,
-                    transform,
+            let preview = if matches!(
+                self.transform_tool_state.active(),
+                Some(
+                    TransformTool::Stretch
+                        | TransformTool::StretchScale
+                        | TransformTool::RotateStretch
                 )
+            ) {
+                modeling_transforms::preview_stretch_selection_transform
+            } else {
+                modeling_transforms::preview_selection_transform
+            };
+            if let Some(transform) = self.transform_tool_state.preview(Some(point))
+                && let Ok(edges) = preview(&self.document, &self.selection, transform)
                 && !edges.is_empty()
             {
                 return Some(ToolPreview::Transform { edges });
@@ -12608,7 +12668,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(229, entries.len());
+        assert_eq!(231, entries.len());
         assert_eq!(
             74,
             entries
@@ -13774,6 +13834,90 @@ mod tests {
         assert_eq!(1, app.history.entries().len());
         assert_eq!(1, app.selection.selected().len());
         assert!(app.selection.selected().contains(&selected));
+    }
+
+    #[test]
+    fn copy_transform_buttons_accept_mesh_fragments_and_preserve_all_sources() {
+        for (command, picks) in [
+            ("tool.move_copy", vec![Vec3::ZERO, Vec3::X * 3.]),
+            ("tool.rotate_copy", vec![Vec3::ZERO, Vec3::X, Vec3::Z]),
+        ] {
+            let mut app = test_app();
+            let instance = app
+                .document
+                .add_cuboid("Shared", Vec3::new(2., 2., 2.), Vec3::ZERO)
+                .unwrap();
+            let before = app.document.effective_geometry(&instance).unwrap().clone();
+            let face = *before.triangles.keys().next().unwrap();
+            app.selection.select(SelectionTarget {
+                occurrence: instance.clone(),
+                entity: SelectedEntity::Triangle(face),
+            });
+            assert!(app.query_command_state(command).enabled);
+            app.run_command(command);
+            assert!(app.transform_tool_state.copy_mode());
+            for point in picks {
+                app.handle_native_world_pick(point, None, None);
+            }
+            let after = app.document.effective_geometry(&instance).unwrap();
+            assert_eq!(
+                before.triangles.len() + 1,
+                after.triangles.len(),
+                "{command}"
+            );
+            for (id, v) in &before.vertices {
+                assert_eq!(v, &after.vertices[id], "{command} changed source vertex");
+            }
+            for (id, t) in &before.triangles {
+                assert_eq!(t, &after.triangles[id], "{command} changed source face");
+            }
+            assert!(
+                app.selection
+                    .selected()
+                    .iter()
+                    .all(|t| t.entity != SelectedEntity::Triangle(face))
+            );
+            app.run_command("edit.undo");
+            assert_eq!(before, *app.document.effective_geometry(&instance).unwrap());
+        }
+    }
+
+    #[test]
+    fn native_push_pull_motion_updates_geometry_feedback_without_accepting_a_second_pick() {
+        let mut app = test_app();
+        let (_, faces) = app
+            .document
+            .append_planar_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Z, Vec3::Z],
+                vec![[0, 1], [1, 2], [2, 3], [3, 0]],
+                vec![[0, 1, 2], [0, 2, 3]],
+            )
+            .unwrap();
+        app.selection.apply(
+            faces.into_iter().map(|id| SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::Triangle(id),
+            }),
+            SelectionMode::Replace,
+        );
+        app.run_command("tool.builtin.push_pull");
+        app.handle_native_world_pick(Vec3::ZERO, None, None);
+        let before = app.document.clone();
+        let (preview, _) = app.native_tool_feedback_for_snap(
+            SnapResult {
+                point: Vec3::Y * 2.,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.,
+            },
+            Pos2::ZERO,
+        );
+        assert!(
+            matches!(preview,Some(ToolPreview::PushPull { ref edges, ref triangles }) if !edges.is_empty() && triangles.iter().any(|(p,_)| p.iter().any(|v| v.y == 2.)))
+        );
+        assert_eq!(before, app.document);
+        app.handle_native_escape();
+        assert_eq!(before, app.document);
     }
 
     #[test]
@@ -15261,6 +15405,35 @@ mod tests {
             meshcraft_core::tools::paths::PolylineSegmentMode::Line,
             app.polyline_tool_state.mode()
         );
+    }
+
+    #[test]
+    #[ignore = "manual latency probe; optional MESHCRAFT_BENCH_PROJECT input"]
+    fn circle_construction_latency_probe() {
+        let mut app = test_app();
+        if let Ok(path) = std::env::var("MESHCRAFT_BENCH_PROJECT") {
+            app.document = meshcraft_io::project::read_project(&std::fs::read(path).unwrap())
+                .unwrap()
+                .document;
+        }
+        let mesh = meshcraft_core::tools::shapes::circle_mesh(
+            Vec3::new(30., 0., 30.),
+            Vec3::new(33., 0., 30.),
+            Vec3::Y,
+            24,
+        )
+        .unwrap();
+        let start = std::time::Instant::now();
+        app.create_planar_shape_in_active_context(mesh, "Circle")
+            .unwrap();
+        println!(
+            "circle commit: {:?}; definitions: {}",
+            start.elapsed(),
+            app.document.definitions().count()
+        );
+        let start = std::time::Instant::now();
+        app.native_snap_point_on_ray(Vec3::new(30., 10., 30.), -Vec3::Y, 0.1);
+        println!("post-commit spatial update: {:?}", start.elapsed());
     }
 
     #[test]

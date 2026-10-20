@@ -43,14 +43,49 @@ struct Face {
     color: Rgba8,
     target: SelectionTarget,
     wireframe: bool,
+    selected: bool,
 }
 struct Edge {
     points: [Vec3; 2],
     target: SelectionTarget,
+    selected: bool,
 }
 struct Vertex {
     point: Vec3,
     target: SelectionTarget,
+    selected: bool,
+}
+
+#[derive(Default)]
+pub(super) struct SelectionIndex {
+    exact: std::collections::BTreeSet<SelectionTarget>,
+    objects: std::collections::BTreeSet<meshcraft_core::document::OccurrenceRef>,
+}
+impl SelectionIndex {
+    fn new(selection: &[SelectionTarget]) -> Self {
+        Self {
+            exact: selection.iter().cloned().collect(),
+            objects: selection
+                .iter()
+                .filter(|t| t.entity == SelectedEntity::Occurrence)
+                .map(|t| t.occurrence.clone())
+                .collect(),
+        }
+    }
+    pub(super) fn contains(&self, target: &SelectionTarget) -> bool {
+        if self.exact.contains(target) {
+            return true;
+        }
+        let mut owner = target.occurrence.clone();
+        loop {
+            if self.objects.contains(&owner) {
+                return true;
+            }
+            if owner.path.pop().is_none() {
+                return false;
+            }
+        }
+    }
 }
 
 pub(super) struct Renderer {
@@ -66,6 +101,9 @@ pub(super) struct Renderer {
     center: Vec3,
     radius: f64,
     last_light: Option<(f32, f32)>,
+    last_selection: Vec<SelectionTarget>,
+    pub(super) selection: SelectionIndex,
+    outlines: Vec<([Vec3; 2], bool)>,
 }
 impl Renderer {
     pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
@@ -95,6 +133,9 @@ impl Renderer {
             center: Vec3::ZERO,
             radius: 10.0,
             last_light: None,
+            last_selection: Vec::new(),
+            selection: SelectionIndex::default(),
+            outlines: Vec::new(),
         }
     }
     pub fn prepare(
@@ -111,6 +152,9 @@ impl Renderer {
         if changed {
             self.rebuild(&scene.document, &scene.display_policy);
             self.last_light = None;
+        }
+        if changed || self.last_selection != scene.selection {
+            self.update_selection(&scene.selection);
         }
         let direction = scene.lighting.direction();
         let light = (scene.lighting.azimuth, scene.lighting.elevation);
@@ -193,6 +237,7 @@ impl Renderer {
                         points: [a, b, c],
                         color: face.color,
                         wireframe: false,
+                        selected: false,
                         target: SelectionTarget {
                             occurrence: occurrence.clone(),
                             entity: SelectedEntity::Triangle(face.id),
@@ -204,6 +249,7 @@ impl Renderer {
                 if let [Some(a), Some(b)] = edge.endpoints.map(world) {
                     self.edges.push(Edge {
                         points: [a, b],
+                        selected: false,
                         target: SelectionTarget {
                             occurrence: occurrence.clone(),
                             entity: SelectedEntity::Segment(edge.id),
@@ -217,6 +263,7 @@ impl Renderer {
                 max = Vec3::new(max.x.max(point.x), max.y.max(point.y), max.z.max(point.z));
                 self.vertices.push(Vertex {
                     point,
+                    selected: false,
                     target: SelectionTarget {
                         occurrence: occurrence.clone(),
                         entity: SelectedEntity::Vertex(vertex.id),
@@ -256,6 +303,43 @@ impl Renderer {
         });
         self.document = Some(Arc::clone(document));
     }
+    fn update_selection(&mut self, targets: &[SelectionTarget]) {
+        self.selection = SelectionIndex::new(targets);
+        self.last_selection = targets.to_vec();
+        let mut outlines = BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool)>::new();
+        let key = |p: Vec3| [p.x, p.y, p.z].map(|v| if v == 0. { 0 } else { v.to_bits() });
+        for face in &mut self.faces {
+            face.selected = self.selection.contains(&face.target);
+            if !face.selected && !face.wireframe {
+                continue;
+            }
+            for [a, b] in [
+                [face.points[0], face.points[1]],
+                [face.points[1], face.points[2]],
+                [face.points[2], face.points[0]],
+            ] {
+                let (ka, kb) = (key(a), key(b));
+                let edge = if ka <= kb { (ka, kb) } else { (kb, ka) };
+                let entry = outlines.entry(edge).or_insert(([a, b], 0, false, false));
+                entry.1 += 1;
+                entry.2 |= face.wireframe;
+                entry.3 |= face.selected;
+            }
+        }
+        self.outlines = outlines
+            .into_values()
+            .filter(|(_, count, wire, _)| *wire || *count == 1)
+            .map(|(edge, _, _, selected)| (edge, selected))
+            .collect();
+        for edge in &mut self.edges {
+            edge.selected = self.selection.contains(&edge.target);
+        }
+        for vertex in &mut self.vertices {
+            // A selected object must not create a sphere draw call at every mesh vertex.
+            vertex.selected = self.selection.exact.contains(&vertex.target);
+        }
+    }
+
     pub fn draw(
         &mut self,
         view: &mut (impl RaylibDraw3D + RaylibDraw),
@@ -309,7 +393,7 @@ impl Renderer {
                 if face.wireframe {
                     continue;
                 }
-                let color = if selected(&scene.selection, &face.target) {
+                let color = if face.selected {
                     Color::new(242, 151, 61, face.color.alpha)
                 } else {
                     if external(&scene.edit_context, &scene.document, &face.target) {
@@ -330,38 +414,29 @@ impl Renderer {
         unsafe {
             raylib::ffi::rlDisableBackfaceCulling();
         }
-        for face in &self.faces {
-            if face.wireframe || selected(&scene.selection, &face.target) {
-                let selected = selected(&scene.selection, &face.target);
-                for [a, b] in [
-                    [face.points[0], face.points[1]],
-                    [face.points[1], face.points[2]],
-                    [face.points[2], face.points[0]],
-                ] {
-                    stroke(
-                        view,
-                        [a, b],
-                        if selected {
-                            Color::new(240, 116, 43, 255)
-                        } else {
-                            Color::BLACK
-                        },
-                        if selected {
-                            scene.thick_line_width
-                        } else {
-                            scene.normal_line_width
-                        },
-                        camera,
-                        height,
-                    );
-                }
-            }
+        for (edge, selected) in &self.outlines {
+            stroke(
+                view,
+                *edge,
+                if *selected {
+                    Color::new(240, 116, 43, 255)
+                } else {
+                    Color::BLACK
+                },
+                if *selected {
+                    scene.thick_line_width
+                } else {
+                    scene.normal_line_width
+                },
+                camera,
+                height,
+            );
         }
         unsafe {
             raylib::ffi::rlDisableBackfaceCulling();
         }
         for edge in &self.edges {
-            let selected = selected(&scene.selection, &edge.target);
+            let selected = edge.selected;
             stroke(
                 view,
                 edge.points,
@@ -386,14 +461,14 @@ impl Renderer {
             raylib::ffi::rlEnableBackfaceCulling();
         }
         for vertex in &self.vertices {
-            if selected(&scene.selection, &vertex.target) {
+            if vertex.selected {
                 view.draw_sphere(ray_vec3(vertex.point), 0.06, Color::new(227, 57, 49, 255));
             }
         }
     }
 }
 /// Pixel-width ribbons keep model line widths portable across OpenGL implementations.
-fn stroke(
+pub(super) fn stroke(
     view: &mut impl RaylibDraw3D,
     [a, b]: [Vec3; 2],
     color: Color,
@@ -431,12 +506,6 @@ fn stroke(
     triangle(view, [a - offset_a, b + offset_b, a + offset_a], color);
 }
 
-fn selected(selection: &[SelectionTarget], target: &SelectionTarget) -> bool {
-    selection.iter().any(|s| {
-        s.occurrence == target.occurrence
-            && (s.entity == target.entity || s.entity == SelectedEntity::Occurrence)
-    })
-}
 fn triangle(view: &mut impl RaylibDraw3D, [a, b, c]: [Vec3; 3], color: Color) {
     view.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), color);
 }
@@ -740,6 +809,81 @@ mod tests {
         assert!(renderer.faces.is_empty());
         assert!(renderer.edges.is_empty());
         assert!(renderer.handles.is_empty());
+        scene.display_policy = Default::default();
+        scene.selection = scene
+            .document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .map(|occurrence| SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::Occurrence,
+            })
+            .collect();
+        renderer.prepare(&mut rl, &thread, &scene);
+        assert!(renderer.faces.iter().all(|f| f.selected));
+        assert!(
+            renderer.vertices.iter().all(|v| !v.selected),
+            "object highlighting must not emit a marker per vertex"
+        );
+        assert!(
+            renderer.outlines.is_empty(),
+            "closed fully selected meshes must not redraw every triangle edge"
+        );
+
+        if let Ok(path) = std::env::var("MESHCRAFT_BENCH_PROJECT") {
+            let document = meshcraft_io::project::read_project(&std::fs::read(path).unwrap())
+                .unwrap()
+                .document;
+            let mut bench = RenderScene {
+                document: Arc::new(document),
+                grid_visible: false,
+                ..Default::default()
+            };
+            bench.lighting.shadows = false;
+            let mut camera = OrbitCamera::default();
+            camera.fit(&bench.document);
+            let mut target = rl.load_render_texture(&thread, 1280, 800).unwrap();
+            renderer.prepare(&mut rl, &thread, &bench);
+            let all = renderer
+                .faces
+                .iter()
+                .map(|f| f.target.clone())
+                .chain(renderer.edges.iter().map(|e| e.target.clone()))
+                .collect::<Vec<_>>();
+            for (label, selection) in [("none", Vec::new()), ("all faces and edges", all)] {
+                bench.selection = selection;
+                renderer.prepare(&mut rl, &thread, &bench);
+                super::super::draw_offscreen_scene(
+                    &mut rl,
+                    &thread,
+                    &mut target,
+                    camera,
+                    &bench,
+                    0,
+                    &mut renderer,
+                );
+                let start = std::time::Instant::now();
+                for _ in 0..6 {
+                    renderer.prepare(&mut rl, &thread, &bench);
+                    super::super::draw_offscreen_scene(
+                        &mut rl,
+                        &thread,
+                        &mut target,
+                        camera,
+                        &bench,
+                        0,
+                        &mut renderer,
+                    );
+                    std::hint::black_box(super::super::copy_target_to_gpui_image(&target).unwrap());
+                }
+                println!(
+                    "selection frame probe at 1280x800: {label}, {} targets, {:.2} ms/frame (software GPU including readback)",
+                    bench.selection.len(),
+                    start.elapsed().as_secs_f64() * 1000. / 6.
+                );
+            }
+        }
         // Keep a directly inspectable artifact, converting GPUI BGRA back to PNG RGBA.
         let mut rgba = shadowed;
         for p in rgba.pixels_mut() {

@@ -81,13 +81,19 @@ pub(super) fn draw(
     camera: OrbitCamera,
     size: (f32, f32),
     handles: &[Handle],
+    selection: &lighting::SelectionIndex,
 ) {
     for handle in handles {
         let Some((x, y)) = project_point(camera, size, handle.world) else {
             continue;
         };
-        let selected = scene.selection.iter().any(|target| target.occurrence == handle.occurrence && matches!(&target.entity,
-            SelectedEntity::SemanticHandle { kind: meshcraft_core::selection::SelectionKind::Hotspot, id } if id == &handle.hotspot.id));
+        let selected = selection.contains(&SelectionTarget {
+            occurrence: handle.occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                id: handle.hotspot.id.clone(),
+            },
+        });
         let wireframe = scene
             .display_policy
             .state(meshcraft_core::selection::SelectionKind::Hotspot)

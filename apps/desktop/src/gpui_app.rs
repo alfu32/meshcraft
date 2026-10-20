@@ -514,7 +514,15 @@ fn draw_offscreen_scene(
             draw_cursor(&mut view, cursor, axes);
         }
         if let Some(preview) = scene_data.preview.as_ref() {
-            draw_preview(&mut view, preview);
+            draw_preview(
+                &mut view,
+                preview,
+                scene_data
+                    .thick_line_width
+                    .max(scene_data.normal_line_width),
+                orbit,
+                target_height,
+            );
         }
     }
     hotspots::draw(
@@ -523,6 +531,7 @@ fn draw_offscreen_scene(
         orbit,
         (target_width, target_height),
         &lighting.handles,
+        &lighting.selection,
     );
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
@@ -643,7 +652,13 @@ fn draw_cursor(scene: &mut impl RaylibDraw3D, cursor: SnapResult, axes: [Vec3; 3
     scene.draw_sphere(origin, 0.055, Color::new(55, 66, 78, 255));
 }
 
-fn draw_preview(scene: &mut impl RaylibDraw3D, preview: &ToolPreview) {
+fn draw_preview(
+    scene: &mut impl RaylibDraw3D,
+    preview: &ToolPreview,
+    width: f32,
+    camera: OrbitCamera,
+    height: f32,
+) {
     let mut edges = Vec::<[Vec3; 2]>::new();
     let mut triangles = Vec::<([Vec3; 3], Rgba8)>::new();
     match preview {
@@ -743,12 +758,19 @@ fn draw_preview(scene: &mut impl RaylibDraw3D, preview: &ToolPreview) {
             triangles.extend(faces.iter().copied().map(|triangle| (triangle, *color)));
         }
     }
-    let color = Color::new(235, 118, 38, 255);
-    for [a, b] in edges {
-        scene.draw_line3D(ray_vec3(a), ray_vec3(b), color);
+    unsafe {
+        raylib::ffi::rlDisableBackfaceCulling();
     }
     for ([a, b, c], face_color) in triangles {
         scene.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), ray_color(face_color));
+    }
+    let color = Color::new(235, 118, 38, 255);
+    for [a, b] in edges {
+        lighting::stroke(scene, [a, b], color, width, camera, height);
+    }
+    unsafe {
+        raylib::ffi::rlDrawRenderBatchActive();
+        raylib::ffi::rlEnableBackfaceCulling();
     }
 }
 
@@ -888,7 +910,7 @@ struct MeshcraftShell {
     cursor_local: Option<(f32, f32)>,
     cursor_snap: Option<SnapResult>,
     last_pick: Option<PointerPick>,
-    camera_drag: Option<(f32, f32)>,
+    camera_drag: Option<(gpui::MouseButton, f32, f32)>,
     hotspot_drag: Option<hotspots::Drag>,
     selection_gesture: Option<SelectionGesture>,
     selection_cursor: Option<(f32, f32)>,
@@ -1325,8 +1347,10 @@ impl MeshcraftShell {
         if self.viewport_input_blocked() {
             return;
         }
-        if button == gpui::MouseButton::Right {
-            self.camera_drag = Some((x, y));
+        if matches!(button, gpui::MouseButton::Right | gpui::MouseButton::Middle)
+            && self.cursor_in_viewport(x, y)
+        {
+            self.camera_drag = Some((button, x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
             self.update_pointer(x, y);
             if self.begin_hotspot_drag(x, y, modifiers) {
@@ -1347,21 +1371,27 @@ impl MeshcraftShell {
         }
     }
 
-    fn pointer_move(&mut self, x: f32, y: f32, modifiers: gpui::Modifiers, right_down: bool) {
+    fn pointer_move(
+        &mut self,
+        x: f32,
+        y: f32,
+        modifiers: gpui::Modifiers,
+        pressed: Option<gpui::MouseButton>,
+    ) {
         if self.viewport_input_blocked() {
             return;
         }
-        if let Some((last_x, last_y)) = self.camera_drag {
-            if right_down {
+        if let Some((button, last_x, last_y)) = self.camera_drag {
+            if pressed == Some(button) {
                 let dx = x - last_x;
                 let dy = y - last_y;
-                if modifiers.shift {
+                if modifiers.shift || button == gpui::MouseButton::Middle {
                     self.pan_camera(dx, dy);
                 } else {
                     self.camera.orbit_by_drag(dx, dy);
                     self.bridge.publish_camera(self.camera);
                 }
-                self.camera_drag = Some((x, y));
+                self.camera_drag = Some((button, x, y));
             } else {
                 self.camera_drag = None;
             }
@@ -1383,8 +1413,13 @@ impl MeshcraftShell {
         if self.viewport_input_blocked() {
             return;
         }
-        if button == gpui::MouseButton::Right {
-            self.camera_drag = None;
+        if matches!(button, gpui::MouseButton::Right | gpui::MouseButton::Middle) {
+            if self
+                .camera_drag
+                .is_some_and(|(active, _, _)| active == button)
+            {
+                self.camera_drag = None;
+            }
             return;
         }
         if button != gpui::MouseButton::Left {
@@ -1946,9 +1981,9 @@ fn ribbon_command_for_key<'a>(
         "delete-hotspot" => &["hotspot.delete"],
         "select" | "window-select" | "select-operator" => &["tool.select"],
         "move" => &["tool.builtin.move"],
-        "copy" => &["edit.copy_selection"],
+        "copy" | "move-copy" => &["tool.move_copy"],
         "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],
-        "rotate-copy-3d" | "rotate-copy" => &["tool.builtin.rotate_2"],
+        "rotate-copy-3d" | "rotate-copy" => &["tool.rotate_copy"],
         "scale" => &["tool.builtin.scale"],
         "stretch" => &["tool.builtin.stretch"],
         "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
@@ -2210,12 +2245,7 @@ impl Render for MeshcraftShell {
             });
         let viewport_bridge_move = cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
             let (x, y) = this.viewport_point(event.position, window);
-            this.pointer_move(
-                x,
-                y,
-                event.modifiers,
-                event.pressed_button == Some(gpui::MouseButton::Right),
-            );
+            this.pointer_move(x, y, event.modifiers, event.pressed_button);
             cx.notify();
         });
         let viewport_bridge_up_left =
@@ -2255,6 +2285,17 @@ impl Render for MeshcraftShell {
                     cx.notify();
                 }),
             )
+            .on_mouse_down(gpui::MouseButton::Middle, cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                let (x,y) = this.viewport_point(event.position, window);
+                window.focus(&this.focus);
+                this.pointer_down(event.button, x,y,event.modifiers);
+                cx.notify();
+            }))
+            .on_mouse_up(gpui::MouseButton::Middle, cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                let (x,y) = this.viewport_point(event.position, window);
+                this.pointer_up(event.button,x,y);
+                cx.notify();
+            }))
             .on_mouse_move(viewport_bridge_move)
             .on_mouse_up(gpui::MouseButton::Left, viewport_bridge_up_left)
             .on_mouse_up(
@@ -2278,7 +2319,7 @@ impl Render for MeshcraftShell {
                     .text_sm()
                     .text_color(rgb(0x27394b))
                     .child(format!(
-                        "{} · right-drag orbit · Shift+right-drag pan · wheel zoom{}{}",
+                        "{} · right-drag orbit · middle-drag / Shift+right-drag pan · wheel zoom{}{}",
                         self.session.active_tool_label(),
                         if self.session.native_point_input_hint().is_empty() {
                             ""
@@ -2737,8 +2778,8 @@ mod tests {
         for (key, id) in [
             ("line", "tool.builtin.line"),
             ("move", "tool.builtin.move"),
-            ("copy", "edit.copy_selection"),
-            ("rotate-copy-3d", "tool.builtin.rotate_2"),
+            ("copy", "tool.move_copy"),
+            ("rotate-copy-3d", "tool.rotate_copy"),
             ("make-object", "object.create_from_selection"),
             ("linear-array", "tool.builtin.copy_multiple"),
             ("planar-array", "tool.builtin.planar_translate_multiple"),

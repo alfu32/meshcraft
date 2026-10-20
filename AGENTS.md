@@ -23,6 +23,7 @@ Run `verify_plan.py` after changing requirements, tasks, acceptance suites, loca
 ## Commits and Pull Requests
 
 The repository history uses Conventional Commit style (for example, `feat(planning): ...`). Keep commits focused and mention the affected task or document area. PRs should explain the behavior or planning change, link relevant requirement/task/scenario IDs, report validation commands and results, and include screenshots for visual changes. Call out unverified assumptions or blocked checks explicitly.
+Tags are important in this process so each time you commit dont forget to tag according to semver rules and increase the harcoded app version in the app toml (versionise before committing). Major version incrementation is my responsibility.
 
 ## User requests check
 

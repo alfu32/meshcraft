@@ -704,7 +704,7 @@
       ],
       "slices": [
         "Implement ground/reference-plane and surface-aligned rectangles with shared edge/cut/triangulation operations.",
-        "Implement the three-pick parallelogram Quad and configurable-resolution Circle, preserving winding and numeric meanings.",
+        "Implement the three-pick parallelogram Quad and configurable-resolution Circle, preserving winding and numeric meanings. Batch isolated outlines and localize intersection repair to touched lines; preserve unrelated junctions, IDs and raw corner references.",
         "Register previews/operators/menu paths; exercise degeneracy, reversed picks and rotated contexts."
       ],
       "done": [
@@ -754,7 +754,7 @@
         "ScaleConstraint"
       ],
       "slices": [
-        "Implement shared payload/source snapshot and coordinate transform operations; Move/Rotate/Scale reference stages, numeric control, axis constraints and copy mode.",
+        "Implement shared payload/source snapshot and coordinate transform operations; Move/Rotate/Scale reference stages, numeric control, axis constraints and copy mode. Ordinary edge/face transforms detach shared boundaries; explicit vertex edits and Stretch stay connected. Dedicated Move Copy/Rotate Copy commands must enable duplication and preserve sources (2026-10-20).",
         "Implement Stretch/Stretch Scale/Rotate Stretch as separate state machines with immutable previews and source-characterized boundary behavior.",
         "Implement face RGBA paint/current-color flow and prepare semantic/voxel/hotspot transform adapters for later tasks."
       ],
@@ -2509,7 +2509,7 @@
       ],
       "slices": [
         "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews. GPUI pointer updates must reach Push/Pull and specialized tool states before preview calculation; use model-width strokes after face fills.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
@@ -2945,8 +2945,8 @@
       "slices": [
         "Move command dispatch, tool/session state and non-visual selection/interaction behavior behind a headless session API; route OS dialogs and file operations through typed host effects.",
         "Complete the GPUI shell and raylib viewport paths for the shared command catalog, JSON settings schemas, status/feedback and viewport input contract.",
-        "Port click/window selection, connected/coplanar multi-click selection, snapping, Escape, nested definition editing, construction/modify tools and all array families.",
-        "Carry two-sided face tints, batched geometry, shadow-map policy, cursor/guides, construction feedback and measurement text into raylib; exclude authored lines and overlays from shadow casting.",
+        "Port click/window selection, connected/coplanar multi-click selection, snapping, Escape, nested definition editing, construction/modify tools and all array families. Middle-button drag pans alongside Shift+right-button drag.",
+        "Carry two-sided face tints, batched geometry, shadow-map policy, cursor/guides, construction feedback and measurement text into raylib; exclude authored lines and overlays from shadow casting. Cache selection membership/primitive flags and deduplicate interior highlights; whole-object selection must not add a marker per mesh vertex.",
         "Remove Bevy, bevy_ecs, bevy_egui, egui/eframe and retired framework-specific renderer/UI modules from the desktop source and dependency graph; remove obsolete stack experiments and lockfile entries.",
         "Run headless command/core/IO tests and C39/C40/C41 desktop verification; record all preserved behavior, removed files and remaining platform limits.",
         "Route GPUI Enter/Backspace into shared point-array completion/undo; reserve A/C/L in every path tool and use Shift+L for explicit construction-tool cycling (2026-10-20)."

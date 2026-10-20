@@ -96,6 +96,32 @@ pub(crate) fn transform_selection_with_path_remaps(
     ),
     String,
 > {
+    transform_selection_internal(document, selection, world_transform, copy, false)
+}
+
+/// Stretch transforms intentionally keep shared boundary vertices connected.
+pub fn stretch_selection(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    world_transform: Affine3,
+) -> Result<TransformReport, String> {
+    transform_selection_internal(document, selection, world_transform, false, true)
+        .map(|(report, _)| report)
+}
+
+fn transform_selection_internal(
+    document: &mut Document,
+    selection: &mut SelectionSession,
+    world_transform: Affine3,
+    copy: bool,
+    connected: bool,
+) -> Result<
+    (
+        TransformReport,
+        Vec<crate::operations::objects::OccurrencePathRemap>,
+    ),
+    String,
+> {
     if !world_transform.is_finite()
         || world_transform
             .inverse(GeometryTolerance::default())
@@ -103,7 +129,7 @@ pub(crate) fn transform_selection_with_path_remaps(
     {
         return Err("transform must be finite and invertible".to_owned());
     }
-    if is_identity(world_transform) {
+    if is_identity(world_transform) && !copy {
         return Ok((TransformReport::default(), Vec::new()));
     }
 
@@ -295,8 +321,14 @@ pub(crate) fn transform_selection_with_path_remaps(
                 .cloned()
                 .ok_or_else(|| "selected occurrence geometry is missing".to_owned())?,
         };
-        let result =
-            transform_geometry_bundle(&mut candidate, &mut bundle, &group, local_transform, copy)?;
+        let result = transform_geometry_bundle(
+            &mut candidate,
+            &mut bundle,
+            &group,
+            local_transform,
+            copy,
+            connected,
+        )?;
         report.transformed_vertices += result.transformed_vertices;
         report.copied_vertices += result.copied_vertices;
         report.copied_segments += result.copied_segments;
@@ -695,6 +727,23 @@ pub fn preview_selection_transform(
     selection: &SelectionSession,
     world_transform: Affine3,
 ) -> Result<Vec<[Vec3; 2]>, String> {
+    preview_transform_internal(document, selection, world_transform, false)
+}
+
+pub fn preview_stretch_selection_transform(
+    document: &Document,
+    selection: &SelectionSession,
+    world_transform: Affine3,
+) -> Result<Vec<[Vec3; 2]>, String> {
+    preview_transform_internal(document, selection, world_transform, true)
+}
+
+fn preview_transform_internal(
+    document: &Document,
+    selection: &SelectionSession,
+    world_transform: Affine3,
+    connected: bool,
+) -> Result<Vec<[Vec3; 2]>, String> {
     if !world_transform.is_finite()
         || world_transform
             .inverse(GeometryTolerance::default())
@@ -849,6 +898,66 @@ pub fn preview_selection_transform(
         let local_transform = inverse
             .compose(world_transform)
             .compose(resolved.world_transform);
+        let mut fragment;
+        let geometry = if connected {
+            geometry
+        } else {
+            let mut segments = BTreeSet::new();
+            let mut triangles = BTreeSet::new();
+            let mut explicit = BTreeSet::new();
+            for target in selection
+                .selected()
+                .iter()
+                .filter(|t| t.occurrence == occurrence)
+            {
+                match target.entity {
+                    SelectedEntity::Segment(id) => {
+                        segments.insert(id);
+                    }
+                    SelectedEntity::Triangle(id) => {
+                        triangles.insert(id);
+                    }
+                    SelectedEntity::Vertex(id) => {
+                        explicit.insert(id);
+                    }
+                    _ => {}
+                }
+            }
+            fragment = GeometryBundle {
+                id: geometry.id,
+                segments: geometry
+                    .segments
+                    .iter()
+                    .filter(|(id, s)| {
+                        segments.contains(id)
+                            || s.endpoints.iter().any(|r| explicit.contains(&r.id))
+                    })
+                    .map(|(id, s)| (*id, s.clone()))
+                    .collect(),
+                triangles: geometry
+                    .triangles
+                    .iter()
+                    .filter(|(id, t)| {
+                        triangles.contains(id)
+                            || t.vertices.iter().any(|r| explicit.contains(&r.id))
+                    })
+                    .map(|(id, t)| (*id, t.clone()))
+                    .collect(),
+                ..Default::default()
+            };
+            let references = fragment
+                .segments
+                .values()
+                .flat_map(|s| s.endpoints)
+                .chain(fragment.triangles.values().flat_map(|t| t.vertices))
+                .map(|r| r.id)
+                .collect::<BTreeSet<_>>();
+            fragment.vertices = references
+                .into_iter()
+                .filter_map(|id| geometry.vertices.get(&id).map(|v| (id, v.clone())))
+                .collect();
+            &fragment
+        };
         append_preview_geometry(
             geometry,
             &vertices,
@@ -1016,6 +1125,7 @@ fn transform_geometry_bundle(
     selected: &GeometrySelection,
     transform: Affine3,
     copy: bool,
+    connected: bool,
 ) -> Result<GeometryTransformResult, String> {
     let mut vertex_ids = selected.vertices.clone();
     for id in &selected.segments {
@@ -1111,6 +1221,49 @@ fn transform_geometry_bundle(
         return Ok(result);
     }
 
+    if !connected {
+        let mut outside = BTreeSet::new();
+        for (id, segment) in &geometry.segments {
+            if !selected.segments.contains(id) {
+                outside.extend(segment.endpoints.map(|r| r.id));
+            }
+        }
+        for (id, triangle) in &geometry.triangles {
+            if !selected.triangles.contains(id) {
+                outside.extend(triangle.vertices.map(|r| r.id));
+            }
+        }
+        let boundary = vertex_ids
+            .intersection(&outside)
+            .copied()
+            .filter(|id| !selected.explicit_vertices.contains(id))
+            .collect::<Vec<_>>();
+        let mut detached = BTreeMap::new();
+        for id in boundary {
+            let mut vertex = geometry.vertices[&id].clone();
+            let new_id = VertexId(document.allocate_id());
+            vertex.id = new_id;
+            vertex.legacy_aliases.clear();
+            geometry.vertices.insert(new_id, vertex);
+            detached.insert(id, new_id);
+            vertex_ids.remove(&id);
+            vertex_ids.insert(new_id);
+        }
+        for id in &selected.segments {
+            for reference in &mut geometry.segments.get_mut(id).unwrap().endpoints {
+                if let Some(id) = detached.get(&reference.id) {
+                    reference.id = *id;
+                }
+            }
+        }
+        for id in &selected.triangles {
+            for reference in &mut geometry.triangles.get_mut(id).unwrap().vertices {
+                if let Some(id) = detached.get(&reference.id) {
+                    reference.id = *id;
+                }
+            }
+        }
+    }
     let mut changed_vertices = BTreeSet::new();
     for id in &vertex_ids {
         let vertex = geometry
@@ -1303,7 +1456,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_one_instance_face_changes_shared_vertices_once_and_keeps_siblings() {
+    fn moving_one_instance_face_detaches_its_boundary_and_keeps_siblings() {
         let mut document = Document::new();
         let first = document
             .add_cuboid("box", Vec3::new(2.0, 2.0, 2.0), Vec3::ZERO)
@@ -1330,9 +1483,12 @@ mod tests {
 
         assert_eq!(3, report.transformed_vertices);
         let moved = document.effective_geometry(&first).unwrap();
+        assert_eq!(before, moved.vertices[&referenced].position);
+        let moved_corner = moved.triangles[&triangle].vertices[0];
+        assert_ne!(referenced, moved_corner.id);
         assert_eq!(
-            before + Vec3::new(0.0, 3.0, 0.0),
-            moved.vertices[&referenced].position
+            Some(before + Vec3::new(0., 3., 0.)),
+            moved.vertex_position(moved_corner)
         );
         assert_eq!(
             sibling_before,
@@ -1349,6 +1505,75 @@ mod tests {
                 .len()
         );
         assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn normal_move_detaches_an_extruded_fragment_while_stretch_keeps_neighbors_connected() {
+        let mut base = Document::new();
+        let mesh = crate::operations::extrude::extrude_region(
+            &[crate::operations::extrude::ExtrudeSourceTriangle {
+                vertices: [Vec3::ZERO, Vec3::X, Vec3::Z],
+                color: Rgba8::WHITE,
+            }],
+            Vec3::Y,
+            1e-6,
+        )
+        .unwrap();
+        let (_, faces) = base
+            .append_colored_indexed_mesh_to_scene_root(
+                mesh.vertices,
+                mesh.segments
+                    .iter()
+                    .map(|s| (s.endpoints, s.color))
+                    .collect(),
+                mesh.triangles
+                    .iter()
+                    .map(|t| (t.vertices, t.color))
+                    .collect(),
+            )
+            .unwrap();
+        let owner = OccurrenceRef::scene_root();
+        let before = base.effective_geometry(&owner).unwrap().clone();
+        let face = faces[0];
+        let make_selection = || {
+            let mut selection = SelectionSession::default();
+            selection.select(selected(owner.clone(), SelectedEntity::Triangle(face)));
+            selection
+        };
+        let transform = affine_translation(Vec3::X * 3.);
+        let mut moved = base.clone();
+        transform_selection(&mut moved, &mut make_selection(), transform, false).unwrap();
+        let after = moved.effective_geometry(&owner).unwrap();
+        assert_eq!(before.segments, after.segments);
+        for (id, t) in &before.triangles {
+            if *id == face {
+                continue;
+            }
+            assert_eq!(t, &after.triangles[id]);
+            assert_eq!(
+                t.vertices.map(|r| before.vertex_position(r)),
+                after.triangles[id]
+                    .vertices
+                    .map(|r| after.vertex_position(r))
+            );
+        }
+        let preview =
+            super::preview_selection_transform(&base, &make_selection(), transform).unwrap();
+        assert_eq!(
+            3,
+            preview.len(),
+            "only the moved face belongs to this preview"
+        );
+        let mut stretched = base.clone();
+        super::stretch_selection(&mut stretched, &mut make_selection(), transform).unwrap();
+        let after = stretched.effective_geometry(&owner).unwrap();
+        assert!(before.triangles.iter().any(|(id, t)| {
+            *id != face
+                && t.vertices.map(|r| before.vertex_position(r))
+                    != after.triangles[id]
+                        .vertices
+                        .map(|r| after.vertex_position(r))
+        }));
     }
 
     #[test]

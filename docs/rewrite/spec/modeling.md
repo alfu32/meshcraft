@@ -64,9 +64,11 @@ Paint applies RGBA to faces/selected supported content and exposes current color
 
 Source: `K/tools/{MoveTool,RotateTool,ScaleTool,PaintTool}.kt`, scene transform methods. Acceptance: C13, C15.
 
+**User-confirmed correction (2026-10-20).** Move/Rotate/Scale of selected edges or faces detach boundary vertex identities shared with unselected primitives. Unselected neighboring geometry must retain its coordinates, including meshes produced by extrusion. Keep sharing inside the selected fragment, preserve per-corner offsets, and transform each selected vertex once. Explicit vertex editing retains connected-node behavior. Move Copy and Rotate Copy explicitly enable duplication, work on mesh fragments as well as instances, retain all source geometry, select the new entities and undo as one operation. Preview only the affected fragment.
+
 ### T02 Stretch variants
 
-**Observed.** `STRETCH`, `STRETCH_SCALE`, `ROTATE_STRETCH`. These deform selected regions around picked references, differing from rigid whole-instance transforms. Preserve actual scale constraints and reference-plane handling, selected/unselected boundary behavior, and hotspot/voxel special cases. Use immutable source geometry for the draft; successive pointer moves must not accumulate numerical drift.
+**Observed.** `STRETCH`, `STRETCH_SCALE`, `ROTATE_STRETCH`. These deform selected regions around picked references, differing from rigid whole-instance transforms. Preserve actual scale constraints and reference-plane handling, selected/unselected boundary behavior, and hotspot/voxel special cases. Use immutable source geometry for the draft; successive pointer moves must not accumulate numerical drift. Stretch variants deliberately retain connected boundary vertices, unlike ordinary fragment transforms; their previews include affected neighboring geometry.
 
 Source: corresponding tool files and helpers in `K/tools/MultipleCopyTools.kt`/`K/model/GroupScene.kt`. Acceptance: C15.
 

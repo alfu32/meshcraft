@@ -1060,7 +1060,7 @@ impl Document {
             .then_some((segment_ids, triangle_ids))
     }
 
-    /// Inserts planar edges through the ordinary line topology path, then appends authored faces.
+    /// Batches isolated outlines; touching edges use ordinary splitting/overlap topology.
     /// An empty face list represents a line-only path.
     pub fn append_planar_mesh_to_definition(
         &mut self,
@@ -1077,6 +1077,22 @@ impl Document {
             return Err("planar geometry needs at least one segment".to_owned());
         }
 
+        let source = &self.definitions[&definition_id].geometry;
+        if isolated_outline(source, &vertices, &segments) {
+            // No existing topology changes: publish this complete shape in one batch.
+            return self.append_colored_indexed_mesh_to_definition(
+                definition_id,
+                vertices,
+                segments
+                    .into_iter()
+                    .map(|edge| (edge, Rgba8::WHITE))
+                    .collect(),
+                triangles
+                    .into_iter()
+                    .map(|face| (face, Rgba8::WHITE))
+                    .collect(),
+            );
+        }
         let mut geometry = self.definitions[&definition_id].geometry.clone();
         let mut selected_segments = BTreeSet::new();
         let mut next_id = self.next_id;
@@ -2768,6 +2784,75 @@ struct LineCluster {
     pieces: Vec<LinePiece>,
 }
 
+/// A simple outline that neither crosses existing lines nor snaps existing vertices can be
+/// inserted directly. Touching, overlapping and self-crossing paths retain ordinary topology.
+fn isolated_outline(source: &GeometryBundle, vertices: &[Vec3], edges: &[[usize; 2]]) -> bool {
+    let scale = vertices
+        .iter()
+        .map(|p| p.length())
+        .chain(source.vertices.values().map(|v| v.position.length()))
+        .fold(0., f64::max);
+    let epsilon = crate::geometry::LEGACY_LINE_STORE_EPSILON
+        .max(crate::geometry::GeometryTolerance::default().linear_at(scale));
+    let overlaps = |[a, b]: [Vec3; 2], [c, d]: [Vec3; 2]| {
+        [
+            (a.x, b.x, c.x, d.x),
+            (a.y, b.y, c.y, d.y),
+            (a.z, b.z, c.z, d.z),
+        ]
+        .iter()
+        .all(|&(a, b, c, d)| a.min(b) <= c.max(d) + epsilon && c.min(d) <= a.max(b) + epsilon)
+    };
+    for (i, &[a, b]) in edges.iter().enumerate() {
+        if vertices[a].distance(vertices[b]) <= epsilon {
+            return false;
+        }
+        for &[c, d] in &edges[..i] {
+            let first = [vertices[a], vertices[b]];
+            let second = [vertices[c], vertices[d]];
+            if !overlaps(first, second) {
+                continue;
+            }
+            let shared = a == c || a == d || b == c || b == d;
+            let u = vertices[b] - vertices[a];
+            let v = vertices[d] - vertices[c];
+            if shared && u.cross(v).length() > epsilon * u.length().max(v.length()) {
+                continue;
+            }
+            if !segment_pair_hits(first[0], first[1], second[0], second[1], epsilon).is_empty() {
+                return false;
+            }
+        }
+        for line in source.segments.values() {
+            let [Some(c), Some(d)] = line.endpoints.map(|r| source.vertex_position(r)) else {
+                return false;
+            };
+            if overlaps([vertices[a], vertices[b]], [c, d])
+                && !segment_pair_hits(vertices[a], vertices[b], c, d, epsilon).is_empty()
+            {
+                return false;
+            }
+        }
+    }
+    // Preserve the legacy endpoint snap tolerance, including sparse raw corner offsets.
+    let corners = source
+        .segments
+        .values()
+        .flat_map(|s| s.endpoints)
+        .chain(source.triangles.values().flat_map(|t| t.vertices));
+    for point in source
+        .vertices
+        .values()
+        .map(|v| v.position)
+        .chain(corners.filter_map(|r| source.vertex_position(r)))
+    {
+        if vertices.iter().any(|p| p.distance(point) <= epsilon) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Inserts a line, splitting same-graph intersections and merging collinear touching intervals.
 /// Triangle topology is deliberately unchanged; face cutting is an explicit operation.
 fn insert_line_geometry(
@@ -2792,7 +2877,11 @@ fn insert_line_geometry(
         return None;
     }
 
-    let mut pieces = Vec::with_capacity(source.segments.len() * 2 + 1);
+    // Only rebuild lines touched by this stroke. Re-clustering the entire scene for
+    // every polygon edge made circle insertion quadratic in unrelated scene geometry.
+    let mut pieces = Vec::new();
+    let mut untouched = BTreeMap::new();
+    let mut new_cuts = vec![(0.0, false), (1.0, false)];
     for segment in source.segments.values() {
         let [Some(a), Some(b)] = segment
             .endpoints
@@ -2800,10 +2889,16 @@ fn insert_line_geometry(
         else {
             return None;
         };
+        let hits = segment_pair_hits(start, end, a, b, epsilon);
+        if hits.is_empty() {
+            untouched.insert(segment.id, segment.clone());
+            continue;
+        }
         let mut cuts = vec![(0.0, false), (1.0, false)];
-        for hit in segment_pair_hits(start, end, a, b, epsilon) {
+        for hit in hits {
             if hit.3 {
                 cuts.push((hit.1, true));
+                new_cuts.push((hit.0, true));
             }
         }
         sort_dedup_cuts(&mut cuts, epsilon / a.distance(b));
@@ -2829,20 +2924,6 @@ fn insert_line_geometry(
         }
     }
 
-    let mut new_cuts = vec![(0.0, false), (1.0, false)];
-    for segment in source.segments.values() {
-        let [Some(a), Some(b)] = segment
-            .endpoints
-            .map(|reference| source.vertex_position(reference))
-        else {
-            return None;
-        };
-        for hit in segment_pair_hits(start, end, a, b, epsilon) {
-            if hit.3 {
-                new_cuts.push((hit.0, true));
-            }
-        }
-    }
     let new_length = start.distance(end);
     sort_dedup_cuts(&mut new_cuts, epsilon / new_length);
     for pair in new_cuts.windows(2) {
@@ -2893,7 +2974,7 @@ fn insert_line_geometry(
     let mut output = GeometryBundle {
         id: source.id,
         vertices: source.vertices.clone(),
-        segments: BTreeMap::new(),
+        segments: untouched,
         triangles: source.triangles.clone(),
         extensions: source.extensions.clone(),
     };
@@ -3958,6 +4039,33 @@ mod tests {
                 .count()
         );
         assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn distant_circle_insertion_preserves_existing_split_junctions_and_raw_references() {
+        let mut d = Document::new();
+        d.append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X * 2.)
+            .unwrap();
+        d.append_line_segment_to_scene_root(Vec3::X, Vec3::X + Vec3::Z)
+            .unwrap();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let original = d.definition(root).unwrap().geometry.segments.clone();
+        let circle = crate::tools::shapes::circle_mesh(
+            Vec3::new(20., 0., 20.),
+            Vec3::new(23., 0., 20.),
+            Vec3::Y,
+            24,
+        )
+        .unwrap();
+        let (edges, faces) = d
+            .append_planar_mesh_to_scene_root(circle.vertices, circle.segments, circle.triangles)
+            .unwrap();
+        assert_eq!(24, edges.len());
+        assert_eq!(24, faces.len());
+        for (id, segment) in original {
+            assert_eq!(segment, d.definition(root).unwrap().geometry.segments[&id]);
+        }
+        assert!(d.validate().is_ok());
     }
 
     #[test]
