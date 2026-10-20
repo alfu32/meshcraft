@@ -275,7 +275,11 @@ impl Renderer {
                 let color = if selected(&scene.selection, &face.target) {
                     Color::new(242, 151, 61, face.color.alpha)
                 } else {
-                    ray_color(face.color)
+                    if external(&scene.edit_context, &scene.document, &face.target) {
+                        Color::new(188, 201, 212, 255)
+                    } else {
+                        ray_color(face.color)
+                    }
                 };
                 triangle(&mut pass, face.points, color);
             }
@@ -317,6 +321,8 @@ impl Renderer {
                 edge.points,
                 if selected {
                     Color::new(245, 128, 46, 255)
+                } else if external(&scene.edit_context, &scene.document, &edge.target) {
+                    Color::new(130, 147, 161, 255)
                 } else {
                     Color::BLACK
                 },
@@ -650,5 +656,15 @@ mod tests {
         println!(
             "shadowed receiver pixels: {darkened} (ground {ground_pixels}, entity {entity_pixels}); image: /tmp/meshcraft-lighting-probe.png"
         );
+    }
+}
+
+fn external(context: &EditContext, document: &Document, target: &SelectionTarget) -> bool {
+    match context {
+        EditContext::Document => false,
+        EditContext::Occurrence(active) => !target.occurrence.path.starts_with(&active.path),
+        EditContext::Definition(id) => document
+            .resolve_occurrence(&target.occurrence)
+            .is_none_or(|resolved| resolved.definition.id != *id),
     }
 }

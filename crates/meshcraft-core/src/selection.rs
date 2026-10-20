@@ -409,6 +409,13 @@ impl SelectionSession {
                 SelectedEntity::Vertex(id) => geometry.vertices.contains_key(&id),
                 SelectedEntity::Segment(id) => geometry.segments.contains_key(&id),
                 SelectedEntity::Triangle(id) => geometry.triangles.contains_key(&id),
+                SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    ref id,
+                } => document
+                    .hotspots(resolved.definition.id)
+                    .ok()
+                    .is_some_and(|hotspots| hotspots.iter().any(|h| &h.id == id)),
                 SelectedEntity::SemanticHandle { .. } => true,
             };
             let context_matches = match &self.context {

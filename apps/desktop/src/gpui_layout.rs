@@ -14,7 +14,7 @@ use gpui::{
     Context, ImageSource, IntoElement, SharedString, Styled, div, img, prelude::*, px, rgb,
 };
 use gpui_component::{
-    Disableable, Sizable,
+    Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
 use meshcraft_core::{commands::CommandDescriptor, document::Document};
@@ -120,6 +120,13 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         if let Some(command) = ribbon_command_for_key(key, &self.catalog) {
             let id = command.id.as_str().to_owned();
             button
+                .selected(
+                    self.shell
+                        .session
+                        .query_command_state(&id)
+                        .checked
+                        .unwrap_or(false),
+                )
                 .disabled(!command_enabled(&self.shell.session, command))
                 .on_click(self.cx.listener(move |this, _, _, cx| {
                     this.dispatch(&id);
@@ -255,35 +262,48 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             }
         }
         let body = if label == "Object list" {
-            let occurrences = self.shell.session.native_top_level_occurrences();
-            if occurrences.is_empty() {
-                cell.into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .children(occurrences.into_iter().map(|occurrence| {
-                        let name = self
-                            .shell
-                            .cached_document
-                            .resolve_occurrence(&occurrence)
-                            .map(|resolved| resolved.definition.name.clone())
-                            .unwrap_or_else(|| "Object".to_owned());
-                        Button::new(SharedString::from(format!("objects/{:?}", occurrence.path)))
-                            .label(name)
-                            .small()
-                            .ghost()
-                            .on_click(self.cx.listener(move |this, _, _, cx| {
-                                let _ = this
-                                    .session
-                                    .select_native_object_from_inspector(&occurrence, false);
-                                this.refresh_scene();
-                                cx.notify();
-                            }))
-                    }))
-                    .into_any_element()
-            }
+            let document = &self.shell.cached_document;
+            let prototypes = document
+                .definitions()
+                .filter(|definition| definition.id != Document::SCENE_ROOT_DEFINITION_ID)
+                .collect::<Vec<_>>();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .children(prototypes.into_iter().map(|prototype| {
+                    let id = prototype.id;
+                    let count = document
+                        .occurrence_refs()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|occurrence| {
+                            document
+                                .resolve_occurrence(occurrence)
+                                .is_some_and(|r| r.definition.id == id)
+                        })
+                        .count();
+                    Button::new(SharedString::from(format!("objects/prototype/{}", id.0)))
+                        .child(
+                            div()
+                                .w_full()
+                                .child(format!("{} · {} instance(s)", prototype.name, count)),
+                        )
+                        .small()
+                        .ghost()
+                        .tooltip("Double-click to insert an instance of this prototype")
+                        .on_click(
+                            self.cx
+                                .listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                                    if event.click_count() == 2 {
+                                        this.session.begin_placing_definition(id);
+                                        this.refresh_scene();
+                                        cx.notify();
+                                    }
+                                }),
+                        )
+                }))
+                .into_any_element()
         } else {
             cell.into_any_element()
         };
@@ -382,12 +402,57 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     }
 
     fn object_selection(&self) -> String {
-        let selected = self.shell.session.native_selection_summary().objects;
-        if selected == 0 {
-            "No object selected".to_owned()
-        } else {
-            format!("{selected} object(s) selected")
-        }
+        self.shell.session.native_active_object().map_or_else(
+            || "No object selected".to_owned(),
+            |(_, name, editing)| {
+                format!(
+                    "{}: {name}",
+                    if editing {
+                        "Editing prototype"
+                    } else {
+                        "Selected instance"
+                    }
+                )
+            },
+        )
+    }
+
+    fn hotspot_summary(&self) -> gpui::AnyElement {
+        let (selected, h) = self.shell.session.native_hotspot_inspector();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .text_xs()
+            .text_color(rgb(0xa5adb7))
+            .child(if selected.is_some() {
+                format!("Selected hotspot: {}", h.name)
+            } else {
+                "Default hotspot settings".into()
+            })
+            .child(format!(
+                "Attached: {} edges · {} faces · {} vertices · {} hotspots",
+                h.attached_segments.len(),
+                h.attached_triangles.len(),
+                h.attached_vertex_ids.len(),
+                h.attached_hotspot_ids.len()
+            ))
+            .child(format!(
+                "Reference: {}",
+                h.reference_position
+                    .map(|p| format!("({:.3}, {:.3}, {:.3})", p.x, p.y, p.z))
+                    .unwrap_or_else(|| "none".into())
+            ))
+            .child(
+                if selected.as_ref().is_some_and(|(path, _)| {
+                    !self.shell.session.native_hotspot_authoring_allowed(path)
+                }) {
+                    "Drag this instance's handle. Open its prototype to edit properties."
+                } else {
+                    "Author shared handles here; operate them after finishing prototype editing."
+                },
+            )
+            .into_any_element()
     }
 
     fn object_summary(&self) -> String {
@@ -1282,12 +1347,13 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .text_color(rgb(0xa5adb7))
                         .child(bindings.object_selection()),
                 )
-                .child(setting_field("Name", "", bindings))
+                .child(setting_field("Object name", "", bindings))
                 .child(command_row(
                     "panel/object",
                     &[
                         ("rename-object", "Rename"),
                         ("edit-definition", "Edit Definition"),
+                        ("exit-object", "Finish Editing"),
                     ],
                     bindings,
                 )),
@@ -1505,7 +1571,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .flex()
                 .flex_col()
                 .gap(px(7.))
-                .child(setting_field("Name", "", bindings))
+                .child(setting_field("Hotspot name", "", bindings))
                 .child(setting_pair(
                     "Operation",
                     "MOVE",
@@ -1513,15 +1579,15 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     "CIRCLE",
                     bindings,
                 ))
-                .child(setting_field("Color", "338cf2ff", bindings))
-                .child(stat_row("Attached geometry", "0 edges · 0 faces", bindings))
-                .child(stat_row("Reference", "none", bindings))
+                .child(setting_field("Hotspot color", "338cf2ff", bindings))
+                .child(bindings.hotspot_summary())
                 .child(command_row(
                     "panel/hotspots",
                     &[
                         ("attach-selection", "Attach"),
                         ("select-attached", "Select Attached"),
                         ("pick-reference", "Reference"),
+                        ("clear-reference", "Clear Reference"),
                         ("add-hotspot", "Add At Cursor"),
                         ("delete-hotspot", "Delete"),
                     ],

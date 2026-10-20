@@ -199,9 +199,12 @@ impl EvaluationCache {
         self.0
             .get_or_init(|| {
                 document
-                    .occurrence_edits
+                    .scene_geometry_refs()
+                    .unwrap_or_default()
                     .iter()
-                    .filter_map(|(path, edits)| {
+                    .filter_map(|path| {
+                        let r = document.resolve_occurrence(path)?;
+                        let edits = r.edits?;
                         if edits.hotspot_positions.is_empty() {
                             return None;
                         }
@@ -217,6 +220,17 @@ impl EvaluationCache {
 }
 
 impl Document {
+    /// A transient view for editing the shared prototype at an instance's world placement.
+    /// Instance parameters remain in the source document and its undo/save snapshots.
+    pub fn prototype_edit_view(&self, occurrence: &OccurrenceRef) -> Self {
+        let mut view = self.clone();
+        if let Some(edits) = view.occurrence_edits.get_mut(occurrence) {
+            edits.hotspot_positions.clear();
+            edits.geometry_replacement = None;
+        }
+        view
+    }
+
     pub fn hotspots(&self, definition: DefinitionId) -> Result<Vec<Hotspot>, String> {
         let definition = self
             .definition(definition)
@@ -224,6 +238,7 @@ impl Document {
         definition
             .domain_data
             .get("hotspots")
+            .or_else(|| definition.extensions.get("k3d.hotspots"))
             .map_or(Ok(Vec::new()), |raw| {
                 serde_json::from_value(raw.clone())
                     .map_err(|error| format!("invalid hotspot definition: {error}"))
@@ -274,6 +289,16 @@ impl Document {
                 .unwrap()
                 .domain_data
                 .insert("hotspots".into(), raw);
+            self.definitions
+                .get_mut(&definition)
+                .unwrap()
+                .extensions
+                .remove("k3d.hotspots");
+            self.definitions
+                .get_mut(&definition)
+                .unwrap()
+                .domain_entity_ids
+                .remove("hotspots");
             self.bump_revision();
         }
         Ok(id)
@@ -310,6 +335,16 @@ impl Document {
                 .hotspot_positions
                 .remove(id);
         }
+        self.definitions
+            .get_mut(&definition)
+            .unwrap()
+            .extensions
+            .remove("k3d.hotspots");
+        self.definitions
+            .get_mut(&definition)
+            .unwrap()
+            .domain_entity_ids
+            .remove("hotspots");
         self.bump_revision();
         Ok(())
     }
@@ -345,8 +380,7 @@ impl Document {
         }
         let mut candidate = self.clone();
         let mut edits = candidate
-            .occurrence_edits
-            .get(occurrence)
+            .occurrence_edits(occurrence)
             .cloned()
             .unwrap_or_default();
         if target.distance(hotspot.position) < 1.0e-9 {

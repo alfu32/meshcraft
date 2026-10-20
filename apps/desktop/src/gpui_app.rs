@@ -16,6 +16,8 @@ use std::{
 
 #[path = "gpui_helpers.rs"]
 mod helpers;
+#[path = "gpui_hotspots.rs"]
+mod hotspots;
 #[path = "gpui_layout.rs"]
 mod layout;
 #[path = "gpui_lighting.rs"]
@@ -46,7 +48,7 @@ use meshcraft_core::{
     commands::{CommandDescriptor, CommandPayload, CommandValueType},
     document::{Document, ModelSettings, Rgba8, VertexId},
     geometry::{Vec2 as ModelVec2, Vec3},
-    selection::{SelectedEntity, SelectionMode, SelectionTarget},
+    selection::{EditContext, SelectedEntity, SelectionMode, SelectionTarget},
 };
 use raylib::{
     consts::PixelFormat,
@@ -186,6 +188,7 @@ struct RenderScene {
     grid_normal_axis: String,
     grid_extent: i32,
     selection: Vec<SelectionTarget>,
+    edit_context: EditContext,
     guides: Vec<ConstructionGuide>,
     guides_visible: bool,
     cursor: Option<SnapResult>,
@@ -207,6 +210,7 @@ impl Default for RenderScene {
             grid_normal_axis: "y".to_owned(),
             grid_extent: 32,
             selection: Vec::new(),
+            edit_context: EditContext::Document,
             guides: Vec::new(),
             guides_visible: true,
             cursor: None,
@@ -480,6 +484,7 @@ fn draw_offscreen_scene(
 ) {
     let position = orbit.position();
     let target_height = target.height() as f32;
+    let target_width = target.width() as f32;
     let camera = Camera3D::perspective(
         ray_vec3(position),
         ray_vec3(orbit.target),
@@ -510,6 +515,12 @@ fn draw_offscreen_scene(
             draw_preview(&mut view, preview);
         }
     }
+    hotspots::draw(
+        &mut drawing,
+        scene_data,
+        orbit,
+        (target_width, target_height),
+    );
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
             Color::new(27, 176, 132, 56)
@@ -866,12 +877,14 @@ struct MeshcraftShell {
     menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     lighting: lighting::Lighting,
     cached_document_revision: Option<u64>,
+    cached_edit_context: Option<EditContext>,
     cached_document: Arc<Document>,
     cached_scene_counts: layout::SceneCounts,
     cursor_local: Option<(f32, f32)>,
     cursor_snap: Option<SnapResult>,
     last_pick: Option<PointerPick>,
     camera_drag: Option<(f32, f32)>,
+    hotspot_drag: Option<hotspots::Drag>,
     selection_gesture: Option<SelectionGesture>,
     selection_cursor: Option<(f32, f32)>,
     command_palette_open: bool,
@@ -903,12 +916,14 @@ impl MeshcraftShell {
             menu_bounds: Arc::default(),
             lighting: lighting::Lighting::default(),
             cached_document_revision: None,
+            cached_edit_context: None,
             cached_document: Arc::new(session.document_snapshot()),
             cached_scene_counts: layout::SceneCounts::default(),
             cursor_local: None,
             cursor_snap: None,
             last_pick: None,
             camera_drag: None,
+            hotspot_drag: None,
             selection_gesture: None,
             selection_cursor: None,
             command_palette_open: false,
@@ -979,8 +994,12 @@ impl MeshcraftShell {
 
     fn refresh_scene(&mut self) {
         let revision = self.session.document_revision();
-        if self.cached_document_revision != Some(revision) {
-            self.cached_document = Arc::new(self.session.document_snapshot());
+        let edit_context = self.session.native_edit_context();
+        if self.cached_document_revision != Some(revision)
+            || self.cached_edit_context.as_ref() != Some(&edit_context)
+        {
+            self.cached_edit_context = Some(edit_context);
+            self.cached_document = Arc::new(self.session.native_document_for_view());
             self.cached_scene_counts = layout::SceneCounts::from_document(&self.cached_document);
             self.cached_document_revision = Some(revision);
         }
@@ -999,6 +1018,32 @@ impl MeshcraftShell {
             }
         };
         self.feedback = feedback;
+        if let Some(drag) = self.hotspot_drag.as_ref().filter(|drag| drag.moved) {
+            let mut preview_document = self.session.document_snapshot();
+            if preview_document
+                .set_hotspot_target(
+                    &drag.handle.occurrence,
+                    &drag.handle.hotspot.id,
+                    drag.target,
+                )
+                .is_ok()
+            {
+                self.cached_document = Arc::new(preview_document);
+            }
+            let delta = drag.target - drag.start_target;
+            self.feedback = Some(ToolFeedback {
+                screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
+                text: format!(
+                    "{} · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}",
+                    drag.handle.hotspot.operation.name(),
+                    delta.x,
+                    delta.y,
+                    delta.z,
+                    delta.length(),
+                    self.cached_document.model_settings().unit_name
+                ),
+            });
+        }
         let preferences = self.session.native_ui_preferences();
         let selection_rect = self
             .selection_gesture
@@ -1020,6 +1065,7 @@ impl MeshcraftShell {
             .to_owned(),
             grid_extent: preferences.grid_extent as i32,
             selection: self.session.native_selection_targets(),
+            edit_context: self.session.native_edit_context(),
             guides: self.session.native_construction_guides().to_vec(),
             guides_visible: self.session.native_guides_visible(),
             cursor: self.cursor_snap,
@@ -1251,6 +1297,9 @@ impl MeshcraftShell {
             self.camera_drag = Some((x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
             self.update_pointer(x, y);
+            if self.begin_hotspot_drag(x, y, modifiers) {
+                return;
+            }
             self.selection_gesture = Some(SelectionGesture {
                 start: (x, y),
                 modifiers: egui::Modifiers {
@@ -1295,6 +1344,7 @@ impl MeshcraftShell {
             }
         }
         self.update_pointer(x, y);
+        self.update_hotspot_drag(x, y);
     }
 
     fn pointer_up(&mut self, button: gpui::MouseButton, x: f32, y: f32) {
@@ -1308,6 +1358,9 @@ impl MeshcraftShell {
         if button != gpui::MouseButton::Left {
             return;
         }
+        if self.finish_hotspot_drag() {
+            return;
+        }
         let Some(gesture) = self.selection_gesture.take() else {
             return;
         };
@@ -1315,15 +1368,16 @@ impl MeshcraftShell {
         let start = gesture.start;
         let dx = x - start.0;
         let dy = y - start.1;
-        if self.session.active_tool_label() == "Select" && (dx * dx + dy * dy).sqrt() >= 4.0 {
+        if !self.session.native_pointer_tool_active() && (dx * dx + dy * dy).sqrt() >= 4.0 {
             let crossing = dx < 0.0;
-            let targets = selection_region(
+            let targets = selection_region_in_context(
                 &self.cached_document,
                 self.camera,
                 (self.layout.width as f32, self.layout.height as f32),
                 start,
                 (x, y),
                 crossing,
+                &self.session.native_edit_context(),
             );
             let mode = if gesture.modifiers.ctrl || gesture.modifiers.mac_cmd {
                 SelectionMode::Remove
@@ -1335,7 +1389,7 @@ impl MeshcraftShell {
             self.session
                 .apply_native_selection_region(targets, crossing, mode);
         } else if let Some(pick) = self.last_pick {
-            if self.session.active_tool_label() == "Select" {
+            if !self.session.native_pointer_tool_active() {
                 let mut target =
                     self.session
                         .pick_native_target(pick.origin, pick.direction, pick.radius);
@@ -1403,7 +1457,11 @@ impl MeshcraftShell {
             self.camera_drag = None;
             self.selection_gesture = None;
             self.selection_cursor = None;
-            self.session.handle_native_escape();
+            if self.hotspot_drag.take().is_some() {
+                self.cached_document_revision = None;
+            } else {
+                self.session.handle_native_escape();
+            }
             self.cursor_snap = None;
             self.last_pick = None;
             self.refresh_scene();
@@ -1502,6 +1560,7 @@ fn publish_layout(bridge: &ViewportBridge, window: &Window) -> ViewportLayout {
     layout
 }
 
+#[cfg(test)]
 fn selection_region(
     document: &Document,
     camera: OrbitCamera,
@@ -1509,6 +1568,26 @@ fn selection_region(
     start: (f32, f32),
     end: (f32, f32),
     crossing: bool,
+) -> Vec<SelectionTarget> {
+    selection_region_in_context(
+        document,
+        camera,
+        size,
+        start,
+        end,
+        crossing,
+        &EditContext::Document,
+    )
+}
+
+fn selection_region_in_context(
+    document: &Document,
+    camera: OrbitCamera,
+    size: (f32, f32),
+    start: (f32, f32),
+    end: (f32, f32),
+    crossing: bool,
+    context: &EditContext,
 ) -> Vec<SelectionTarget> {
     let region = [
         start.0.min(end.0),
@@ -1544,7 +1623,11 @@ fn selection_region(
             .flatten()
             .copied()
             .collect::<Vec<_>>();
-        if !occurrence.is_scene_root() && !object_points.is_empty() {
+        let active_depth = match context {
+            EditContext::Occurrence(active) => active.path.len(),
+            _ => 0,
+        };
+        if occurrence.path.len() > active_depth && !object_points.is_empty() {
             let bounds = projected_bounds(&object_points);
             let selected_object = if crossing {
                 rects_intersect(bounds, region)
@@ -1612,6 +1695,19 @@ fn selection_region(
                 selected.push(SelectionTarget {
                     occurrence: occurrence.clone(),
                     entity: SelectedEntity::Triangle(triangle.id),
+                });
+            }
+        }
+    }
+    for handle in hotspots::handles(document) {
+        if let Some((x, y)) = project_point(camera, size, handle.world) {
+            if rect_contains(region, x, y) {
+                selected.push(SelectionTarget {
+                    occurrence: handle.occurrence,
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                        id: handle.hotspot.id,
+                    },
                 });
             }
         }
@@ -1804,6 +1900,12 @@ fn ribbon_command_for_key<'a>(
         "circle" => &["tool.builtin.circle"],
         "arc" => &["tool.builtin.arc"],
         "hotspot" => &["hotspot.begin_placement"],
+        "add-hotspot" => &["hotspot.add"],
+        "attach-selection" => &["hotspot.attach"],
+        "select-attached" => &["hotspot.select_attached"],
+        "pick-reference" => &["hotspot.reference"],
+        "clear-reference" => &["hotspot.clear_reference"],
+        "delete-hotspot" => &["hotspot.delete"],
         "select" | "window-select" | "select-operator" => &["tool.select"],
         "move" => &["tool.builtin.move"],
         "copy" => &["edit.copy_selection"],
@@ -1815,6 +1917,7 @@ fn ribbon_command_for_key<'a>(
         "mirror" => &["tool.builtin.mirror"],
         "make-object" | "create-object" => &["object.create_from_selection"],
         "edit-object" | "edit-definition" => &["selection.edit_object"],
+        "exit-object" => &["selection.exit_context"],
         "place-object" => &["object.place_selected_definition"],
         "explode-object" | "explode" => &["object.explode_selection"],
         "array" => &["object.array_selection"],
@@ -1893,7 +1996,6 @@ fn ribbon_command_for_key<'a>(
         "reset-layout" => &["view.workspace.reset_layout"],
         "tutorials" => &["view.panel.tutorials.toggle"],
         "about-meshcraft" => &["help.about"],
-        "add-hotspot" => &["hotspot.begin_placement"],
         _ => return None,
     };
     ids.iter()
