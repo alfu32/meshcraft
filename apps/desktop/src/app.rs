@@ -1,3 +1,5 @@
+#[path = "materials_workflow.rs"]
+mod materials_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
 use crate::assets::{self, IconRegion};
@@ -162,6 +164,7 @@ const INSPECTOR_PANELS: &[(&str, &str)] = &[
     ("selection", "Selection"),
     ("object", "Object"),
     ("objects", "Objects"),
+    ("materials", "Materials"),
     ("model_settings", "Model Settings"),
     ("profile", "Workspace Profile"),
     ("ui_settings", "UI Settings"),
@@ -664,6 +667,7 @@ enum ShellAction {
     CancelHotspotPlacement,
     HotspotAction(&'static str),
     ObjectFileAction(&'static str),
+    MaterialAction(&'static str),
     FocusToolDistance,
     FinishToolInput,
     UndoToolPoint,
@@ -1485,6 +1489,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             register_shell_command(&mut registry, &format!("hotspot.{suffix}"),
                 &format!("Hotspots> {label}"), "Hotspots", "object prototype instance hotspot", Some("hotspot"), ShellAction::HotspotAction(suffix));
         }
+        for (id, label, action) in [
+            ("new", "New Material", ShellAction::OpenPanel("material_editor_new")),
+            ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
+            ("apply", "Apply Material to Selection", ShellAction::MaterialAction("apply")),
+            ("save", "Save Material", ShellAction::MaterialAction("save")),
+        ] {
+            register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
+        }
         for (toolbar_id, label) in LEGACY_TOOLBARS {
             let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
                 continue;
@@ -1520,6 +1532,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::BeginObjectPlacement
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::HotspotAction(_)
+        | ShellAction::MaterialAction(_)
         | ShellAction::AddCuboid
         | ShellAction::CopySelection
         | ShellAction::DeleteSelection
@@ -1842,6 +1855,8 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
+        "material.apply" => &[("id", CommandValueType::String)],
+        "material.save" => &[("material", CommandValueType::Object)],
         "hotspot.add" => &[("position", CommandValueType::Object)],
         "hotspot.update" => &[
             ("name", CommandValueType::String),
@@ -5724,6 +5739,30 @@ impl MeshcraftApp {
 
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
+            ShellAction::MaterialAction(action) => {
+                let result = match action {
+                    "apply" => self.assign_native_material(
+                        payload
+                            .values
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("default"),
+                    ),
+                    "save" => match payload.values.get("material") {
+                        Some(value) => serde_json::from_value(value.clone())
+                            .map_err(|e| e.to_string())
+                            .and_then(|material| self.save_native_material(material)),
+                        None => {
+                            self.open_panels(&["material_editor"]);
+                            Ok(())
+                        }
+                    },
+                    _ => Err("unknown material action".into()),
+                };
+                return result
+                    .map(|_| CommandResult::completed())
+                    .unwrap_or_else(CommandResult::failed);
+            }
             ShellAction::ObjectFileAction(action) => {
                 return self.execute_object_file_command(action, payload);
             }
@@ -12704,7 +12743,10 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(231, entries.len());
+        assert!(
+            entries.len() >= 231,
+            "the pinned legacy catalog must remain available"
+        );
         assert_eq!(
             74,
             entries

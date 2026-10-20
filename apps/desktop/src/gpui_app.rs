@@ -22,6 +22,8 @@ mod hotspots;
 mod layout;
 #[path = "gpui_lighting.rs"]
 mod lighting;
+#[path = "gpui_materials.rs"]
+mod materials;
 #[path = "gpui_postprocess.rs"]
 mod postprocess;
 #[path = "gpui_settings.rs"]
@@ -887,6 +889,7 @@ impl Render for RaylibCanvas {
 }
 
 struct MeshcraftShell {
+    materials: materials::MaterialsUi,
     focus: gpui::FocusHandle,
     settings: settings::Editors,
     settings_scroll: gpui::ScrollHandle,
@@ -932,6 +935,7 @@ impl MeshcraftShell {
             presented_image: None,
         });
         let mut this = Self {
+            materials: materials::MaterialsUi::default(),
             focus: cx.focus_handle(),
             settings: settings::Editors::default(),
             settings_scroll: gpui::ScrollHandle::new(),
@@ -2118,12 +2122,22 @@ impl Render for MeshcraftShell {
         if self.cached_document_revision != Some(self.session.document_revision()) {
             self.refresh_scene();
         }
-        if let Some(panel) = self.session.native_take_panel_focus()
-            && let Some((index, title)) = layout::panel_location(&panel)
-        {
-            self.open_settings_panel = Some(title);
-            self.collapsed_settings_panels.remove(title);
-            self.settings_scroll.scroll_to_top_of_item(index);
+        if let Some(panel) = self.session.native_take_panel_focus() {
+            if panel == "material_editor_new" {
+                materials::edit(self, self.cached_document.next_material(), window, cx);
+            } else if panel == "material_editor" {
+                let material = self
+                    .cached_document
+                    .materials()
+                    .into_iter()
+                    .find(|m| self.materials.selected.as_ref() == Some(&m.id))
+                    .unwrap_or_default();
+                materials::edit(self, material, window, cx);
+            } else if let Some((index, title)) = layout::panel_location(&panel) {
+                self.open_settings_panel = Some(title);
+                self.collapsed_settings_panels.remove(title);
+                self.settings_scroll.scroll_to_top_of_item(index);
+            }
         }
         settings::prepare(self, window, cx);
         self.prepare_palette(window, cx);
@@ -2573,6 +2587,15 @@ impl Render for MeshcraftShell {
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.materials.editor.is_some() {
+                    if event.keystroke.key == "escape" {
+                        this.materials.editor = None;
+                        window.focus(&this.focus);
+                        cx.notify();
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.command_palette_open {
                     if event.keystroke.key == "escape"
                         || (event.keystroke.key == "p"
@@ -2606,6 +2629,9 @@ impl Render for MeshcraftShell {
         }
         if let Some(command_palette) = command_palette {
             root = root.child(command_palette);
+        }
+        if let Some(material_editor) = materials::overlay(self, cx) {
+            root = root.child(material_editor);
         }
         root
     }

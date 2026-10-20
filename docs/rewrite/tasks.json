@@ -10,7 +10,7 @@
       "Developer Groovy REPL and CLI/TUI",
       "Native self-updater replacement",
       "OpenSCAD integration",
-      "Unimplemented tags/material UV/saved-scenes intentions"
+      "Material texture sampling/UV rendering, tags and saved scenes"
     ],
     "plugin_runtime": "WebKit JavaScriptCore with a versioned handed-in application context"
   },
@@ -2963,6 +2963,83 @@
         "docs/decisions/ADR-06-gpui-raylib.md",
         "docs/UI-3D_renderer.md"
       ]
+    },
+    {
+      "id": "T61",
+      "title": "Implement project materials, editor and color assignments",
+      "phase": "desktop",
+      "dependencies": [
+        "T03",
+        "T06",
+        "T46"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C42"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/materials.rs",
+        "apps/desktop/src/gpui_materials.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md"
+      ],
+      "slices": [
+        "Persist a typed material catalog with RGBA, shading, optional texture and positive U/V sizes; preserve old projects and imported references.",
+        "Implement undoable material creation/editing/assignment and the labeled GPUI catalog/editor with isolated modal input.",
+        "Render material colors/alpha and qualify persistence, selection scope, paint interoperability, import collisions and editor Save/Cancel."
+      ],
+      "done": [
+        "C42 passes with recorded headless and GUI/runtime evidence; unsupported rendering or platform cases are explicit."
+      ],
+      "tool_ids": [],
+      "status": "complete"
+    },
+    {
+      "id": "T62",
+      "title": "Implement scripted prototype hooks and the preview mini IDE",
+      "phase": "desktop",
+      "dependencies": [
+        "T03",
+        "T06",
+        "T46",
+        "T61"
+      ],
+      "requirements": [
+        "P08"
+      ],
+      "acceptance": [
+        "C43"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/scripts.rs",
+        "crates/meshcraft-script-jsc/",
+        "apps/desktop/src/gpui_scripts.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/scripted-objects.md"
+      ],
+      "slices": [
+        "Define persisted prototype source, instance properties/hotspot inputs, stable drawable IDs and derived frame/Explode contracts.",
+        "Implement JavaScriptCore execution, model queries, geometry/material helpers, bounded evaluation and native provider packaging.",
+        "Build accordion code editors and independent offscreen preview with Save/Preview/Cancel and orbit/pan/zoom.",
+        "Integrate animation output, picking/snapping, instance hotspots, copy, save/load, undo/redo and Explode; qualify errors and lifecycle."
+      ],
+      "done": [
+        "C43 passes with recorded headless and GUI/runtime evidence; unsupported rendering or platform cases are explicit."
+      ],
+      "tool_ids": [],
+      "status": "planned"
     }
   ]
 }

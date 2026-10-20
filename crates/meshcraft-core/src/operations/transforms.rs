@@ -616,6 +616,29 @@ pub fn paint_selection(
     selection: &SelectionSession,
     color: crate::document::Rgba8,
 ) -> Result<PaintReport, String> {
+    paint_selection_impl(document, selection, color, None)
+}
+
+/// Assign a catalog reference rather than an independent paint color.
+pub fn assign_material(
+    document: &mut Document,
+    selection: &SelectionSession,
+    material_id: &str,
+) -> Result<PaintReport, String> {
+    let material = document
+        .materials()
+        .into_iter()
+        .find(|m| m.id == material_id)
+        .ok_or("material no longer exists")?;
+    paint_selection_impl(document, selection, material.color, Some(material_id))
+}
+
+fn paint_selection_impl(
+    document: &mut Document,
+    selection: &SelectionSession,
+    color: crate::document::Rgba8,
+    material: Option<&str>,
+) -> Result<PaintReport, String> {
     let selected = selection
         .selected()
         .iter()
@@ -669,18 +692,46 @@ pub fn paint_selection(
         let mut group_changed = false;
         for id in &edges {
             if let Some(segment) = geometry.segments.get_mut(id)
-                && segment.color != color
+                && (segment.color != color
+                    || crate::document::materials::material_id(&segment.extensions) != material)
             {
                 segment.color = color;
+                match material {
+                    Some(id) => {
+                        segment.extensions.insert(
+                            crate::document::materials::MATERIAL_KEY.into(),
+                            serde_json::Value::String(id.into()),
+                        );
+                    }
+                    None => {
+                        segment
+                            .extensions
+                            .remove(crate::document::materials::MATERIAL_KEY);
+                    }
+                }
                 report.painted_segments += 1;
                 group_changed = true;
             }
         }
         for id in &faces {
             if let Some(triangle) = geometry.triangles.get_mut(id)
-                && triangle.color != color
+                && (triangle.color != color
+                    || crate::document::materials::material_id(&triangle.extensions) != material)
             {
                 triangle.color = color;
+                match material {
+                    Some(id) => {
+                        triangle.extensions.insert(
+                            crate::document::materials::MATERIAL_KEY.into(),
+                            serde_json::Value::String(id.into()),
+                        );
+                    }
+                    None => {
+                        triangle
+                            .extensions
+                            .remove(crate::document::materials::MATERIAL_KEY);
+                    }
+                }
                 report.painted_triangles += 1;
                 group_changed = true;
             }

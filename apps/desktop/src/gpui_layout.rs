@@ -1582,6 +1582,11 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             bindings,
         ))
         .child(setting_section(
+            "Materials",
+            super::materials::panel(bindings.shell, bindings.cx),
+            bindings,
+        ))
+        .child(setting_section(
             "Model Settings",
             div()
                 .flex()
@@ -1912,19 +1917,20 @@ pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
         "selection" => (0, "Selection"),
         "object" => (1, "Object"),
         "objects" => (2, "Objects"),
-        "model_settings" => (3, "Model Settings"),
-        "ui_settings" | "profile" => (4, "UI Settings"),
-        "polyline" | "vector_text" => (5, "Polyline & Vector Text"),
+        "materials" => (3, "Materials"),
+        "model_settings" => (4, "Model Settings"),
+        "ui_settings" | "profile" => (5, "UI Settings"),
+        "polyline" | "vector_text" => (6, "Polyline & Vector Text"),
         "architecture_walls"
         | "architecture_slabs"
         | "architecture_stairs"
-        | "architecture_frames" => (6, "Architecture — Walls / Slabs / Stairs / Frames"),
-        "hvac" => (7, "HVAC Settings"),
-        "hotspots" => (8, "Hotspot Settings"),
-        "random" => (9, "Random Tools & Surface Remesh"),
-        "tutorials" => (10, "Tutorials"),
-        "shaders" => (11, "Shader Settings"),
-        "help" => (12, "Help / About"),
+        | "architecture_frames" => (7, "Architecture — Walls / Slabs / Stairs / Frames"),
+        "hvac" => (8, "HVAC Settings"),
+        "hotspots" => (9, "Hotspot Settings"),
+        "random" => (10, "Random Tools & Surface Remesh"),
+        "tutorials" => (11, "Tutorials"),
+        "shaders" => (12, "Shader Settings"),
+        "help" => (13, "Help / About"),
         _ => return None,
     })
 }

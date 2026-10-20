@@ -46,6 +46,7 @@ struct Face {
     selected: bool,
 }
 struct Edge {
+    color: Rgba8,
     points: [Vec3; 2],
     target: SelectionTarget,
     selected: bool,
@@ -219,6 +220,13 @@ impl Renderer {
         self.vertices.clear();
         let mut min = Vec3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
         let mut max = -min;
+        let material_colors = document.material_colors();
+        let material_color = |extensions: &BTreeMap<String, serde_json::Value>, fallback| {
+            meshcraft_core::document::materials::material_id(extensions)
+                .and_then(|id| material_colors.get(id))
+                .copied()
+                .unwrap_or(fallback)
+        };
         for occurrence in document.scene_geometry_refs().unwrap_or_default() {
             let (Some(resolved), Some(geometry)) = (
                 document.resolve_occurrence(&occurrence),
@@ -235,7 +243,7 @@ impl Renderer {
                 if let [Some(a), Some(b), Some(c)] = face.vertices.map(world) {
                     self.faces.push(Face {
                         points: [a, b, c],
-                        color: face.color,
+                        color: material_color(&face.extensions, face.color),
                         wireframe: false,
                         selected: false,
                         target: SelectionTarget {
@@ -248,6 +256,7 @@ impl Renderer {
             for edge in geometry.segments.values() {
                 if let [Some(a), Some(b)] = edge.endpoints.map(world) {
                     self.edges.push(Edge {
+                        color: material_color(&edge.extensions, Rgba8::new(0, 0, 0, 255)),
                         points: [a, b],
                         selected: false,
                         target: SelectionTarget {
@@ -445,7 +454,7 @@ impl Renderer {
                 } else if external(&scene.edit_context, &scene.document, &edge.target) {
                     Color::new(130, 147, 161, 255)
                 } else {
-                    Color::BLACK
+                    ray_color(edge.color)
                 },
                 if selected {
                     scene.thick_line_width

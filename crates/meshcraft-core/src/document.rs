@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod derived;
 pub mod hotspots;
+pub mod materials;
 pub mod subscenes;
 
 macro_rules! stable_id {
@@ -893,7 +894,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_binding(),
                 },
             );
         }
@@ -1048,7 +1049,7 @@ impl Document {
                 vertices: [raw_reference(a), raw_reference(b), raw_reference(c)],
                 color: Rgba8::WHITE,
                 legacy_aliases: Vec::new(),
-                extensions: BTreeMap::new(),
+                extensions: materials::default_binding(),
             })
             .collect();
         let geometry = self
@@ -1153,7 +1154,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_binding(),
                 },
             );
             triangle_ids.push(id);
@@ -1244,7 +1245,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_binding(),
                 },
             );
             triangle_ids.push(id);
@@ -1445,7 +1446,12 @@ impl Document {
                     extensions: if inherit {
                         source_triangle.extensions.clone()
                     } else {
-                        BTreeMap::new()
+                        source_triangle
+                            .extensions
+                            .iter()
+                            .filter(|(key, _)| key.as_str() == materials::MATERIAL_KEY)
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect()
                     },
                 },
             );
@@ -1616,7 +1622,11 @@ impl Document {
                     vertices: [vertex_refs[first], vertex_refs[second], vertex_refs[third]],
                     color,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: if color == Rgba8::WHITE {
+                        materials::default_binding()
+                    } else {
+                        BTreeMap::new()
+                    },
                 },
             );
             triangle_ids.push(id);
@@ -1824,7 +1834,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_binding(),
                 },
             );
         }
@@ -1901,7 +1911,7 @@ impl Document {
                     ],
                     color: Rgba8::WHITE,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_binding(),
                 },
             );
         }
@@ -2531,6 +2541,7 @@ impl Document {
 
     pub fn validate(&self) -> Result<(), String> {
         self.model_settings.validate()?;
+        self.validate_materials()?;
         if !self.child_layouts.contains_key(&self.root_layout) {
             return Err("root child layout is missing".to_owned());
         }

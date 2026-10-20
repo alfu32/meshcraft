@@ -122,3 +122,5 @@ The following are live Meshcraft GPUI captures, separate from the user-provided 
 ![Prototype browser double-click: wireframe insertion with no selected source occurrence](../references/objects/22-gpui-prototype-insertion.png)
 
 ![Saved and reopened independent shapes, after one-click Finish Editing](../references/objects/23-gpui-save-reopen-finish.png)
+
+Scripted configuration points augment this workflow; see [scripted objects](scripted-objects.md). Materials use the [project catalog](materials.md).

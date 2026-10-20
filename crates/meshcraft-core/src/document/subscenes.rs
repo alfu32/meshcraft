@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Default)]
 struct Ids {
+    materials: BTreeMap<String, String>,
     definitions: BTreeMap<DefinitionId, DefinitionId>,
     layouts: BTreeMap<ChildLayoutId, ChildLayoutId>,
     entries: BTreeMap<LayoutEntryId, LayoutEntryId>,
@@ -85,7 +86,10 @@ impl Document {
         for (path, _, _, _) in &nested_overrides {
             draft.occurrence_edits.remove(path);
         }
-        let mut ids = Ids::default();
+        let mut ids = Ids {
+            materials: draft.merge_materials(source)?,
+            ..Ids::default()
+        };
         let root = replace.unwrap_or_else(|| DefinitionId(draft.allocate_id()));
         ids.definitions.insert(Self::SCENE_ROOT_DEFINITION_ID, root);
         for definition in source.definitions() {
@@ -316,6 +320,7 @@ fn remap_geometry(geometry: &GeometryBundle, ids: &Ids, document: &mut Document)
         .values()
         .cloned()
         .map(|mut segment| {
+            remap_material(&mut segment.extensions, &ids.materials);
             let old = segment.id;
             segment.id = ids.segments[&old];
             if segment.legacy_aliases.is_empty() {
@@ -335,6 +340,7 @@ fn remap_geometry(geometry: &GeometryBundle, ids: &Ids, document: &mut Document)
         .values()
         .cloned()
         .map(|mut triangle| {
+            remap_material(&mut triangle.extensions, &ids.materials);
             let old = triangle.id;
             triangle.id = ids.triangles[&old];
             if triangle.legacy_aliases.is_empty() {
@@ -900,5 +906,14 @@ mod nested_edit_tests {
         );
         assert!(d.occurrence_edits(&parent).is_none());
         d.validate().unwrap();
+    }
+}
+
+fn remap_material(extensions: &mut BTreeMap<String, Value>, ids: &BTreeMap<String, String>) {
+    if let Some(id) = materials::material_id(extensions)
+        .and_then(|id| ids.get(id))
+        .cloned()
+    {
+        extensions.insert(materials::MATERIAL_KEY.into(), Value::String(id));
     }
 }
