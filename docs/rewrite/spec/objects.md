@@ -28,6 +28,8 @@ At instance level, prototype hotspots appear as handles with their configured sh
 
 A prototype may reference an external scene. That scene's root is used as a subscene, including its root hotspots and nested instances. Placement, instance-local values, copy and editing/isolation semantics remain explicit. Preserve source path/identity, missing-file diagnostics and a deliberate refresh workflow; loading or refreshing an external scene must not silently discard local instance values or recurse indefinitely through cyclic references.
 
+Instance hotspot operations run with prototype editing **closed**. Editing mode authors the shared handle definitions; dragging a closed-instance handle changes only that instance’s values.
+
 ## Screenshot evidence
 
 All original captures are retained. Captures 15/16 and 17/18/19 show repeated states and are not independent validation runs.

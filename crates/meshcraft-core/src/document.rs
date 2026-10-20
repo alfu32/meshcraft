@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod derived;
+pub mod hotspots;
 
 macro_rules! stable_id {
     ($name:ident) => {
@@ -465,6 +466,8 @@ pub struct Document {
     pub(crate) model_settings: ModelSettings,
     pub(crate) extensions: BTreeMap<String, Value>,
     next_id: u64,
+    #[serde(skip)]
+    pub(crate) hotspot_cache: hotspots::EvaluationCache,
 }
 
 impl Document {
@@ -511,6 +514,7 @@ impl Document {
             model_settings: ModelSettings::default(),
             extensions: BTreeMap::new(),
             next_id: 2,
+            hotspot_cache: hotspots::EvaluationCache::default(),
         }
     }
 
@@ -544,6 +548,11 @@ impl Document {
     }
 
     /// Monotonic authored-state revision used to invalidate non-persistent caches.
+    pub(crate) fn bump_revision(&mut self) {
+        self.hotspot_cache.clear();
+        self.revision = self.revision.saturating_add(1);
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -576,7 +585,7 @@ impl Document {
             return Ok(false);
         }
         self.model_settings = settings;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Ok(true)
     }
 
@@ -597,7 +606,7 @@ impl Document {
             return Ok(false);
         }
         definition.name = name.to_owned();
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Ok(true)
     }
 
@@ -626,7 +635,7 @@ impl Document {
                 legacy_aliases: Vec::new(),
             },
         );
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         id
     }
 
@@ -640,7 +649,7 @@ impl Document {
                 extensions: BTreeMap::new(),
             },
         );
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         id
     }
 
@@ -661,7 +670,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition checked before geometry allocation")
             .geometry = geometry;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Ok(vertex_ids)
     }
 
@@ -769,7 +778,7 @@ impl Document {
                 transform,
                 legacy_aliases: Vec::new(),
             });
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(id)
     }
 
@@ -946,7 +955,7 @@ impl Document {
             insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
         let definition = self.definitions.get_mut(&definition_id)?;
         definition.geometry = replacement;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(insertion)
     }
 
@@ -961,7 +970,7 @@ impl Document {
         let (replacement, insertion) =
             insert_line_geometry(&geometry, start, end, &mut self.next_id)?;
         self.definitions.get_mut(&definition_id)?.geometry = replacement;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(insertion)
     }
 
@@ -1117,7 +1126,7 @@ impl Document {
             .expect("definition checked before shape insertion")
             .geometry = geometry;
         self.next_id = next_id;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Ok((selected_segments.into_iter().collect(), triangle_ids))
     }
 
@@ -1208,7 +1217,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition checked before face insertion")
             .geometry = geometry;
-        staged.revision = staged.revision.saturating_add(1);
+        staged.bump_revision();
         *self = staged;
         Ok(triangle_ids)
     }
@@ -1234,7 +1243,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition checked before geometry replacement")
             .geometry = geometry;
-        staged.revision = staged.revision.saturating_add(1);
+        staged.bump_revision();
         *self = staged;
         Ok(remap)
     }
@@ -1579,7 +1588,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition was checked before mesh insertion")
             .geometry = geometry;
-        staged.revision = staged.revision.saturating_add(1);
+        staged.bump_revision();
         *self = staged;
         Ok((segment_ids, triangle_ids))
     }
@@ -1630,7 +1639,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition was checked before winding update")
             .geometry = geometry;
-        staged.revision = staged.revision.saturating_add(1);
+        staged.bump_revision();
         *self = staged;
         Ok(())
     }
@@ -1705,7 +1714,7 @@ impl Document {
             .get_mut(&definition_id)
             .expect("definition was checked above")
             .geometry = merged;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         true
     }
 
@@ -1892,7 +1901,7 @@ impl Document {
                 transform,
                 legacy_aliases: Vec::new(),
             });
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(OccurrenceRef::root(entry_id))
     }
 
@@ -2067,7 +2076,7 @@ impl Document {
             self.occurrence_edits = remapped_edits;
         }
 
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Ok(selected_paths.len())
     }
 
@@ -2120,7 +2129,7 @@ impl Document {
             }
             copies.push(occurrence);
         }
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(copies)
     }
 
@@ -2227,7 +2236,7 @@ impl Document {
         let root_entries = &mut self.child_layouts.get_mut(&self.root_layout)?.entries;
         root_entries.retain(|entry| !selected.contains(&entry.id));
         root_entries.push(group_entry);
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         Some(OccurrenceRef::root(group_entry_id))
     }
 
@@ -2249,7 +2258,7 @@ impl Document {
             return false;
         };
         definition.default_child_layout = layout;
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         true
     }
 
@@ -2286,7 +2295,7 @@ impl Document {
         } else {
             self.occurrence_edits.insert(occurrence, edits);
         }
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         true
     }
 
@@ -2300,7 +2309,7 @@ impl Document {
                 occurrence: occurrence.clone(),
                 entry: None,
                 definition,
-                edits: None,
+                edits: self.occurrence_edits.get(occurrence),
                 world_transform: Affine3::IDENTITY,
             });
         }
@@ -2341,6 +2350,9 @@ impl Document {
 
     pub fn effective_geometry(&self, occurrence: &OccurrenceRef) -> Option<&GeometryBundle> {
         let resolved = self.resolve_occurrence(occurrence)?;
+        if let Some(evaluation) = self.hotspot_cache.get(self, occurrence) {
+            return Some(&evaluation.geometry);
+        }
         Some(
             resolved
                 .edits
