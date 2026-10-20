@@ -218,12 +218,23 @@ Prototype annotations stay inherited and require prototype editing for changes. 
 points transform with their labels. Creation feedback reports coordinates relative to the last
 relevant picked point.
 
-### Clipboard and orientation (0.11)
+### Clipboard and orientation (0.12)
 
 Copy (Ctrl/Cmd+C), Cut (Ctrl/Cmd+X), Paste (Ctrl/Cmd+V) use a portable Meshcraft selection payload
 on the system clipboard. Copy is non-mutating; Cut deletes only after preparing its payload;
-Paste is one undoable transaction in the active construction context. Paste retains the copied
-coordinates; use Move to reposition, or supply a world-space `offset` to the command. Supported
+Normal Paste enters insertion mode without changing the document: a floating wireframe bundle
+appears immediately and follows the snapped cursor until the user picks an insertion point.
+The bundle's axis-aligned world bounds supply one fixed bottom-left-front anchor: minimum X,
+minimum Y, maximum Z (Y up, +Z toward the Front view). All copied elements move by the same
+translation from that anchor to the picked point, preserving their relative placement. Clicking
+inserts and selects the bundle in one undoable transaction in the active construction context,
+then returns to Select. Escape or choosing another tool discards the preview without a history
+entry; Escape during placement preserves an enclosing prototype edit context. The clipboard is
+frozen when Paste starts, so changing the system clipboard does not change the floating bundle.
+
+Paste in Place (Ctrl/Cmd+Shift+V, `edit.paste_in_place`) immediately retains the copied coordinates;
+its optional world-space `offset` command parameter remains available for automation. Both variants
+are present in Edit, the command palette and the left Actions panel. Supported
 payloads are object instances, vertices/segments/faces, dimensions and text/leader annotations,
 including mixed selections. Same-document instance pastes share their original prototype and
 copy per-instance state and descendant overrides; another document imports the required graph
@@ -233,6 +244,10 @@ inherited, read-only object content. Unselected geometry and document metadata a
 Copy as Script (Ctrl/Cmd+Shift+C) writes a unified JavaScript object definition containing the
 currently evaluated selected segment/face/object geometry, world placement and displayed colors.
 It can be pasted into the script editor or pasted into the model to create a scripted prototype.
+The generated literal geometry array supplies paste feedback without evaluating JavaScript on the
+UI thread. Portable selection snapshots also retain frozen wireframe feedback so evaluated script
+geometry and per-instance deformation remain visible during placement. Older snapshots without
+feedback fall back to their authored geometry.
 This is a geometry snapshot; it does not reconstruct the source object's generator logic.
 
 Flip reverses selected segment endpoint order and triangle winding without moving vertices or

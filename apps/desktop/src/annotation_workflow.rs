@@ -310,7 +310,7 @@ mod tests {
         );
         assert_eq!("Door width", app.document.annotations()[0].label);
         app.run_command("edit.copy_selection");
-        app.run_command("edit.paste");
+        app.run_command("edit.paste_in_place");
         assert_eq!(2, app.document.annotations().len());
         app.run_command("edit.delete_selection");
         assert_eq!(1, app.document.annotations().len());

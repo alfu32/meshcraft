@@ -243,3 +243,8 @@ includes segment and triangle-edge midpoints, prioritized with endpoints ahead o
 and face hits, and preserved through the grid/helper layer. Occluded features remain excluded.
 The Annotations settings accordion supplies label and text-size inputs. Edit contains clipboard
 commands and Copy as Script; Modify contains Flip. Selected segment arrows are viewport feedback.
+
+
+Normal Paste (Ctrl/Cmd+V) starts a snapped insertion-point pick with floating wireframe feedback.
+Paste in Place (Ctrl/Cmd+Shift+V) inserts immediately at the copied coordinates. Both commands
+remain available in Edit and the Actions panel. Escape cancels only the floating paste when active.

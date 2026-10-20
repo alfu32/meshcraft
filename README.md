@@ -15,7 +15,7 @@ The desktop workspace combines a 3D viewport with menus, labeled tool buttons, a
 - **Control selection and display:** select individual elements, connected geometry or regions; inspect totals and selection counts; set visibility, editability and wireframe display by entity type.
 - **Inspect your model:** perspective and orthographic views, orbit, pan, zoom and walkthrough navigation in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
 - **Annotate designs:** dimensions, text and leaders, with editable labels and sizes.
-- **Reuse selections:** system cut/copy/paste and Copy as Script for an editable JavaScript geometry snapshot.
+- **Reuse selections:** system cut/copy/paste with floating wireframe placement, Paste in Place, and Copy as Script for an editable JavaScript geometry snapshot.
 - **Materials:** create and edit named RGBA materials, assign them to selections, and see their colors and transparency in the viewport. Optional texture paths, U/V sizes and shading types are retained for future rendering work.
 - **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
 

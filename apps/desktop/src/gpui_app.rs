@@ -49,7 +49,7 @@ use gpui_component::{
 };
 use image::{Frame, ImageBuffer, Rgba};
 use meshcraft_core::{
-    commands::{CommandDescriptor, CommandPayload, CommandValueType},
+    commands::{CommandCompletion, CommandDescriptor, CommandPayload, CommandValueType},
     document::{Document, ModelSettings, Rgba8, VertexId},
     geometry::{Vec2 as ModelVec2, Vec3},
     selection::{EditContext, SelectedEntity, SelectionMode, SelectionTarget},
@@ -746,7 +746,15 @@ fn draw_preview(
         }
         | ToolPreview::Polyline { outline, closed } => add_path_edges(&mut edges, outline, *closed),
         ToolPreview::Transform { edges: source }
-        | ToolPreview::LineOffset { edges: source, .. } => edges.extend(source.iter().copied()),
+        | ToolPreview::LineOffset { edges: source, .. } => {
+            for edge in source {
+                if edge[0] == edge[1] {
+                    scene.draw_sphere(ray_vec3(edge[0]), 0.075, Color::new(235, 128, 38, 255));
+                } else {
+                    edges.push(*edge);
+                }
+            }
+        }
         ToolPreview::Array {
             edges: source,
             copies,
@@ -1035,7 +1043,7 @@ impl MeshcraftShell {
     }
 
     fn dispatch_with_clipboard(&mut self, id: &str, cx: &mut Context<Self>) {
-        if id == "edit.paste" {
+        if matches!(id, "edit.paste" | "edit.paste_in_place") {
             self.sync_clipboard(cx);
         }
         self.dispatch(id);
@@ -1125,7 +1133,7 @@ impl MeshcraftShell {
             }
             _ => {
                 self.session.set_native_cursor_snap(None);
-                (None, None, None)
+                (self.session.native_paste_preview(), None, None)
             }
         };
         self.feedback = feedback;
@@ -1291,6 +1299,14 @@ impl MeshcraftShell {
 
     fn dispatch_payload(&mut self, id: &str, payload: &CommandPayload) {
         let dispatch = self.session.dispatch_command(id, payload);
+        if id == "edit.paste"
+            && self.cursor_snap.is_none()
+            && dispatch.result.completion == CommandCompletion::Completed
+        {
+            // With no previous canvas hover, start at the visible camera target rather
+            // than an offscreen world origin (e.g. after opening a far-away model).
+            self.session.paste_preview_at(Some(self.camera.target));
+        }
         if dispatch.accepted {
             match id {
                 "app.quit" => self.close_requested = true,
@@ -1736,7 +1752,11 @@ impl MeshcraftShell {
         } else if (modifiers.control || modifiers.platform) && key == "x" {
             self.dispatch("edit.cut_selection");
         } else if (modifiers.control || modifiers.platform) && key == "v" {
-            self.dispatch("edit.paste");
+            self.dispatch(if modifiers.shift {
+                "edit.paste_in_place"
+            } else {
+                "edit.paste"
+            });
         } else if modifiers.control && key == "z" {
             self.dispatch("edit.undo");
         } else if modifiers.control && key == "y" {
@@ -2237,6 +2257,7 @@ fn ribbon_command_for_key<'a>(
         "copy" => &["edit.copy_selection"],
         "cut" => &["edit.cut_selection"],
         "paste" => &["edit.paste"],
+        "paste-in-place" => &["edit.paste_in_place"],
         "copy-as-script" => &["edit.copy_as_script"],
         "move-copy" => &["tool.move_copy"],
         "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],

@@ -1468,9 +1468,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
         }
         register_shell_command(&mut registry, "view.camera.perspective", "View> Camera Perspective", "View", "camera perspective orbit", Some("view"), ShellAction::SetPerspectiveView);
-        for (id, label, action) in [("edit.cut_selection", "Cut", "cut"), ("edit.paste", "Paste", "paste"),
+        for (id, label, action) in [("edit.cut_selection", "Cut", "cut"), ("edit.paste", "Paste", "paste"), ("edit.paste_in_place", "Paste in Place", "paste_in_place"),
             ("edit.copy_as_script", "Copy as Script", "script"), ("edit.copy_selection", "Copy", "copy")] {
-            register_shell_command(&mut registry, id, &format!("Edit> {label}"), "Edit", "clipboard cut copy paste script", Some(if action == "paste" { "paste" } else { "copy" }), ShellAction::ClipboardAction(action));
+            register_shell_command(&mut registry, id, &format!("Edit> {label}"), "Edit", "clipboard cut copy paste script", Some(if action.starts_with("paste") { "paste" } else { "copy" }), ShellAction::ClipboardAction(action));
         }
         register_shell_command(&mut registry, "geometry.flip_selection", "Modify> Flip Direction / Normals", "Modify", "reverse face normal segment direction winding", Some("mirror"), ShellAction::FlipSelection);
         register_shell_command(&mut registry, "tool.leader", "Dimension> Leader", "Dimension", "annotation leader arrow label", Some("leader"), ShellAction::SelectToolAlias("Leader"));
@@ -1784,6 +1784,7 @@ fn register_shell_command(
         "edit.copy_selection" => Some("Ctrl+C"),
         "edit.cut_selection" => Some("Ctrl+X"),
         "edit.paste" => Some("Ctrl+V"),
+        "edit.paste_in_place" => Some("Ctrl+Shift+V"),
         "edit.copy_as_script" => Some("Ctrl+Shift+C"),
         _ => None,
     } {
@@ -1952,7 +1953,8 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("text", CommandValueType::String),
             ("size", CommandValueType::Number),
         ],
-        "edit.paste" => &[
+        "edit.paste" => &[("clipboard", CommandValueType::String)],
+        "edit.paste_in_place" => &[
             ("clipboard", CommandValueType::String),
             ("offset", CommandValueType::Array),
         ],
@@ -5464,6 +5466,7 @@ impl MeshcraftApp {
         self.document = project.document;
         self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
+        self.clipboard.placement = None;
         self.saved_revision = self.document.revision();
         self.autosave_observed_revision = self.document.revision();
         self.autosave_deadline = None;
@@ -5617,12 +5620,14 @@ impl MeshcraftApp {
     }
 
     fn start_new_document(&mut self) -> CommandResult {
+        self.cancel_active_tool();
         if let Err(error) = self.commit_document_edit("New document", |document| {
             *document = Document::new();
             Ok(())
         }) {
             return CommandResult::failed(error);
         }
+        self.document_generation = self.document_generation.wrapping_add(1);
         self.selection.clear();
         self.object_name_edit = None;
         self.tool_cycle_state.cancel_hotspot_placement();
@@ -5674,6 +5679,7 @@ impl MeshcraftApp {
     }
 
     fn activate_tool(&mut self, tool: &str) {
+        self.clipboard.placement = None;
         self.annotations.points.clear();
         if matches!(tool, "Linear Dimension" | "Text" | "Leader") {
             self.panel_focus = Some("annotations".into());
@@ -5873,6 +5879,9 @@ impl MeshcraftApp {
     }
 
     pub fn native_point_input_hint(&self) -> &'static str {
+        if self.active_tool == "Paste" {
+            return "Pick insertion point · Esc cancel";
+        }
         if self.active_tool == "Linear Dimension" {
             match self.annotations.points.len() {
                 0 => "Dimension: pick first endpoint",
@@ -7322,7 +7331,7 @@ impl MeshcraftApp {
                 CommandState::default()
             };
         }
-        if id == "edit.paste" {
+        if matches!(id, "edit.paste" | "edit.paste_in_place") {
             return CommandState::default();
         }
         if id == "geometry.flip_selection" {
@@ -7885,6 +7894,7 @@ impl MeshcraftApp {
     }
 
     fn cancel_active_tool(&mut self) {
+        self.clipboard.placement = None;
         self.annotations.points.clear();
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
@@ -7906,6 +7916,10 @@ impl MeshcraftApp {
     }
 
     fn handle_escape(&mut self) {
+        if self.clipboard.placement.is_some() {
+            self.cancel_active_tool();
+            return;
+        }
         if self.selection.context != EditContext::Document {
             self.cancel_active_tool();
             self.exit_object_edit();
@@ -8133,6 +8147,12 @@ impl MeshcraftApp {
         modifiers: egui::Modifiers,
         click_count: u8,
     ) {
+        if self.active_tool == "Paste" {
+            if let Some(point) = construction_point {
+                self.paste_at(point);
+            }
+            return;
+        }
         if self.tool_cycle_state.hotspot_placement_active() || self.hotspot_reference_pick {
             let Some(point) = construction_point else {
                 self.status = "Pick a snapped point in the construction view.".into();
@@ -9080,6 +9100,12 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if self.active_tool == "Paste" {
+            let point = snap.map(|s| s.point).or_else(|| {
+                pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p))
+            });
+            return self.paste_preview_at(point);
+        }
         if matches!(
             self.active_tool.as_str(),
             "Linear Dimension" | "Text" | "Leader"
@@ -9720,6 +9746,9 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if let Some(placement) = &self.clipboard.placement {
+            return Some(placement.anchor);
+        }
         if matches!(
             self.active_tool.as_str(),
             "Linear Dimension" | "Text" | "Leader"

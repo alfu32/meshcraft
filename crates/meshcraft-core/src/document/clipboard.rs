@@ -8,6 +8,9 @@ pub struct ClipboardSelection {
     pub format: String,
     pub scene: Document,
     pub reusable: BTreeSet<DefinitionId>,
+    /// Frozen world-space feedback, including evaluated scripts and instance deformations.
+    #[serde(default)]
+    pub preview_edges: Vec<[Vec3; 2]>,
 }
 
 impl ClipboardSelection {
@@ -15,6 +18,7 @@ impl ClipboardSelection {
         if selection.selected().is_empty() {
             return Err("select elements to copy".into());
         }
+        let preview_edges = selection_wireframe(document, Some(selection));
         let mut scene = document.clone();
         scene.persist_script_states();
         let reusable = scene.definitions().map(|d| d.id).collect();
@@ -160,7 +164,17 @@ impl ClipboardSelection {
             format: "meshcraft-selection-1".into(),
             scene,
             reusable,
+            preview_edges,
         })
+    }
+
+    /// Older clipboard payloads have no frozen feedback; use their authored scene instead.
+    pub fn placement_wireframe(&self) -> Vec<[Vec3; 2]> {
+        if self.preview_edges.is_empty() {
+            selection_wireframe(&self.scene, None)
+        } else {
+            self.preview_edges.clone()
+        }
     }
 
     /// Paste at a world-space translation; original coordinates are preserved at zero offset.
@@ -342,6 +356,91 @@ impl ClipboardSelection {
     }
 }
 
+/// Select exactly the copied primitives, rather than all edges incident to their vertices.
+fn selection_wireframe(
+    document: &Document,
+    selection: Option<&SelectionSession>,
+) -> Vec<[Vec3; 2]> {
+    let mut explicit = BTreeMap::<OccurrenceRef, BTreeSet<SelectedEntity>>::new();
+    let mut objects = Vec::new();
+    if let Some(selection) = selection {
+        for target in selection.selected() {
+            if target.entity == SelectedEntity::Occurrence {
+                objects.push(&target.occurrence);
+            } else {
+                explicit
+                    .entry(target.occurrence.clone())
+                    .or_default()
+                    .insert(target.entity.clone());
+            }
+        }
+    }
+    let selected = |occurrence: &OccurrenceRef, entity: SelectedEntity| {
+        selection.is_none()
+            || objects.iter().any(|o| occurrence.path.starts_with(&o.path))
+            || explicit
+                .get(occurrence)
+                .is_some_and(|entities| entities.contains(&entity))
+    };
+    let mut edges = Vec::new();
+    for occurrence in document.scene_geometry_refs().unwrap_or_default() {
+        let Some(resolved) = document.resolve_occurrence(&occurrence) else {
+            continue;
+        };
+        let geometry = selection.map_or_else(
+            || document.effective_geometry(&occurrence),
+            |s| document.geometry_in_context(&occurrence, &s.context),
+        );
+        let Some(geometry) = geometry else {
+            continue;
+        };
+        let world = resolved.world_transform;
+        let point = |r| {
+            geometry
+                .vertex_position(r)
+                .map(|p| world.transform_point(p))
+        };
+        let mut referenced = BTreeSet::new();
+        for segment in geometry.segments.values() {
+            if selected(&occurrence, SelectedEntity::Segment(segment.id))
+                && let [Some(a), Some(b)] = segment.endpoints.map(point)
+            {
+                edges.push([a, b]);
+                referenced.extend(segment.endpoints.map(|r| r.id));
+            }
+        }
+        for face in geometry.triangles.values() {
+            if selected(&occurrence, SelectedEntity::Triangle(face.id))
+                && let [Some(a), Some(b), Some(c)] = face.vertices.map(point)
+            {
+                edges.extend([[a, b], [b, c], [c, a]]);
+                referenced.extend(face.vertices.map(|r| r.id));
+            }
+        }
+        for vertex in geometry.vertices.values() {
+            if !referenced.contains(&vertex.id)
+                && selected(&occurrence, SelectedEntity::Vertex(vertex.id))
+            {
+                let p = world.transform_point(vertex.position);
+                edges.push([p, p]);
+            }
+        }
+    }
+    for annotation in document.annotations() {
+        if selected(&annotation.target.occurrence, annotation.target.entity) {
+            edges.extend(annotation.edges);
+            // Billboard text has no mesh edges; give it a visible placement outline.
+            let a = annotation.position;
+            let width = annotation.size * 0.6 * annotation.label.chars().count().max(1) as f64;
+            let b = a + Vec3::X * width;
+            let c = b + Vec3::Y * annotation.size;
+            let d = a + Vec3::Y * annotation.size;
+            edges.extend([[a, b], [b, c], [c, d], [d, a]]);
+        }
+    }
+    edges
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,6 +502,29 @@ mod tests {
         );
         other.validate().unwrap();
     }
+    #[test]
+    fn preview_copies_only_selected_primitives_and_reads_older_payloads() {
+        let mut doc = Document::new();
+        let (segments, _) = doc
+            .append_planar_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::X, Vec3::Z * 100.],
+                vec![[0, 1], [1, 2]],
+                vec![],
+            )
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::Segment(segments[0]),
+        });
+        let snapshot = ClipboardSelection::capture(&doc, &selection).unwrap();
+        assert_eq!(vec![[Vec3::ZERO, Vec3::X]], snapshot.placement_wireframe());
+        let mut old = serde_json::to_value(snapshot).unwrap();
+        old.as_object_mut().unwrap().remove("preview_edges");
+        let old: ClipboardSelection = serde_json::from_value(old).unwrap();
+        assert_eq!(vec![[Vec3::ZERO, Vec3::X]], old.placement_wireframe());
+    }
+
     #[test]
     fn mesh_fragment_copy_is_independent_and_keeps_color() {
         let mut doc = Document::new();
