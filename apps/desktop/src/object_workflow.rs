@@ -95,14 +95,12 @@ impl MeshcraftApp {
                     .clone()
                     .filter(|(path, _)| self.native_hotspot_authoring_allowed(path))
             });
-        if let Some((path, id)) = selected.as_ref() {
-            if let Some(r) = self.document.resolve_occurrence(path) {
-                if let Ok(hotspots) = self.document.hotspots(r.definition.id) {
-                    if let Some(h) = hotspots.into_iter().find(|h| &h.id == id) {
-                        return (selected, h);
-                    }
-                }
-            }
+        if let Some((path, id)) = selected.as_ref()
+            && let Some(r) = self.document.resolve_occurrence(path)
+            && let Ok(hotspots) = self.document.hotspots(r.definition.id)
+            && let Some(h) = hotspots.into_iter().find(|h| &h.id == id)
+        {
+            return (selected, h);
         }
         (None, self.hotspot_defaults.clone())
     }
@@ -147,6 +145,36 @@ impl MeshcraftApp {
         );
         self.status =
             "Hotspot selected. Drag an instance handle to operate on this instance only.".into();
+    }
+
+    /// Reposition an authored marker without applying its runtime geometry operator.
+    pub fn commit_native_hotspot_anchor(
+        &mut self,
+        occurrence: &OccurrenceRef,
+        id: &str,
+        position: Vec3,
+    ) -> Result<(), String> {
+        if !self.native_hotspot_authoring_allowed(occurrence) {
+            return Err("open the prototype before repositioning its hotspot marker".into());
+        }
+        let definition = self
+            .document
+            .resolve_occurrence(occurrence)
+            .ok_or("object no longer exists")?
+            .definition
+            .id;
+        let mut hotspot = self
+            .document
+            .hotspots(definition)?
+            .into_iter()
+            .find(|h| h.id == id)
+            .ok_or("hotspot no longer exists")?;
+        hotspot.position = position;
+        self.commit_document_edit("Reposition hotspot marker", |d| {
+            d.put_hotspot(definition, hotspot)
+        })?;
+        self.status = "Repositioned the shared hotspot marker.".into();
+        Ok(())
     }
 
     pub fn commit_native_hotspot_drag(
@@ -719,7 +747,15 @@ mod tests {
             app.commit_native_hotspot_drag(&instance, &id, Vec3::Y)
                 .is_err()
         );
+        app.commit_native_hotspot_anchor(&instance, &id, Vec3::X)
+            .unwrap();
+        assert_eq!(Vec3::X, app.document.hotspots(def).unwrap()[0].position);
+        assert_eq!(baseline, app.document.definition(def).unwrap().geometry);
         app.handle_native_escape();
+        assert!(
+            app.commit_native_hotspot_anchor(&instance, &id, Vec3::ZERO)
+                .is_err()
+        );
         assert_eq!(EditContext::Document, app.selection.context);
         app.commit_native_hotspot_drag(&instance, &id, Vec3::Y)
             .unwrap();
@@ -768,6 +804,38 @@ mod tests {
 mod spatial_view_tests {
     use super::*;
     #[test]
+    fn finishing_a_top_level_imported_object_skips_the_scene_container() {
+        let mut app = super::super::tests::test_app();
+        app.document = meshcraft_io::project::read_project(include_bytes!(
+            "../../../examples/dynamic-object.octd"
+        ))
+        .unwrap()
+        .document;
+        let root = app.document.scene_container_occurrence().unwrap();
+        let instance = app
+            .document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.path.len() == root.path.len() + 1)
+            .unwrap();
+        app.document
+            .set_hotspot_target(&instance, "stretch", Vec3::X)
+            .unwrap();
+        let runtime = app.document.effective_geometry(&instance).unwrap().clone();
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        app.handle_native_escape();
+        assert_eq!(EditContext::Document, app.native_edit_context());
+        assert_eq!(
+            runtime,
+            *app.native_document_for_view()
+                .effective_geometry(&instance)
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn switching_to_authored_prototype_invalidates_the_runtime_pick_mesh() {
         let mut app = super::super::tests::test_app();
         let instance = app
@@ -811,5 +879,59 @@ mod spatial_view_tests {
             app.pick_native_target(Vec3::new(5.5, 10., 0.5), direction, 0.01)
                 .is_some()
         );
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod import_job_tests {
+    use super::*;
+
+    #[test]
+    fn external_scene_job_finishes_without_input_and_failed_refresh_retains_cache() {
+        let mut app = super::super::tests::test_app();
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-external-object-{}.octd",
+            std::process::id()
+        ));
+        let mut source = Document::new();
+        source
+            .add_cuboid("Child", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        std::fs::write(
+            &path,
+            meshcraft_io::project::write_project(&source, None).unwrap(),
+        )
+        .unwrap();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("path".into(), path.to_string_lossy().into_owned().into());
+        let started = app.execute_object_file_command("reference_scene", &payload);
+        assert!(matches!(
+            started.completion,
+            CommandCompletion::Pending { .. }
+        ));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.pending_object_import.is_some() {
+            app.poll_object_import();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let id = app
+            .native_selected_prototype()
+            .expect("background import selected its prototype");
+        let cached = app.document.clone();
+        assert!(
+            app.document
+                .definition(id)
+                .unwrap()
+                .extensions
+                .contains_key("k3d.externalReferencePath")
+        );
+        std::fs::remove_file(&path).unwrap();
+        let failed =
+            app.execute_object_file_command("refresh_reference", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Failed, failed.completion);
+        assert_eq!(cached, app.document);
     }
 }

@@ -14,6 +14,7 @@ pub(super) struct Handle {
 #[derive(Clone)]
 pub(super) struct Drag {
     pub handle: Handle,
+    pub authoring: bool,
     pub start: (f32, f32),
     pub start_pick: Vec3,
     pub start_target: Vec3,
@@ -157,32 +158,33 @@ impl MeshcraftShell {
                 SelectionMode::Replace
             },
         );
-        // In prototype editing handles are authored/selected; operations happen on closed instances.
-        if !self
+        // Authoring moves the shared marker; closed-instance dragging runs its operator.
+        let authoring = self
             .session
-            .native_hotspot_authoring_allowed(&handle.occurrence)
+            .native_hotspot_authoring_allowed(&handle.occurrence);
+        if let Some(r) = self.cached_document.resolve_occurrence(&handle.occurrence)
+            && let Some(inverse) = r
+                .world_transform
+                .inverse(meshcraft_core::geometry::GeometryTolerance::default())
         {
-            if let Some(r) = self.cached_document.resolve_occurrence(&handle.occurrence) {
-                if let Some(inverse) = r
-                    .world_transform
-                    .inverse(meshcraft_core::geometry::GeometryTolerance::default())
-                {
-                    let start_target = r
-                        .edits
-                        .and_then(|e| e.hotspot_positions.get(&handle.hotspot.id))
-                        .copied()
-                        .unwrap_or(handle.hotspot.position);
-                    self.hotspot_drag = Some(Drag {
-                        start: (x, y),
-                        start_pick: self.cursor_snap.map_or(handle.world, |s| s.point),
-                        start_target,
-                        target: start_target,
-                        inverse,
-                        handle,
-                        moved: false,
-                    });
-                }
-            }
+            let start_target = if authoring {
+                handle.hotspot.position
+            } else {
+                r.edits
+                    .and_then(|e| e.hotspot_positions.get(&handle.hotspot.id))
+                    .copied()
+                    .unwrap_or(handle.hotspot.position)
+            };
+            self.hotspot_drag = Some(Drag {
+                start: (x, y),
+                start_pick: self.cursor_snap.map_or(handle.world, |s| s.point),
+                start_target,
+                target: start_target,
+                inverse,
+                handle,
+                authoring,
+                moved: false,
+            });
         }
         self.refresh_scene();
         true
@@ -209,11 +211,20 @@ impl MeshcraftShell {
             return false;
         };
         if drag.moved {
-            if let Err(error) = self.session.commit_native_hotspot_drag(
-                &drag.handle.occurrence,
-                &drag.handle.hotspot.id,
-                drag.target,
-            ) {
+            let result = if drag.authoring {
+                self.session.commit_native_hotspot_anchor(
+                    &drag.handle.occurrence,
+                    &drag.handle.hotspot.id,
+                    drag.target,
+                )
+            } else {
+                self.session.commit_native_hotspot_drag(
+                    &drag.handle.occurrence,
+                    &drag.handle.hotspot.id,
+                    drag.target,
+                )
+            };
+            if let Err(error) = result {
                 self.session.set_native_status(error);
             }
         }

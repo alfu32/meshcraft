@@ -1904,6 +1904,96 @@ fn rotation_between(from: Vec3, to: Vec3) -> Result<Affine3, String> {
     ))
 }
 
+/// Child placements authored in a prototype (or the unique imported scene root) share a layout.
+/// Other nested occurrences retain their existing private-edit behavior.
+pub(crate) fn authored_child_layout(
+    document: &Document,
+    context: &EditContext,
+    child: &OccurrenceRef,
+) -> Option<ChildLayoutId> {
+    if child.path.is_empty() {
+        return None;
+    }
+    let parent = OccurrenceRef {
+        path: child.path[..child.path.len() - 1].to_vec(),
+    };
+    let r = document.resolve_occurrence(&parent)?;
+    match context {
+        EditContext::Occurrence(active) if active == &parent => r.definition.default_child_layout,
+        EditContext::Definition(id) if *id == r.definition.id => r.definition.default_child_layout,
+        EditContext::Document
+            if document.scene_container_occurrence().as_ref() == Some(&parent) =>
+        {
+            r.edits
+                .and_then(|e| e.child_layout)
+                .or(r.definition.default_child_layout)
+        }
+        _ => None,
+    }
+}
+
+pub fn duplicate_occurrence_in_context(
+    document: &mut Document,
+    context: &EditContext,
+    source: &OccurrenceRef,
+    offset: Vec3,
+) -> Result<(OccurrenceRef, Option<OccurrencePathRemap>), String> {
+    let Some(layout) = authored_child_layout(document, context, source) else {
+        return duplicate_occurrence_with_remap(document, source, offset);
+    };
+    if !offset.is_finite() {
+        return Err("copy offset must be finite".into());
+    }
+    let mut draft = document.clone();
+    let r = draft
+        .resolve_occurrence(source)
+        .ok_or("object to copy no longer exists")?;
+    let mut entry = r.entry.cloned().ok_or("cannot copy the scene root")?;
+    if matches!(context, EditContext::Document) {
+        entry.default_edits = r.edits.cloned().unwrap_or_default();
+    }
+    entry.default_edits.legacy_instance_id = None;
+    entry.transform = entry
+        .default_edits
+        .transform
+        .take()
+        .unwrap_or(entry.transform);
+    entry.transform.translation += offset;
+    entry.id = LayoutEntryId(draft.allocate_id());
+    entry.legacy_aliases.clear();
+    let copy = OccurrenceRef {
+        path: [
+            source.path[..source.path.len() - 1].to_vec(),
+            vec![entry.id],
+        ]
+        .concat(),
+    };
+    draft
+        .child_layouts
+        .get_mut(&layout)
+        .ok_or("parent layout no longer exists")?
+        .entries
+        .push(entry);
+    let descendants = draft
+        .occurrence_edits
+        .iter()
+        .filter(|(path, _)| {
+            path.path.starts_with(&source.path) && path.path.len() > source.path.len()
+        })
+        .map(|(p, e)| (p.clone(), e.clone()))
+        .collect::<Vec<_>>();
+    for (old, edits) in descendants {
+        let path = OccurrenceRef {
+            path: [copy.path.clone(), old.path[source.path.len()..].to_vec()].concat(),
+        };
+        draft.occurrence_edits.insert(path, edits);
+    }
+    draft.bump_revision();
+    draft.validate()?;
+    *document = draft;
+    Ok((copy, None))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2828,94 +2918,4 @@ mod tests {
         assert_eq!(revision + 1, document.revision());
         document.validate().unwrap();
     }
-}
-
-/// Child placements authored in a prototype (or the unique imported scene root) share a layout.
-/// Other nested occurrences retain their existing private-edit behavior.
-pub(crate) fn authored_child_layout(
-    document: &Document,
-    context: &EditContext,
-    child: &OccurrenceRef,
-) -> Option<ChildLayoutId> {
-    if child.path.is_empty() {
-        return None;
-    }
-    let parent = OccurrenceRef {
-        path: child.path[..child.path.len() - 1].to_vec(),
-    };
-    let r = document.resolve_occurrence(&parent)?;
-    match context {
-        EditContext::Occurrence(active) if active == &parent => r.definition.default_child_layout,
-        EditContext::Definition(id) if *id == r.definition.id => r.definition.default_child_layout,
-        EditContext::Document
-            if document.scene_container_occurrence().as_ref() == Some(&parent) =>
-        {
-            r.edits
-                .and_then(|e| e.child_layout)
-                .or(r.definition.default_child_layout)
-        }
-        _ => None,
-    }
-}
-
-pub fn duplicate_occurrence_in_context(
-    document: &mut Document,
-    context: &EditContext,
-    source: &OccurrenceRef,
-    offset: Vec3,
-) -> Result<(OccurrenceRef, Option<OccurrencePathRemap>), String> {
-    let Some(layout) = authored_child_layout(document, context, source) else {
-        return duplicate_occurrence_with_remap(document, source, offset);
-    };
-    if !offset.is_finite() {
-        return Err("copy offset must be finite".into());
-    }
-    let mut draft = document.clone();
-    let r = draft
-        .resolve_occurrence(source)
-        .ok_or("object to copy no longer exists")?;
-    let mut entry = r.entry.cloned().ok_or("cannot copy the scene root")?;
-    if matches!(context, EditContext::Document) {
-        entry.default_edits = r.edits.cloned().unwrap_or_default();
-    }
-    entry.default_edits.legacy_instance_id = None;
-    entry.transform = entry
-        .default_edits
-        .transform
-        .take()
-        .unwrap_or(entry.transform);
-    entry.transform.translation += offset;
-    entry.id = LayoutEntryId(draft.allocate_id());
-    entry.legacy_aliases.clear();
-    let copy = OccurrenceRef {
-        path: [
-            source.path[..source.path.len() - 1].to_vec(),
-            vec![entry.id],
-        ]
-        .concat(),
-    };
-    draft
-        .child_layouts
-        .get_mut(&layout)
-        .ok_or("parent layout no longer exists")?
-        .entries
-        .push(entry);
-    let descendants = draft
-        .occurrence_edits
-        .iter()
-        .filter(|(path, _)| {
-            path.path.starts_with(&source.path) && path.path.len() > source.path.len()
-        })
-        .map(|(p, e)| (p.clone(), e.clone()))
-        .collect::<Vec<_>>();
-    for (old, edits) in descendants {
-        let path = OccurrenceRef {
-            path: [copy.path.clone(), old.path[source.path.len()..].to_vec()].concat(),
-        };
-        draft.occurrence_edits.insert(path, edits);
-    }
-    draft.bump_revision();
-    draft.validate()?;
-    *document = draft;
-    Ok((copy, None))
 }

@@ -28,7 +28,7 @@ At instance level, prototype hotspots appear as handles with their configured sh
 
 A prototype may reference an external scene. That scene's root is used as a subscene, including its root hotspots and nested instances. Placement, instance-local values, copy and editing/isolation semantics remain explicit. Preserve source path/identity, missing-file diagnostics and a deliberate refresh workflow; loading or refreshing an external scene must not silently discard local instance values or recurse indefinitely through cyclic references.
 
-Instance hotspot operations run with prototype editing **closed**. Editing mode authors the shared handle definitions; dragging a closed-instance handle changes only that instance’s values.
+Instance hotspot operations run with prototype editing **closed**. Editing mode authors the shared handle definitions: dragging repositions the marker without applying its operator; dragging a closed-instance handle changes only that instance’s values.
 
 ## Screenshot evidence
 
@@ -110,3 +110,15 @@ All original captures are retained. Captures 15/16 and 17/18/19 show repeated st
 
 ![Repeated independent-instance result capture](../references/objects/19-independent-instance-results-repeat-2.png)
 
+
+## Meshcraft implementation evidence (2026-10-20)
+
+The following are live Meshcraft GPUI captures, separate from the user-provided legacy evidence above. The offscreen raylib viewport remains an ordinary GPUI image. These checks used Linux X11/Xvfb with software Vulkan; they are interaction checks, not hardware frame-rate qualification. See [the validation record](../handoffs/object-workflow-validation.md) for exact automated commands and remaining acceptance scope.
+
+![Closed-instance drag: relative feedback and unchanged second instance](../references/objects/20-gpui-instance-drag.png)
+
+![Prototype editing: shared shape and color controls, faded surroundings and Finish Editing](../references/objects/21-gpui-hotspot-authoring.png)
+
+![Prototype browser double-click: wireframe insertion with no selected source occurrence](../references/objects/22-gpui-prototype-insertion.png)
+
+![Saved and reopened independent shapes, after one-click Finish Editing](../references/objects/23-gpui-save-reopen-finish.png)

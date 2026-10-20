@@ -494,27 +494,6 @@ pub(super) fn render_field(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn invalid_edits_never_become_command_payloads() {
-        for (key, text) in [
-            ("unit_name", ""),
-            ("grid_size", "0"),
-            ("unit_size", "nan"),
-            ("circle_segments", "5.5"),
-            ("snap_radius", "129"),
-            ("normal_grid_width", "9"),
-        ] {
-            let field = *FIELDS.iter().find(|f| f.key == key).unwrap();
-            assert!(parsed(field, text).is_err(), "{key}");
-        }
-        let field = *FIELDS.iter().find(|f| f.key == "circle_segments").unwrap();
-        assert_eq!(parsed(field, "48").unwrap(), json!(48));
-    }
-}
-
 fn prepare_objects(
     shell: &mut MeshcraftShell,
     window: &mut Window,
@@ -551,31 +530,31 @@ fn prepare_objects(
             move |this, input, event: &InputEvent, window, cx| {
                 match event {
                     InputEvent::Focus => this.settings.active = Some(key),
-                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                        if this.settings.active == Some(key) {
-                            let value = input.read(cx).value().to_string();
-                            let result = if key == "object_name" {
-                                this.session
-                                    .rename_native_selected_object(&value)
-                                    .map(|_| ())
-                            } else {
-                                this.session.update_native_hotspot_field(
-                                    if key == "hotspot_name" {
-                                        "name"
-                                    } else {
-                                        "color"
-                                    },
-                                    &value,
-                                )
-                            };
-                            if let Err(error) = result {
-                                this.session.set_native_status(error);
-                            }
-                            this.settings.active = None;
-                            this.refresh_scene();
-                            if matches!(event, InputEvent::PressEnter { .. }) {
-                                window.focus(&this.focus);
-                            }
+                    InputEvent::PressEnter { .. } | InputEvent::Blur
+                        if this.settings.active == Some(key) =>
+                    {
+                        let value = input.read(cx).value().to_string();
+                        let result = if key == "object_name" {
+                            this.session
+                                .rename_native_selected_object(&value)
+                                .map(|_| ())
+                        } else {
+                            this.session.update_native_hotspot_field(
+                                if key == "hotspot_name" {
+                                    "name"
+                                } else {
+                                    "color"
+                                },
+                                &value,
+                            )
+                        };
+                        if let Err(error) = result {
+                            this.session.set_native_status(error);
+                        }
+                        this.settings.active = None;
+                        this.refresh_scene();
+                        if matches!(event, InputEvent::PressEnter { .. }) {
+                            window.focus(&this.focus);
                         }
                     }
                     _ => {}
@@ -705,10 +684,11 @@ fn render_object_field(shell: &MeshcraftShell, label: &'static str) -> Option<gp
                 !allowed
             });
         let mut row = div().flex().gap(px(5.)).child(input);
-        if key == "hotspot_color" && allowed {
-            if let Some(picker) = shell.settings.hotspot_color.as_ref() {
-                row = row.child(ColorPicker::new(picker).small());
-            }
+        if key == "hotspot_color"
+            && allowed
+            && let Some(picker) = shell.settings.hotspot_color.as_ref()
+        {
+            row = row.child(ColorPicker::new(picker).small());
         }
         row.into_any_element()
     };
@@ -734,5 +714,26 @@ pub(super) fn focus_object_name(
         input.update(cx, |input, cx| input.focus(window, cx));
         shell.settings.active = Some("object_name");
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn invalid_edits_never_become_command_payloads() {
+        for (key, text) in [
+            ("unit_name", ""),
+            ("grid_size", "0"),
+            ("unit_size", "nan"),
+            ("circle_segments", "5.5"),
+            ("snap_radius", "129"),
+            ("normal_grid_width", "9"),
+        ] {
+            let field = *FIELDS.iter().find(|f| f.key == key).unwrap();
+            assert!(parsed(field, text).is_err(), "{key}");
+        }
+        let field = *FIELDS.iter().find(|f| f.key == "circle_segments").unwrap();
+        assert_eq!(parsed(field, "48").unwrap(), json!(48));
     }
 }

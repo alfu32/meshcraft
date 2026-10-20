@@ -3086,14 +3086,14 @@ impl MeshcraftApp {
             EditContext::Document => {}
         }
 
-        if let Some(occurrence) = self.document.scene_container_occurrence() {
-            if let Some(r) = self.document.resolve_occurrence(&occurrence) {
-                let inverse = r
-                    .world_transform
-                    .inverse(GeometryTolerance::default())
-                    .unwrap_or(identity);
-                return (LineOwner::Definition(r.definition.id), occurrence, inverse);
-            }
+        if let Some(occurrence) = self.document.scene_container_occurrence()
+            && let Some(r) = self.document.resolve_occurrence(&occurrence)
+        {
+            let inverse = r
+                .world_transform
+                .inverse(GeometryTolerance::default())
+                .unwrap_or(identity);
+            return (LineOwner::Definition(r.definition.id), occurrence, inverse);
         }
         (LineOwner::SceneRoot, OccurrenceRef::scene_root(), identity)
     }
@@ -4476,6 +4476,14 @@ impl MeshcraftApp {
                 })
             }
             _ => EditContext::Document,
+        };
+        // Legacy files wrap the scene in a placement; it is not another object-edit level.
+        let parent = if matches!(&parent, EditContext::Occurrence(path)
+            if self.document.scene_container_occurrence().as_ref() == Some(path))
+        {
+            EditContext::Document
+        } else {
+            parent
         };
         self.selection.set_context(parent);
         self.selection_click_tracker.reset();
@@ -6998,8 +7006,8 @@ impl MeshcraftApp {
         if id == "object.place_selected_definition" && self.native_selected_prototype().is_some() {
             return CommandState::default();
         }
-        if id == "object.refresh_reference" {
-            if !self
+        if id == "object.refresh_reference"
+            && !self
                 .native_selected_prototype()
                 .and_then(|id| self.document.definition(id))
                 .is_some_and(|d| {
@@ -7008,9 +7016,8 @@ impl MeshcraftApp {
                         .and_then(serde_json::Value::as_bool)
                         == Some(true)
                 })
-            {
-                return CommandState::disabled("select an external prototype in Objects first");
-            }
+        {
+            return CommandState::disabled("select an external prototype in Objects first");
         }
         if id == "selection.exit_context" && self.selection.context == EditContext::Document {
             return CommandState::disabled("the document context is already active");

@@ -398,6 +398,16 @@ fn triangle(view: &mut impl RaylibDraw3D, [a, b, c]: [Vec3; 3], color: Color) {
     view.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), color);
 }
 
+fn external(context: &EditContext, document: &Document, target: &SelectionTarget) -> bool {
+    match context {
+        EditContext::Document => false,
+        EditContext::Occurrence(active) => !target.occurrence.path.starts_with(&active.path),
+        EditContext::Definition(id) => document
+            .resolve_occurrence(&target.occurrence)
+            .is_none_or(|resolved| resolved.definition.id != *id),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -659,15 +669,5 @@ mod tests {
         println!(
             "shadowed receiver pixels: {darkened} (ground {ground_pixels}, entity {entity_pixels}); image: /tmp/meshcraft-lighting-probe.png"
         );
-    }
-}
-
-fn external(context: &EditContext, document: &Document, target: &SelectionTarget) -> bool {
-    match context {
-        EditContext::Document => false,
-        EditContext::Occurrence(active) => !target.occurrence.path.starts_with(&active.path),
-        EditContext::Definition(id) => document
-            .resolve_occurrence(&target.occurrence)
-            .is_none_or(|resolved| resolved.definition.id != *id),
     }
 }

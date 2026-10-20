@@ -2339,12 +2339,19 @@ impl Document {
         {
             return false;
         }
+        // An explicit empty value masks authored nested-instance defaults.
+        let masks_defaults = self
+            .resolve_occurrence(&occurrence)
+            .and_then(|r| r.entry)
+            .is_some_and(|entry| !entry.default_edits.is_empty());
         if self.occurrence_edits.get(&occurrence) == Some(&edits)
-            || (edits.is_empty() && !self.occurrence_edits.contains_key(&occurrence))
+            || (edits.is_empty()
+                && !masks_defaults
+                && !self.occurrence_edits.contains_key(&occurrence))
         {
             return true;
         }
-        if edits.is_empty() {
+        if edits.is_empty() && !masks_defaults {
             self.occurrence_edits.remove(&occurrence);
         } else {
             self.occurrence_edits.insert(occurrence, edits);

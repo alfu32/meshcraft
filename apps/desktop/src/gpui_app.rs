@@ -770,7 +770,7 @@ fn copy_target_to_gpui_image(
     // Raylib's texture readback owns a tightly packed RGBA buffer until the image is dropped.
     let rgba = unsafe { slice::from_raw_parts(image.data().cast::<u8>(), bytes) };
     let mut bgra = rgba.to_vec();
-    for pixel in bgra.chunks_exact_mut(4) {
+    for pixel in bgra.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let mut output = ImageBuffer::from_raw(width, height, bgra)?;
@@ -1028,15 +1028,31 @@ impl MeshcraftShell {
         };
         self.feedback = feedback;
         if let Some(drag) = self.hotspot_drag.as_ref().filter(|drag| drag.moved) {
-            let mut preview_document = self.session.document_snapshot();
-            if preview_document
-                .set_hotspot_target(
+            let mut preview_document = if drag.authoring {
+                self.session.native_document_for_view()
+            } else {
+                self.session.document_snapshot()
+            };
+            let result = if drag.authoring {
+                preview_document
+                    .resolve_occurrence(&drag.handle.occurrence)
+                    .map(|r| r.definition.id)
+                    .ok_or_else(|| "object no longer exists".to_owned())
+                    .and_then(|definition| {
+                        let mut hotspot = drag.handle.hotspot.clone();
+                        hotspot.position = drag.target;
+                        preview_document
+                            .put_hotspot(definition, hotspot)
+                            .map(|_| ())
+                    })
+            } else {
+                preview_document.set_hotspot_target(
                     &drag.handle.occurrence,
                     &drag.handle.hotspot.id,
                     drag.target,
                 )
-                .is_ok()
-            {
+            };
+            if result.is_ok() {
                 self.cached_document = Arc::new(preview_document);
             }
             let delta = drag.target - drag.start_target;
@@ -1044,7 +1060,11 @@ impl MeshcraftShell {
                 screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
                 text: format!(
                     "{} · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}",
-                    drag.handle.hotspot.operation.name(),
+                    if drag.authoring {
+                        "Hotspot position"
+                    } else {
+                        drag.handle.hotspot.operation.name()
+                    },
                     delta.x,
                     delta.y,
                     delta.z,
@@ -1054,15 +1074,15 @@ impl MeshcraftShell {
             });
         }
         let preferences = self.session.native_ui_preferences();
-        let selection_rect = self
-            .selection_gesture
-            .and_then(|gesture| self.selection_cursor.map(|cursor| (gesture, cursor)))
-            .map(|(gesture, cursor)| {
-                (
-                    [gesture.start.0, gesture.start.1, cursor.0, cursor.1],
-                    cursor.0 < gesture.start.0,
-                )
-            });
+        let selection_rect =
+            self.selection_gesture
+                .zip(self.selection_cursor)
+                .map(|(gesture, cursor)| {
+                    (
+                        [gesture.start.0, gesture.start.1, cursor.0, cursor.1],
+                        cursor.0 < gesture.start.0,
+                    )
+                });
         self.bridge.publish_scene(RenderScene {
             document: Arc::clone(&self.cached_document),
             grid_visible: preferences.show_permanent_grid,
@@ -1489,7 +1509,6 @@ impl MeshcraftShell {
         } else if modifiers.control && modifiers.shift && key == "p" {
             self.toggle_command_palette();
         } else if self.command_palette_open || self.open_menu.is_some() {
-            return;
         } else if key == "delete" {
             self.dispatch("edit.delete_selection");
         } else if modifiers.control && key == "z" {
@@ -1708,16 +1727,16 @@ fn selection_region_in_context(
         if !authored {
             continue;
         }
-        if let Some((x, y)) = project_point(camera, size, handle.world) {
-            if rect_contains(region, x, y) {
-                selected.push(SelectionTarget {
-                    occurrence: handle.occurrence,
-                    entity: SelectedEntity::SemanticHandle {
-                        kind: meshcraft_core::selection::SelectionKind::Hotspot,
-                        id: handle.hotspot.id,
-                    },
-                });
-            }
+        if let Some((x, y)) = project_point(camera, size, handle.world)
+            && rect_contains(region, x, y)
+        {
+            selected.push(SelectionTarget {
+                occurrence: handle.occurrence,
+                entity: SelectedEntity::SemanticHandle {
+                    kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                    id: handle.hotspot.id,
+                },
+            });
         }
     }
     selected
@@ -2054,12 +2073,12 @@ impl Render for MeshcraftShell {
         if self.cached_document_revision != Some(self.session.document_revision()) {
             self.refresh_scene();
         }
-        if let Some(panel) = self.session.native_take_panel_focus() {
-            if let Some((index, title)) = layout::panel_location(&panel) {
-                self.open_settings_panel = Some(title);
-                self.collapsed_settings_panels.remove(title);
-                self.settings_scroll.scroll_to_top_of_item(index);
-            }
+        if let Some(panel) = self.session.native_take_panel_focus()
+            && let Some((index, title)) = layout::panel_location(&panel)
+        {
+            self.open_settings_panel = Some(title);
+            self.collapsed_settings_panels.remove(title);
+            self.settings_scroll.scroll_to_top_of_item(index);
         }
         settings::prepare(self, window, cx);
         self.prepare_palette(window, cx);

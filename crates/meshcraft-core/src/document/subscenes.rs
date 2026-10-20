@@ -424,6 +424,153 @@ fn remap_hotspot_ids(definition: &mut Definition, ids: &Ids) -> Result<(), Strin
     Ok(())
 }
 
+fn reachable_definitions(
+    document: &Document,
+    roots: impl IntoIterator<Item = DefinitionId>,
+) -> BTreeSet<DefinitionId> {
+    let mut pending = roots.into_iter().collect::<Vec<_>>();
+    let mut result = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !result.insert(id) {
+            continue;
+        }
+        if let Some(layout) = document
+            .definition(id)
+            .and_then(|d| d.default_child_layout)
+            .and_then(|id| document.child_layout(id))
+        {
+            pending.extend(layout.entries.iter().map(|e| e.definition));
+            for entry in &layout.entries {
+                if let Some(layout) = entry
+                    .default_edits
+                    .child_layout
+                    .and_then(|id| document.child_layout(id))
+                {
+                    pending.extend(layout.entries.iter().map(|e| e.definition));
+                }
+            }
+        }
+    }
+    result
+}
+
+impl Document {
+    /// Runs a shared-prototype edit against authored content while preserving runtime values.
+    /// The temporary edit view never enters undo/save state.
+    pub fn edit_prototype<T>(
+        &mut self,
+        active: &OccurrenceRef,
+        edit: impl FnOnce(&mut Document) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut draft = self.prototype_edit_view(active);
+        let result = edit(&mut draft)?;
+        let saved = self
+            .occurrence_edits
+            .iter()
+            .filter(|(path, _)| path.path.starts_with(&active.path))
+            .map(|(p, e)| (p.clone(), e.clone()))
+            .collect::<Vec<_>>();
+        for (path, mut edits) in saved {
+            // Restore the active placement before attempting descendant paths.
+            if path != *active && draft.resolve_occurrence(&path).is_none() {
+                continue;
+            }
+            if let Some(old) = self.resolve_occurrence(&path) {
+                if edits.geometry_replacement.as_ref() == Some(&old.definition.geometry) {
+                    edits.geometry_replacement = None;
+                }
+                let old_ids = self
+                    .hotspots(old.definition.id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|h| h.id)
+                    .collect::<BTreeSet<_>>();
+                if let Some(new) = draft.resolve_occurrence(&path) {
+                    let new_ids = draft
+                        .hotspots(new.definition.id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|h| h.id)
+                        .collect::<BTreeSet<_>>();
+                    let before = edits.hotspot_positions.len();
+                    edits
+                        .hotspot_positions
+                        .retain(|id, _| !old_ids.contains(id) || new_ids.contains(id));
+                    if before != edits.hotspot_positions.len() {
+                        edits.geometry_replacement = None;
+                    }
+                }
+            }
+            draft.occurrence_edits.insert(path, edits);
+        }
+        if !self.occurrence_edits.contains_key(active) {
+            draft.occurrence_edits.remove(active);
+        }
+        draft.hotspot_cache.clear();
+        draft.validate()?;
+        *self = draft;
+        Ok(result)
+    }
+
+    pub fn set_nested_instance_hotspot_default(
+        &mut self,
+        context: &crate::selection::EditContext,
+        occurrence: &OccurrenceRef,
+        id: &str,
+        target: Vec3,
+    ) -> Result<(), String> {
+        self.set_hotspot_target(occurrence, id, target)?;
+        if !matches!(context, crate::selection::EditContext::Document)
+            && let Some(layout) =
+                crate::operations::objects::authored_child_layout(self, context, occurrence)
+        {
+            let edits = self.occurrence_edits.remove(occurrence).unwrap_or_default();
+            let entry = self
+                .child_layouts
+                .get_mut(&layout)
+                .and_then(|l| {
+                    l.entries
+                        .iter_mut()
+                        .find(|e| Some(&e.id) == occurrence.path.last())
+                })
+                .ok_or("nested instance no longer exists")?;
+            entry.default_edits = edits;
+            self.bump_revision();
+        }
+        Ok(())
+    }
+}
+
+impl Document {
+    /// The imported scene container is unique: its effective mesh/layout are authored scene content.
+    /// Promote legacy overrides on the first edit, preserving the original state in undo history.
+    pub fn edit_scene<T>(
+        &mut self,
+        edit: impl FnOnce(&mut Document) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut draft = self.clone();
+        if let Some(path) = draft.scene_container_occurrence() {
+            let r = draft
+                .resolve_occurrence(&path)
+                .ok_or("scene container no longer exists")?;
+            let id = r.definition.id;
+            let mut edits = r.edits.cloned().unwrap_or_default();
+            if let Some(geometry) = edits.geometry_replacement.take() {
+                draft.definitions.get_mut(&id).unwrap().geometry = geometry;
+            }
+            if let Some(layout) = edits.child_layout.take() {
+                draft.definitions.get_mut(&id).unwrap().default_child_layout = Some(layout);
+            }
+            draft.set_occurrence_edits(path, edits);
+        }
+        let result = edit(&mut draft)?;
+        draft.hotspot_cache.clear();
+        draft.validate()?;
+        *self = draft;
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,123 +775,6 @@ mod tests {
     }
 }
 
-fn reachable_definitions(
-    document: &Document,
-    roots: impl IntoIterator<Item = DefinitionId>,
-) -> BTreeSet<DefinitionId> {
-    let mut pending = roots.into_iter().collect::<Vec<_>>();
-    let mut result = BTreeSet::new();
-    while let Some(id) = pending.pop() {
-        if !result.insert(id) {
-            continue;
-        }
-        if let Some(layout) = document
-            .definition(id)
-            .and_then(|d| d.default_child_layout)
-            .and_then(|id| document.child_layout(id))
-        {
-            pending.extend(layout.entries.iter().map(|e| e.definition));
-            for entry in &layout.entries {
-                if let Some(layout) = entry
-                    .default_edits
-                    .child_layout
-                    .and_then(|id| document.child_layout(id))
-                {
-                    pending.extend(layout.entries.iter().map(|e| e.definition));
-                }
-            }
-        }
-    }
-    result
-}
-
-impl Document {
-    /// Runs a shared-prototype edit against authored content while preserving runtime values.
-    /// The temporary edit view never enters undo/save state.
-    pub fn edit_prototype<T>(
-        &mut self,
-        active: &OccurrenceRef,
-        edit: impl FnOnce(&mut Document) -> Result<T, String>,
-    ) -> Result<T, String> {
-        let mut draft = self.prototype_edit_view(active);
-        let result = edit(&mut draft)?;
-        let saved = self
-            .occurrence_edits
-            .iter()
-            .filter(|(path, _)| path.path.starts_with(&active.path))
-            .map(|(p, e)| (p.clone(), e.clone()))
-            .collect::<Vec<_>>();
-        for (path, mut edits) in saved {
-            // Restore the active placement before attempting descendant paths.
-            if path != *active && draft.resolve_occurrence(&path).is_none() {
-                continue;
-            }
-            if let Some(old) = self.resolve_occurrence(&path) {
-                if edits.geometry_replacement.as_ref() == Some(&old.definition.geometry) {
-                    edits.geometry_replacement = None;
-                }
-                let old_ids = self
-                    .hotspots(old.definition.id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|h| h.id)
-                    .collect::<BTreeSet<_>>();
-                if let Some(new) = draft.resolve_occurrence(&path) {
-                    let new_ids = draft
-                        .hotspots(new.definition.id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|h| h.id)
-                        .collect::<BTreeSet<_>>();
-                    edits
-                        .hotspot_positions
-                        .retain(|id, _| !old_ids.contains(id) || new_ids.contains(id));
-                }
-            }
-            draft.occurrence_edits.insert(path, edits);
-        }
-        if !self.occurrence_edits.contains_key(active) {
-            draft.occurrence_edits.remove(active);
-        }
-        draft.hotspot_cache.clear();
-        draft.validate()?;
-        *self = draft;
-        Ok(result)
-    }
-
-    pub fn set_nested_instance_hotspot_default(
-        &mut self,
-        context: &crate::selection::EditContext,
-        occurrence: &OccurrenceRef,
-        id: &str,
-        target: Vec3,
-    ) -> Result<(), String> {
-        self.set_hotspot_target(occurrence, id, target)?;
-        if !matches!(context, crate::selection::EditContext::Document) {
-            if let Some(layout) =
-                crate::operations::objects::authored_child_layout(self, context, occurrence)
-            {
-                let edits = self
-                    .occurrence_edits
-                    .remove(occurrence)
-                    .ok_or("nested hotspot value was not stored")?;
-                let entry = self
-                    .child_layouts
-                    .get_mut(&layout)
-                    .and_then(|l| {
-                        l.entries
-                            .iter_mut()
-                            .find(|e| Some(&e.id) == occurrence.path.last())
-                    })
-                    .ok_or("nested instance no longer exists")?;
-                entry.default_edits = edits;
-                self.bump_revision();
-            }
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod nested_edit_tests {
     use super::*;
@@ -814,6 +844,25 @@ mod nested_edit_tests {
             Vec3::Y * 3.,
             d.evaluated_hotspot_positions(&other_original).unwrap()["handle"]
         );
+        // Resetting an occurrence to its authored anchor must mask its parent's default.
+        d.set_hotspot_target(&original, "handle", Vec3::ZERO)
+            .unwrap();
+        assert_eq!(
+            Vec3::ZERO,
+            d.evaluated_hotspot_positions(&original).unwrap()["handle"]
+        );
+        d.edit_prototype(&parent, |d| {
+            d.set_nested_instance_hotspot_default(&context, &original, "handle", Vec3::ZERO)
+        })
+        .unwrap();
+        assert_eq!(
+            Vec3::ZERO,
+            d.evaluated_hotspot_positions(&original).unwrap()["handle"]
+        );
+        assert_eq!(
+            Vec3::Y * 3.,
+            d.evaluated_hotspot_positions(&other_original).unwrap()["handle"]
+        );
         let mut selected = SelectionSession::default();
         selected.set_context(context.clone());
         selected.select(SelectionTarget {
@@ -851,35 +900,5 @@ mod nested_edit_tests {
         );
         assert!(d.occurrence_edits(&parent).is_none());
         d.validate().unwrap();
-    }
-}
-
-impl Document {
-    /// The imported scene container is unique: its effective mesh/layout are authored scene content.
-    /// Promote legacy overrides on the first edit, preserving the original state in undo history.
-    pub fn edit_scene<T>(
-        &mut self,
-        edit: impl FnOnce(&mut Document) -> Result<T, String>,
-    ) -> Result<T, String> {
-        let mut draft = self.clone();
-        if let Some(path) = draft.scene_container_occurrence() {
-            let r = draft
-                .resolve_occurrence(&path)
-                .ok_or("scene container no longer exists")?;
-            let id = r.definition.id;
-            let mut edits = r.edits.cloned().unwrap_or_default();
-            if let Some(geometry) = edits.geometry_replacement.take() {
-                draft.definitions.get_mut(&id).unwrap().geometry = geometry;
-            }
-            if let Some(layout) = edits.child_layout.take() {
-                draft.definitions.get_mut(&id).unwrap().default_child_layout = Some(layout);
-            }
-            draft.set_occurrence_edits(path, edits);
-        }
-        let result = edit(&mut draft)?;
-        draft.hotspot_cache.clear();
-        draft.validate()?;
-        *self = draft;
-        Ok(result)
     }
 }
