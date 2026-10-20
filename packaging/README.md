@@ -26,13 +26,32 @@ are never collected by directory-wide source copying.
 3. The workflow rejects branches, a `v` prefix, a different app version or a tag
    pointing at another commit. Every job checks out the resolved SHA. The pinned
    toolchain comes from `rust-toolchain.toml`; builds use `--locked`.
-4. Validation runs first, then all six native builds and installers. Publication
+4. Validation and all six native builds/installers run in parallel after tag validation. Publication
    requires the complete artifact matrix, every checksum and matching source/file
    manifests. A failed platform prevents publication; rerunning does not silently
    replace an existing release. The workflow never creates or moves a tag.
 
 Only the final publication job has `contents: write`. Other jobs read source and
 upload build artifacts. Actions and AppImage inputs are pinned to commits/digests.
+
+## Build time and caches
+
+Validation and native builds start together; publication still waits for all of them.
+Validation disables debug info and dependency optimization, while the shipped binaries
+retain the normal optimized release profile. Four compile workers replace the former
+two-worker limit. Cargo registry and compiled dependencies are cached separately by
+platform/architecture, toolchain/native build configuration and lockfile; compatible
+older lockfile caches can seed a build within the cache scope. GitHub scopes caches
+to the selected ref (and its default-branch fallback), so a different version tag
+starts cold unless a compatible default-branch cache has been seeded. Cache saves run before installer steps
+and on failed compilation so a packaging failure does not throw away the build work.
+A cold build still compiles the GPUI/raylib and transitional egui/wgpu dependency trees;
+warm-run improvements depend on the GitHub cache being available.
+
+Linux containers run as the runner UID/GID with pre-created writable mount points.
+A dedicated Linux Cargo home contains no host rustup proxy executables.
+This keeps both the Cargo cache and host packaging output writable without root-owned
+`target` directories or recursive permission repairs.
 
 ## Linux compatibility
 
@@ -65,7 +84,9 @@ probes and remaining platform limits are recorded in the [release handoff](../do
 ## Windows and macOS
 
 Windows builds use the native SDK, LLVM/libclang for raylib bindings, GPUI's `fxc`
-shader compiler, and static CRT linking. WiX 5.0.2 produces MSI, and the Windows SDK
+shader compiler, and static CRT linking. The CMake toolchain explicitly sets the
+MSVC runtime to `MultiThreaded` for raylib/GLFW, matching Rust `+crt-static`;
+setting only Rust flags leaves CMake targets using the DLL runtime. WiX 5.0.2 produces MSI, and the Windows SDK
 MakeAppx produces **unsigned** MSIX. No signing secret is requested or referenced.
 MSIX signing is deliberately deferred until repository secrets and the publisher
 identity are configured; unsigned MSIX is a packaging output, not a trusted,

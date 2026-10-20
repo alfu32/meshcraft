@@ -35,6 +35,11 @@ jobs:
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CMAKE_BUILD_PARALLEL_LEVEL: '4'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_OPT_LEVEL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,6 +49,18 @@ jobs:
         with:
           toolchain: ${{ needs.prepare.outputs.toolchain }}
           components: rustfmt, clippy
+      - name: Restore validation dependencies
+        id: validation-cache
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/linux-cargo
+            target/linux-validate
+          key: validate-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'packaging/linux/Dockerfile') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            validate-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'packaging/linux/Dockerfile') }}-
       - name: Check out pinned public legacy evidence
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,12 +77,31 @@ jobs:
         run: docker build -t meshcraft-build -f packaging/linux/Dockerfile .
       - name: Locked Rust checks in Ubuntu 18.04
         run: |
-          docker run --rm -v "$PWD:/src" -v "$(rustc --print sysroot):/opt/rust:ro" \
-            -v "$HOME/.cargo:/cargo" -v "$PWD/target/linux-validate:/build" meshcraft-build \
-            bash -euc 'cargo fmt --all --check; cargo test --workspace --locked; cargo clippy --workspace --all-targets --locked -- -D warnings'
+          mkdir -p target/linux-validate target/linux-cargo
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$PWD:/src" -v "$(rustc --print sysroot):/opt/rust:ro" \
+            -v "$PWD/target/linux-cargo:/cargo" -v "$PWD/target/linux-validate:/build" \
+            -e CARGO_BUILD_JOBS -e CMAKE_BUILD_PARALLEL_LEVEL \
+            -e CARGO_PROFILE_DEV_DEBUG -e CARGO_PROFILE_DEV_OPT_LEVEL meshcraft-build \
+            bash -euc '
+              cargo fmt --all --check
+              cargo --config "profile.dev.package.\"*\".opt-level=0" test --workspace --locked
+              cargo --config "profile.dev.package.\"*\".opt-level=0" clippy --workspace --all-targets --locked -- -D warnings
+            '
+      - name: Save validation dependencies even if a later check fails
+        if: ${{ !cancelled() && steps.validation-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/linux-cargo
+            target/linux-validate
+          key: ${{ steps.validation-cache.outputs.cache-primary-key }}
 
   build:
-    needs: [prepare, validate]
+    # Compile in parallel with validation; publication still requires both.
+    needs: prepare
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -81,8 +117,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '2'
-      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      CARGO_BUILD_JOBS: '4'
+      CMAKE_BUILD_PARALLEL_LEVEL: '4'
       MESHCRAFT_BUILD_SHA: ${{ needs.prepare.outputs.sha }}
       SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.epoch }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
@@ -97,12 +133,30 @@ jobs:
         with:
           toolchain: ${{ needs.prepare.outputs.toolchain }}
           targets: ${{ matrix.target }}
+      - name: Restore native build dependencies
+        id: build-cache
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/linux-cargo
+            target/linux-build
+            target/release
+            target/${{ matrix.target }}
+          key: native-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ hashFiles('rust-toolchain.toml', 'packaging/linux/Dockerfile', 'packaging/windows/static-crt.cmake') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            native-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-${{ hashFiles('rust-toolchain.toml', 'packaging/linux/Dockerfile', 'packaging/windows/static-crt.cmake') }}-
       - name: Build native Linux application and portable archives against old glibc
         if: matrix.os == 'linux'
         run: |
           docker build -t meshcraft-build -f packaging/linux/Dockerfile .
-          docker run --rm -v "$PWD:/src" -v "$(rustc --print sysroot):/opt/rust:ro" \
-            -v "$HOME/.cargo:/cargo" -v "$PWD/target/linux-build:/build" \
+          # Docker must not create root-owned host output/cache directories.
+          mkdir -p target/linux-build target/linux-cargo target/release-assets target/installer-tools
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$PWD:/src" -v "$(rustc --print sysroot):/opt/rust:ro" \
+            -v "$PWD/target/linux-cargo:/cargo" -v "$PWD/target/linux-build:/build" \
+            -e CARGO_BUILD_JOBS -e CMAKE_BUILD_PARALLEL_LEVEL \
             -e RELEASE_TARGET -e RELEASE_VERSION -e SOURCE_DATE_EPOCH -e MESHCRAFT_BUILD_SHA meshcraft-build bash -euc '
               cargo build --release --locked -p meshcraft-desktop --target "$RELEASE_TARGET"
               test "$(/build/$RELEASE_TARGET/release/meshcraft --version)" = "Meshcraft $RELEASE_VERSION"
@@ -116,6 +170,9 @@ jobs:
         shell: pwsh
         run: |
           "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+          # CMake >=3.15 selects its own MSVC runtime; Rust's /MT flag alone is insufficient.
+          $toolchain = (Join-Path $env:GITHUB_WORKSPACE 'packaging/windows/static-crt.cmake').Replace('\','/')
+          "CMAKE_TOOLCHAIN_FILE=$toolchain" >> $env:GITHUB_ENV
           $llvm = Join-Path $env:ProgramFiles 'LLVM\bin'
           if (-not (Test-Path "$llvm\libclang.dll")) { throw 'Native LLVM libclang.dll is required for raylib bindgen' }
           "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
@@ -136,6 +193,18 @@ jobs:
           python_cmd=python3
           if [[ '${{ matrix.os }}' == windows ]]; then python_cmd=python; fi
           "$python_cmd" scripts/release/portable.py --target "$RELEASE_TARGET" --binary "$binary" --output target/release-assets
+      - name: Save native dependencies before packaging
+        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/linux-cargo
+            target/linux-build
+            target/release
+            target/${{ matrix.target }}
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Install Linux packagers
         if: matrix.os == 'linux'
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends desktop-file-utils squashfs-tools snapd libfuse2t64
