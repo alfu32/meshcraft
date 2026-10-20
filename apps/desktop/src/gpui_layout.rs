@@ -16,8 +16,9 @@ use gpui::{
 use gpui_component::{
     Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
 };
-use meshcraft_core::{commands::CommandDescriptor, document::Document};
+use meshcraft_core::{commands::CommandDescriptor, document::Document, selection::SelectionKind};
 
 #[derive(Clone, Default)]
 pub(super) struct SceneCounts {
@@ -25,6 +26,7 @@ pub(super) struct SceneCounts {
     faces: usize,
     objects: usize,
     hotspots: usize,
+    semantic: std::collections::BTreeMap<SelectionKind, usize>,
     prototypes: std::collections::BTreeMap<meshcraft_core::document::DefinitionId, usize>,
 }
 
@@ -40,6 +42,31 @@ impl SceneCounts {
             if let Some(r) = document.resolve_occurrence(&occurrence) {
                 *counts.prototypes.entry(r.definition.id).or_default() += 1;
                 counts.hotspots += hotspot_counts.get(&r.definition.id).copied().unwrap_or(0);
+                for (field, kind) in [
+                    ("voxels", SelectionKind::Voxel),
+                    ("dimensions", SelectionKind::Dimension),
+                    ("texts", SelectionKind::Text),
+                    ("walls", SelectionKind::Wall),
+                    ("slabs", SelectionKind::Slab),
+                    ("stairs", SelectionKind::Stair),
+                    ("frames", SelectionKind::Frame),
+                    ("hvac", SelectionKind::Hvac),
+                ] {
+                    let count = r
+                        .definition
+                        .domain_entity_ids
+                        .get(field)
+                        .map(|ids| ids.len())
+                        .or_else(|| {
+                            r.definition
+                                .domain_data
+                                .get(field)
+                                .and_then(|v| v.as_array())
+                                .map(|v| v.len())
+                        })
+                        .unwrap_or(0);
+                    *counts.semantic.entry(kind).or_default() += count;
+                }
             }
             if !occurrence.path.is_empty()
                 && document.scene_container_occurrence().as_ref() != Some(&occurrence)
@@ -447,23 +474,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     }
 
     fn stat(&self, label: &'static str, fallback: &'static str) -> gpui::AnyElement {
-        let selection = self.shell.session.native_selection_summary();
-        let totals = &self.shell.cached_scene_counts;
-        let value = match label {
-            "Edges" => format!("{}    {}    ✓    ✓    □", totals.edges, selection.edges),
-            "Faces" => format!("{}    {}    ✓    ✓    □", totals.faces, selection.faces),
-            "Hotspots" => format!(
-                "{}    {}    ✓    ✓    □",
-                totals.hotspots,
-                selection
-                    .counts_by_kind
-                    .get(&meshcraft_core::selection::SelectionKind::Hotspot)
-                    .copied()
-                    .unwrap_or(0)
-            ),
-            "Objects" => format!("{}    {}    ✓    ✓    □", totals.objects, selection.objects),
-            _ => fallback.to_owned(),
-        };
+        let value = fallback.to_owned();
         div()
             .flex()
             .justify_between()
@@ -473,6 +484,127 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             .child(label)
             .child(div().text_color(rgb(0x8f98a4)).child(value))
             .into_any_element()
+    }
+
+    fn selection_checkbox(
+        &mut self,
+        key: &'static str,
+        kinds: &[SelectionKind],
+        property: &'static str,
+    ) -> gpui::AnyElement {
+        let policy = self.shell.session.native_selection_display_policy();
+        let checked = kinds.iter().all(|kind| {
+            let state = policy.state(*kind);
+            match property {
+                "visible" => state.visible,
+                "editable" => state.unlocked,
+                _ => state.wireframe,
+            }
+        });
+        let disabled = property == "editable" && kinds.iter().all(|kind| !policy.can_draw(*kind));
+        div()
+            .w(px(26.))
+            .h(px(26.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                Checkbox::new(SharedString::from(format!("selection/{key}/{property}")))
+                    .small()
+                    .checked(checked)
+                    .disabled(disabled)
+                    .on_click(self.cx.listener(move |this, enabled: &bool, _, cx| {
+                        if this.hotspot_drag.take().is_some() {
+                            this.cached_document_revision = None;
+                        }
+                        this.selection_gesture = None;
+                        this.selection_cursor = None;
+                        let mut payload = meshcraft_core::commands::CommandPayload::default();
+                        payload.values.insert("kind".into(), key.into());
+                        payload.values.insert("property".into(), property.into());
+                        payload.values.insert("enabled".into(), (*enabled).into());
+                        this.dispatch_payload("selection.update_display", &payload);
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn selection_table(&mut self) -> gpui::AnyElement {
+        const ROWS: &[(&str, &str, &[SelectionKind])] = &[
+            ("Edges", "edge", &[SelectionKind::Edge]),
+            ("Faces", "face", &[SelectionKind::Face]),
+            ("Voxels", "voxel", &[SelectionKind::Voxel]),
+            ("Hotspots", "hotspot", &[SelectionKind::Hotspot]),
+            ("Objects", "object", &[SelectionKind::Object]),
+            (
+                "Dimensions / Texts",
+                "dimensions_texts",
+                &[SelectionKind::Dimension, SelectionKind::Text],
+            ),
+            (
+                "Walls / Slabs / Stairs",
+                "architecture",
+                &[
+                    SelectionKind::Wall,
+                    SelectionKind::Slab,
+                    SelectionKind::Stair,
+                    SelectionKind::Frame,
+                    SelectionKind::Hvac,
+                ],
+            ),
+        ];
+        let mut header = div()
+            .flex()
+            .items_center()
+            .text_xs()
+            .text_color(rgb(0xc0c6cf))
+            .child(div().flex_1().min_w(px(0.)).child("Type"))
+            .child(div().w(px(32.)).text_right().child("T"))
+            .child(div().w(px(32.)).text_right().child("S"));
+        for (label, property) in [("V", "visible"), ("E", "editable"), ("W", "wireframe")] {
+            header = header.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .child(label)
+                    .child(self.selection_checkbox("all", &SelectionKind::ALL, property)),
+            );
+        }
+        let summary = self.shell.session.native_selection_summary();
+        let totals = self.shell.cached_scene_counts.clone();
+        let mut table = div().flex().flex_col().gap(px(2.)).child(header);
+        for &(label, key, kinds) in ROWS {
+            let total = match key {
+                "edge" => totals.edges,
+                "face" => totals.faces,
+                "object" => totals.objects,
+                "hotspot" => totals.hotspots,
+                _ => kinds
+                    .iter()
+                    .map(|k| totals.semantic.get(k).copied().unwrap_or(0))
+                    .sum(),
+            };
+            let selected: usize = kinds
+                .iter()
+                .map(|k| summary.counts_by_kind.get(k).copied().unwrap_or(0))
+                .sum();
+            let mut row = div()
+                .flex()
+                .items_center()
+                .text_xs()
+                .text_color(rgb(0xc0c6cf))
+                .child(div().flex_1().min_w(px(0.)).child(label))
+                .child(div().w(px(32.)).text_right().child(total.to_string()))
+                .child(div().w(px(32.)).text_right().child(selected.to_string()));
+            for property in ["visible", "editable", "wireframe"] {
+                row = row.child(self.selection_checkbox(key, kinds, property));
+            }
+            table = table.child(row);
+        }
+        table.into_any_element()
     }
 
     fn object_selection(&self) -> String {
@@ -1396,20 +1528,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         .overflow_y_scroll()
         .child(setting_section(
             "Selection",
-            div().flex().flex_col().gap(px(4.)).children([
-                stat_row(
-                    "Type                         T    S    D    M    W",
-                    "",
-                    bindings,
-                ),
-                stat_row("Edges", "0    0    ✓    ✓    □", bindings),
-                stat_row("Faces", "0    0    ✓    ✓    □", bindings),
-                stat_row("Voxels", "0    0    ✓    ✓    □", bindings),
-                stat_row("Hotspots", "0    0    ✓    ✓    □", bindings),
-                stat_row("Objects", "0    0    ✓    ✓    □", bindings),
-                stat_row("Dimensions / Texts", "0    0    ✓    ✓    □", bindings),
-                stat_row("Walls / Slabs / Stairs", "0    0    ✓    ✓    □", bindings),
-            ]),
+            bindings.selection_table(),
             bindings,
         ))
         .child(setting_section(

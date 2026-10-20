@@ -21,6 +21,24 @@ pub enum SelectionKind {
     Hvac,
 }
 
+impl SelectionKind {
+    pub const ALL: [Self; 13] = [
+        Self::Vertex,
+        Self::Edge,
+        Self::Face,
+        Self::Object,
+        Self::Voxel,
+        Self::Hotspot,
+        Self::Dimension,
+        Self::Text,
+        Self::Wall,
+        Self::Slab,
+        Self::Stair,
+        Self::Frame,
+        Self::Hvac,
+    ];
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SelectionDisplayState {
     pub visible: bool,
@@ -81,6 +99,37 @@ impl SelectionDisplayPolicy {
         state.visible && state.unlocked
     }
 
+    /// Root geometry and the imported scene wrapper are not object instances.
+    pub fn occurrence_visible(&self, document: &Document, occurrence: &OccurrenceRef) -> bool {
+        !self.is_object(document, occurrence) || self.can_draw(SelectionKind::Object)
+    }
+
+    fn is_object(&self, document: &Document, occurrence: &OccurrenceRef) -> bool {
+        !occurrence.is_scene_root()
+            && document.scene_container_occurrence().as_ref() != Some(occurrence)
+    }
+
+    pub fn can_draw_target(&self, document: &Document, target: &SelectionTarget) -> bool {
+        self.occurrence_visible(document, &target.occurrence)
+            && self.can_draw(target.entity.kind())
+            && (target.entity.kind() != SelectionKind::Vertex || self.can_draw(SelectionKind::Edge))
+    }
+
+    pub fn can_edit_target(&self, document: &Document, target: &SelectionTarget) -> bool {
+        self.can_draw_target(document, target)
+            && self.can_select(target.entity.kind())
+            && (!self.is_object(document, &target.occurrence)
+                || self.can_select(SelectionKind::Object))
+            && (target.entity.kind() != SelectionKind::Vertex
+                || self.can_select(SelectionKind::Edge))
+    }
+
+    pub fn target_wireframe(&self, document: &Document, target: &SelectionTarget) -> bool {
+        self.state(target.entity.kind()).wireframe
+            || (self.is_object(document, &target.occurrence)
+                && self.state(SelectionKind::Object).wireframe)
+    }
+
     pub fn set_visible(&mut self, kind: SelectionKind, visible: bool) -> bool {
         let state = self.states.entry(kind).or_default();
         if state.visible == visible {
@@ -103,17 +152,6 @@ impl SelectionDisplayPolicy {
 
     pub fn set_wireframe(&mut self, kind: SelectionKind, wireframe: bool) -> bool {
         let state = self.states.entry(kind).or_default();
-        let wireframe = wireframe
-            && matches!(
-                kind,
-                SelectionKind::Face
-                    | SelectionKind::Voxel
-                    | SelectionKind::Wall
-                    | SelectionKind::Slab
-                    | SelectionKind::Stair
-                    | SelectionKind::Frame
-                    | SelectionKind::Hvac
-            );
         if state.wireframe == wireframe {
             return false;
         }
@@ -590,6 +628,33 @@ mod tests {
     }
 
     #[test]
+    fn target_policy_keeps_scene_geometry_independent_of_object_visibility() {
+        let mut document = Document::new();
+        let instance = document
+            .add_cuboid("Part", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let root = SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::Triangle(crate::document::TriangleId(1)),
+        };
+        let object_face = SelectionTarget {
+            occurrence: instance,
+            entity: root.entity.clone(),
+        };
+        let mut policy = SelectionDisplayPolicy::default();
+        policy.set_wireframe(SelectionKind::Object, true);
+        assert!(policy.target_wireframe(&document, &object_face));
+        assert!(!policy.target_wireframe(&document, &root));
+        policy.set_unlocked(SelectionKind::Object, false);
+        assert!(policy.can_draw_target(&document, &object_face));
+        assert!(!policy.can_edit_target(&document, &object_face));
+        assert!(policy.can_edit_target(&document, &root));
+        policy.set_visible(SelectionKind::Object, false);
+        assert!(!policy.can_draw_target(&document, &object_face));
+        assert!(policy.can_draw_target(&document, &root));
+    }
+
+    #[test]
     fn display_policy_unifies_visibility_lock_and_wireframe_rules() {
         let mut policy = SelectionDisplayPolicy::default();
         assert!(policy.can_draw(SelectionKind::Edge));
@@ -604,8 +669,8 @@ mod tests {
         assert!(!policy.can_select(SelectionKind::Face));
         assert!(policy.set_wireframe(SelectionKind::Face, true));
         assert!(policy.state(SelectionKind::Face).wireframe);
-        assert!(!policy.set_wireframe(SelectionKind::Edge, true));
-        assert!(!policy.state(SelectionKind::Edge).wireframe);
+        assert!(policy.set_wireframe(SelectionKind::Edge, true));
+        assert!(policy.state(SelectionKind::Edge).wireframe);
     }
 
     #[test]

@@ -34,6 +34,46 @@ pub fn load_icon_atlas(context: &egui::Context) -> Option<egui::TextureHandle> {
     ))
 }
 
+/// Minimal embedded controls used by gpui-component; no runtime asset downloads.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct ComponentAssets;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl gpui::AssetSource for ComponentAssets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        let bytes: &'static [u8] = match path {
+            "icons/check.svg" => include_bytes!("../../../assets/gpui/check.svg"),
+            "icons/chevron-down.svg" => include_bytes!("../../../assets/gpui/chevron-down.svg"),
+            "icons/chevron-up.svg" => include_bytes!("../../../assets/gpui/chevron-up.svg"),
+            "icons/chevron-left.svg" => include_bytes!("../../../assets/gpui/chevron-left.svg"),
+            "icons/chevron-right.svg" => include_bytes!("../../../assets/gpui/chevron-right.svg"),
+            "icons/chevrons-up-down.svg" => {
+                include_bytes!("../../../assets/gpui/chevrons-up-down.svg")
+            }
+            "icons/close.svg" => include_bytes!("../../../assets/gpui/close.svg"),
+            "icons/search.svg" => include_bytes!("../../../assets/gpui/search.svg"),
+            _ => return Ok(None),
+        };
+        Ok(Some(std::borrow::Cow::Borrowed(bytes)))
+    }
+    fn list(&self, path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
+        Ok([
+            "icons/check.svg",
+            "icons/chevron-down.svg",
+            "icons/chevron-up.svg",
+            "icons/chevron-left.svg",
+            "icons/chevron-right.svg",
+            "icons/chevrons-up-down.svg",
+            "icons/close.svg",
+            "icons/search.svg",
+        ]
+        .into_iter()
+        .filter(|p| p.starts_with(path))
+        .map(Into::into)
+        .collect())
+    }
+}
+
 /// Decode and crop the generated high-DPI atlas once, never on a UI redraw.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn gpui_icon(name: &str) -> Option<std::sync::Arc<gpui::RenderImage>> {

@@ -106,6 +106,18 @@ impl MeshcraftApp {
     }
 
     pub fn native_hotspot_authoring_allowed(&self, occurrence: &OccurrenceRef) -> bool {
+        if !self.selection_display_policy.can_edit_target(
+            &self.document,
+            &SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    id: String::new(),
+                },
+            },
+        ) {
+            return false;
+        }
         match &self.selection.context {
             EditContext::Document => {
                 occurrence.is_scene_root()
@@ -183,6 +195,15 @@ impl MeshcraftApp {
         id: &str,
         target_local: Vec3,
     ) -> Result<(), String> {
+        if !self.native_target_editable(&SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                id: id.into(),
+            },
+        }) {
+            return Err("this instance hotspot is hidden or read-only".into());
+        }
         if self.native_hotspot_authoring_allowed(occurrence) && !occurrence.is_scene_root() {
             return Err("finish prototype editing before operating an instance hotspot".into());
         }

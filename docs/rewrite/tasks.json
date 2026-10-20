@@ -864,7 +864,8 @@
         "Separate model settings, session selection/camera state and application preferences; validate fields and emit transactions only for valid edits.",
         "Persist profile/layout and recover offscreen panels; complete current command/menu mapping, status/measurement/context feedback and shortcut focus tests.",
         "Evaluate Ely GPUI under #26: pinned-source availability, component coverage, telemetry/supply-chain review, vendoring and GPUI upgrade difficulty before any production migration.",
-        "Active tools and stronger hover feedback (#28): show the active tool on its buttons and distinguish hover clearly, preserving icon and text labels."
+        "Active tools and stronger hover feedback (#28): show the active tool on its buttons and distinguish hover clearly, preserving icon and text labels.",
+        "Activate the Type/T/S/V/E/W selection table with per-type and whole-column controls, shared draw/edit/picking policy, and the user-specified shader defaults (2026-10-20)."
       ],
       "done": [
         "Every ready operation is reachable in Desktop Menus and Buttons; no hidden-toolbar dependency.",
@@ -2947,7 +2948,8 @@
         "Port click/window selection, connected/coplanar multi-click selection, snapping, Escape, nested definition editing, construction/modify tools and all array families.",
         "Carry two-sided face tints, batched geometry, shadow-map policy, cursor/guides, construction feedback and measurement text into raylib; exclude authored lines and overlays from shadow casting.",
         "Remove Bevy, bevy_ecs, bevy_egui, egui/eframe and retired framework-specific renderer/UI modules from the desktop source and dependency graph; remove obsolete stack experiments and lockfile entries.",
-        "Run headless command/core/IO tests and C39/C40/C41 desktop verification; record all preserved behavior, removed files and remaining platform limits."
+        "Run headless command/core/IO tests and C39/C40/C41 desktop verification; record all preserved behavior, removed files and remaining platform limits.",
+        "Route GPUI Enter/Backspace into shared point-array completion/undo; reserve A/C/L in every path tool and use Shift+L for explicit construction-tool cycling (2026-10-20)."
       ],
       "done": [
         "The documented desktop workflows are served by GPUI and raylib-rs; no production Bevy/egui/eframe renderer or UI code remains.",

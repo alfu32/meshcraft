@@ -17,12 +17,12 @@ pub(super) struct Lighting {
 impl Default for Lighting {
     fn default() -> Self {
         Self {
-            ambient: 0.59,
+            ambient: 0.64,
             directional: 0.73,
             shadow_strength: 0.50,
-            specular: 0.20,
-            depth_bias: 0.00015,
-            normal_bias: 0.004,
+            specular: 0.15,
+            depth_bias: 0.00025,
+            normal_bias: 0.037,
             azimuth: -35.0,
             elevation: 55.0,
             shadows: true,
@@ -42,6 +42,7 @@ struct Face {
     points: [Vec3; 3],
     color: Rgba8,
     target: SelectionTarget,
+    wireframe: bool,
 }
 struct Edge {
     points: [Vec3; 2],
@@ -57,6 +58,7 @@ pub(super) struct Renderer {
     lit: Shader,
     map: RenderTexture2D,
     document: Option<Arc<Document>>,
+    policy: meshcraft_core::selection::SelectionDisplayPolicy,
     faces: Vec<Face>,
     edges: Vec<Edge>,
     vertices: Vec<Vertex>,
@@ -85,6 +87,7 @@ impl Renderer {
                 .load_render_texture(thread, 2048, 2048)
                 .expect("shadow target"),
             document: None,
+            policy: meshcraft_core::selection::SelectionDisplayPolicy::default(),
             faces: Vec::new(),
             edges: Vec::new(),
             vertices: Vec::new(),
@@ -103,9 +106,10 @@ impl Renderer {
         let changed = self
             .document
             .as_ref()
-            .is_none_or(|doc| !Arc::ptr_eq(doc, &scene.document));
+            .is_none_or(|doc| !Arc::ptr_eq(doc, &scene.document))
+            || self.policy != scene.display_policy;
         if changed {
-            self.rebuild(&scene.document);
+            self.rebuild(&scene.document, &scene.display_policy);
             self.last_light = None;
         }
         let direction = scene.lighting.direction();
@@ -144,7 +148,7 @@ impl Renderer {
             }
             let mut pass = view.begin_shader_mode(&mut self.depth);
             for face in &self.faces {
-                if face.color.alpha == 255 {
+                if face.color.alpha == 255 && !face.wireframe {
                     triangle(&mut pass, face.points, Color::WHITE);
                 }
             }
@@ -159,7 +163,12 @@ impl Renderer {
         self.lit
             .set_shader_value_matrix(self.lit.get_shader_location("lightVP"), light_vp);
     }
-    fn rebuild(&mut self, document: &Arc<Document>) {
+    fn rebuild(
+        &mut self,
+        document: &Arc<Document>,
+        policy: &meshcraft_core::selection::SelectionDisplayPolicy,
+    ) {
+        self.policy = policy.clone();
         self.handles = hotspots::handles(document);
         self.faces.clear();
         self.edges.clear();
@@ -183,6 +192,7 @@ impl Renderer {
                     self.faces.push(Face {
                         points: [a, b, c],
                         color: face.color,
+                        wireframe: false,
                         target: SelectionTarget {
                             occurrence: occurrence.clone(),
                             entity: SelectedEntity::Triangle(face.id),
@@ -223,6 +233,27 @@ impl Renderer {
             self.center = Vec3::ZERO;
             self.radius = 10.0;
         }
+        self.faces
+            .retain(|face| policy.can_draw_target(document, &face.target));
+        for face in &mut self.faces {
+            face.wireframe = policy.target_wireframe(document, &face.target);
+        }
+        self.edges
+            .retain(|edge| policy.can_draw_target(document, &edge.target));
+        self.vertices
+            .retain(|vertex| policy.can_draw_target(document, &vertex.target));
+        self.handles.retain(|handle| {
+            policy.can_draw_target(
+                document,
+                &SelectionTarget {
+                    occurrence: handle.occurrence.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                        id: handle.hotspot.id.clone(),
+                    },
+                },
+            )
+        });
         self.document = Some(Arc::clone(document));
     }
     pub fn draw(
@@ -275,6 +306,9 @@ impl Renderer {
             triangle(&mut pass, [a, b, c], Color::new(188, 198, 208, 255));
             triangle(&mut pass, [a, c, d], Color::new(188, 198, 208, 255));
             for face in &self.faces {
+                if face.wireframe {
+                    continue;
+                }
                 let color = if selected(&scene.selection, &face.target) {
                     Color::new(242, 151, 61, face.color.alpha)
                 } else {
@@ -297,7 +331,8 @@ impl Renderer {
             raylib::ffi::rlDisableBackfaceCulling();
         }
         for face in &self.faces {
-            if selected(&scene.selection, &face.target) {
+            if face.wireframe || selected(&scene.selection, &face.target) {
+                let selected = selected(&scene.selection, &face.target);
                 for [a, b] in [
                     [face.points[0], face.points[1]],
                     [face.points[1], face.points[2]],
@@ -306,8 +341,16 @@ impl Renderer {
                     stroke(
                         view,
                         [a, b],
-                        Color::new(240, 116, 43, 255),
-                        scene.thick_line_width,
+                        if selected {
+                            Color::new(240, 116, 43, 255)
+                        } else {
+                            Color::BLACK
+                        },
+                        if selected {
+                            scene.thick_line_width
+                        } else {
+                            scene.normal_line_width
+                        },
                         camera,
                         height,
                     );
@@ -411,6 +454,17 @@ fn external(context: &EditContext, document: &Document, target: &SelectionTarget
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lighting_defaults_match_the_requested_shader_preset() {
+        let l = Lighting::default();
+        assert_eq!((l.azimuth, l.elevation), (-35., 55.));
+        assert_eq!((l.directional, l.ambient, l.specular), (0.73, 0.64, 0.15));
+        assert_eq!(
+            (l.shadow_strength, l.depth_bias, l.normal_bias),
+            (0.5, 0.00025, 0.037)
+        );
+    }
 
     #[test]
     #[ignore = "requires a live X11/OpenGL display; run explicitly with --ignored --test-threads=1"]
@@ -660,6 +714,32 @@ mod tests {
                 > 40,
             "authored black line missing"
         );
+        // Policy-only edits must invalidate the draw and shadow caches without cloning the model.
+        let document = Arc::clone(&scene.document);
+        let face_count = renderer.faces.len();
+        scene
+            .display_policy
+            .set_visible(meshcraft_core::selection::SelectionKind::Face, false);
+        renderer.prepare(&mut rl, &thread, &scene);
+        assert!(renderer.faces.is_empty());
+        assert!(!renderer.edges.is_empty());
+        assert!(Arc::ptr_eq(&document, &scene.document));
+        scene
+            .display_policy
+            .set_visible(meshcraft_core::selection::SelectionKind::Face, true);
+        scene
+            .display_policy
+            .set_wireframe(meshcraft_core::selection::SelectionKind::Object, true);
+        renderer.prepare(&mut rl, &thread, &scene);
+        assert_eq!(face_count, renderer.faces.len());
+        assert!(renderer.faces.iter().all(|face| face.wireframe));
+        scene
+            .display_policy
+            .set_visible(meshcraft_core::selection::SelectionKind::Object, false);
+        renderer.prepare(&mut rl, &thread, &scene);
+        assert!(renderer.faces.is_empty());
+        assert!(renderer.edges.is_empty());
+        assert!(renderer.handles.is_empty());
         // Keep a directly inspectable artifact, converting GPUI BGRA back to PNG RGBA.
         let mut rgba = shadowed;
         for p in rgba.pixels_mut() {

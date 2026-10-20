@@ -1009,7 +1009,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "tool.cycle.planar_construction",
                 "Tools> Next Planar Construction Tool",
                 "Tools",
-                "cycle line construction line polyline double line rectangle mesh quad circle hotspot L",
+                "cycle line construction line polyline double line rectangle mesh quad circle hotspot L Shift+L",
                 None,
                 ShellAction::CycleTool(ToolCycle::PlanarConstruction),
             ),
@@ -1725,7 +1725,7 @@ fn register_shell_command(
     if let ShellAction::CycleTool(cycle) = action {
         descriptor.shortcut = Some(
             match cycle {
-                ToolCycle::PlanarConstruction => "L",
+                ToolCycle::PlanarConstruction => "Shift+L",
                 ToolCycle::Annotation => "D",
                 ToolCycle::Operations => "O",
                 ToolCycle::Modification => "M",
@@ -1920,24 +1920,6 @@ fn selection_kind_from_name(name: &str) -> Option<SelectionKind> {
         "hvac" => SelectionKind::Hvac,
         _ => return None,
     })
-}
-
-fn selection_kind_label(kind: SelectionKind) -> &'static str {
-    match kind {
-        SelectionKind::Vertex => "Vertices",
-        SelectionKind::Edge => "Edges",
-        SelectionKind::Face => "Faces",
-        SelectionKind::Object => "Objects",
-        SelectionKind::Voxel => "Voxels",
-        SelectionKind::Hotspot => "Hotspots",
-        SelectionKind::Dimension => "Dimensions",
-        SelectionKind::Text => "Texts",
-        SelectionKind::Wall => "Walls",
-        SelectionKind::Slab => "Slabs",
-        SelectionKind::Stair => "Stairs",
-        SelectionKind::Frame => "Frames",
-        SelectionKind::Hvac => "HVAC",
-    }
 }
 
 fn toolbar_visibility_key(stem: &str) -> &'static str {
@@ -2414,13 +2396,18 @@ impl MeshcraftApp {
             self.selection_click_tracker.reset();
             return;
         }
+        let target = target.filter(|target| self.native_target_editable(target));
         let click_count = self
             .selection_click_tracker
             .record(at_millis, screen_position);
         if click_count >= 3
             && let Some(target) = target.as_ref()
         {
-            let connected = self.connected_selection_component(target);
+            let connected = self
+                .connected_selection_component(target)
+                .into_iter()
+                .filter(|target| self.native_target_editable(target))
+                .collect::<Vec<_>>();
             self.selection.apply(connected, SelectionMode::Replace);
             self.status = format!(
                 "{} Connected entity/entities selected.",
@@ -2467,7 +2454,11 @@ impl MeshcraftApp {
                     return;
                 }
                 SelectedEntity::Triangle(_) => {
-                    let coplanar = self.coplanar_faces(target);
+                    let coplanar = self
+                        .coplanar_faces(target)
+                        .into_iter()
+                        .filter(|target| self.native_target_editable(target))
+                        .collect::<Vec<_>>();
                     self.selection.apply(coplanar, SelectionMode::Replace);
                     self.status = format!(
                         "{} Coplanar face(s) selected.",
@@ -2558,6 +2549,7 @@ impl MeshcraftApp {
             snap,
             Some(point),
         );
+        self.prune_uneditable_selection();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2566,6 +2558,10 @@ impl MeshcraftApp {
             self.status = "Paint: click a visible edge or face.".to_owned();
             return;
         };
+        if !self.native_target_editable(&target) {
+            self.status = "Paint: this entity is hidden or read-only.".into();
+            return;
+        }
         if !matches!(
             target.entity,
             SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
@@ -2775,11 +2771,12 @@ impl MeshcraftApp {
             scope,
             &self.selection_display_policy,
         )?;
-        Some(if self.active_tool == "Select" {
+        let target = if self.active_tool == "Select" {
             self.native_normalize_selection_target(target)
         } else {
             target
-        })
+        };
+        self.native_target_editable(&target).then_some(target)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3029,13 +3026,18 @@ impl MeshcraftApp {
     }
 
     fn set_selection(&mut self, occurrences: impl IntoIterator<Item = OccurrenceRef>) {
-        self.selection.apply(
-            occurrences.into_iter().map(|occurrence| SelectionTarget {
+        let targets = occurrences
+            .into_iter()
+            .map(|occurrence| SelectionTarget {
                 occurrence,
                 entity: SelectedEntity::Occurrence,
-            }),
-            SelectionMode::Replace,
-        );
+            })
+            .filter(|target| {
+                self.selection_display_policy
+                    .can_edit_target(&self.document, target)
+            })
+            .collect::<Vec<_>>();
+        self.selection.apply(targets, SelectionMode::Replace);
     }
 
     fn line_geometry_context(
@@ -4458,6 +4460,12 @@ impl MeshcraftApp {
     }
 
     pub fn native_target_editable(&self, target: &SelectionTarget) -> bool {
+        if !self
+            .selection_display_policy
+            .can_edit_target(&self.document, target)
+        {
+            return false;
+        }
         match &self.selection.context {
             EditContext::Document => true,
             EditContext::Occurrence(active) => target.occurrence.path.starts_with(&active.path),
@@ -4737,7 +4745,22 @@ impl MeshcraftApp {
                 .is_some()
     }
 
+    fn prune_uneditable_selection(&mut self) {
+        let retained = self
+            .selection
+            .selected()
+            .iter()
+            .filter(|target| {
+                self.selection_display_policy
+                    .can_edit_target(&self.document, target)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        self.selection.apply(retained, SelectionMode::Replace);
+    }
+
     pub fn dispatch_command(&mut self, id: &str, payload: &CommandPayload) -> CommandDispatch {
+        self.prune_uneditable_selection();
         let state = self.query_command_state(id);
         let before_revision = self.document.revision();
         let outcome = shell_commands().dispatch(id, payload, &state, |action, payload| {
@@ -4747,6 +4770,7 @@ impl MeshcraftApp {
             }
             result
         });
+        self.prune_uneditable_selection();
         if !outcome.accepted || outcome.result.completion == CommandCompletion::Failed {
             if let Some(message) = outcome.result.diagnostics.first() {
                 self.status = message.clone();
@@ -5616,6 +5640,59 @@ impl MeshcraftApp {
             .unwrap_or(0.0)
     }
 
+    fn set_path_segment_key(&mut self, key: &str) -> bool {
+        if !self.polyline_tool_state.active() {
+            return false;
+        }
+        let (mode, label) = match key {
+            "a" => (
+                PolylineSegmentMode::ArcThrough,
+                "arc through a picked point",
+            ),
+            "c" => (
+                PolylineSegmentMode::ArcCenter,
+                "circular arc from a picked center",
+            ),
+            "l" => (PolylineSegmentMode::Line, "line segment"),
+            _ => return false,
+        };
+        self.polyline_tool_state.set_mode(mode);
+        self.status = format!(
+            "{}: {label}. Enter finishes; Esc cancels.",
+            self.active_tool
+        );
+        true
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn handle_native_tool_key(&mut self, key: &str, shift: bool) -> bool {
+        if !shift && self.set_path_segment_key(key) {
+            return true;
+        }
+        let command = match key {
+            "enter" => "tool.finish",
+            "backspace" => "tool.undo_point",
+            "l" if shift || !self.polyline_tool_state.active() => "tool.cycle.planar_construction",
+            "d" if !shift => "tool.cycle.annotation",
+            "o" if !shift => "tool.cycle.operations",
+            "m" if !shift => "tool.cycle.modification",
+            _ => return false,
+        };
+        self.run_command(command);
+        true
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn native_point_input_hint(&self) -> &'static str {
+        if self.polyline_tool_state.active() {
+            "Enter finish · A arc · C circular · L line · Shift+L next tool · Esc cancel"
+        } else if self.mesh_tool_state.active() {
+            "Enter finish chain · Backspace undo point · Esc cancel"
+        } else {
+            ""
+        }
+    }
+
     fn advance_tool_cycle(&mut self, cycle: ToolCycle) {
         match self.tool_cycle_state.advance(cycle, &self.active_tool) {
             ToolCycleEffect::ActivateTool(tool) => self.activate_tool(tool),
@@ -6084,6 +6161,15 @@ impl MeshcraftApp {
                     }
                     selection.push(occurrence);
                 }
+                selection.retain(|path| {
+                    self.selection_display_policy.can_edit_target(
+                        &self.document,
+                        &SelectionTarget {
+                            occurrence: path.clone(),
+                            entity: SelectedEntity::Occurrence,
+                        },
+                    )
+                });
                 selection.sort();
                 let selection_value = match serde_json::to_value(&selection) {
                     Ok(value) => value,
@@ -6112,8 +6198,25 @@ impl MeshcraftApp {
                 else {
                     return CommandResult::failed("kind must be a selection type name");
                 };
-                let Some(kind) = selection_kind_from_name(kind_name) else {
-                    return CommandResult::failed(format!("unknown selection type `{kind_name}`"));
+                let kinds = match kind_name {
+                    "all" => SelectionKind::ALL.to_vec(),
+                    "dimensions_texts" => vec![SelectionKind::Dimension, SelectionKind::Text],
+                    "architecture" => vec![
+                        SelectionKind::Wall,
+                        SelectionKind::Slab,
+                        SelectionKind::Stair,
+                        SelectionKind::Frame,
+                        SelectionKind::Hvac,
+                    ],
+                    "edge" => vec![SelectionKind::Edge, SelectionKind::Vertex],
+                    name => match selection_kind_from_name(name) {
+                        Some(kind) => vec![kind],
+                        None => {
+                            return CommandResult::failed(format!(
+                                "unknown selection type `{name}`"
+                            ));
+                        }
+                    },
                 };
                 let Some(property) = payload
                     .values
@@ -6131,27 +6234,61 @@ impl MeshcraftApp {
                 else {
                     return CommandResult::failed("enabled must be a boolean");
                 };
-                let changed = match property {
-                    "display" => self.selection_display_policy.set_visible(kind, enabled),
-                    "modifiable" => self.selection_display_policy.set_unlocked(kind, enabled),
-                    "wireframe" if kind == SelectionKind::Face => {
-                        self.selection_display_policy.set_wireframe(kind, enabled)
-                    }
-                    "wireframe" => {
-                        return CommandResult::failed(
-                            "wireframe is currently available for faces in the native renderer",
-                        );
-                    }
-                    _ => {
-                        return CommandResult::failed(format!(
-                            "unknown selection display property `{property}`"
-                        ));
-                    }
-                };
-                self.status = format!(
-                    "{} {} {}.",
-                    selection_kind_label(kind),
+                if !matches!(
                     property,
+                    "display" | "visible" | "modifiable" | "editable" | "wireframe"
+                ) {
+                    return CommandResult::failed(format!(
+                        "unknown selection display property `{property}`"
+                    ));
+                }
+                let mut changed = false;
+                for kind in kinds {
+                    changed |= match property {
+                        "display" | "visible" => {
+                            self.selection_display_policy.set_visible(kind, enabled)
+                        }
+                        "modifiable" | "editable" => {
+                            self.selection_display_policy.set_unlocked(kind, enabled)
+                        }
+                        _ => self.selection_display_policy.set_wireframe(kind, enabled),
+                    };
+                }
+                if changed && property != "wireframe" {
+                    self.cancel_active_tool();
+                }
+                if !self
+                    .selection_display_policy
+                    .can_select(SelectionKind::Object)
+                    && matches!(self.selection.context, EditContext::Occurrence(_))
+                {
+                    self.selection.set_context(EditContext::Document);
+                }
+                let retained = self
+                    .selection
+                    .selected()
+                    .iter()
+                    .filter(|target| {
+                        self.selection_display_policy
+                            .can_edit_target(&self.document, target)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                self.selection.apply(retained, SelectionMode::Replace);
+                self.hotspot_inspector = self.hotspot_inspector.take().filter(|(path, id)| {
+                    self.selection_display_policy.can_edit_target(
+                        &self.document,
+                        &SelectionTarget {
+                            occurrence: path.clone(),
+                            entity: SelectedEntity::SemanticHandle {
+                                kind: SelectionKind::Hotspot,
+                                id: id.clone(),
+                            },
+                        },
+                    )
+                });
+                self.status = format!(
+                    "{kind_name} {property} {}.",
                     if enabled { "enabled" } else { "disabled" }
                 );
                 let mut result = CommandResult::completed();
@@ -10691,7 +10828,7 @@ impl MeshcraftApp {
                             ui.label("Rust rewrite · development build");
                             ui.label("Ctrl+Shift+P opens the command palette.");
                             ui.label("Ctrl+N focuses distance input after a Line start point.");
-                            ui.label("L cycles planar tools, D annotations, O operations, and M modifications.");
+                            ui.label("Shift+L cycles planar tools, D annotations, O operations, and M modifications. A/C/L selects arc/circular/line segments while entering paths.");
                             ui.label("G places a grid guide; T places an axis guide.");
                         });
                     }
@@ -10779,7 +10916,6 @@ impl MeshcraftApp {
                 "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
             )
         {
-            let tool_name = self.active_tool.clone();
             if ui.input(|input| input.key_pressed(egui::Key::Backspace))
                 && self.polyline_tool_state.backspace()
             {
@@ -10788,29 +10924,25 @@ impl MeshcraftApp {
             if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                 self.run_command("tool.finish");
             }
-            if matches!(
-                self.active_tool.as_str(),
-                "Polyline" | "Double Line" | "Extrude Swipe"
-            ) {
-                let mode = ui.input(|input| {
+            if !ui.input(|input| {
+                input.modifiers.shift
+                    || input.modifiers.ctrl
+                    || input.modifiers.alt
+                    || input.modifiers.mac_cmd
+            }) {
+                let key = ui.input(|input| {
                     if input.key_pressed(egui::Key::A) {
-                        Some(PolylineSegmentMode::ArcThrough)
+                        Some("a")
                     } else if input.key_pressed(egui::Key::C) {
-                        Some(PolylineSegmentMode::ArcCenter)
+                        Some("c")
                     } else if input.key_pressed(egui::Key::L) {
-                        Some(PolylineSegmentMode::Line)
+                        Some("l")
                     } else {
                         None
                     }
                 });
-                if let Some(mode) = mode {
-                    self.polyline_tool_state.set_mode(mode);
-                    let mode_name = match mode {
-                        PolylineSegmentMode::Line => "line segment",
-                        PolylineSegmentMode::ArcThrough => "arc through a picked point",
-                        PolylineSegmentMode::ArcCenter => "arc from a picked center",
-                    };
-                    self.status = format!("{tool_name} mode: {mode_name}.");
+                if let Some(key) = key {
+                    self.set_path_segment_key(key);
                 }
             }
         }
@@ -10952,10 +11084,9 @@ impl MeshcraftApp {
                 }
             }
         } else if shortcuts_allowed
-            && self.active_tool != "Polyline"
             && ui.input(|input| {
                 !input.modifiers.ctrl
-                    && !input.modifiers.shift
+                    && (!self.polyline_tool_state.active() || input.modifiers.shift)
                     && !input.modifiers.alt
                     && !input.modifiers.mac_cmd
                     && input.key_pressed(egui::Key::L)
@@ -12763,7 +12894,7 @@ mod tests {
         let initial_revision = app.document.revision();
 
         for (id, shortcut) in [
-            ("tool.cycle.planar_construction", "L"),
+            ("tool.cycle.planar_construction", "Shift+L"),
             ("tool.cycle.annotation", "D"),
             ("tool.cycle.operations", "O"),
             ("tool.cycle.modification", "M"),
@@ -15053,6 +15184,86 @@ mod tests {
     }
 
     #[test]
+    fn native_enter_commits_point_arrays_and_escape_preserves_the_result() {
+        for tool in ["Polyline", "Double Line"] {
+            let mut app = test_app();
+            app.activate_tool(tool);
+            let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.));
+            for point in [Vec3::ZERO, Vec3::X * 3., Vec3::new(3., 0., 2.)] {
+                app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+            }
+            assert!(app.handle_native_tool_key("enter", false));
+            assert!(app.polyline_tool_state.points().is_empty());
+            assert_eq!(1, app.history.entries().len(), "{tool} commits once");
+            let committed = app.document.clone();
+            app.handle_native_escape();
+            assert_eq!(
+                committed, app.document,
+                "Escape cannot remove committed {tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_segment_letters_do_not_cycle_any_path_tool_and_shift_l_explicitly_cycles() {
+        for tool in [
+            "Polyline",
+            "Double Line",
+            "Extrude Swipe",
+            "Extrude Swipe 3D",
+            "Ribbon 3D",
+        ] {
+            let mut app = test_app();
+            app.activate_tool(tool);
+            app.polyline_tool_state.pick(Vec3::ZERO, 0.25).unwrap();
+            for (key, mode) in [
+                (
+                    "a",
+                    meshcraft_core::tools::paths::PolylineSegmentMode::ArcThrough,
+                ),
+                (
+                    "c",
+                    meshcraft_core::tools::paths::PolylineSegmentMode::ArcCenter,
+                ),
+                ("l", meshcraft_core::tools::paths::PolylineSegmentMode::Line),
+            ] {
+                assert!(app.handle_native_tool_key(key, false));
+                assert_eq!(tool, app.active_tool, "{key} switched out of {tool}");
+                assert_eq!(mode, app.polyline_tool_state.mode());
+                assert_eq!(1, app.polyline_tool_state.points().len());
+                assert!(!app.tool_cycle_state.hotspot_placement_active());
+            }
+            assert!(app.handle_native_tool_key("l", true));
+            assert!(app.tool_cycle_state.hotspot_placement_active() || app.active_tool != tool);
+        }
+    }
+
+    #[test]
+    fn legacy_double_line_l_switches_segment_mode_without_cycling() {
+        let mut app = test_app();
+        let context = egui::Context::default();
+        app.activate_tool("Double Line");
+        app.polyline_tool_state
+            .set_mode(meshcraft_core::tools::paths::PolylineSegmentMode::ArcThrough);
+        run_workspace_frame(
+            &mut app,
+            &context,
+            vec![Event::Key {
+                key: Key::L,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }],
+        );
+        assert_eq!("Double Line", app.active_tool);
+        assert_eq!(
+            meshcraft_core::tools::paths::PolylineSegmentMode::Line,
+            app.polyline_tool_state.mode()
+        );
+    }
+
+    #[test]
     fn double_line_command_creates_and_selects_a_ribbon_from_a_point_path() {
         let mut app = test_app();
         let activated =
@@ -16912,6 +17123,87 @@ mod tests {
     }
 
     #[test]
+    fn selection_column_controls_prune_selection_and_keep_hidden_types_read_only() {
+        let mut app = test_app();
+        let instance = app
+            .document
+            .add_cuboid("Part", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        app.set_selection([instance.clone()]);
+        let before = app.document.clone();
+        let update = |app: &mut MeshcraftApp, kind: &str, property: &str, enabled: bool| {
+            let mut payload = CommandPayload::default();
+            payload.values.insert("kind".into(), kind.into());
+            payload.values.insert("property".into(), property.into());
+            payload.values.insert("enabled".into(), enabled.into());
+            assert_eq!(
+                CommandCompletion::Completed,
+                app.dispatch_command("selection.update_display", &payload)
+                    .result
+                    .completion
+            );
+        };
+        update(&mut app, "object", "editable", false);
+        assert!(app.selection.selected().is_empty());
+        app.set_selection([instance.clone()]);
+        assert!(app.selection.selected().is_empty());
+        app.apply_native_selection_region(
+            vec![SelectionTarget {
+                occurrence: instance.clone(),
+                entity: SelectedEntity::Occurrence,
+            }],
+            false,
+            SelectionMode::Replace,
+        );
+        assert!(app.selection.selected().is_empty());
+        assert_eq!(before, app.document);
+        update(&mut app, "all", "visible", false);
+        update(&mut app, "all", "editable", true);
+        assert!(
+            SelectionKind::ALL
+                .iter()
+                .all(|k| !app.selection_display_policy.can_draw(*k)
+                    && !app.selection_display_policy.can_select(*k))
+        );
+        update(&mut app, "all", "visible", true);
+        assert!(
+            SelectionKind::ALL
+                .iter()
+                .all(|k| app.selection_display_policy.can_select(*k))
+        );
+        update(&mut app, "all", "wireframe", true);
+        assert!(
+            SelectionKind::ALL
+                .iter()
+                .all(|k| app.selection_display_policy.state(*k).wireframe)
+        );
+        update(&mut app, "dimensions_texts", "visible", false);
+        assert!(
+            !app.selection_display_policy
+                .can_draw(SelectionKind::Dimension)
+        );
+        assert!(!app.selection_display_policy.can_select(SelectionKind::Text));
+        update(&mut app, "architecture", "editable", false);
+        assert!(
+            !app.selection_display_policy
+                .can_select(SelectionKind::Stair)
+        );
+        assert!(!app.selection_display_policy.can_select(SelectionKind::Hvac));
+        assert_eq!(before, app.document);
+        update(&mut app, "all", "visible", false);
+        app.activate_tool("Polyline");
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.));
+        for point in [Vec3::ZERO, Vec3::X * 2.] {
+            app.handle_viewport_click_at_point(rect, Pos2::ZERO, None, Some(point));
+        }
+        app.handle_native_tool_key("enter", false);
+        assert!(
+            app.selection.selected().is_empty(),
+            "new hidden geometry must not remain selectable"
+        );
+    }
+
+    #[test]
     fn selection_display_command_updates_visibility_modifiability_and_face_wireframe() {
         let mut app = test_app();
         let revision = app.document.revision();
@@ -16992,7 +17284,7 @@ mod tests {
         );
         assert!(rejected_wireframe.accepted);
         assert_eq!(
-            meshcraft_core::commands::CommandCompletion::Failed,
+            meshcraft_core::commands::CommandCompletion::Completed,
             rejected_wireframe.result.completion
         );
         assert_eq!(revision, app.document.revision());

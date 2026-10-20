@@ -188,6 +188,7 @@ struct RenderScene {
     grid_normal_axis: String,
     grid_extent: i32,
     selection: Vec<SelectionTarget>,
+    display_policy: meshcraft_core::selection::SelectionDisplayPolicy,
     edit_context: EditContext,
     guides: Vec<ConstructionGuide>,
     guides_visible: bool,
@@ -210,6 +211,7 @@ impl Default for RenderScene {
             grid_normal_axis: "y".to_owned(),
             grid_extent: 32,
             selection: Vec::new(),
+            display_policy: meshcraft_core::selection::SelectionDisplayPolicy::default(),
             edit_context: EditContext::Document,
             guides: Vec::new(),
             guides_visible: true,
@@ -1094,6 +1096,7 @@ impl MeshcraftShell {
             .to_owned(),
             grid_extent: preferences.grid_extent as i32,
             selection: self.session.native_selection_targets(),
+            display_policy: self.session.native_selection_display_policy(),
             edit_context: self.session.native_edit_context(),
             guides: self.session.native_construction_guides().to_vec(),
             guides_visible: self.session.native_guides_visible(),
@@ -1493,6 +1496,14 @@ impl MeshcraftShell {
             }
             self.cursor_snap = None;
             self.last_pick = None;
+            self.refresh_scene();
+        } else if !modifiers.control
+            && !modifiers.alt
+            && !modifiers.platform
+            && self.open_menu.is_none()
+            && !self.command_palette_open
+            && self.session.handle_native_tool_key(&key, modifiers.shift)
+        {
             self.refresh_scene();
         } else if !modifiers.control
             && !modifiers.alt
@@ -2267,8 +2278,14 @@ impl Render for MeshcraftShell {
                     .text_sm()
                     .text_color(rgb(0x27394b))
                     .child(format!(
-                        "{} · right-drag orbit · Shift+right-drag pan · wheel zoom",
-                        self.session.active_tool_label()
+                        "{} · right-drag orbit · Shift+right-drag pan · wheel zoom{}{}",
+                        self.session.active_tool_label(),
+                        if self.session.native_point_input_hint().is_empty() {
+                            ""
+                        } else {
+                            " · "
+                        },
+                        self.session.native_point_input_hint()
                     )),
             );
 
@@ -2558,46 +2575,48 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     let mut renderer = RaylibWorker::start();
     let bridge = renderer.bridge.clone();
     let shutdown = renderer.shutdown.clone();
-    Application::new().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        Theme::change(ThemeMode::Dark, None, cx);
-        // Strong, consistent button/list hover contrast on the dark shell (#28).
-        {
-            let theme = cx.global_mut::<Theme>();
-            theme.colors.secondary = rgb(0x31465b).into();
-            theme.colors.secondary_hover = rgb(0x4b6682).into();
-            theme.colors.secondary_active = rgb(0x58799a).into();
-            theme.colors.list_hover = rgb(0x405975).into();
-        }
-        let requested_size = size(px(window_size[0]), px(window_size[1]));
-        let centered = WindowBounds::centered(requested_size, cx);
-        let bounds = if maximized {
-            match centered {
-                WindowBounds::Windowed(bounds) => WindowBounds::Maximized(bounds),
-                other => other,
+    Application::new()
+        .with_assets(crate::assets::ComponentAssets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            Theme::change(ThemeMode::Dark, None, cx);
+            // Strong, consistent button/list hover contrast on the dark shell (#28).
+            {
+                let theme = cx.global_mut::<Theme>();
+                theme.colors.secondary = rgb(0x31465b).into();
+                theme.colors.secondary_hover = rgb(0x4b6682).into();
+                theme.colors.secondary_active = rgb(0x58799a).into();
+                theme.colors.list_hover = rgb(0x405975).into();
             }
-        } else {
-            centered
-        };
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(bounds),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Meshcraft".into()),
+            let requested_size = size(px(window_size[0]), px(window_size[1]));
+            let centered = WindowBounds::centered(requested_size, cx);
+            let bounds = if maximized {
+                match centered {
+                    WindowBounds::Windowed(bounds) => WindowBounds::Maximized(bounds),
+                    other => other,
+                }
+            } else {
+                centered
+            };
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(bounds),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Meshcraft".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            move |window, cx| {
-                window.on_window_should_close(cx, move |_, _| {
-                    shutdown.stop_and_wait();
-                    true
-                });
-                let bridge_for_view = bridge.clone();
-                let shell = cx.new(|view_cx| {
-                    let bridge_for_observer = bridge_for_view.clone();
-                    publish_layout(&bridge_for_view, window);
-                    view_cx
+                },
+                move |window, cx| {
+                    window.on_window_should_close(cx, move |_, _| {
+                        shutdown.stop_and_wait();
+                        true
+                    });
+                    let bridge_for_view = bridge.clone();
+                    let shell = cx.new(|view_cx| {
+                        let bridge_for_observer = bridge_for_view.clone();
+                        publish_layout(&bridge_for_view, window);
+                        view_cx
                         .observe_window_bounds(
                             window,
                             move |view: &mut MeshcraftShell,
@@ -2608,16 +2627,16 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                             },
                         )
                         .detach();
-                    let shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
-                    window.focus(&shell.focus);
-                    shell
-                });
-                cx.new(|cx| gpui_component::Root::new(shell, window, cx))
-            },
-        )
-        .expect("open Meshcraft GPUI window");
-        cx.activate(true);
-    });
+                        let shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
+                        window.focus(&shell.focus);
+                        shell
+                    });
+                    cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+                },
+            )
+            .expect("open Meshcraft GPUI window");
+            cx.activate(true);
+        });
     renderer.stop();
 }
 

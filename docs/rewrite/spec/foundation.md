@@ -158,7 +158,7 @@ Source: `K/tools/SelectTool.kt`, selection/display callbacks in `K/Main.kt`. Acc
 
 **User-confirmed rule.** Preserve distinct pick sequences: two points for line/circle/rectangle/dimension/move/stretch/extrude, three for three-point tools, four points (origin plus three vectors) for 3D rotation, and unbounded picks for path tools. Validate each ordered sequence independently.
 
-Rust uses explicit tool state machines; shared input plumbing must not flatten distinct tool workflows. Validate numeric values before commit; preview and commit must agree. Preserve tool-cycle shortcuts `L`, `D`, `O`, `M` with actual ordering from the current input handler, including hotspot placement mode outside ToolId. Numeric popup and plain typed-number paths call the same tool operation. Exact suffix/unit parsing beyond observed floats is deferred intent.
+Rust uses explicit tool state machines; shared input plumbing must not flatten distinct tool workflows. Validate numeric values before commit; preview and commit must agree. Preserve tool-cycle ordering for planar construction, annotations, operations and modifications, including hotspot placement mode outside ToolId. The 2026-10-20 input clarification reserves A/C/L while entering any path and uses Shift+L to explicitly cycle planar construction tools; plain L remains available outside path input. Enter finishes point-array input, while Escape cancels its draft. D/O/M retain their existing cycle meanings. Numeric popup and plain typed-number paths call the same tool operation. Exact suffix/unit parsing beyond observed floats is deferred intent.
 
 Source: `K/ui/{Tool,ToolController,ToolInputProcessor}.kt`, individual tool handlers, `docs/SHORTCUTS.md`. Acceptance: C13, C17, C23.
 

@@ -88,6 +88,15 @@ pub(super) fn draw(
         };
         let selected = scene.selection.iter().any(|target| target.occurrence == handle.occurrence && matches!(&target.entity,
             SelectedEntity::SemanticHandle { kind: meshcraft_core::selection::SelectionKind::Hotspot, id } if id == &handle.hotspot.id));
+        let wireframe = scene
+            .display_policy
+            .state(meshcraft_core::selection::SelectionKind::Hotspot)
+            .wireframe;
+        let outline = if wireframe {
+            ray_color(handle.hotspot.color.rgba())
+        } else {
+            Color::new(30, 45, 60, 255)
+        };
         let color = if selected {
             Color::new(242, 69, 59, 255)
         } else {
@@ -96,18 +105,16 @@ pub(super) fn draw(
         let point = raylib::prelude::Vector2::new(x, y);
         match handle.hotspot.shape {
             Shape::Circle => {
-                drawing.draw_circle(x as i32, y as i32, 7., color);
-                drawing.draw_circle_lines(x as i32, y as i32, 7., Color::new(30, 45, 60, 255));
+                if !wireframe {
+                    drawing.draw_circle(x as i32, y as i32, 7., color);
+                }
+                drawing.draw_circle_lines(x as i32, y as i32, 7., outline);
             }
             Shape::Square => {
-                drawing.draw_rectangle(x as i32 - 7, y as i32 - 7, 14, 14, color);
-                drawing.draw_rectangle_lines(
-                    x as i32 - 7,
-                    y as i32 - 7,
-                    14,
-                    14,
-                    Color::new(30, 45, 60, 255),
-                );
+                if !wireframe {
+                    drawing.draw_rectangle(x as i32 - 7, y as i32 - 7, 14, 14, color);
+                }
+                drawing.draw_rectangle_lines(x as i32 - 7, y as i32 - 7, 14, 14, outline);
             }
             shape => {
                 let offsets: &[(f32, f32)] = match shape {
@@ -119,15 +126,13 @@ pub(super) fn draw(
                     .iter()
                     .map(|(dx, dy)| raylib::prelude::Vector2::new(point.x + dx, point.y + dy))
                     .collect::<Vec<_>>();
-                for i in 1..points.len() - 1 {
-                    drawing.draw_triangle(points[0], points[i], points[i + 1], color);
+                if !wireframe {
+                    for i in 1..points.len() - 1 {
+                        drawing.draw_triangle(points[0], points[i], points[i + 1], color);
+                    }
                 }
                 for i in 0..points.len() {
-                    drawing.draw_line_v(
-                        points[i],
-                        points[(i + 1) % points.len()],
-                        Color::new(30, 45, 60, 255),
-                    );
+                    drawing.draw_line_v(points[i], points[(i + 1) % points.len()], outline);
                 }
             }
         }

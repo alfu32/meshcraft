@@ -2640,10 +2640,9 @@ impl Viewport {
                 continue;
             };
             if !scope.contains(document, &item.target.occurrence)
-                || (!item.target.occurrence.is_scene_root()
-                    && !policy.can_draw(SelectionKind::Object))
+                || !policy.occurrence_visible(document, &item.target.occurrence)
                 || !policy.can_draw(SelectionKind::Face)
-                || policy.state(SelectionKind::Face).wireframe
+                || policy.target_wireframe(document, &item.target)
             {
                 continue;
             }
@@ -2656,7 +2655,7 @@ impl Viewport {
         for item in &candidates {
             let target = &item.target;
             if !scope.contains(document, &target.occurrence)
-                || (!target.occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                || !policy.can_edit_target(document, target)
             {
                 continue;
             }
@@ -2688,7 +2687,7 @@ impl Viewport {
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
                     if policy.can_select(SelectionKind::Face)
-                        && !policy.state(SelectionKind::Face).wireframe =>
+                        && !policy.target_wireframe(document, target) =>
                 {
                     if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
                         consider_ray_selection_hit(&mut nearest, depth, 2, target.clone());
@@ -2814,10 +2813,9 @@ impl Viewport {
                 continue;
             };
             if !scope.contains(document, &item.target.occurrence)
-                || (!item.target.occurrence.is_scene_root()
-                    && !policy.can_draw(SelectionKind::Object))
+                || !policy.can_draw_target(document, &item.target)
                 || !policy.can_draw(SelectionKind::Face)
-                || policy.state(SelectionKind::Face).wireframe
+                || policy.target_wireframe(document, &item.target)
             {
                 continue;
             }
@@ -2829,8 +2827,7 @@ impl Viewport {
 
         for item in candidates {
             if !scope.contains(document, &item.target.occurrence)
-                || (!item.target.occurrence.is_scene_root()
-                    && !policy.can_draw(SelectionKind::Object))
+                || !policy.can_draw_target(document, &item.target)
             {
                 continue;
             }
@@ -2883,7 +2880,7 @@ impl Viewport {
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
                     if policy.can_draw(SelectionKind::Face)
-                        && !policy.state(SelectionKind::Face).wireframe =>
+                        && !policy.target_wireframe(document, &item.target) =>
                 {
                     let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
                         continue;
@@ -2934,8 +2931,7 @@ impl Viewport {
                 let mut nearest = None::<(f64, Vec3)>;
                 for item in candidates {
                     if !scope.contains(document, &item.target.occurrence)
-                        || (!item.target.occurrence.is_scene_root()
-                            && !policy.can_draw(SelectionKind::Object))
+                        || !policy.occurrence_visible(document, &item.target.occurrence)
                     {
                         continue;
                     }
@@ -2974,7 +2970,7 @@ impl Viewport {
         if policy.can_draw(SelectionKind::Face) && !policy.state(SelectionKind::Face).wireframe {
             for occurrence in &occurrences {
                 if !scope.contains(document, occurrence)
-                    || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                    || !policy.occurrence_visible(document, occurrence)
                 {
                     continue;
                 }
@@ -3015,7 +3011,7 @@ impl Viewport {
         let mut nearest: Option<(f32, f64, SelectionTarget)> = None;
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
-                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                || !policy.occurrence_visible(document, &occurrence)
             {
                 continue;
             }
@@ -3195,7 +3191,7 @@ impl Viewport {
         let mut selected = BTreeSet::new();
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
-                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                || !policy.occurrence_visible(document, &occurrence)
             {
                 continue;
             }
@@ -3377,7 +3373,7 @@ impl Viewport {
         let mut selected = BTreeSet::new();
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
-                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                || !policy.occurrence_visible(document, &occurrence)
             {
                 continue;
             }
@@ -3906,7 +3902,7 @@ impl Viewport {
         let view_direction = self.camera_direction();
         for occurrence in occurrences {
             if !scope.contains(document, &occurrence)
-                || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+                || !policy.occurrence_visible(document, &occurrence)
             {
                 continue;
             }
@@ -4525,7 +4521,7 @@ fn collect_world_triangles(
     let mut result = Vec::new();
     for occurrence in occurrences {
         if !scope.contains(document, &occurrence)
-            || (!occurrence.is_scene_root() && !policy.can_draw(SelectionKind::Object))
+            || !policy.occurrence_visible(document, &occurrence)
         {
             continue;
         }
