@@ -1,8 +1,8 @@
 # Dashboard
 
-Updated 2026-10-20. Ely GPUI investigation (#26) completed under T17/T60: pinned Linux build and 2,150 sandboxed library tests pass; bounded telemetry/network review and GPUI migration assessment are documented. Recommendation: vendored proof before cutover. Production dependencies remain unchanged. Latest verified slice: fixed unbounded GPU frame-atlas retention; GPUI feedback text, compact searchable palette and left-aligned dropdowns are implemented. 235 desktop tests pass; a 600-update memory exercise stays near 271 MiB RSS. GitHub issues were closed by the user; local unfinished tasks remain tracked below. `docs/rewrite/tasks.json` is authoritative.
+Updated 2026-10-20. Active object-workflow implementation: prototype browser/insertion, isolated in-place editing, scene-owned hotspot authoring and per-instance runtime values, plus external subscenes. User explanation and all 19 captures are retained in [the object specification](docs/rewrite/spec/objects.md). Ely GPUI investigation (#26) completed under T17/T60: pinned Linux build and 2,150 sandboxed library tests pass; bounded telemetry/network review and GPUI migration assessment are documented. Recommendation: vendored proof before cutover. Production dependencies remain unchanged. Latest verified slice: fixed unbounded GPU frame-atlas retention; GPUI feedback text, compact searchable palette and left-aligned dropdowns are implemented. 235 desktop tests pass; a 600-update memory exercise stays near 271 MiB RSS. GitHub issues were closed by the user; local unfinished tasks remain tracked below. `docs/rewrite/tasks.json` is authoritative.
 
-**Counts:** Todo 27 · In progress 11 · Done 22 · Superseded 1 · Total 61
+**Counts:** Todo 24 · In progress 14 · Done 22 · Superseded 1 · Total 61
 
 ## Current in-progress tasks
 
@@ -12,6 +12,9 @@ Updated 2026-10-20. Ely GPUI investigation (#26) completed under T17/T60: pinned
 - **T17 — Complete GPUI inspectors, settings and preferences (#26)**: Editable model/UI controls, grid normal, normal/thick model line widths, persisted settings accordion and shader AA are wired. Toolbars remain expanded. Buttons keep text beside 419 transparent SVG icons. Ely toolkit investigation (#26) is complete; see [the audit and migration assessment](docs/rewrite/ely-gpui-review.md). Broader inspector/domain acceptance remains open; see [T17](docs/rewrite/handoffs/T17.md).
 - **T21 — Port every copy and array state machine**: Complete the remaining array state machines and adapters.
 - **T22 — Port hole/cutout algorithms and robust replacement**: Finish robust cutout/hole replacement cases.
+- **T32 — Implement hotspot definitions, IDs and attachment graph**: Porting legacy authoring/property/attachment workflow into the shared model and GPUI panels.
+- **T33 — Implement dynamic hotspot instance evaluation**: Porting immutable-source evaluation, instance values, handle drag/preview and copy semantics.
+- **T34 — Implement external prototype references**: Integrating external scenes as reusable subscenes, with root hotspots and refresh/error handling.
 - **T39 — Complete real-time lighting, shadows and view capture (#13)**: Implemented the raylib light-camera shadow pass, directional/ambient face shading, black authored lines, three-plane guides/local point field, grid-line snapping, reversed orbit and staged Escape. The extended transparent SVG atlas generates at build time. Tight light-camera clip bounds fix detached shadows (analytic ground projection IoU 0.937). GPU checks pass for ground/entity receivers, black model line widths and all three shader AA qualities; 233 regular desktop tests pass. The full GPUI shell builds/runs with generated icons. Lighting controls are session-local; capture, legacy lighting persistence and broader T39 quality acceptance remain open. See [T39](docs/rewrite/handoffs/T39.md).
 - **T51 — Restore and verify geometric feedback in the raylib viewport (#2, #21)**: Relative point/vector feedback now includes array stages, revolve and Paint; full interactive tool coverage remains open.
 - **T54 — Persistent oriented cursor and context-safe guide placement (#8, #9, #14, #15)**: Carry cursor orientation and context-safe guide placement through the new viewport.
@@ -60,9 +63,9 @@ The local recordings `docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Sc
 | T29 | Implement architecture walls, slabs and holes | Todo |
 | T30 | Implement stairs and free-form frames | Todo |
 | T31 | Implement HVAC plumbing and ventilation | Todo |
-| T32 | Implement hotspot definitions, IDs and attachment graph | Todo |
-| T33 | Implement dynamic hotspot instance evaluation | Todo |
-| T34 | Implement external prototype references | Todo |
+| T32 | Implement hotspot definitions, IDs and attachment graph | In progress |
+| T33 | Implement dynamic hotspot instance evaluation | In progress |
+| T34 | Implement external prototype references | In progress |
 | T35 | Implement random offset, surface scatter and both remesh modes | Todo |
 | T36 | Implement OBJ/STL/DXF interchange and unit policy | Todo |
 | T37 | Implement extended mesh formats | Todo |

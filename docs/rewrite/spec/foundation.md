@@ -34,6 +34,8 @@ Source: `K/model/DraftLineStore.kt`: `addSegment`, raw insertion, cleanup; `Draf
 
 ### F04 Prototypes, instances, and overrides
 
+See the [user-confirmed object/hotspot workflow and screenshots](objects.md) for the prototype browser, insertion, in-place isolation, dynamic handles, per-instance values and external subscenes.
+
 **Observed.** Grouping/create-object creates reusable prototype content and an instance. `OBJECT_PLACE` reuses a definition. Editing the prototype affects its instances; runtime hotspot edits can create instance geometry overrides without changing the definition. Nested children, transformed origins/axes, names, and glue-to-surface are supported. Explode emits ordinary local geometry in the parent context. Prototype deletion must account for users of the definition.
 
 Keep prototype-mode edits and instance-mode changes explicit. Moving an object must not silently bake its prototype. Placement and movement with glue enabled align to a picked surface. Preserve selected result behavior, naming, nesting, and any domain-to-mesh conversion on explode. Generated geometry must not become a second authoritative copy.

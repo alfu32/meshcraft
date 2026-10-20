@@ -1576,7 +1576,7 @@
         "No extra fabricated hotspot ToolId or accidental vertex re-identification is introduced."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]
@@ -1622,7 +1622,7 @@
         "No cumulative preview mutation or stale derived geometry after definition edits."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]
@@ -1667,7 +1667,7 @@
         "No browser filesystem/Android URI emulation is added prematurely."
       ],
       "tool_ids": [],
-      "status": "planned",
+      "status": "in_progress",
       "design_docs": [
         "docs/rewrite/object-model.md"
       ]

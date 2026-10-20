@@ -195,3 +195,5 @@ Source: `K/model/HotspotStore.kt`, attachment/vertex identity paths in `GroupSce
 Use deterministic dependency evaluation with revisioned immutable inputs and a bounded/cancellable generation job. Persist enough state to restore instance behavior and old override data. Refresh xrefs and prototype edits invalidate dependent runtime geometry. Test two instances with different hotspot states, copy/explode, undo, reopen, and an array hotspot attached to another hotspot.
 
 Source: `GroupScene.GroupNode`, hotspot recompute/apply helpers; `GroupInstanceDto`. Acceptance: C15, C16.
+
+The [object workflow with retained screenshots](objects.md) refines prototype/instance interaction and hotspot authoring/runtime requirements for M26/M27.
