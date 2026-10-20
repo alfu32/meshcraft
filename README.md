@@ -1,16 +1,55 @@
-# Meshcraft: k3d / Octodraw Rust rewrite
+# Meshcraft
 
-The rewrite began as a source-backed specification and implementation handoff, prepared from `/home/alfu64/Development/k3d` at commit `acd84f4c67509e10363c33850501eb8f4fc3ffa7` (tag `5.7.2`). The native application now uses the full GPUI interface with an offscreen raylib viewport, shared modeling/session commands, project persistence, undo, reusable prototypes, per-instance hotspots and selection/display controls. The rewrite remains in progress; the [dashboard](DASHBOARD.md) records tested coverage and remaining work.
+Meshcraft is a **direct mesh modeler** for building and editing 3D geometry. Draw edges and faces, shape them with modeling tools, and assemble reusable objects whose instances can adapt independently through interactive hotspots.
 
-Start with [the rewrite guide](docs/rewrite/README.md). It links the feature specification, compatibility requirements, architecture proposal, history analysis, acceptance scenarios, and dependency-ordered agent tasks.
+![img.png](docs/img.png)
 
-Desktop is the first delivery target. It includes a conventional menu interface alongside the button-oriented workspace. Browser support and JavaScriptCore plugins with a versioned host context follow desktop qualification. The object model has an early normalization gate; the current Rust model is a prototype pending that gate. Android, Groovy/JVM plugin execution, and CLI/TUI developer tools remain deferred.
+The desktop workspace combines a 3D viewport with menus, labeled tool buttons, a searchable command palette and settings panels. Meshcraft is written in Rust, with a GPUI interface and an offscreen raylib renderer integrated into the layout.
 
-## Run and release
+## Modeling tools
+
+- **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
+- **Shape meshes:** extrusion and Push/Pull, sweeps, ribbons, revolve, offsets and outlines.
+- **Transform and repeat:** move, rotate, scale, stretch, move a copy, rotate a copy and arrays.
+- **Work precisely:** geometry and grid snapping, construction guides, workplanes, live geometry previews, and relative distance and coordinate feedback.
+- **Control selection and display:** select individual elements, connected geometry or regions; inspect totals and selection counts; set visibility, editability and wireframe display by entity type.
+- **Inspect your model:** orbit, pan and zoom in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
+- **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
+
+## Dynamic objects: prototypes and instances
+
+An **object prototype** is a reusable subscene containing edges, faces, hotspots and other object instances. An **instance** places that prototype in your design. Multiple instances share the same definition while retaining their own placement and hotspot values.
+
+Double-click a prototype in the object list to place an instance, with a wireframe preview before insertion. Double-click an instance to edit its prototype in place. During editing, the surrounding model stays visible and available for snapping, while selection and edits remain isolated to the prototype. Changes to the shared definition update its instances.
+
+**Hotspots make instances interactive.** Inside a prototype, attach geometry to a hotspot and configure its operation, reference point, shape and color. After leaving prototype editing, drag the hotspot on an instance to move, stretch, scale, rotate or repeat its attached geometry. Each instance keeps its own values, so instances can take different forms while sharing the same base topology. Copying an instance preserves its hotspot values.
+
+External scenes can also serve as referenced prototypes, allowing reusable designs to live in separate project files.
+
+## Planned features
+
+Meshcraft is under active development. The following capabilities are planned; they are not yet complete in the current application:
+
+- **MCP integration:** structured access to modeling commands and application state through the Model Context Protocol, for automation and assistant workflows.
+- **Scripted object prototypes:** reusable objects whose geometry and behavior are defined through scripts and parameters.
+- **JavaScript plugins:** extend the application through a JavaScriptCore runtime and a versioned application API.
+- **Built-in architecture tools:** walls, slabs, openings, stairs and frames, alongside plumbing and ventilation tools.
+- **Photorealistic rendering:** offline rendering for presentation images, complementing the interactive shaded viewport.
+- **Annotations:** dimensions, leaders and text for documenting designs.
+
+The [development dashboard](DASHBOARD.md) tracks implemented behavior, validation and remaining work. The [rewrite guide](docs/rewrite/README.md) links the detailed specifications, architecture and implementation plan.
+
+## Run from source
+
+With Rust and the native build dependencies installed:
 
 ```sh
 env -u WAYLAND_DISPLAY cargo run -- --open examples/dynamic-object.octd
 cargo test --workspace --locked
 ```
 
-The manual [release workflow](.github/workflows/distribution.yaml) builds Linux, Windows and macOS on x86_64 and ARM64. Select an existing version tag to run it; the tag must match the literal app version in `apps/desktop/Cargo.toml`. See [packaging and signing status](packaging/README.md) for the artifact set, old-glibc build environment and platform qualification limits. MSIX signing is deferred.
+The command above starts the main GPUI application with an example dynamic object. On Linux, unsetting `WAYLAND_DISPLAY` selects the X11 path used for desktop validation.
+
+## Builds and releases
+
+The manual [release workflow](.github/workflows/distribution.yaml) targets Linux, Windows and macOS on x86_64 and ARM64. Select an existing version tag to run it; the tag must match the desktop app version. See [packaging instructions](packaging/README.md) for portable archives, installers, native dependencies and platform qualification status. MSIX signing is planned for a later stage.
