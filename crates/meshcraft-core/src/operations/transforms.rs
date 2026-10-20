@@ -310,7 +310,7 @@ pub(crate) fn transform_selection_with_path_remaps(
                     .get_mut(&id)
                     .ok_or_else(|| format!("selected definition {} is missing", id.0))?;
                 definition.geometry = bundle;
-                candidate.revision = candidate.revision.saturating_add(1);
+                candidate.bump_revision();
             }
             GeometryOwner::Occurrence(instance) => {
                 let mut edits = candidate
@@ -335,6 +335,7 @@ pub(crate) fn transform_selection_with_path_remaps(
         candidate_selection.apply(copy_targets, SelectionMode::Replace);
     }
     candidate.validate()?;
+    candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision()
         .checked_add(1)
@@ -662,6 +663,7 @@ pub fn paint_selection(
         return Ok(report);
     }
     candidate.validate()?;
+    candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision()
         .checked_add(1)

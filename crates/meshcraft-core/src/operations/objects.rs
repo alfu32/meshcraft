@@ -329,6 +329,7 @@ pub fn delete_selection(
     if !occurrence_roots.is_empty() {
         report.occurrences = candidate.remove_selected_occurrences(&occurrence_roots)?;
     }
+    candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision
         .checked_add(1)
@@ -623,6 +624,7 @@ pub fn delete_unused_definition(
             candidate.child_layouts.remove(&layout_id);
         }
     }
+    candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision
         .checked_add(1)
@@ -1028,6 +1030,13 @@ pub fn group_occurrences(
     };
     for mut entry in selected_entries {
         let previous = entry.id;
+        if let Some(values) = candidate.occurrence_edits(&parent.child(previous)) {
+            entry.default_edits = values.clone();
+            entry.default_edits.legacy_instance_id = None;
+            if let Some(transform) = entry.default_edits.transform.as_mut() {
+                transform.translation -= origin;
+            }
+        }
         entry.id = LayoutEntryId(candidate.allocate_id());
         entry.transform.translation -= origin;
         child_id_map.insert(previous, entry.id);
@@ -1063,6 +1072,7 @@ pub fn group_occurrences(
         id: group_entry_id,
         definition: definition_id,
         transform: Affine3::from_translation(origin),
+        default_edits: InstanceEdits::default(),
         legacy_aliases: Vec::new(),
     };
     let source_layout = candidate
@@ -1097,6 +1107,7 @@ pub fn group_occurrences(
         remapped.insert(OccurrenceRef { path: new_path }, edits);
     }
     candidate.occurrence_edits = remapped;
+    candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision
         .checked_add(1)

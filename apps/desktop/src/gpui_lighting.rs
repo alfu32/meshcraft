@@ -60,6 +60,7 @@ pub(super) struct Renderer {
     faces: Vec<Face>,
     edges: Vec<Edge>,
     vertices: Vec<Vertex>,
+    pub(super) handles: Vec<hotspots::Handle>,
     center: Vec3,
     radius: f64,
     last_light: Option<(f32, f32)>,
@@ -87,6 +88,7 @@ impl Renderer {
             faces: Vec::new(),
             edges: Vec::new(),
             vertices: Vec::new(),
+            handles: Vec::new(),
             center: Vec3::ZERO,
             radius: 10.0,
             last_light: None,
@@ -158,6 +160,7 @@ impl Renderer {
             .set_shader_value_matrix(self.lit.get_shader_location("lightVP"), light_vp);
     }
     fn rebuild(&mut self, document: &Arc<Document>) {
+        self.handles = hotspots::handles(document);
         self.faces.clear();
         self.edges.clear();
         self.vertices.clear();

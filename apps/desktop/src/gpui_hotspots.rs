@@ -79,8 +79,9 @@ pub(super) fn draw(
     scene: &RenderScene,
     camera: OrbitCamera,
     size: (f32, f32),
+    handles: &[Handle],
 ) {
-    for handle in handles(&scene.document) {
+    for handle in handles {
         let Some((x, y)) = project_point(camera, size, handle.world) else {
             continue;
         };

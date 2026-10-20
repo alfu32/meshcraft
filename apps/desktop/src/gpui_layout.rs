@@ -284,22 +284,34 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                         })
                         .count();
                     Button::new(SharedString::from(format!("objects/prototype/{}", id.0)))
-                        .child(
-                            div()
-                                .w_full()
-                                .child(format!("{} · {} instance(s)", prototype.name, count)),
-                        )
+                        .child(div().w_full().child(format!(
+                                "{} · {} · {} instance(s) · #{}",
+                                prototype.name,
+                                if prototype
+                                    .extensions
+                                    .get("k3d.externalReferenceEnabled")
+                                    .and_then(serde_json::Value::as_bool)
+                                    == Some(true)
+                                {
+                                    "external"
+                                } else {
+                                    "internal"
+                                },
+                                count,
+                                id.0
+                            )))
                         .small()
                         .ghost()
                         .tooltip("Double-click to insert an instance of this prototype")
                         .on_click(
                             self.cx
                                 .listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                                    this.session.select_native_prototype(id);
                                     if event.click_count() == 2 {
                                         this.session.begin_placing_definition(id);
-                                        this.refresh_scene();
-                                        cx.notify();
                                     }
+                                    this.refresh_scene();
+                                    cx.notify();
                                 }),
                         )
                 }))
@@ -1377,6 +1389,9 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     &[
                         ("create-object", "Create Object"),
                         ("import-objects", "Import Objects"),
+                        ("reference-object", "Reference Scene"),
+                        ("refresh-object", "Refresh Reference"),
+                        ("place-object", "Place Instance"),
                     ],
                     bindings,
                 )),

@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod derived;
 pub mod hotspots;
+pub mod subscenes;
 
 macro_rules! stable_id {
     ($name:ident) => {
@@ -360,6 +361,9 @@ pub struct LayoutEntry {
     pub definition: DefinitionId,
     /// Instance placement `I`; each definition retains its independent frame `D`.
     pub transform: Affine3,
+    /// Authored values of a nested instance in its prototype's shared child layout.
+    #[serde(default, skip_serializing_if = "InstanceEdits::is_empty")]
+    pub default_edits: InstanceEdits,
     pub legacy_aliases: Vec<LegacyAlias>,
 }
 
@@ -576,7 +580,7 @@ impl Document {
     }
 
     pub fn occurrence_edits(&self, occurrence: &OccurrenceRef) -> Option<&InstanceEdits> {
-        self.occurrence_edits.get(occurrence)
+        self.resolve_occurrence(occurrence).and_then(|r| r.edits)
     }
 
     pub fn update_model_settings(&mut self, settings: ModelSettings) -> Result<bool, String> {
@@ -776,6 +780,7 @@ impl Document {
                 id,
                 definition,
                 transform,
+                default_edits: InstanceEdits::default(),
                 legacy_aliases: Vec::new(),
             });
         self.bump_revision();
@@ -1899,6 +1904,7 @@ impl Document {
                 id: entry_id,
                 definition: definition_id,
                 transform,
+                default_edits: InstanceEdits::default(),
                 legacy_aliases: Vec::new(),
             });
         self.bump_revision();
@@ -2209,6 +2215,7 @@ impl Document {
             id: group_entry_id,
             definition: definition_id,
             transform: Affine3::from_translation(origin),
+            default_edits: InstanceEdits::default(),
             legacy_aliases: Vec::new(),
         };
 
@@ -2327,7 +2334,10 @@ impl Document {
             let path = OccurrenceRef {
                 path: prefix.clone(),
             };
-            let edits = self.occurrence_edits.get(&path);
+            let edits = self
+                .occurrence_edits
+                .get(&path)
+                .or_else(|| (!entry.default_edits.is_empty()).then_some(&entry.default_edits));
             let instance_frame = edits
                 .and_then(|edits| edits.transform)
                 .unwrap_or(entry.transform);

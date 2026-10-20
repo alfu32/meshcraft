@@ -306,7 +306,26 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
         &mut instance_count,
     )?;
 
+    // Optional Meshcraft extension preserves nested prototypes even with no placed instances.
+    let mut template_nodes = Vec::new();
+    for (index, prototype) in prototype_values.iter().enumerate() {
+        if let Some(children) = prototype.get("meshcraftChildren") {
+            let node = serde_json::json!({ "prototypeId": prototype["id"], "children": children,
+                "instanceAxisU": {"x": 1}, "instanceAxisV": {"y": 1}, "instanceAxisW": {"z": 1} });
+            template_nodes.push(parse_instance(
+                &node,
+                &format!("/prototypes/{index}/meshcraftChildren"),
+                &definitions,
+                0,
+                &mut instance_count,
+            )?);
+        }
+    }
+
     let mut instance_groups: BTreeMap<LayoutKey, Vec<&LegacyInstance>> = BTreeMap::new();
+    for node in &template_nodes {
+        collect_layout_groups(node, &mut instance_groups);
+    }
     collect_layout_groups(&root_node, &mut instance_groups);
     let mut variants = BTreeMap::new();
     for (key, instances) in &instance_groups {
@@ -360,7 +379,32 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
     }
 
     let mut default_layouts = BTreeMap::new();
+    for node in &template_nodes {
+        collect_default_layouts(node, &variants, &mut default_layouts)?;
+    }
     collect_default_layouts(&root_node, &variants, &mut default_layouts)?;
+    for (key, instances) in &instance_groups {
+        let variant = &variants[key];
+        let representative = instances[0];
+        for (index, child) in representative.children.iter().enumerate() {
+            let mut defaults = InstanceEdits {
+                hotspot_positions: child.hotspot_positions.clone(),
+                values: child.preserved_fields.clone(),
+                ..InstanceEdits::default()
+            };
+            let child_layout = variants[&child.layout_key].id;
+            if default_layouts.get(&child.prototype_id) != Some(&child_layout) {
+                defaults.child_layout = Some(child_layout);
+            }
+            if let Some(geometry) = child.geometry_override.as_ref() {
+                let (vertices, segments, triangles) = geometry.clone().into_parts();
+                defaults.geometry_replacement =
+                    Some(document.build_geometry_bundle_raw(vertices, segments, triangles)?);
+            }
+            document.child_layouts.get_mut(&variant.id).unwrap().entries[index].default_edits =
+                defaults;
+        }
+    }
     for (legacy_id, layout) in &default_layouts {
         let definition_id = definitions.get(legacy_id).copied().ok_or_else(|| {
             format!("default child layout references missing prototype {legacy_id}")
@@ -507,7 +551,7 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
     let mut prototype_ids = BTreeMap::new();
     let mut used_prototype_ids = BTreeSet::new();
     for definition in document.definitions.values().filter(|definition| {
-        definition.id != Document::SCENE_ROOT_DEFINITION_ID || !definition.geometry.is_empty()
+        definition.id != Document::SCENE_ROOT_DEFINITION_ID || scene_root_has_content(definition)
     }) {
         let candidate = first_alias(&definition.legacy_aliases, "k3d.prototype");
         let fallback = format!("meshcraft-prototype-{}", definition.id.0);
@@ -521,9 +565,10 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
         .definitions
         .values()
         .filter(|definition| {
-            definition.id != Document::SCENE_ROOT_DEFINITION_ID || !definition.geometry.is_empty()
+            definition.id != Document::SCENE_ROOT_DEFINITION_ID
+                || scene_root_has_content(definition)
         })
-        .map(|definition| export_definition(definition, &prototype_ids))
+        .map(|definition| export_definition(document, definition, &prototype_ids))
         .collect::<ImportResult<Vec<_>>>()?;
     let root_layout = document
         .child_layouts
@@ -532,7 +577,7 @@ pub fn export_current_value(document: &Document) -> ImportResult<Value> {
     let mut used_instance_ids = BTreeSet::new();
     let scene_root_geometry = document
         .scene_root_definition()
-        .is_some_and(|definition| !definition.geometry.is_empty());
+        .is_some_and(scene_root_has_content);
     let root_instance = if scene_root_geometry {
         let root_definition_id = Document::SCENE_ROOT_DEFINITION_ID;
         let prototype_id = prototype_ids
@@ -697,6 +742,7 @@ fn insert_prototype_dto_defaults(object: &mut Map<String, Value>) {
 }
 
 fn export_definition(
+    document: &Document,
     definition: &crate::document::Definition,
     prototype_ids: &BTreeMap<DefinitionId, String>,
 ) -> ImportResult<Value> {
@@ -796,8 +842,46 @@ fn export_definition(
         &definition.extensions,
         &["__raw_kind", "__raw_prototype_vertices"],
     )?;
+    if definition.id != Document::SCENE_ROOT_DEFINITION_ID {
+        if let Some(layout) = definition
+            .default_child_layout
+            .and_then(|id| document.child_layout(id))
+            .filter(|l| !l.entries.is_empty())
+        {
+            let mut view = document.clone();
+            let entry = view
+                .add_layout_entry(view.root_layout(), definition.id, Affine3::IDENTITY)
+                .ok_or("could not materialize prototype children for export")?;
+            let parent = OccurrenceRef::root(entry);
+            let mut used = BTreeSet::new();
+            let children = layout
+                .entries
+                .iter()
+                .map(|child| {
+                    export_occurrence(&view, &parent.child(child.id), prototype_ids, &mut used)
+                })
+                .collect::<ImportResult<Vec<_>>>()?;
+            object.insert("meshcraftChildren".into(), Value::Array(children));
+        } else {
+            object.remove("meshcraftChildren");
+        }
+    }
     insert_prototype_dto_defaults(&mut object);
     Ok(Value::Object(object))
+}
+
+fn scene_root_has_content(definition: &crate::document::Definition) -> bool {
+    !definition.geometry.is_empty()
+        || !definition.domain_data.is_empty()
+        || ["k3d.hotspots", "k3d.dimensions", "k3d.texts"]
+            .iter()
+            .any(|key| {
+                definition
+                    .extensions
+                    .get(*key)
+                    .and_then(Value::as_array)
+                    .is_some_and(|v| !v.is_empty())
+            })
 }
 
 fn export_domain_data(
@@ -849,7 +933,13 @@ fn export_prototype_vertices(
         objects.push(item);
     }
     for vertex in definition.geometry.vertices.values() {
-        let Some(candidate) = first_alias(&vertex.legacy_aliases, "k3d.vertex") else {
+        let generated = format!("vertex-{}", vertex.id.0);
+        let candidate = first_alias(&vertex.legacy_aliases, "k3d.vertex").or_else(|| {
+            (definition.domain_data.contains_key("hotspots")
+                || definition.extensions.contains_key("k3d.hotspots"))
+            .then_some(generated.as_str())
+        });
+        let Some(candidate) = candidate else {
             continue;
         };
         let id = unique_legacy_id(

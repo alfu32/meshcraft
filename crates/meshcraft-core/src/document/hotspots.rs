@@ -15,7 +15,9 @@ pub enum Operation {
     Rotate,
     MultiplyLinear,
     MultiplyVolumetric,
+    #[serde(rename = "MULTIPLY_ROTATE_2D")]
     MultiplyRotate2D,
+    #[serde(rename = "MULTIPLY_ROTATE_3D")]
     MultiplyRotate3D,
 }
 impl Operation {
@@ -224,10 +226,13 @@ impl Document {
     /// Instance parameters remain in the source document and its undo/save snapshots.
     pub fn prototype_edit_view(&self, occurrence: &OccurrenceRef) -> Self {
         let mut view = self.clone();
-        if let Some(edits) = view.occurrence_edits.get_mut(occurrence) {
-            edits.hotspot_positions.clear();
-            edits.geometry_replacement = None;
-        }
+        let mut edits = self
+            .occurrence_edits(occurrence)
+            .cloned()
+            .unwrap_or_default();
+        edits.hotspot_positions.clear();
+        edits.geometry_replacement = None;
+        view.occurrence_edits.insert(occurrence.clone(), edits);
         view
     }
 
@@ -424,11 +429,22 @@ impl Document {
             .ok_or("instance no longer exists")?;
         let hotspots = self.hotspots(resolved.definition.id)?;
         let order = ordered(&hotspots)?;
-        let mut geometry = resolved
-            .edits
-            .and_then(|e| e.geometry_replacement.as_ref())
-            .unwrap_or(&resolved.definition.geometry)
-            .clone();
+        // k3d may persist a baked runtime mesh alongside handle targets. Always rebuild from
+        // the shared prototype when evaluating handles, otherwise that deformation is applied twice.
+        let uses_handles = hotspots.iter().any(|h| {
+            resolved
+                .edits
+                .is_some_and(|e| e.hotspot_positions.contains_key(&h.id))
+        });
+        let mut geometry = if uses_handles {
+            &resolved.definition.geometry
+        } else {
+            resolved
+                .edits
+                .and_then(|e| e.geometry_replacement.as_ref())
+                .unwrap_or(&resolved.definition.geometry)
+        }
+        .clone();
         let mut positions = hotspots
             .iter()
             .map(|h| {
@@ -512,7 +528,10 @@ fn ordered(hotspots: &[Hotspot]) -> Result<Vec<usize>, String> {
 }
 
 fn aliases_match(aliases: &[LegacyAlias], id: &str, native: String) -> bool {
-    !id.is_empty() && (id == native || aliases.iter().any(|a| a.id == id))
+    !id.is_empty()
+        && (id == native
+            || id == format!("meshcraft-{native}")
+            || aliases.iter().any(|a| a.id == id))
 }
 impl SegmentAttachment {
     pub fn from_segment(geometry: &GeometryBundle, segment: &Segment) -> Self {
@@ -521,12 +540,12 @@ impl SegmentAttachment {
                 .legacy_aliases
                 .first()
                 .map(|a| a.id.clone())
-                .unwrap_or_else(|| format!("segment-{}", segment.id.0)),
+                .unwrap_or_else(|| format!("meshcraft-segment-{}", segment.id.0)),
             a: VertexKey::at(geometry.vertex_position(segment.endpoints[0]).unwrap()),
             b: VertexKey::at(geometry.vertex_position(segment.endpoints[1]).unwrap()),
         }
     }
-    fn matches(&self, geometry: &GeometryBundle, segment: &Segment) -> bool {
+    pub fn matches(&self, geometry: &GeometryBundle, segment: &Segment) -> bool {
         if aliases_match(
             &segment.legacy_aliases,
             &self.id,
@@ -550,18 +569,20 @@ impl TriangleAttachment {
                 .legacy_aliases
                 .first()
                 .map(|a| a.id.clone())
-                .unwrap_or_else(|| format!("triangle-{}", triangle.id.0)),
+                .unwrap_or_else(|| format!("meshcraft-face-{}", triangle.id.0)),
             a: keys[0],
             b: keys[1],
             c: keys[2],
         }
     }
-    fn matches(&self, geometry: &GeometryBundle, triangle: &Triangle) -> bool {
-        if aliases_match(
-            &triangle.legacy_aliases,
-            &self.id,
-            format!("triangle-{}", triangle.id.0),
-        ) {
+    pub fn matches(&self, geometry: &GeometryBundle, triangle: &Triangle) -> bool {
+        if self.id == format!("meshcraft-face-{}", triangle.id.0)
+            || aliases_match(
+                &triangle.legacy_aliases,
+                &self.id,
+                format!("triangle-{}", triangle.id.0),
+            )
+        {
             return true;
         }
         let keys = triangle

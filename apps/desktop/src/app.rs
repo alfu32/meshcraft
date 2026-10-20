@@ -662,6 +662,7 @@ enum ShellAction {
     BeginHotspotPlacement,
     CancelHotspotPlacement,
     HotspotAction(&'static str),
+    ObjectFileAction(&'static str),
     FocusToolDistance,
     FinishToolInput,
     UndoToolPoint,
@@ -1469,6 +1470,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ),
             );
         }
+        for (action, label) in [("import_scene", "Import Scene as Prototype"), ("reference_scene", "Reference External Scene"), ("refresh_reference", "Refresh External Prototype")] {
+            register_shell_command(&mut registry, &format!("object.{action}"), &format!("Objects> {label}"), "Objects", "external scene prototype reference xref import refresh", Some("import-objects"), ShellAction::ObjectFileAction(action));
+        }
         for (suffix, label) in [
             ("add", "Add at Cursor"), ("update", "Update Properties"), ("attach", "Attach Selection"),
             ("select_attached", "Select Attached"), ("reference", "Pick Reference"),
@@ -1528,7 +1532,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Redo
         | ShellAction::NewDocument
         | ShellAction::FinishToolInput => CommandKind::DocumentMutation,
-        ShellAction::OpenProject
+        ShellAction::ObjectFileAction(_)
+        | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
         | ShellAction::SaveProjectAs
@@ -1739,6 +1744,7 @@ fn register_shell_command(
         | ShellAction::ToggleObjectPlaceGlue
         | ShellAction::BeginHotspotPlacement
         | ShellAction::CancelHotspotPlacement
+        | ShellAction::ObjectFileAction(_)
         | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide
         | ShellAction::SetProfile(_)
@@ -1837,6 +1843,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("color", CommandValueType::String),
         ],
         "hotspot.target" => &[("target", CommandValueType::Object)],
+        "object.import_scene" | "object.reference_scene" => &[("path", CommandValueType::String)],
         "object.place_selected_definition" => &[("definition_id", CommandValueType::Integer)],
         "object.create_from_selection" => &[("name", CommandValueType::String)],
         "object.delete_unused_definition" => &[("definition_id", CommandValueType::Integer)],
@@ -2123,6 +2130,9 @@ pub struct MeshcraftApp {
     selection_display_policy: SelectionDisplayPolicy,
     selection_click_tracker: SelectionClickTracker,
     object_name_edit: Option<(DefinitionId, String)>,
+    object_browser_selection: Option<DefinitionId>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_object_import: Option<object_workflow::ObjectImportJob>,
     hotspot_inspector: Option<(OccurrenceRef, String)>,
     hotspot_defaults: meshcraft_core::document::hotspots::Hotspot,
     hotspot_reference_pick: bool,
@@ -2370,6 +2380,7 @@ impl MeshcraftApp {
     pub fn poll_native_host_work(&mut self) {
         self.poll_project_load();
         self.poll_project_save();
+        self.poll_object_import();
         let _ = self.poll_autosave(Instant::now());
     }
 
@@ -2629,19 +2640,10 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn rename_native_selected_object(&mut self, name: &str) -> Result<bool, String> {
-        let selected = match &self.selection.context {
-            EditContext::Occurrence(active) => vec![active.clone()],
-            _ => self.selected_occurrences(),
-        };
-        if selected.len() != 1 {
-            return Err("select one object instance before renaming it".to_owned());
-        }
-        let occurrence = &selected[0];
         let definition_id = self
-            .document
-            .resolve_occurrence(occurrence)
-            .map(|resolved| resolved.definition.id)
-            .ok_or_else(|| "the selected object no longer exists".to_owned())?;
+            .native_active_object()
+            .map(|(id, _, _)| id)
+            .ok_or("select an object instance or prototype before renaming it")?;
         match self.commit_document_edit("Rename object", |document| {
             document.rename_definition(definition_id, name)
         }) {
@@ -2746,14 +2748,19 @@ impl MeshcraftApp {
             EditContext::Definition(definition) => SnapScope::Definition(*definition),
             EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
         };
-        self.viewport.pick_selection_target_on_ray(
+        let target = self.viewport.pick_selection_target_on_ray(
             document,
             origin,
             direction,
             radius,
             scope,
             &self.selection_display_policy,
-        )
+        )?;
+        Some(if self.active_tool == "Select" {
+            self.native_normalize_selection_target(target)
+        } else {
+            target
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2937,6 +2944,9 @@ impl MeshcraftApp {
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             object_name_edit: None,
+            object_browser_selection: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_object_import: None,
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,
@@ -4409,6 +4419,29 @@ impl MeshcraftApp {
         }
     }
 
+    pub fn native_normalize_selection_target(
+        &self,
+        mut target: SelectionTarget,
+    ) -> SelectionTarget {
+        let depth = match &self.selection.context {
+            EditContext::Occurrence(active) => active.path.len(),
+            _ if target.occurrence.path.first().is_some_and(|id| {
+                self.document
+                    .resolve_occurrence(&OccurrenceRef::root(*id))
+                    .is_some_and(|r| r.definition.name == "Root")
+            }) =>
+            {
+                1
+            }
+            _ => 0,
+        };
+        if target.occurrence.path.len() > depth {
+            target.occurrence.path.truncate(depth + 1);
+            target.entity = SelectedEntity::Occurrence;
+        }
+        target
+    }
+
     pub fn native_target_editable(&self, target: &SelectionTarget) -> bool {
         match &self.selection.context {
             EditContext::Document => true,
@@ -4435,19 +4468,21 @@ impl MeshcraftApp {
     }
 
     pub fn native_active_object(&self) -> Option<(DefinitionId, String, bool)> {
-        let (occurrence, editing) = match &self.selection.context {
-            EditContext::Occurrence(active) => (active.clone(), true),
-            _ => (self.selected_occurrences().into_iter().next()?, false),
-        };
-        self.document
-            .resolve_occurrence(&occurrence)
-            .map(|resolved| {
-                (
-                    resolved.definition.id,
-                    resolved.definition.name.clone(),
-                    editing,
-                )
-            })
+        if let EditContext::Occurrence(active) = &self.selection.context {
+            return self
+                .document
+                .resolve_occurrence(active)
+                .map(|r| (r.definition.id, r.definition.name.clone(), true));
+        }
+        if let Some(path) = self.selected_occurrences().first() {
+            return self
+                .document
+                .resolve_occurrence(path)
+                .map(|r| (r.definition.id, r.definition.name.clone(), false));
+        }
+        self.native_selected_prototype()
+            .and_then(|id| self.document.definition(id))
+            .map(|d| (d.id, d.name.clone(), false))
     }
 
     fn commit_document_edit<T>(
@@ -5565,6 +5600,9 @@ impl MeshcraftApp {
 
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
+            ShellAction::ObjectFileAction(action) => {
+                return self.execute_object_file_command(action, payload);
+            }
             ShellAction::HotspotAction(action) => {
                 return self.execute_hotspot_command(action, payload);
             }
@@ -5864,7 +5902,7 @@ impl MeshcraftApp {
                         }
                     )
                 }) {
-                    return self.execute_hotspot_command("delete", payload);
+                    return self.delete_selection_with_hotspots();
                 }
                 let selection = self.selection.clone();
                 let deleted = match self.commit_document_edit("Delete selection", |document| {
@@ -6893,20 +6931,64 @@ impl MeshcraftApp {
                 )
             })
         {
-            return CommandState::default();
+            return if self
+                .selection
+                .selected()
+                .iter()
+                .filter(|target| {
+                    matches!(
+                        target.entity,
+                        SelectedEntity::SemanticHandle {
+                            kind: SelectionKind::Hotspot,
+                            ..
+                        }
+                    )
+                })
+                .all(|target| self.native_hotspot_authoring_allowed(&target.occurrence))
+            {
+                CommandState::default()
+            } else {
+                CommandState::disabled("open the prototype to delete a hotspot definition")
+            };
         }
         if id.starts_with("hotspot.")
             && !matches!(
                 id,
-                "hotspot.begin_placement"
-                    | "hotspot.cancel_placement"
-                    | "hotspot.add"
-                    | "hotspot.update"
+                "hotspot.begin_placement" | "hotspot.cancel_placement" | "hotspot.add"
             )
         {
             let (selected, _) = self.native_hotspot_inspector();
-            if selected.is_none() {
+            if let Some((path, _)) = selected {
+                let authoring = self.native_hotspot_authoring_allowed(&path);
+                if id == "hotspot.target" && authoring {
+                    return CommandState::disabled(
+                        "finish prototype editing before operating an instance handle",
+                    );
+                }
+                if id != "hotspot.target" && !authoring {
+                    return CommandState::disabled(
+                        "open the prototype to edit hotspot definitions",
+                    );
+                }
+            } else if id != "hotspot.update" {
                 return CommandState::disabled("select a hotspot first");
+            }
+        }
+        if id == "object.place_selected_definition" && self.native_selected_prototype().is_some() {
+            return CommandState::default();
+        }
+        if id == "object.refresh_reference" {
+            if !self
+                .native_selected_prototype()
+                .and_then(|id| self.document.definition(id))
+                .is_some_and(|d| {
+                    d.extensions
+                        .get("k3d.externalReferenceEnabled")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                })
+            {
+                return CommandState::disabled("select an external prototype in Objects first");
             }
         }
         if id == "selection.exit_context" && self.selection.context == EditContext::Document {
@@ -7187,6 +7269,9 @@ impl MeshcraftApp {
     }
 
     fn begin_object_placement(&mut self) -> CommandResult {
+        if let Some(id) = self.native_selected_prototype() {
+            return self.begin_placing_definition(id);
+        }
         let selected = self
             .selection
             .selected()
@@ -8923,7 +9008,7 @@ impl MeshcraftApp {
     ) -> Option<ToolFeedback> {
         let screen_position = pointer?;
         if !self.array_preview
-            && (self.active_tool == "Select"
+            && ((self.active_tool == "Select" && !self.tool_cycle_state.hotspot_placement_active())
                 || matches!(
                     self.active_tool.as_str(),
                     "Orbit" | "Pan" | "Zoom" | "Remove Guide"
@@ -11587,7 +11672,7 @@ mod tests {
         app
     }
 
-    fn test_app() -> MeshcraftApp {
+    pub(super) fn test_app() -> MeshcraftApp {
         MeshcraftApp {
             preferences: Preferences::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -11630,6 +11715,9 @@ mod tests {
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             object_name_edit: None,
+            object_browser_selection: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_object_import: None,
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,
@@ -12317,7 +12405,7 @@ mod tests {
     #[test]
     fn pinned_legacy_command_ids_are_cataloged_with_explicit_availability() {
         let entries = shell_commands().entries().collect::<Vec<_>>();
-        assert_eq!(226, entries.len());
+        assert_eq!(229, entries.len());
         assert_eq!(
             74,
             entries

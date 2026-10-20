@@ -520,6 +520,7 @@ fn draw_offscreen_scene(
         scene_data,
         orbit,
         (target_width, target_height),
+        &lighting.handles,
     );
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
@@ -894,6 +895,7 @@ struct MeshcraftShell {
     palette_focus_pending: bool,
     feedback: Option<ToolFeedback>,
     close_requested: bool,
+    host_watch_started: bool,
     last_sequence: u64,
 }
 
@@ -933,6 +935,7 @@ impl MeshcraftShell {
             palette_focus_pending: false,
             feedback: None,
             close_requested: false,
+            host_watch_started: false,
             last_sequence: 0,
             bridge,
             viewport_canvas,
@@ -1560,26 +1563,6 @@ fn publish_layout(bridge: &ViewportBridge, window: &Window) -> ViewportLayout {
     layout
 }
 
-#[cfg(test)]
-fn selection_region(
-    document: &Document,
-    camera: OrbitCamera,
-    size: (f32, f32),
-    start: (f32, f32),
-    end: (f32, f32),
-    crossing: bool,
-) -> Vec<SelectionTarget> {
-    selection_region_in_context(
-        document,
-        camera,
-        size,
-        start,
-        end,
-        crossing,
-        &EditContext::Document,
-    )
-}
-
 fn selection_region_in_context(
     document: &Document,
     camera: OrbitCamera,
@@ -1625,6 +1608,14 @@ fn selection_region_in_context(
             .collect::<Vec<_>>();
         let active_depth = match context {
             EditContext::Occurrence(active) => active.path.len(),
+            _ if occurrence.path.first().is_some_and(|id| {
+                document
+                    .resolve_occurrence(&meshcraft_core::document::OccurrenceRef::root(*id))
+                    .is_some_and(|r| r.definition.name == "Root")
+            }) =>
+            {
+                1
+            }
             _ => 0,
         };
         if occurrence.path.len() > active_depth && !object_points.is_empty() {
@@ -1640,8 +1631,8 @@ fn selection_region_in_context(
                     occurrence: occurrence.clone(),
                     entity: SelectedEntity::Occurrence,
                 });
-                continue;
             }
+            continue; // A closed instance is atomic even when the region crosses only part of it.
         }
         for segment in geometry.segments.values() {
             let [Some(a), Some(b)] = segment.endpoints.map(|reference| {
@@ -1700,6 +1691,22 @@ fn selection_region_in_context(
         }
     }
     for handle in hotspots::handles(document) {
+        let authored = match context {
+            EditContext::Document => {
+                handle.occurrence.is_scene_root()
+                    || (handle.occurrence.path.len() == 1
+                        && document
+                            .resolve_occurrence(&handle.occurrence)
+                            .is_some_and(|r| r.definition.name == "Root"))
+            }
+            EditContext::Occurrence(active) => &handle.occurrence == active,
+            EditContext::Definition(id) => document
+                .resolve_occurrence(&handle.occurrence)
+                .is_some_and(|r| r.definition.id == *id),
+        };
+        if !authored {
+            continue;
+        }
         if let Some((x, y)) = project_point(camera, size, handle.world) {
             if rect_contains(region, x, y) {
                 selected.push(SelectionTarget {
@@ -1987,7 +1994,9 @@ fn ribbon_command_for_key<'a>(
         "undo" => &["edit.undo"],
         "redo" => &["edit.redo"],
         "delete" => &["edit.delete_selection"],
-        "import-objects" => &["import.mesh"],
+        "import-objects" => &["object.import_scene"],
+        "reference-object" => &["object.reference_scene"],
+        "refresh-object" => &["object.refresh_reference"],
         "export" => &["export.mesh"],
         "model-settings" | "settings-panel" => &["view.model_settings"],
         "ui-settings" => &["view.panel.ui_settings.toggle"],
@@ -2006,6 +2015,31 @@ impl Render for MeshcraftShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.close_requested {
             window.remove_window();
+        }
+        if !self.host_watch_started {
+            self.host_watch_started = true;
+            cx.spawn_in(window, async move |shell, cx| {
+                loop {
+                    gpui::Timer::after(Duration::from_millis(50)).await;
+                    if shell
+                        .update(cx, |this, cx| {
+                            let revision = this.session.document_revision();
+                            let status = this.session.status_text().to_owned();
+                            this.session.poll_native_host_work();
+                            if revision != this.session.document_revision()
+                                || status != this.session.status_text()
+                            {
+                                this.refresh_scene();
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .detach();
         }
         self.layout = publish_layout(&self.bridge, window);
         let rem = px(16.0 * self.session.native_ui_preferences().ui_text_scale);

@@ -5,6 +5,50 @@ use meshcraft_core::document::hotspots::{
 };
 
 impl MeshcraftApp {
+    pub(super) fn delete_selection_with_hotspots(&mut self) -> CommandResult {
+        let selected = self.selection.selected().clone();
+        let mut handles = Vec::new();
+        let mut geometry = SelectionSession::default();
+        geometry.set_context(self.selection.context.clone());
+        for target in selected {
+            if let SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                id,
+            } = &target.entity
+            {
+                if !self.native_hotspot_authoring_allowed(&target.occurrence) {
+                    return CommandResult::failed(
+                        "open the prototype before deleting its hotspot definitions",
+                    );
+                }
+                let Some(r) = self.document.resolve_occurrence(&target.occurrence) else {
+                    return CommandResult::failed("hotspot instance no longer exists");
+                };
+                handles.push((r.definition.id, id.clone()));
+            } else {
+                geometry.select(target);
+            }
+        }
+        let result = self.commit_document_edit("Delete selected geometry and hotspots", |d| {
+            for (definition, id) in &handles {
+                d.delete_hotspot(*definition, id)?;
+            }
+            if !geometry.selected().is_empty() {
+                modeling_objects::delete_selection(d, &geometry)?;
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                self.hotspot_inspector = None;
+                self.selection.clear();
+                self.status = "Deleted the selected geometry and hotspot definitions.".into();
+                CommandResult::completed()
+            }
+            Err(e) => CommandResult::failed(e),
+        }
+    }
+
     pub fn native_pointer_tool_active(&self) -> bool {
         self.active_tool != "Select"
             || self.tool_cycle_state.hotspot_placement_active()
@@ -411,5 +455,316 @@ impl MeshcraftApp {
             _ => return Err("unknown hotspot command".into()),
         }
         Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) struct ObjectImportJob {
+    job_id: String,
+    path: PathBuf,
+    external: bool,
+    replace: Option<DefinitionId>,
+    generation: u64,
+    receiver: std::sync::mpsc::Receiver<Result<Document, String>>,
+}
+impl MeshcraftApp {
+    pub fn select_native_prototype(&mut self, id: DefinitionId) {
+        if self.document.definition(id).is_some() {
+            self.object_browser_selection = Some(id);
+            self.selection.clear();
+            self.status = "Prototype selected. Double-click to insert an instance.".into();
+        }
+    }
+    pub fn native_selected_prototype(&self) -> Option<DefinitionId> {
+        self.object_browser_selection
+            .filter(|id| self.document.definition(*id).is_some())
+    }
+    pub(super) fn execute_object_file_command(
+        &mut self,
+        action: &str,
+        payload: &CommandPayload,
+    ) -> CommandResult {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (action, payload);
+            CommandResult::failed("external object files require the desktop host")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.start_object_import(action, payload)
+                .unwrap_or_else(CommandResult::failed)
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_object_import(
+        &mut self,
+        action: &str,
+        payload: &CommandPayload,
+    ) -> Result<CommandResult, String> {
+        if self.pending_object_import.is_some() {
+            return Err("an object scene is already loading".into());
+        }
+        let replace = if action == "refresh_reference" {
+            Some(
+                self.native_selected_prototype()
+                    .ok_or("select an external prototype in Objects first")?,
+            )
+        } else {
+            None
+        };
+        let path = if let Some(definition) = replace.and_then(|id| self.document.definition(id)) {
+            definition
+                .extensions
+                .get("k3d.externalReferencePath")
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .ok_or("the selected prototype is internal")?
+        } else if let Some(path) = payload
+            .values
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+        {
+            PathBuf::from(path)
+        } else {
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("Object scenes", &["octd", "k3d"])
+                .pick_file()
+            else {
+                return Ok(CommandResult::completed());
+            };
+            path
+        };
+        let path = if path.is_absolute() {
+            path
+        } else {
+            self.current_project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .unwrap_or_else(|| Path::new("."))
+                .join(path)
+        };
+        let path = path.canonicalize().map_err(|e| {
+            format!(
+                "cannot read {}: {e}; cached external geometry was retained",
+                path.display()
+            )
+        })?;
+        if action != "import_scene"
+            && self
+                .current_project_path
+                .as_ref()
+                .and_then(|p| p.canonicalize().ok())
+                .as_ref()
+                == Some(&path)
+        {
+            return Err("a scene cannot reference itself as an external object".into());
+        }
+        let external = action != "import_scene";
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker_path = path.clone();
+        let job_id = format!("object-import-{}", self.next_job_id);
+        self.next_job_id += 1;
+        std::thread::Builder::new()
+            .name(job_id.clone())
+            .spawn(move || {
+                let loaded = (|| {
+                    let length = std::fs::metadata(&worker_path)
+                        .map_err(|e| e.to_string())?
+                        .len();
+                    if length > 512 * 1024 * 1024 {
+                        return Err("external scene exceeds the 512 MiB import limit".into());
+                    }
+                    let bytes = std::fs::read(&worker_path).map_err(|e| e.to_string())?;
+                    meshcraft_io::project::read_project(&bytes)
+                        .map(|project| project.document)
+                        .map_err(|e| e.to_string())
+                })();
+                let _ = sender.send(loaded);
+            })
+            .map_err(|e| format!("could not start object scene loader: {e}"))?;
+        self.status = format!("Loading object scene {}…", path.display());
+        self.pending_object_import = Some(ObjectImportJob {
+            job_id: job_id.clone(),
+            path,
+            external,
+            replace,
+            generation: self.document_generation,
+            receiver,
+        });
+        let result = CommandResult::pending(
+            job_id.clone(),
+            HostEffect::StartJob {
+                job_id: job_id.clone(),
+                kind: "object.import_scene".into(),
+                input_revision: Some(self.document.revision()),
+            },
+        );
+        self.job_results.insert(job_id, result.clone());
+        Ok(result)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn poll_object_import(&mut self) {
+        let loaded = match self
+            .pending_object_import
+            .as_ref()
+            .map(|job| job.receiver.try_recv())
+        {
+            Some(Ok(result)) => result,
+            Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+                Err("object scene loader stopped unexpectedly".into())
+            }
+            _ => return,
+        };
+        let job = self.pending_object_import.take().unwrap();
+        let result = if job.generation != self.document_generation {
+            Err("object import canceled because the active document changed".into())
+        } else {
+            loaded.and_then(|source| {
+                let name = job
+                    .replace
+                    .and_then(|id| self.document.definition(id).map(|d| d.name.clone()))
+                    .unwrap_or_else(|| {
+                        job.path
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string()
+                    });
+                let path = job.path.to_string_lossy();
+                self.commit_document_edit(
+                    if job.replace.is_some() {
+                        "Refresh external prototype"
+                    } else {
+                        "Import scene prototype"
+                    },
+                    |d| {
+                        d.import_subscene(
+                            &source,
+                            &name,
+                            job.external.then_some(path.as_ref()),
+                            job.replace,
+                        )
+                    },
+                )
+            })
+        };
+        let final_result = match result {
+            Ok(id) => {
+                self.object_browser_selection = Some(id);
+                self.status = format!(
+                    "{} prototype ready. Double-click it in Objects to insert an instance.",
+                    if job.external { "External" } else { "Internal" }
+                );
+                let mut result = CommandResult::completed();
+                result.document_revision = Some(self.document.revision());
+                result.outputs.insert("definition_id".into(), id.0.into());
+                result
+            }
+            Err(error) => {
+                self.status =
+                    format!("Object import failed: {error}. Cached geometry was retained.");
+                CommandResult::failed(error)
+            }
+        };
+        self.job_results.insert(job.job_id, final_result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn author_prototype_then_operate_closed_instances_copy_values_and_escape_isolates_editing() {
+        let mut app = super::super::tests::test_app();
+        let instance = app
+            .document
+            .add_cuboid("Dynamic", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        let def = app
+            .document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        let id = app.add_hotspot_at_world(Vec3::ZERO).unwrap();
+        app.update_native_hotspot_field("operation", "STRETCH")
+            .unwrap();
+        app.update_native_hotspot_field("shape", "SQUARE").unwrap();
+        app.update_native_hotspot_field("color", "338cf2ff")
+            .unwrap();
+        let face = *app
+            .document
+            .definition(def)
+            .unwrap()
+            .geometry
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        app.selection.apply(
+            [SelectionTarget {
+                occurrence: instance.clone(),
+                entity: SelectedEntity::Triangle(face),
+            }],
+            SelectionMode::Replace,
+        );
+        assert_eq!(
+            CommandCompletion::Completed,
+            app.execute_hotspot_command("attach", &CommandPayload::default())
+                .completion
+        );
+        let h = app.document.hotspots(def).unwrap().pop().unwrap();
+        assert_eq!(1, h.attached_triangles.len());
+        assert_eq!(Shape::Square, h.shape);
+        let baseline = app.document.definition(def).unwrap().geometry.clone();
+        assert!(
+            app.commit_native_hotspot_drag(&instance, &id, Vec3::Y)
+                .is_err()
+        );
+        app.handle_native_escape();
+        assert_eq!(EditContext::Document, app.selection.context);
+        app.commit_native_hotspot_drag(&instance, &id, Vec3::Y)
+            .unwrap();
+        assert_eq!(baseline, app.document.definition(def).unwrap().geometry);
+        assert_ne!(
+            baseline,
+            *app.document.effective_geometry(&instance).unwrap()
+        );
+        let copy =
+            modeling_objects::duplicate_occurrence(&mut app.document, &instance, Vec3::X * 5.)
+                .unwrap();
+        assert_eq!(
+            app.document.effective_geometry(&instance),
+            app.document.effective_geometry(&copy)
+        );
+        app.commit_native_hotspot_drag(&copy, &id, Vec3::Y * 3.)
+            .unwrap();
+        assert_ne!(
+            app.document.effective_geometry(&instance),
+            app.document.effective_geometry(&copy)
+        );
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        assert_eq!(
+            baseline,
+            *app.native_document_for_view()
+                .effective_geometry(&instance)
+                .unwrap()
+        );
+        let outside = SelectionTarget {
+            occurrence: copy.clone(),
+            entity: SelectedEntity::Occurrence,
+        };
+        assert!(!app.native_target_editable(&outside));
+        app.apply_native_selection_region(vec![outside], false, SelectionMode::Replace);
+        assert!(app.selection.selected().is_empty());
+        app.select_native_hotspot(instance.clone(), id.clone(), SelectionMode::Replace);
+        assert!(app.query_command_state("edit.delete_selection").enabled);
+        app.execute_hotspot_command("delete", &CommandPayload::default());
+        assert!(app.document.hotspots(def).unwrap().is_empty());
+        assert!(app.selection.selected().is_empty());
     }
 }
