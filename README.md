@@ -14,6 +14,7 @@ The desktop workspace combines a 3D viewport with menus, labeled tool buttons, a
 - **Work precisely:** geometry and grid snapping, construction guides, workplanes, live geometry previews, and relative distance and coordinate feedback.
 - **Control selection and display:** select individual elements, connected geometry or regions; inspect totals and selection counts; set visibility, editability and wireframe display by entity type.
 - **Inspect your model:** orbit, pan and zoom in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
+- **Materials:** create and edit named RGBA materials, assign them to selections, and see their colors and transparency in the viewport. Optional texture paths, U/V sizes and shading types are retained for future rendering work.
 - **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
 
 ## Dynamic objects: prototypes and instances
@@ -26,12 +27,17 @@ Double-click a prototype in the object list to place an instance, with a wirefra
 
 External scenes can also serve as referenced prototypes, allowing reusable designs to live in separate project files.
 
+## Scripted prototypes
+
+Prototypes can also define JavaScript `onCreate` and `onAnimationFrame` hooks while retaining graphically authored geometry. The object script editor provides a single monospace code editor, Ctrl+Space API help/completion, and an orbitable preview. Geometry helpers create lines, faces and primitives; generated hotspots change each instance independently. Copies retain instance properties, and Explode freezes the current generated geometry.
+
+See the [SDK, example and runtime requirements](docs/rewrite/spec/scripted-objects.md). Native script execution currently requires JavaScriptCore; Linux is locally qualified, with Windows runtime packaging and macOS live qualification still outstanding.
+
 ## Planned features
 
 Meshcraft is under active development. The following capabilities are planned; they are not yet complete in the current application:
 
 - **MCP integration:** structured access to modeling commands and application state through the Model Context Protocol, for automation and assistant workflows.
-- **Scripted object prototypes:** reusable objects whose geometry and behavior are defined through scripts and parameters.
 - **JavaScript plugins:** extend the application through a JavaScriptCore runtime and a versioned application API.
 - **Built-in architecture tools:** walls, slabs, openings, stairs and frames, alongside plumbing and ventilation tools.
 - **Photorealistic rendering:** offline rendering for presentation images, complementing the interactive shaded viewport.

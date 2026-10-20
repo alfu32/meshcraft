@@ -68,6 +68,7 @@ def bundle(binary, target, output, ceiling):
         "libXinerama.so.1",
         "libXi.so.6",
         "libXrender.so.1",
+        "libjavascriptcoregtk-4.0.so.18",
     ]:
         if name not in paths:
             raise ValueError("Missing dynamic runtime dependency: " + name)

@@ -2626,7 +2626,7 @@ impl Viewport {
         if self
             .native_pick_index
             .as_ref()
-            .is_none_or(|index| index.revision() != document.revision())
+            .is_none_or(|index| index.revision() != document.visual_revision())
         {
             self.native_pick_index = NativeSpatialIndex::build(document).ok();
         }
@@ -2800,7 +2800,7 @@ impl Viewport {
         if self
             .native_pick_index
             .as_ref()
-            .is_none_or(|index| index.revision() != document.revision())
+            .is_none_or(|index| index.revision() != document.visual_revision())
         {
             self.native_pick_index = NativeSpatialIndex::build(document).ok();
         }
@@ -2922,7 +2922,7 @@ impl Viewport {
             if self
                 .native_pick_index
                 .as_ref()
-                .is_none_or(|index| index.revision() != document.revision())
+                .is_none_or(|index| index.revision() != document.visual_revision())
             {
                 self.native_pick_index = NativeSpatialIndex::build(document).ok();
             }
@@ -7170,7 +7170,7 @@ mod tests {
             .expect("the updated index finds the newly added object");
         assert_eq!(second_occurrence, second_target.occurrence);
         assert_eq!(
-            Some(document.revision()),
+            Some(document.visual_revision()),
             viewport.native_pick_index.as_ref().map(|i| i.revision())
         );
     }

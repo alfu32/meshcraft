@@ -24,6 +24,7 @@ pub(super) struct Editor {
     shading: Entity<SelectState<Vec<String>>>,
     error: Option<String>,
     _subscription: gpui::Subscription,
+    _color_subscription: gpui::Subscription,
 }
 
 fn hex(color: Rgba8) -> String {
@@ -60,6 +61,18 @@ pub(super) fn edit(
                 );
                 color_field.update(cx, |field, cx| field.set_value(hex(rgba), window, cx));
                 cx.notify();
+            }
+        },
+    );
+    let color_picker = picker.clone();
+    let color_subscription = cx.subscribe_in(
+        &color,
+        window,
+        move |_, field, event: &InputEvent, window, cx| {
+            if matches!(event, InputEvent::Blur)
+                && let Ok(value) = gpui::Hsla::parse_hex(field.read(cx).value().as_ref())
+            {
+                color_picker.update(cx, |picker, cx| picker.set_value(value, window, cx));
             }
         },
     );
@@ -104,6 +117,7 @@ pub(super) fn edit(
         shading,
         error: None,
         _subscription: subscription,
+        _color_subscription: color_subscription,
     });
     name.update(cx, |state, cx| state.focus(window, cx));
     cx.notify();

@@ -226,6 +226,8 @@ impl Document {
     /// Instance parameters remain in the source document and its undo/save snapshots.
     pub fn prototype_edit_view(&self, occurrence: &OccurrenceRef) -> Self {
         let mut view = self.clone();
+        std::sync::Arc::make_mut(&mut view.script_cache.frames)
+            .retain(|path, _| !path.path.starts_with(&occurrence.path));
         let mut edits = self
             .occurrence_edits(occurrence)
             .cloned()
@@ -372,16 +374,11 @@ impl Document {
         id: &str,
         target: Vec3,
     ) -> Result<(), String> {
-        let definition = self
-            .resolve_occurrence(occurrence)
-            .ok_or("instance no longer exists")?
-            .definition
-            .id;
         if !target.is_finite() {
             return Err("hotspot target must be finite".into());
         }
         let hotspot = self
-            .hotspots(definition)?
+            .instance_hotspots(occurrence)?
             .into_iter()
             .find(|h| h.id == id)
             .ok_or("hotspot no longer exists")?;
@@ -423,13 +420,8 @@ impl Document {
         if let Some(result) = self.hotspot_cache.get(self, occurrence) {
             return Ok(result.positions.clone());
         }
-        let definition = self
-            .resolve_occurrence(occurrence)
-            .ok_or("instance no longer exists")?
-            .definition
-            .id;
         Ok(self
-            .hotspots(definition)?
+            .instance_hotspots(occurrence)?
             .into_iter()
             .map(|h| (h.id, h.position))
             .collect())

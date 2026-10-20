@@ -3019,7 +3019,7 @@
       ],
       "targets": [
         "crates/meshcraft-core/src/document/scripts.rs",
-        "crates/meshcraft-script-jsc/",
+        "apps/desktop/src/script_engine.rs",
         "apps/desktop/src/gpui_scripts.rs"
       ],
       "source_paths": [
@@ -3032,14 +3032,14 @@
       "slices": [
         "Define persisted prototype source, instance properties/hotspot inputs, stable drawable IDs and derived frame/Explode contracts.",
         "Implement JavaScriptCore execution, model queries, geometry/material helpers, bounded evaluation and native provider packaging.",
-        "Build accordion code editors and independent offscreen preview with Save/Preview/Cancel and orbit/pan/zoom.",
+        "Build one monospace JavaScript editor with shared top-level definitions, Ctrl+Space API completion and independent offscreen preview; preserve Save/Preview/Cancel and orbit/pan/zoom.",
         "Integrate animation output, picking/snapping, instance hotspots, copy, save/load, undo/redo and Explode; qualify errors and lifecycle."
       ],
       "done": [
         "C43 passes with recorded headless and GUI/runtime evidence; unsupported rendering or platform cases are explicit."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     }
   ]
 }

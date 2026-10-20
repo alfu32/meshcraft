@@ -118,7 +118,7 @@ impl DerivedIndexCache {
 
     /// Rebuilds into a temporary snapshot and publishes only a complete index.
     pub fn refresh(&mut self, document: &Document) -> Result<bool, String> {
-        if self.cached_revision() == Some(document.revision()) {
+        if self.cached_revision() == Some(document.visual_revision()) {
             return Ok(false);
         }
         let index = build_index(document)?;
@@ -218,7 +218,7 @@ impl DerivedIndexCache {
 fn build_index(document: &Document) -> Result<DerivedDocumentIndex, String> {
     document.validate()?;
     let mut index = DerivedDocumentIndex {
-        revision: document.revision(),
+        revision: document.visual_revision(),
         ..DerivedDocumentIndex::default()
     };
 
@@ -350,7 +350,7 @@ mod tests {
             .unwrap();
 
         let mut cache = DerivedIndexCache::default();
-        let initial_revision = document.revision();
+        let initial_revision = document.visual_revision();
         let bounds = cache.world_bounds(&document, &source).unwrap();
         assert_eq!(bounds.min, Vec3::ZERO);
         assert_eq!(bounds.max, Vec3::new(2.0, 3.0, 4.0));
@@ -374,20 +374,20 @@ mod tests {
         assert_eq!(cache.index(&document).unwrap().geometries.len(), 1);
         assert_eq!(copies.len(), 1_000);
 
-        let revision = document.revision();
+        let revision = document.visual_revision();
         let edits = InstanceEdits {
             transform: Some(Affine3::from_translation(Vec3::new(-10.0, 1.0, 2.0))),
             ..InstanceEdits::default()
         };
         assert!(document.set_occurrence_edits(source.clone(), edits.clone()));
-        assert_eq!(document.revision(), revision + 1);
+        assert_eq!(document.visual_revision(), revision + 1);
         assert_eq!(
             cache.world_bounds(&document, &source).unwrap().min,
             Vec3::new(-10.0, 1.0, 2.0)
         );
-        let revision = document.revision();
+        let revision = document.visual_revision();
         assert!(document.set_occurrence_edits(source.clone(), edits));
-        assert_eq!(document.revision(), revision);
+        assert_eq!(document.visual_revision(), revision);
     }
 
     #[test]

@@ -411,11 +411,15 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
         let resolved = document
             .resolve_occurrence(occurrence)
             .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
-        let has_legacy_domain_arrays = resolved
-            .definition
-            .domain_entity_ids
-            .values()
-            .any(|identities| !identities.is_empty());
+        let has_legacy_domain_arrays =
+            resolved
+                .definition
+                .domain_entity_ids
+                .iter()
+                .any(|(field, identities)| {
+                    !identities.is_empty()
+                        && !(field == "hotspots" && document.script_frame(occurrence).is_some())
+                });
         let has_legacy_annotations_without_ids = ["dimensions", "texts"].iter().any(|field| {
             resolved
                 .definition
@@ -424,11 +428,20 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
                 .and_then(Value::as_array)
                 .is_some_and(|records| !records.is_empty())
         });
-        if !resolved.definition.domain_data.is_empty()
+        if resolved
+            .definition
+            .domain_data
+            .keys()
+            .any(|field| field != "hotspots" || document.script_frame(occurrence).is_none())
             || has_legacy_domain_arrays
             || has_legacy_annotations_without_ids
             || resolved.edits.is_some_and(|edits| {
-                !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
+                edits.values.keys().any(|key| {
+                    key != crate::document::scripts::STATE_KEY
+                        && !(key == "k3d.__raw_hotspot_positions"
+                            && document.script_frame(occurrence).is_some())
+                }) || (!edits.hotspot_positions.is_empty()
+                    && document.script_frame(occurrence).is_none())
             })
         {
             return Err(format!(
@@ -464,17 +477,27 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                 .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
             (
                 resolved.definition.name.clone(),
-                !resolved.definition.domain_data.is_empty(),
+                resolved.definition.domain_data.keys().any(|field| {
+                    field != "hotspots" || document.script_frame(occurrence).is_none()
+                }),
                 resolved.definition.domain_entity_ids.clone(),
                 resolved.edits.is_some_and(|edits| {
-                    !edits.values.is_empty() || !edits.hotspot_positions.is_empty()
+                    edits.values.keys().any(|key| {
+                        key != crate::document::scripts::STATE_KEY
+                            && !(key == "k3d.__raw_hotspot_positions"
+                                && document.script_frame(occurrence).is_some())
+                    }) || (!edits.hotspot_positions.is_empty()
+                        && document.script_frame(occurrence).is_none())
                 }),
                 resolved.definition.extensions.clone(),
             )
         };
         if has_domain_data
             || domain_entity_ids.iter().any(|(field, identities)| {
-                !identities.is_empty() && field != "dimensions" && field != "texts"
+                !identities.is_empty()
+                    && field != "dimensions"
+                    && field != "texts"
+                    && !(field == "hotspots" && document.script_frame(occurrence).is_some())
             })
             || has_unsupported_edits
         {
@@ -1189,6 +1212,7 @@ pub fn duplicate_occurrence_with_remap(
         return Err("copy requires a placed object and a finite offset".to_owned());
     }
     let mut candidate = document.clone();
+    candidate.persist_script_states();
     if candidate.resolve_occurrence(source).is_none() {
         return Err("the selected object no longer exists".to_owned());
     }

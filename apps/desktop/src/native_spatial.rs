@@ -43,7 +43,7 @@ pub(crate) struct NativeSpatialIndex {
 impl NativeSpatialIndex {
     pub(crate) fn build(document: &Document) -> Result<Self, String> {
         let mut index = Self {
-            revision: document.revision(),
+            revision: document.visual_revision(),
             items: Vec::new(),
             item_order: Vec::new(),
             nodes: Vec::new(),
@@ -397,7 +397,7 @@ mod tests {
         let candidates = index.query_ray(Vec3::new(0.5, 0.5, -5.0), Vec3::Z, 0.05);
         let point_candidates = index.query_point(Vec3::new(0.5, 0.5, 0.5), 1.0e-6);
 
-        assert_eq!(document.revision(), index.revision());
+        assert_eq!(document.visual_revision(), index.revision());
         assert!(!candidates.is_empty());
         assert!(candidates.len() * 100 < index.item_count());
         assert!(candidates.iter().any(|candidate| {

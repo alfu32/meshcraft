@@ -6,7 +6,7 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     libfontconfig1-dev libfreetype6-dev fonts-dejavu-core libx11-dev libxcursor-dev \
     libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev \
     libxkbcommon-x11-dev libwayland-dev libasound2-dev libudev-dev \
-    libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+    libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libjavascriptcoregtk-4.0-18 \
     python3.8 python3.8-venv python3-pip ca-certificates curl git patchelf binutils \
     && python3.8 -m venv /opt/python \
     && /opt/python/bin/python -m pip install --no-cache-dir pip==25.0.1 \

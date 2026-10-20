@@ -2,6 +2,8 @@
 mod materials_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
+#[path = "script_workflow.rs"]
+mod script_workflow;
 use crate::assets::{self, IconRegion};
 use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, GridStyle, OrthoView,
@@ -1496,6 +1498,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("save", "Save Material", ShellAction::MaterialAction("save")),
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
+        }
+        for (id,name,panel) in [("script.new","Objects> New Scripted Object","script_new"),("script.edit","Objects> Edit Prototype Script","script_edit")] {
+            register_shell_command(&mut registry,id,name,"Objects","javascript script prototype editor preview",Some("object"),ShellAction::OpenPanel(panel));
         }
         for (toolbar_id, label) in LEGACY_TOOLBARS {
             let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {
@@ -4554,6 +4559,7 @@ impl MeshcraftApp {
         label: &str,
         operation: impl FnOnce(&mut Document) -> Result<T, String>,
     ) -> Result<T, String> {
+        self.document.persist_script_states();
         let mut pending = self.history.begin(&self.document, label);
         let context = self.selection.context.clone();
         let result = pending

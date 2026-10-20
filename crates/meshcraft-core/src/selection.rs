@@ -534,7 +534,7 @@ impl SelectionSession {
                     kind: SelectionKind::Hotspot,
                     ref id,
                 } => document
-                    .hotspots(resolved.definition.id)
+                    .instance_hotspots(&target.occurrence)
                     .ok()
                     .is_some_and(|hotspots| hotspots.iter().any(|h| &h.id == id)),
                 SelectedEntity::SemanticHandle { .. } => true,

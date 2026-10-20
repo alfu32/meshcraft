@@ -37,6 +37,10 @@ enum StartupCommand {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    if env::args().nth(1).as_deref() == Some("--script-worker") {
+        meshcraft_desktop::script_engine::run_worker();
+        return;
+    }
     let startup = match parse_startup_args(env::args_os().skip(1)) {
         Ok(StartupCommand::Run(options)) => options,
         Ok(StartupCommand::Help) => {

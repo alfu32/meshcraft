@@ -33,15 +33,12 @@ pub(super) struct SceneCounts {
 impl SceneCounts {
     pub(super) fn from_document(document: &Document) -> Self {
         let mut counts = Self::default();
-        let hotspot_counts = document
-            .definitions()
-            .chain(document.scene_root_definition())
-            .map(|d| (d.id, document.hotspots(d.id).map_or(0, |h| h.len())))
-            .collect::<std::collections::BTreeMap<_, _>>();
         for occurrence in document.scene_geometry_refs().unwrap_or_default() {
             if let Some(r) = document.resolve_occurrence(&occurrence) {
                 *counts.prototypes.entry(r.definition.id).or_default() += 1;
-                counts.hotspots += hotspot_counts.get(&r.definition.id).copied().unwrap_or(0);
+                counts.hotspots += document
+                    .instance_hotspots(&occurrence)
+                    .map_or(0, |h| h.len());
                 for (field, kind) in [
                     ("voxels", SelectionKind::Voxel),
                     ("dimensions", SelectionKind::Dimension),
@@ -344,6 +341,27 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .flex()
                 .flex_col()
                 .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(4.))
+                        .child(
+                            Button::new("scripts/new")
+                                .label("New Scripted Object")
+                                .small()
+                                .on_click(self.cx.listener(|this, _, window, cx| {
+                                    super::scripts::edit(this, true, window, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("scripts/edit")
+                                .label("Edit Script")
+                                .small()
+                                .on_click(self.cx.listener(|this, _, window, cx| {
+                                    super::scripts::edit(this, false, window, cx);
+                                })),
+                        ),
+                )
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;
                     let count = self

@@ -8,6 +8,7 @@ impl MeshcraftApp {
         label: &str,
         operation: impl FnOnce(&mut Document) -> Result<T, String>,
     ) -> Result<T, String> {
+        self.document.persist_script_states();
         let mut pending = self.history.begin(&self.document, label);
         let value = pending.stage(operation).map_err(|e| e.to_string())?;
         self.history

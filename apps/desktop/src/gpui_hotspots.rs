@@ -29,7 +29,7 @@ pub(super) fn handles(document: &Document) -> Vec<Handle> {
         let Some(r) = document.resolve_occurrence(&occurrence) else {
             continue;
         };
-        let Ok(hotspots) = document.hotspots(r.definition.id) else {
+        let Ok(hotspots) = document.instance_hotspots(&occurrence) else {
             continue;
         };
         let positions = document

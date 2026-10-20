@@ -547,6 +547,9 @@ fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
 /// The writer deliberately errors when a typed value has no legacy mapping. Opaque values read
 /// from legacy JSON remain under their `k3d.*` extension keys and are restored verbatim.
 pub fn export_current_value(document: &Document) -> ImportResult<Value> {
+    let mut snapshot = document.clone();
+    snapshot.persist_script_states();
+    let document = &snapshot;
     document.validate()?;
     let mut prototype_ids = BTreeMap::new();
     let mut used_prototype_ids = BTreeSet::new();

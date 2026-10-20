@@ -11,3 +11,9 @@ pub mod gpui_app;
 
 #[cfg(target_arch = "wasm32")]
 mod web;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod script_engine;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod script_runtime;

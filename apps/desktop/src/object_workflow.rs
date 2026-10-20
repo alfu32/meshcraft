@@ -96,8 +96,7 @@ impl MeshcraftApp {
                     .filter(|(path, _)| self.native_hotspot_authoring_allowed(path))
             });
         if let Some((path, id)) = selected.as_ref()
-            && let Some(r) = self.document.resolve_occurrence(path)
-            && let Ok(hotspots) = self.document.hotspots(r.definition.id)
+            && let Ok(hotspots) = self.document.instance_hotspots(path)
             && let Some(h) = hotspots.into_iter().find(|h| &h.id == id)
         {
             return (selected, h);

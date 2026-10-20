@@ -110,3 +110,7 @@ docker build -t meshcraft-build -f packaging/linux/Dockerfile .
 The workflow contains the complete old-sysroot build invocation. Native packagers
 consume the verified portable archives; they never rebuild against the packager's
 newer libc. `scripts/release/verify.py --help` describes final release verification.
+
+## Object scripting runtime
+
+Linux bundles JavaScriptCoreGTK 4.0 and its audited old-glibc dependency closure. macOS uses the system JavaScriptCore framework. Windows script execution requires a compatible `JavaScriptCore.dll`; its redistributable package and live qualification are still tracked by T47/T62. The app reports missing runtime libraries in the script editor and never downloads an engine at runtime. Ordinary graphical modeling remains available without the engine.

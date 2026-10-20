@@ -4259,7 +4259,7 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.23.1",
  "eframe",
@@ -4268,6 +4268,7 @@ dependencies = [
  "gpui",
  "gpui-component",
  "image",
+ "libloading",
  "meshcraft-core",
  "meshcraft-io",
  "raylib",

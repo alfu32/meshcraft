@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod derived;
 pub mod hotspots;
 pub mod materials;
+pub mod scripts;
 pub mod subscenes;
 
 macro_rules! stable_id {
@@ -473,6 +474,8 @@ pub struct Document {
     next_id: u64,
     #[serde(skip)]
     pub(crate) hotspot_cache: hotspots::EvaluationCache,
+    #[serde(skip)]
+    pub(crate) script_cache: scripts::FrameCache,
 }
 
 impl Document {
@@ -520,6 +523,7 @@ impl Document {
             extensions: BTreeMap::new(),
             next_id: 2,
             hotspot_cache: hotspots::EvaluationCache::default(),
+            script_cache: scripts::FrameCache::default(),
         }
     }
 
@@ -2169,6 +2173,7 @@ impl Document {
         if source.path.len() != 1 || count == 0 || count > 10_000 || !step.is_finite() {
             return None;
         }
+        self.persist_script_states();
         let source_id = source.path[0];
         let root = self.child_layouts.get(&self.root_layout)?;
         let source_entry = root
@@ -2458,6 +2463,13 @@ impl Document {
 
     pub fn effective_geometry(&self, occurrence: &OccurrenceRef) -> Option<&GeometryBundle> {
         let resolved = self.resolve_occurrence(occurrence)?;
+        if self
+            .script(resolved.definition.id)
+            .is_some_and(|s| s.enabled)
+            && let Some(frame) = self.script_frame(occurrence)
+        {
+            return Some(&frame.geometry);
+        }
         if let Some(evaluation) = self.hotspot_cache.get(self, occurrence) {
             return Some(&evaluation.geometry);
         }

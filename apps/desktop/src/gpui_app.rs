@@ -26,6 +26,8 @@ mod lighting;
 mod materials;
 #[path = "gpui_postprocess.rs"]
 mod postprocess;
+#[path = "gpui_scripts.rs"]
+mod scripts;
 #[path = "gpui_settings.rs"]
 mod settings;
 
@@ -243,6 +245,7 @@ struct ViewportBridge {
     scene: Arc<RwLock<Arc<RenderScene>>>,
     frame: Arc<Mutex<Option<ViewFrame>>>,
     redraw: Arc<(Mutex<u64>, Condvar)>,
+    preview: Arc<Mutex<Option<ViewportBridge>>>,
 }
 
 impl ViewportBridge {
@@ -253,6 +256,7 @@ impl ViewportBridge {
             scene: Arc::new(RwLock::new(Arc::new(RenderScene::default()))),
             frame: Arc::new(Mutex::new(None)),
             redraw: Arc::new((Mutex::new(1), Condvar::new())),
+            preview: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -415,6 +419,13 @@ fn render_loop(
         };
         rendered_revision = next_revision;
 
+        let active_bridge = bridge
+            .preview
+            .lock()
+            .ok()
+            .and_then(|p| p.clone())
+            .unwrap_or_else(|| bridge.clone());
+        let bridge = &active_bridge;
         let frame_start = Instant::now();
         let layout = bridge.layout.lock().map(|value| *value).unwrap_or_default();
         let wanted = (layout.width.max(1), layout.height.max(1));
@@ -889,6 +900,7 @@ impl Render for RaylibCanvas {
 }
 
 struct MeshcraftShell {
+    scripts: scripts::ScriptsUi,
     materials: materials::MaterialsUi,
     focus: gpui::FocusHandle,
     settings: settings::Editors,
@@ -936,6 +948,7 @@ impl MeshcraftShell {
         });
         let mut this = Self {
             materials: materials::MaterialsUi::default(),
+            scripts: scripts::ScriptsUi::default(),
             focus: cx.focus_handle(),
             settings: settings::Editors::default(),
             settings_scroll: gpui::ScrollHandle::new(),
@@ -1027,7 +1040,7 @@ impl MeshcraftShell {
     }
 
     fn refresh_scene(&mut self) {
-        let revision = self.session.document_revision();
+        let revision = self.session.native_visual_revision();
         let edit_context = self.session.native_edit_context();
         if self.cached_document_revision != Some(revision)
             || self.cached_document_generation != Some(self.session.document_generation())
@@ -1058,7 +1071,7 @@ impl MeshcraftShell {
             let mut preview_document = if drag.authoring {
                 self.session.native_document_for_view()
             } else {
-                self.session.document_snapshot()
+                (*self.cached_document).clone()
             };
             let result = if drag.authoring {
                 preview_document
@@ -1195,6 +1208,18 @@ impl MeshcraftShell {
         };
         let payload = if id == "ui.update_preferences" {
             self.session.native_ui_preferences_payload()
+        } else if id == "material.apply" {
+            let mut payload = CommandPayload::default();
+            payload.values.insert(
+                "id".into(),
+                serde_json::Value::String(
+                    self.materials
+                        .selected
+                        .clone()
+                        .unwrap_or_else(|| "default".into()),
+                ),
+            );
+            payload
         } else {
             command_default_payload(&command, &self.cached_document)
         };
@@ -2089,12 +2114,16 @@ impl Render for MeshcraftShell {
             self.host_watch_started = true;
             cx.spawn_in(window, async move |shell, cx| {
                 loop {
-                    gpui::Timer::after(Duration::from_millis(50)).await;
+                    gpui::Timer::after(Duration::from_millis(16)).await;
                     if shell
                         .update(cx, |this, cx| {
                             let revision = this.session.document_revision();
                             let status = this.session.status_text().to_owned();
                             this.session.poll_native_host_work();
+                            if scripts::tick(this) {
+                                this.refresh_scene();
+                                cx.notify();
+                            }
                             if revision != this.session.document_revision()
                                 || status != this.session.status_text()
                             {
@@ -2119,10 +2148,13 @@ impl Render for MeshcraftShell {
             window.set_rem_size(rem);
         }
         self.session.poll_native_host_work();
-        if self.cached_document_revision != Some(self.session.document_revision()) {
+        if self.cached_document_revision != Some(self.session.native_visual_revision()) {
             self.refresh_scene();
         }
         if let Some(panel) = self.session.native_take_panel_focus() {
+            if panel == "script_new" || panel == "script_edit" {
+                scripts::edit(self, panel == "script_new", window, cx);
+            }
             if panel == "material_editor_new" {
                 materials::edit(self, self.cached_document.next_material(), window, cx);
             } else if panel == "material_editor" {
@@ -2343,6 +2375,19 @@ impl Render for MeshcraftShell {
                     )),
             );
 
+        let viewport = viewport.when(!self.scripts.errors.is_empty(), |view| {
+            view.child(
+                div()
+                    .absolute()
+                    .bottom(px(12.))
+                    .left(px(12.))
+                    .right(px(12.))
+                    .p(px(8.))
+                    .bg(rgb(0x42292b))
+                    .text_color(rgb(0xffc3b8))
+                    .child(self.scripts.errors.join("\n")),
+            )
+        });
         let viewport = viewport.when(
             self.session.native_edit_context() != EditContext::Document,
             |viewport| {
@@ -2586,14 +2631,26 @@ impl Render for MeshcraftShell {
             .flex_col()
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
+            .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if scripts::capture_key(this, event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.scripts.editor.is_some() {
+                    if event.keystroke.key == "escape" {
+                        scripts::close(this, window, cx);
+                        cx.stop_propagation();
+                    }
+                    return;
+                }
                 if this.materials.editor.is_some() {
                     if event.keystroke.key == "escape" {
                         this.materials.editor = None;
                         window.focus(&this.focus);
                         cx.notify();
+                        cx.stop_propagation();
                     }
-                    cx.stop_propagation();
                     return;
                 }
                 if this.command_palette_open {
@@ -2629,6 +2686,9 @@ impl Render for MeshcraftShell {
         }
         if let Some(command_palette) = command_palette {
             root = root.child(command_palette);
+        }
+        if let Some(editor) = scripts::overlay(self, cx) {
+            root = root.child(editor);
         }
         if let Some(material_editor) = materials::overlay(self, cx) {
             root = root.child(material_editor);
