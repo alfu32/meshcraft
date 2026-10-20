@@ -26,6 +26,9 @@ unsafe extern "C" fn terminate(_: Ptr, _: Ptr) -> bool {
 }
 impl Engine {
     unsafe fn load() -> Result<Self, String> {
+        unsafe { Self::in_group(std::ptr::null_mut()) }
+    }
+    unsafe fn in_group(parent: Ptr) -> Result<Self, String> {
         #[cfg(target_os = "linux")]
         let names = [
             "libjavascriptcoregtk-4.1.so.0",
@@ -64,8 +67,11 @@ impl Engine {
                         .map_err(|e| e.to_string())?
                 };
             }
-            let create = symbol!("JSGlobalContextCreate", unsafe extern "C" fn(Ptr) -> Ptr);
-            let context = create(std::ptr::null_mut());
+            let create = symbol!(
+                "JSGlobalContextCreateInGroup",
+                unsafe extern "C" fn(Ptr, Ptr) -> Ptr
+            );
+            let context = create(parent, std::ptr::null_mut());
             if context.is_null() {
                 return Err("could not create JavaScriptCore context".into());
             }
@@ -104,13 +110,21 @@ impl Engine {
             })
         }
     }
+    #[cfg(test)]
     fn evaluate(&self, input: &serde_json::Value) -> Result<serde_json::Value, String> {
         let code = CString::new(format!("{}({})", include_str!("script_sdk.js"), input))
             .map_err(|e| e.to_string())?;
-        // SAFETY: the context is owned by this process/thread and all borrowed strings live through evaluation.
+        let script = unsafe { (self.string)(code.as_ptr()) };
+        let result = self.execute(script);
+        unsafe {
+            (self.string_release)(script);
+        }
+        result
+    }
+    fn execute(&self, script: Ptr) -> Result<serde_json::Value, String> {
+        // SAFETY: the context is owned by this thread; the caller retains the script string.
         unsafe {
             (self.limit)(self.group, 0.04, terminate, std::ptr::null_mut());
-            let script = (self.string)(code.as_ptr());
             let mut exception = std::ptr::null_mut();
             let value = (self.evaluate)(
                 self.context,
@@ -120,7 +134,6 @@ impl Engine {
                 1,
                 &mut exception,
             );
-            (self.string_release)(script);
             (self.clear)(self.group);
             let failed = !exception.is_null() || value.is_null();
             let value = if exception.is_null() {
@@ -156,17 +169,125 @@ impl Drop for Engine {
         unsafe { (self.release)(self.context) }
     }
 }
+/// Reuse the VM, but give every invocation a fresh global object. Only an immutable
+/// JSON string crosses contexts; scripts cannot poison another instance's globals.
+pub(super) struct Session {
+    owner: Engine,
+    model: Ptr,
+    sdk: Ptr,
+}
+impl Session {
+    pub(super) fn new(model: &serde_json::Value) -> Result<Self, String> {
+        let owner = unsafe { Engine::load() }?;
+        let json = CString::new(model.to_string()).map_err(|e| e.to_string())?;
+        let model = unsafe { (owner.string)(json.as_ptr()) };
+        let code = CString::new(format!(
+            "{}(__meshcraftRequest)",
+            include_str!("script_sdk.js")
+        ))
+        .map_err(|e| e.to_string())?;
+        let sdk = unsafe { (owner.string)(code.as_ptr()) };
+        Ok(Self { owner, model, sdk })
+    }
+    pub(super) fn evaluate(
+        &self,
+        request: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let engine = unsafe { Engine::in_group(self.owner.group) }?;
+        // SAFETY: these are stable JavaScriptCore C APIs. The retained JSString lives
+        // through evaluation, and its primitive value is rooted on the fresh global.
+        unsafe {
+            let global = *engine
+                ._library
+                .get::<unsafe extern "C" fn(Ptr) -> Ptr>(b"JSContextGetGlobalObject\0")
+                .map_err(|e| e.to_string())?;
+            let make = *engine
+                ._library
+                .get::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(b"JSValueMakeString\0")
+                .map_err(|e| e.to_string())?;
+            let set = *engine
+                ._library
+                .get::<unsafe extern "C" fn(Ptr, Ptr, Ptr, Ptr, u32, *mut Ptr)>(
+                    b"JSObjectSetProperty\0",
+                )
+                .map_err(|e| e.to_string())?;
+            let parse = *engine
+                ._library
+                .get::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(b"JSValueMakeFromJSONString\0")
+                .map_err(|e| e.to_string())?;
+            let name = (engine.string)(c"__meshcraftModelJson".as_ptr());
+            let mut exception = std::ptr::null_mut();
+            set(
+                engine.context,
+                global(engine.context),
+                name,
+                make(engine.context, self.model),
+                // kJSPropertyAttributeReadOnly | DontEnum | DontDelete.
+                14,
+                &mut exception,
+            );
+            (engine.string_release)(name);
+            if !exception.is_null() {
+                return Err("could not install model snapshot".into());
+            }
+            let name = (engine.string)(c"__meshcraftRequest".as_ptr());
+            let json = CString::new(request.to_string()).map_err(|e| e.to_string())?;
+            let input = (engine.string)(json.as_ptr());
+            let value = parse(engine.context, input);
+            (engine.string_release)(input);
+            if value.is_null() {
+                (engine.string_release)(name);
+                return Err("could not decode script input".into());
+            }
+            set(
+                engine.context,
+                global(engine.context),
+                name,
+                value,
+                14,
+                &mut exception,
+            );
+            (engine.string_release)(name);
+            if !exception.is_null() {
+                return Err("could not install script input".into());
+            }
+        }
+        engine.execute(self.sdk)
+    }
+}
+impl Drop for Session {
+    fn drop(&mut self) {
+        unsafe {
+            (self.owner.string_release)(self.model);
+            (self.owner.string_release)(self.sdk);
+        }
+    }
+}
 pub fn run_worker() {
     let input = io::stdin();
     let mut output = io::stdout().lock();
+    let mut model = serde_json::Value::Null;
+    let mut session: Option<Session> = None;
     for line in input.lock().lines() {
         let result = line.map_err(|e| e.to_string()).and_then(|s| {
             if s.len() > 32_000_000 {
                 return Err("script input exceeds 32 MB".into());
             }
-            let request = serde_json::from_str(&s).map_err(|e| e.to_string())?;
-            // A fresh context bounds retained JS objects; instance state crosses frames as JSON.
-            unsafe { Engine::load() }?.evaluate(&request)
+            let request: serde_json::Value = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+            if let Some(snapshot) = request.get("prepareModel") {
+                model = snapshot.clone();
+                // A fresh VM per sweep also bounds retained JIT/GC objects.
+                session = Some(Session::new(&model)?);
+                return Ok(serde_json::Value::Null);
+            }
+            if session.is_none() {
+                session = Some(Session::new(&model)?);
+            }
+            let result = session.as_ref().unwrap().evaluate(&request);
+            if result.is_err() {
+                session = None;
+            }
+            result
         });
         let response = match result {
             Ok(v) => serde_json::json!({"ok":v}),
@@ -336,5 +457,45 @@ function onAnimationFrame(instance, model) {
                 .unwrap_err()
                 .contains("onAnimationFrame")
         );
+    }
+}
+
+#[cfg(test)]
+mod scaling_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn shared_vm_keeps_globals_isolated_and_scene_queries_immutable() {
+        let session = Session::new(&json!({"objects":[{"id":"source","name":"Frame","geometry":[1,2,3]}],"materials":[],"settings":{}})).unwrap();
+        let mut request = json!({"id":"0","geometry":[],"hotspots":{},"state":{"initializer":"","properties":{}},"time":2.,"deltaTime":0.033,"source":{"source":r#"
+function onCreate(){this.created=(this.created||0)+1;}
+function onAnimationFrame(instance,model){
+ if(globalThis.polluted || Object.prototype.polluted) throw Error('globals leaked');
+ globalThis.polluted=true; Object.prototype.polluted=true;
+ this.frames=(this.frames||0)+1;
+ this.name=model.getObject('source').name;
+ this.count=model.queryGeometry('source').length;
+ if(!Object.isFrozen(model.objects[0].geometry))throw Error('mutable query');
+ return cube(new Point(),new Point(3,2,1),'body');
+}"#}});
+        for _ in 0..3 {
+            let result = session.evaluate(&request).unwrap();
+            assert_eq!(24, result["items"].as_array().unwrap().len());
+            assert_eq!("Frame", result["state"]["properties"]["name"]);
+            assert_eq!(3, result["state"]["properties"]["count"]);
+            assert_eq!(1, result["state"]["properties"]["created"]);
+            request["state"] = result["state"].clone();
+        }
+        assert_eq!(3, request["state"]["properties"]["frames"]);
+    }
+    #[test]
+    fn local_generators_do_not_parse_an_unused_scene_snapshot() {
+        // A null scene cannot be queried, but generators that don't query it work.
+        let session = Session::new(&Value::Null).unwrap();
+        for i in 0..64 {
+            let result = session.evaluate(&json!({"id":i.to_string(),"geometry":[],"hotspots":{},"time":0.,"deltaTime":0.,"source":{"source":"function onAnimationFrame(){return cube(new Point(),1,this.id);}"}})).unwrap();
+            assert_eq!(24, result["items"].as_array().unwrap().len());
+        }
     }
 }

@@ -58,7 +58,7 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
                     let visual = document.visual_revision() != editor.document.visual_revision();
                     changed = visual || !editor.valid || editor.error.is_some();
                     editor.document = Arc::new(document);
-                    editor.valid = true;
+                    editor.valid = !response.pending;
                     editor.error = None;
                     if visual {
                         publish_preview(editor, shell.lighting);
@@ -93,8 +93,7 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
         {
             let errors_changed = state.errors != response.errors;
             state.errors = response.errors;
-            state.failed_key =
-                (!state.errors.is_empty() && response.frames.is_empty()).then_some(current);
+            state.failed_key = response.halted.then_some(current);
             if shell.hotspot_drag.is_some() {
                 let mut document = (*shell.cached_document).clone();
                 document.install_script_frames(response.frames);

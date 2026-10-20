@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     process::{Child, Command, Stdio},
     sync::{Arc, mpsc},
     thread,
@@ -24,6 +24,9 @@ pub struct Response {
     pub key: u64,
     pub frames: BTreeMap<OccurrenceRef, ScriptFrame>,
     pub errors: Vec<String>,
+    /// More instances remain in this sweep; partial results are valid.
+    pub pending: bool,
+    pub halted: bool,
 }
 pub struct Runtime {
     sender: Option<mpsc::SyncSender<Request>>,
@@ -34,7 +37,8 @@ pub struct Runtime {
 }
 struct Worker {
     child: Child,
-    input: std::process::ChildStdin,
+    broken: bool,
+    input: BufWriter<std::process::ChildStdin>,
     output: mpsc::Receiver<Result<String, String>>,
     reader: Option<thread::JoinHandle<()>>,
 }
@@ -75,19 +79,36 @@ impl Worker {
                         }
                     });
                 let failed = result.is_err();
-                if send.send(result).is_err() || failed {
+                // Never block shutdown if a late response is queued when the child
+                // exits after its watchdog. There is only one outstanding request.
+                if send.try_send(result).is_err() || failed {
                     break;
                 }
             }
         });
         Ok(Self {
             child,
-            input,
+            broken: false,
+            input: BufWriter::with_capacity(64 * 1024, input),
             output,
             reader: Some(reader),
         })
     }
     fn evaluate(&mut self, request: Value) -> Result<Value, String> {
+        let result = self.exchange(request);
+        if result.is_err() {
+            self.broken = true;
+        }
+        let result = result?;
+        if let Some(error) = result.get("error") {
+            return Err(error.as_str().unwrap_or("script failed").into());
+        }
+        result
+            .get("ok")
+            .cloned()
+            .ok_or("worker returned no result".into())
+    }
+    fn exchange(&mut self, request: Value) -> Result<Value, String> {
         writeln!(self.input, "{request}")
             .and_then(|_| self.input.flush())
             .map_err(|e| e.to_string())?;
@@ -121,14 +142,7 @@ impl Worker {
                 }
             }
         };
-        let result: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-        if let Some(error) = result.get("error") {
-            return Err(error.as_str().unwrap_or("script failed").into());
-        }
-        result
-            .get("ok")
-            .cloned()
-            .ok_or("worker returned no result".into())
+        serde_json::from_str(&line).map_err(|e| e.to_string())
     }
 }
 impl Drop for Worker {
@@ -145,84 +159,133 @@ struct Output {
     items: Vec<Drawable>,
     state: ScriptState,
 }
-fn evaluate(
-    worker: &mut Worker,
-    request: &Request,
-    failed: &mut BTreeMap<OccurrenceRef, String>,
-) -> Response {
-    let document = &request.document;
-    let query_model = request.query_model.as_ref().unwrap_or(document);
-    let mut frames = BTreeMap::new();
-    let mut errors = Vec::new();
-    let paths = document.scripted_occurrences();
-    let objects = query_model.scene_geometry_refs().unwrap_or_default().into_iter().filter_map(|path| {
-        let resolved=query_model.resolve_occurrence(&path)?;
-        let geometry=query_model.effective_geometry(&path)?;
-        Some(json!({"id":format!("{:?}",path.path),"name":resolved.definition.name,"definitionId":resolved.definition.id.0,"transform":resolved.world_transform,"geometry":meshcraft_core::document::scripts::geometry_drawables(geometry)}))
-    }).collect::<Vec<_>>();
-    let model = json!({"objects":objects,"materials":query_model.materials(),"time":request.time,"deltaTime":request.delta,"settings":query_model.model_settings()});
-    let started = Instant::now();
-    for path in paths {
-        if let Some(error) = failed.get(&path) {
-            errors.push(error.clone());
-            continue;
-        }
-        if started.elapsed() > Duration::from_secs(2) {
-            errors.push("Script frame batch exceeded two seconds".into());
-            break;
-        }
-        let Some(r) = document.resolve_occurrence(&path) else {
-            continue;
-        };
-        let Some(source) = document.script(r.definition.id) else {
-            continue;
-        };
-        let state = document
-            .script_frame(&path)
-            .map(|f| f.state.clone())
-            .or_else(|| {
-                r.edits
-                    .and_then(|e| e.values.get(STATE_KEY))
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-            })
-            .unwrap_or_default();
-        let authored = match document.evaluate_hotspots(&path) {
-            Ok(e) => e.geometry,
-            Err(e) => {
-                errors.push(e);
-                continue;
-            }
-        };
-        let geometry = meshcraft_core::document::scripts::geometry_drawables(&authored);
-        let instance_id = format!("{:?}", path.path);
-        let mut local_model = model.clone();
-        if let Some(objects) = local_model["objects"].as_array_mut()
-            && !objects.iter().any(|o| o["id"] == instance_id)
-        {
-            objects.push(json!({"id":instance_id,"name":r.definition.name,"definitionId":r.definition.id.0,"transform":r.world_transform,"geometry":geometry}));
-        }
-        let input = json!({"id":instance_id,"source":source,"state":state,"geometry":geometry,"hotspots":r.edits.map(|e|&e.hotspot_positions),"model":local_model,"time":request.time,"deltaTime":request.delta});
-        let result = worker
-            .evaluate(input)
-            .and_then(|v| {
-                serde_json::from_value::<Output>(v).map_err(|e| format!("Invalid geometry: {e}"))
-            })
-            .and_then(|out| ScriptFrame::build(&authored, out.items, out.state));
-        match result {
-            Ok(frame) => {
-                frames.insert(path, frame);
-            }
-            Err(e) => {
-                let message = format!("{}: {e}", r.definition.name);
-                failed.insert(path, message.clone());
-                errors.push(message);
-            }
+/// All instances in a sweep see the same scene and time. A continuation advances
+/// through that snapshot instead of restarting at the first occurrence every tick.
+struct Sweep {
+    request: Request,
+    paths: Vec<OccurrenceRef>,
+    next: usize,
+    prepared: bool,
+}
+impl Sweep {
+    fn new(request: Request) -> Self {
+        let paths = request.document.scripted_occurrences();
+        Self {
+            request,
+            paths,
+            next: 0,
+            prepared: false,
         }
     }
-    Response {
-        key: request.key,
-        frames,
-        errors,
+    fn pending(&self) -> bool {
+        self.next < self.paths.len()
+    }
+    fn model(&self) -> Value {
+        let document = &self.request.document;
+        let query = self.request.query_model.as_ref().unwrap_or(document);
+        let mut objects = query.scene_geometry_refs().unwrap_or_default().into_iter().filter_map(|path| {
+            let resolved=query.resolve_occurrence(&path)?;
+            let geometry=query.effective_geometry(&path)?;
+            Some(json!({"id":format!("{:?}",path.path),"name":resolved.definition.name,"definitionId":resolved.definition.id.0,"transform":resolved.world_transform,"geometry":meshcraft_core::document::scripts::geometry_drawables(geometry)}))
+        }).collect::<Vec<_>>();
+        // A draft preview uses the full source model for queries and adds its own
+        // isolated occurrence once, rather than cloning the full model per instance.
+        if self.request.query_model.is_some() {
+            for path in &self.paths {
+                let id = format!("{:?}", path.path);
+                if objects.iter().any(|o| o["id"] == id) {
+                    continue;
+                }
+                if let Some(r) = document.resolve_occurrence(path)
+                    && let Ok(e) = document.evaluate_hotspots(path)
+                {
+                    objects.push(json!({"id":id,"name":r.definition.name,"definitionId":r.definition.id.0,"transform":r.world_transform,"geometry":meshcraft_core::document::scripts::geometry_drawables(&e.geometry)}));
+                }
+            }
+        }
+        json!({"objects":objects,"materials":query.materials(),"time":self.request.time,"deltaTime":self.request.delta,"settings":query.model_settings()})
+    }
+    fn evaluate(
+        &mut self,
+        worker: &mut impl FnMut(Value) -> Result<Value, String>,
+        failed: &mut BTreeMap<OccurrenceRef, String>,
+        budget: Duration,
+    ) -> Response {
+        let mut response = Response {
+            key: self.request.key,
+            frames: BTreeMap::new(),
+            errors: Vec::new(),
+            pending: false,
+            halted: false,
+        };
+        let started = Instant::now();
+        if !self.prepared {
+            if let Err(error) = worker(json!({"prepareModel":self.model()})) {
+                response.errors.push(error);
+                response.halted = true;
+                self.next = self.paths.len();
+                return response;
+            }
+            self.prepared = true;
+        }
+        let document = &self.request.document;
+        let mut evaluated = false;
+        while self.next < self.paths.len() {
+            // Always evaluate at least one eligible instance, even after preparing
+            // a large snapshot. Exhaustion is normal scheduling, never a JS error.
+            if evaluated && started.elapsed() >= budget {
+                break;
+            }
+            let path = self.paths[self.next].clone();
+            self.next += 1;
+            if failed.contains_key(&path) {
+                continue;
+            }
+            let Some(r) = document.resolve_occurrence(&path) else {
+                continue;
+            };
+            let Some(source) = document.script(r.definition.id) else {
+                continue;
+            };
+            let state = document
+                .script_frame(&path)
+                .map(|f| f.state.clone())
+                .or_else(|| {
+                    r.edits
+                        .and_then(|e| e.values.get(STATE_KEY))
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                })
+                .unwrap_or_default();
+            let authored = match document.evaluate_hotspots(&path) {
+                Ok(e) => e.geometry,
+                Err(e) => {
+                    failed.insert(path, e);
+                    continue;
+                }
+            };
+            let input = json!({"id":format!("{:?}",path.path),"source":source,"state":state,
+                "geometry":meshcraft_core::document::scripts::geometry_drawables(&authored),
+                "hotspots":r.edits.map(|e|&e.hotspot_positions),"time":self.request.time,"deltaTime":self.request.delta});
+            evaluated = true;
+            match worker(input)
+                .and_then(|v| {
+                    serde_json::from_value::<Output>(v)
+                        .map_err(|e| format!("Invalid geometry: {e}"))
+                })
+                .and_then(|out| ScriptFrame::build(&authored, out.items, out.state))
+            {
+                Ok(frame) => {
+                    response.frames.insert(path, frame);
+                }
+                Err(e) => {
+                    failed.insert(path, format!("{}: {e}", r.definition.name));
+                }
+            }
+        }
+        response.pending = self.pending();
+        response.halted = !response.pending && failed.len() == self.paths.len();
+        response.errors = failed.values().cloned().collect();
+        response
     }
 }
 impl Runtime {
@@ -237,30 +300,48 @@ impl Runtime {
         let join = thread::spawn(move || {
             let mut worker = None;
             let mut failed = BTreeMap::new();
-            let mut previous_key = None;
-            while let Ok(request) = input.recv() {
-                if previous_key != Some(request.key) {
+            let mut sweep: Option<Sweep> = None;
+            let mut last_time: Option<f64> = None;
+            while let Ok(mut request) = input.recv() {
+                if sweep.as_ref().is_none_or(|s| s.request.key != request.key) {
                     failed.clear();
-                    previous_key = Some(request.key);
+                }
+                if sweep
+                    .as_ref()
+                    .is_none_or(|s| s.request.key != request.key || !s.pending())
+                {
+                    if let Some(previous) = last_time {
+                        request.delta = (request.time - previous).max(0.);
+                    }
+                    last_time = Some(request.time);
+                    sweep = Some(Sweep::new(request));
                 }
                 if worker.is_none() {
                     worker = Worker::new().ok();
                 }
+                let active = sweep.as_mut().unwrap();
                 let response = if let Some(w) = worker.as_mut() {
-                    evaluate(w, &request, &mut failed)
+                    active.evaluate(
+                        &mut |v| w.evaluate(v),
+                        &mut failed,
+                        Duration::from_millis(50),
+                    )
                 } else {
+                    active.next = active.paths.len();
                     Response {
-                        key: request.key,
+                        key: active.request.key,
                         frames: BTreeMap::new(),
                         errors: vec!["Could not start the JavaScriptCore worker".into()],
+                        pending: false,
+                        halted: true,
                     }
                 };
-                let failed = !response.errors.is_empty();
+                if worker.as_ref().is_some_and(|w| w.broken) {
+                    worker = None;
+                    active.prepared = false;
+                }
                 if output.send(response).is_err() {
                     break;
-                }
-                if failed {
-                    worker = None;
                 }
             }
         });
@@ -320,5 +401,147 @@ impl Default for Clock {
             start: now,
             last: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use meshcraft_core::{document::scripts::ScriptDefinition, geometry::Vec3};
+
+    fn sweep(count: usize) -> Sweep {
+        let mut document = Document::default();
+        let path = document
+            .add_scripted_object("frame", ScriptDefinition::default())
+            .unwrap();
+        for i in 1..count {
+            document
+                .copy_root_occurrence(&path, Vec3::new(i as f64 * 4., 0., 0.))
+                .unwrap();
+        }
+        Sweep::new(Request {
+            document: Arc::new(document),
+            query_model: None,
+            key: 7,
+            time: 2.,
+            delta: 0.033,
+        })
+    }
+    #[test]
+    fn budget_yields_without_starving_late_instances_or_repeating_model_payload() {
+        let mut sweep = sweep(64);
+        let mut prepared = 0;
+        let mut ids = Vec::new();
+        let mut seen = BTreeMap::new();
+        let mut failed = BTreeMap::new();
+        let mut evaluate = |request: Value| {
+            if request.get("prepareModel").is_some() {
+                prepared += 1;
+                assert_eq!(
+                    65,
+                    request["prepareModel"]["objects"].as_array().unwrap().len()
+                );
+                return Ok(Value::Null);
+            }
+            assert!(request.get("model").is_none());
+            assert_eq!(2., request["time"]);
+            ids.push(request["id"].clone());
+            Ok(json!({"items":[],"state":{"initializer":"test","properties":{}}}))
+        };
+        // A zero budget forces one instance per continuation, without flaky timing.
+        for i in 0..64 {
+            let response = sweep.evaluate(&mut evaluate, &mut failed, Duration::ZERO);
+            assert_eq!(i != 63, response.pending);
+            assert!(!response.halted);
+            assert!(response.errors.is_empty());
+            assert_eq!(1, response.frames.len());
+            seen.extend(response.frames);
+        }
+        assert_eq!(1, prepared);
+        assert_eq!(64, ids.len());
+        assert_eq!(64, seen.len());
+    }
+    #[test]
+    fn all_instances_finish_and_retain_independent_state_across_sweeps() {
+        use crate::script_engine::Session;
+        let mut first = sweep(56);
+        let mut document = (*first.request.document).clone();
+        let definition = document
+            .resolve_occurrence(&first.paths[0])
+            .unwrap()
+            .definition
+            .id;
+        document.set_script(definition,ScriptDefinition {source:r#"
+function onCreate(instance,model){this.created=(this.created||0)+1;this.count=model.objects.length;}
+function onAnimationFrame(){this.frames=(this.frames||0)+1;return [cube(new Point(),1,this.id),hotspot(new Point(2,0,0),'width')];}
+"#.into(),..Default::default()}).unwrap();
+        first = Sweep::new(Request {
+            document: Arc::new(document),
+            ..first.request
+        });
+        let mut session: Option<Session> = None;
+        let mut worker = |request: Value| {
+            if let Some(model) = request.get("prepareModel") {
+                session = Some(Session::new(model)?);
+                Ok(Value::Null)
+            } else {
+                session.as_ref().unwrap().evaluate(&request)
+            }
+        };
+        let mut failed = BTreeMap::new();
+        for frame_number in 1..=2 {
+            let mut document = (*first.request.document).clone();
+            loop {
+                let response = first.evaluate(&mut worker, &mut failed, Duration::from_millis(10));
+                assert!(response.errors.is_empty(), "{:?}", response.errors);
+                document.install_script_frames(response.frames);
+                if !response.pending {
+                    break;
+                }
+            }
+            for path in &first.paths {
+                let frame = document.script_frame(path).unwrap();
+                assert_eq!(12, frame.geometry.triangles.len());
+                assert_eq!(1, frame.hotspots.len());
+                assert_eq!(json!(1), frame.state.properties["created"]);
+                assert_eq!(json!(57), frame.state.properties["count"]);
+                assert_eq!(json!(frame_number), frame.state.properties["frames"]);
+            }
+            first = Sweep::new(Request {
+                document: Arc::new(document),
+                ..first.request
+            });
+        }
+    }
+    #[test]
+    fn failed_instances_do_not_stop_healthy_animation_on_later_sweeps() {
+        let mut sweep = sweep(3);
+        let mut failed = BTreeMap::new();
+        let bad = format!("{:?}", sweep.paths.last().unwrap().path);
+        let mut worker = |v: Value| {
+            if v.get("prepareModel").is_some() {
+                return Ok(Value::Null);
+            }
+            if v["id"] == bad {
+                return Err("interrupted".into());
+            }
+            Ok(json!({"items":[],"state":{"initializer":"test","properties":{}}}))
+        };
+        let response = sweep.evaluate(&mut worker, &mut failed, Duration::from_secs(1));
+        assert_eq!(2, response.frames.len());
+        assert_eq!(1, response.errors.len());
+        assert!(!response.halted);
+        // Retry healthy scripts, skip the already interrupted one.
+        let mut next = Sweep::new(sweep.request);
+        let response = next.evaluate(&mut worker, &mut failed, Duration::from_secs(1));
+        assert_eq!(2, response.frames.len());
+        assert!(!response.halted);
+        // A failure in the last continuation must not halt the healthy scripts.
+        let mut next = Sweep::new(next.request);
+        next.next = 2;
+        let response = next.evaluate(&mut worker, &mut failed, Duration::ZERO);
+        assert!(response.frames.is_empty());
+        assert!(!response.pending);
+        assert!(!response.halted);
     }
 }

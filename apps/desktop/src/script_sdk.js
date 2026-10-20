@@ -1,4 +1,4 @@
-// The object SDK is evaluated inside a fresh JavaScriptCore context, without host IO.
+// Fresh globals per invocation; an immutable scene JSON string is shared by the VM.
 (function(request) {
 "use strict";
 const point = p => ({x:Number(p.x),y:Number(p.y),z:Number(p.z),id:p.id===undefined?"":String(p.id)});
@@ -32,8 +32,11 @@ function sphere(center,radius,id,material,segments=24){segments=Math.max(4,Math.
  for(let j=0;j<rings;j++)for(let i=0;i<segments;i++){const a=j*Math.PI/rings,b=(j+1)*Math.PI/rings,c=i*2*Math.PI/segments,d=(i+1)*2*Math.PI/segments;out.push(face(p(a,c),p(b,c),p(b,d),id+":"+j+":"+i+"a",material),face(p(a,c),p(b,d),p(a,d),id+":"+j+":"+i+"b",material));}return out;}
 function cone(origin,radius,height,id,material,segments=32){segments=Math.max(3,Math.min(512,Math.floor(segments)));const top=new Point(origin.x,origin.y+height,origin.z),out=[];for(let i=0;i<segments;i++){const p=a=>new Point(origin.x+radius*Math.cos(a),origin.y,origin.z+radius*Math.sin(a));const a=p(i*2*Math.PI/segments),b=p((i+1)*2*Math.PI/segments);out.push(face(a,top,b,id+":side"+i,material),face(origin,a,b,id+":base"+i,material));}return out;}
 const freeze=o=>{if(o&&typeof o==="object"){Object.freeze(o);for(const v of Object.values(o))freeze(v);}return o;};
-const data=freeze(request.model);
-const model=Object.freeze({...data,getObject:id=>data.objects.find(o=>o.id===id),findObjects:name=>data.objects.filter(o=>o.name===name),getMaterial:id=>data.materials.find(m=>m.id===id),queryGeometry:id=>data.objects.find(o=>o.id===id)?.geometry||[]});
+// Most generators only need their own geometry/state. Parse and freeze the scene
+// snapshot only when a script actually queries it, never once per ordinary instance.
+let data;
+const snapshot=()=>data||(data=freeze(request.model||JSON.parse(__meshcraftModelJson)));
+const model=Object.freeze({get objects(){return snapshot().objects;},get materials(){return snapshot().materials;},get settings(){return snapshot().settings;},time:request.time,deltaTime:request.deltaTime,getObject:id=>snapshot().objects.find(o=>o.id===id),findObjects:name=>snapshot().objects.filter(o=>o.name===name),getMaterial:id=>snapshot().materials.find(m=>m.id===id),queryGeometry:id=>snapshot().objects.find(o=>o.id===id)?.geometry||[]});
 // Compile in a lexical scope containing only the SDK and immutable query facade.
 const compile=(source,name)=> {
  if(/^\s*(?:async\s+)?function\b/.test(source))return eval("("+source+"\n)");

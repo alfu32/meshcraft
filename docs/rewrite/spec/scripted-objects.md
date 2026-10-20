@@ -81,11 +81,26 @@ are injected into the JavaScriptCore global object.
 ## Runtime and platform status
 
 Evaluation runs in a private child process, outside GPUI and the raylib worker.
-JavaScriptCore interrupts a hook after 40 ms; the parent applies a two-second
+JavaScriptCore interrupts an invocation after 40 ms; the parent applies a two-second
 watchdog and Linux RSS budget of 512 MiB. Results are limited to 100,000 drawables,
 32 nesting levels and 16 MB JSON. Failed hooks retain their last good geometry and
-show diagnostics; source/model edits allow retry. Contexts are released after each
-evaluation, and the engine library remains loaded until helper-process exit.
+show diagnostics; source/model edits allow retry. Each scene sweep sends one query
+snapshot to the helper through buffered IPC. The SDK source stays constant instead
+of recompiling it with an embedded scene/request literal. The VM is shared within
+that sweep, with fresh globals per
+instance; only an immutable JSON string crosses contexts. Scene queries parse and
+freeze that string on first use, so local generators do not process unrelated
+geometry. Contexts are released after each invocation; the VM is replaced for the
+next sweep and after script errors. The library remains loaded until helper exit.
+
+A sweep uses one scene/time snapshot and publishes partial results in approximately
+50 ms work slices, advancing to the remaining instances on the next request.
+Reaching the slice budget is normal scheduling, not an error: even a slow sweep
+must reach its last instance. An individual failed instance retains its last good
+output without preventing healthy instances from animating. Source/model changes
+discard the previous continuation. `deltaTime` measures time between sweep starts,
+rather than UI polling intervals. The watchdog remains per helper operation; there
+is no aggregate two-second rejection based solely on instance count.
 
 Linux loads JavaScriptCoreGTK 4.1, 6.0 or 4.0; the old-glibc release bundle includes
 its 4.0 dependency closure. macOS uses the system JavaScriptCore framework.
