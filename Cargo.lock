@@ -4259,10 +4259,11 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "base64 0.23.1",
  "eframe",
+ "egui",
  "flate2",
  "gpui",
  "gpui-component",

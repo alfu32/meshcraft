@@ -32,7 +32,6 @@ use crate::viewport::{
     ConstructionGuide, ConstructionGuideKind, GridNormalAxis, SnapKind, SnapResult, ToolFeedback,
     ToolPreview,
 };
-use eframe::egui;
 use gpui::{
     App, Application, Context, Entity, ImageSource, Render, RenderImage, SharedString, Styled,
     TitlebarOptions, Window, WindowBounds, WindowOptions, canvas, div, img, prelude::*, px, rgb,

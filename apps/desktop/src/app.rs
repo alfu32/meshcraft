@@ -6,7 +6,7 @@ use crate::viewport::{
     SelectionGesture, SnapKind, SnapOptions, SnapResult, SnapScope, SnapVisibility, ToolFeedback,
     ToolPreview, Viewport, ViewportClick, ViewportScene, WalkthroughTuning,
 };
-use eframe::egui::{self, Align, Align2, Color32, Layout, Vec2};
+use egui::{Align, Align2, Color32, Layout, Vec2};
 use meshcraft_core::commands::HostEffect;
 use meshcraft_core::commands::{
     CommandCapability, CommandCompletion, CommandDescriptor, CommandDispatch, CommandKind,
@@ -83,6 +83,7 @@ use std::thread;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
+#[cfg(target_arch = "wasm32")]
 const PREFERENCES_KEY: &str = "meshcraft.preferences";
 const MAX_RECENT_PROJECTS: usize = 10;
 #[cfg(not(target_arch = "wasm32"))]
@@ -2849,6 +2850,7 @@ impl MeshcraftApp {
         self.document.revision() != self.saved_revision
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         Self::from_document(
             creation_context,
@@ -2859,6 +2861,7 @@ impl MeshcraftApp {
         )
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn new_with_document(
         creation_context: &eframe::CreationContext<'_>,
         document: Document,
@@ -2867,6 +2870,7 @@ impl MeshcraftApp {
         Self::from_document(creation_context, document, status, true, None)
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn new_with_project(
         creation_context: &eframe::CreationContext<'_>,
         project: ImportedProject,
@@ -2881,10 +2885,12 @@ impl MeshcraftApp {
         )
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn new_with_error(creation_context: &eframe::CreationContext<'_>, error: String) -> Self {
         Self::from_document(creation_context, Document::new(), error, false, None)
     }
 
+    #[cfg(target_arch = "wasm32")]
     fn from_document(
         creation_context: &eframe::CreationContext<'_>,
         document: Document,
@@ -10950,7 +10956,8 @@ impl MeshcraftApp {
         });
     }
 
-    fn show_workspace(&mut self, ui: &mut egui::Ui) {
+    /// Render the browser/headless workspace without requiring a native eframe host.
+    pub fn show_workspace(&mut self, ui: &mut egui::Ui) {
         self.show_workspace_inner(ui);
     }
 
@@ -11791,6 +11798,7 @@ fn registry_has_unique_ids() -> bool {
         .all(|command| ids.insert(command.descriptor.id.clone()))
 }
 
+#[cfg(target_arch = "wasm32")]
 impl eframe::App for MeshcraftApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::Frame::central_panel(ui.style()).show(ui, |ui| self.show_workspace(ui));
@@ -11831,7 +11839,7 @@ mod tests {
     };
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-    use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
+    use egui::{Event, ImeEvent, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use meshcraft_core::commands::{

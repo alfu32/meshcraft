@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
-use eframe::egui;
-
+#[cfg(target_arch = "wasm32")]
 const ICON_ATLAS_PNG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icons.32.png"));
 const ICON_MAPPING_CSV: &str = include_str!("../../../assets/tool-icons/icons.mapping.csv");
 include!(concat!(env!("OUT_DIR"), "/icon_dimensions.rs"));
@@ -18,6 +17,7 @@ pub fn icon_regions() -> BTreeMap<&'static str, IconRegion> {
     parse_icon_regions(ICON_MAPPING_CSV)
 }
 
+#[cfg(target_arch = "wasm32")]
 pub fn load_icon_atlas(context: &egui::Context) -> Option<egui::TextureHandle> {
     let rgba = image::load_from_memory(ICON_ATLAS_PNG).ok()?.to_rgba8();
     let (width, height) = rgba.dimensions();

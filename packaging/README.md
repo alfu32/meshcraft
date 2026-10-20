@@ -45,8 +45,10 @@ older lockfile caches can seed a build within the cache scope. GitHub scopes cac
 to the selected ref (and its default-branch fallback), so a different version tag
 starts cold unless a compatible default-branch cache has been seeded. Cache saves run before installer steps
 and on failed compilation so a packaging failure does not throw away the build work.
-A cold build still compiles the GPUI/raylib and transitional egui/wgpu dependency trees;
-warm-run improvements depend on the GitHub cache being available.
+A cold native build still compiles GPUI/raylib and shared egui session/test types;
+the unused native eframe/winit/wgpu renderer stack has been removed. Eframe and its
+renderer remain dependencies of the browser target only.
+Warm-run improvements depend on the GitHub cache being available.
 
 Linux containers run as the runner UID/GID with pre-created writable mount points.
 A dedicated Linux Cargo home contains no host rustup proxy executables.

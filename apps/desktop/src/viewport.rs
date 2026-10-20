@@ -1,6 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native_spatial::{NativeSpatialIndex, NativeSpatialPrimitive};
-use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
+use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
 use meshcraft_core::document::{
     DefinitionId, Document, OccurrenceRef, Rgba8, TriangleId, VertexId,
@@ -5224,7 +5224,7 @@ mod tests {
         orient_face_color, point_in_triangle, shade_face_for_shadow, shadow_light_direction,
         triangle_back_face_offset, visible_line_fragments,
     };
-    use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
     use meshcraft_core::document::{Document, TriangleId, VertexId};
     use meshcraft_core::geometry::Vec3;
     use serde_json::json;
@@ -6339,13 +6339,7 @@ mod tests {
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
         let mut viewport = Viewport::default();
         let drag = Vec2::new(20.0, -10.0);
-        viewport.drag_camera(
-            rect,
-            eframe::egui::PointerButton::Secondary,
-            false,
-            drag,
-            false,
-        );
+        viewport.drag_camera(rect, egui::PointerButton::Secondary, false, drag, false);
         assert_eq!(0.16, viewport.yaw);
         assert!((viewport.elevation - (DEFAULT_ELEVATION - 0.08)).abs() < 1.0e-12);
         assert_eq!(Vec2::ZERO, viewport.pan);
@@ -6356,13 +6350,7 @@ mod tests {
         let delta = Vec2::new(-4.0, 8.0);
         let expected_target =
             right * (-f64::from(delta.x) * scale) + up * (f64::from(delta.y) * scale);
-        viewport.drag_camera(
-            rect,
-            eframe::egui::PointerButton::Secondary,
-            true,
-            delta,
-            false,
-        );
+        viewport.drag_camera(rect, egui::PointerButton::Secondary, true, delta, false);
         assert_eq!(orientation, (viewport.yaw, viewport.elevation));
         assert!(viewport.target.distance(expected_target) < 1.0e-10);
         assert_eq!(Vec2::ZERO, viewport.pan);
