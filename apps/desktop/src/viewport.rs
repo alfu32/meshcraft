@@ -4536,7 +4536,7 @@ fn axis_guide_colors(preview: bool) -> [Color32; 3] {
     }
 }
 
-fn cursor_axes(
+pub(crate) fn cursor_axes(
     surface_normal: Vec3,
     segment_axis: Option<Vec3>,
     ground_normal: Vec3,
@@ -4561,7 +4561,11 @@ fn cursor_axes(
     Some([guide.axis_u, guide.axis_v, guide.axis_w])
 }
 
-fn snapped_segment_axis(document: &Document, scope: SnapScope<'_>, point: Vec3) -> Option<Vec3> {
+pub(crate) fn snapped_segment_axis(
+    document: &Document,
+    scope: SnapScope<'_>,
+    point: Vec3,
+) -> Option<Vec3> {
     let occurrences = document.scene_geometry_refs().ok()?;
     let mut nearest: Option<(f64, Vec3)> = None;
     for occurrence in occurrences {

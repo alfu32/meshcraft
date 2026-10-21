@@ -759,7 +759,7 @@ struct PendingReplacement {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ReplacementDecision {
+pub(crate) enum ReplacementDecision {
     #[cfg(not(target_arch = "wasm32"))]
     Save,
     Discard,
@@ -2977,6 +2977,38 @@ impl MeshcraftApp {
         self.preferences.show_construction_guides
     }
 
+    fn cursor_aligned_guide(
+        &mut self,
+        kind: ConstructionGuideKind,
+        snap: SnapResult,
+    ) -> Option<ConstructionGuide> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let [axis_u, axis_v, axis_w] = self.native_cursor_axes(snap)?;
+        #[cfg(target_arch = "wasm32")]
+        let [axis_u, axis_v, axis_w] = {
+            let scope = match &self.selection.context {
+                EditContext::Document => SnapScope::Document,
+                EditContext::Definition(id) => SnapScope::Definition(*id),
+                EditContext::Occurrence(active) => SnapScope::Occurrence(active),
+            };
+            let line = matches!(snap.kind, SnapKind::Line | SnapKind::Midpoint)
+                .then(|| crate::viewport::snapped_segment_axis(&self.document, scope, snap.point))
+                .flatten();
+            crate::viewport::cursor_axes(
+                snap.normal,
+                line,
+                self.preferences.grid_normal_axis.vector(),
+            )?
+        };
+        Some(ConstructionGuide {
+            kind,
+            origin: snap.point,
+            axis_u,
+            axis_v,
+            axis_w,
+        })
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn native_prepare_spatial_view(&mut self) {
         let context = (self.document_generation, self.selection.context.clone());
@@ -3078,6 +3110,24 @@ impl MeshcraftApp {
         )
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_recent_projects(&self) -> &[String] {
+        &self.preferences.recent_projects
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_document_replacement_prompt(&self) -> Option<&'static str> {
+        self.pending_replacement.as_ref().map(|p| match p.target {
+            ReplacementTarget::NewDocument => "create a new document",
+            ReplacementTarget::OpenProject(_) => "open another project",
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_resolve_document_replacement(&mut self, decision: ReplacementDecision) {
+        self.resolve_document_replacement(decision);
+    }
+
     pub fn current_project_path(&self) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -3093,6 +3143,10 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_native_project_path(&mut self, path: PathBuf) {
+        if let Err(error) = self.remember_recent_project(&path) {
+            self.status
+                .push_str(&format!(" Recent files could not be saved: {error}"));
+        }
         self.current_project_path = Some(path);
     }
 
@@ -5587,7 +5641,7 @@ impl MeshcraftApp {
         path: &std::path::Path,
         project: ImportedProject,
     ) -> CommandResult {
-        self.remember_recent_project(path);
+        let recent_error = self.remember_recent_project(path).err();
         self.document = project.document;
         self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
@@ -5637,7 +5691,12 @@ impl MeshcraftApp {
             ));
         }
 
+        if let Some(error) = &recent_error {
+            self.status
+                .push_str(&format!(" Recent files could not be saved: {error}"));
+        }
         let mut result = CommandResult::completed();
+        result.diagnostics.extend(recent_error);
         result.document_revision = Some(self.document.revision());
         result
             .outputs
@@ -5654,10 +5713,14 @@ impl MeshcraftApp {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn remember_recent_project(&mut self, path: &Path) {
+    fn remember_recent_project(&mut self, path: &Path) -> Result<(), String> {
         let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         self.preferences
             .record_recent_project(path.display().to_string());
+        if self.persist_native_preferences {
+            persist_native_preferences(&self.preferences)?;
+        }
+        Ok(())
     }
 
     fn run_command(&mut self, id: &str) {
@@ -5752,6 +5815,13 @@ impl MeshcraftApp {
         }) {
             return CommandResult::failed(error);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.current_project_path = None;
+            self.autosave_deadline = None;
+            self.autosave_observed_revision = self.document.revision();
+        }
+        self.saved_revision = self.document.revision();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.selection.clear();
         self.object_name_edit = None;
@@ -6323,9 +6393,7 @@ impl MeshcraftApp {
             ShellAction::CancelActiveTool => self.cancel_active_tool(),
             ShellAction::PlaceGuide(kind) => {
                 if let Some(cursor) = self.cursor_snap {
-                    if let Some(guide) =
-                        ConstructionGuide::at_point(kind, cursor.point, cursor.normal)
-                    {
+                    if let Some(guide) = self.cursor_aligned_guide(kind, cursor) {
                         self.guides.push(guide);
                         self.status = match kind {
                             ConstructionGuideKind::Axis => {
@@ -8413,7 +8481,13 @@ impl MeshcraftApp {
             } else {
                 ConstructionGuideKind::Grid
             };
-            if let Some(guide) = ConstructionGuide::at_point(kind, point, normal) {
+            let cursor = SnapResult {
+                point,
+                normal,
+                kind: snap.map_or(SnapKind::Grid, |s| s.kind),
+                screen_distance: 0.,
+            };
+            if let Some(guide) = self.cursor_aligned_guide(kind, cursor) {
                 self.guides.push(guide);
                 self.active_tool = "Select".to_owned();
                 self.status = match kind {
@@ -10636,7 +10710,7 @@ impl MeshcraftApp {
                 } else {
                     ConstructionGuideKind::Grid
                 };
-                ConstructionGuide::at_point(kind, snap.point, snap.normal)
+                self.cursor_aligned_guide(kind, snap)
             })
         } else {
             None
@@ -11944,7 +12018,7 @@ fn normalize_project_path(mut path: PathBuf) -> PathBuf {
     path
 }
 
-fn recent_project_display_name(path: &str) -> &str {
+pub(crate) fn recent_project_display_name(path: &str) -> &str {
     path.rsplit(['/', '\\'])
         .find(|component| !component.is_empty())
         .unwrap_or(path)
@@ -14256,6 +14330,34 @@ mod tests {
         assert_eq!(2, app.guides.len());
         assert_eq!(ConstructionGuideKind::Grid, app.guides[1].kind);
         assert_eq!(cursor.point, app.guides[1].origin);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn guides_keep_the_exact_segment_cursor_basis_for_commands_and_point_placement() {
+        let mut app = test_app();
+        let end = Vec3::new(4., 2., 3.);
+        app.document
+            .add_line_segment("guide alignment", Vec3::ZERO, end)
+            .unwrap();
+        let snap = SnapResult {
+            point: end * 0.5,
+            normal: Vec3::Y,
+            kind: SnapKind::Midpoint,
+            screen_distance: 0.,
+        };
+        let axes = app.native_cursor_axes(snap).unwrap();
+        assert!(axes[2].distance(end.try_normalized(1e-12).unwrap()) < 1e-12);
+        app.cursor_snap = Some(snap);
+        app.run_command("view.axis_guide");
+        app.run_command("view.grid_guide");
+        app.active_tool = "Grid Guide".into();
+        app.handle_native_world_pick(snap.point, Some(snap), None);
+        assert_eq!(app.guides.len(), 3);
+        for guide in &app.guides {
+            assert_eq!(guide.origin, snap.point);
+            assert_eq!([guide.axis_u, guide.axis_v, guide.axis_w], axes);
+        }
     }
 
     #[test]
@@ -20269,6 +20371,25 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    fn native_startup_path_is_in_recent_history_and_preferences_reopen_it() {
+        let path = project_fixture_path();
+        let mut app = test_app();
+        app.set_native_project_path(path.clone());
+        app.set_native_project_path(path.clone());
+        let canonical = std::fs::canonicalize(path).unwrap().display().to_string();
+        assert_eq!(app.native_recent_projects(), [canonical]);
+        let prefs = std::env::temp_dir().join(format!(
+            "meshcraft-recent-preferences-{}.json",
+            std::process::id()
+        ));
+        super::write_native_preferences_file(&prefs, &app.preferences).unwrap();
+        let reopened = super::load_preferences_file(&prefs);
+        assert_eq!(reopened.recent_projects, app.native_recent_projects());
+        std::fs::remove_file(prefs).unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
     fn recent_project_preferences_deduplicate_limit_and_round_trip() {
         let mut preferences = Preferences::default();
         for index in 0..12 {
@@ -20525,6 +20646,31 @@ mod tests {
             CommandCompletion::Completed,
             app.job_results.get(&job_id).unwrap().completion
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn new_document_detaches_save_path_and_cannot_autosave_over_the_previous_file() {
+        let mut app = test_app();
+        let path = std::env::temp_dir().join(format!(
+            "meshcraft-new-detaches-{}.octd",
+            std::process::id()
+        ));
+        let original = std::fs::read(project_fixture_path()).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        app.run_command("geometry.add_cuboid");
+        app.saved_revision = app.document.revision();
+        app.set_native_project_path(path.clone());
+        app.run_command("file.new");
+        assert!(app.current_project_path.is_none());
+        assert!(!app.document_is_dirty());
+        app.run_command("geometry.add_cuboid");
+        let now = std::time::Instant::now();
+        assert!(app.poll_autosave(now).is_none());
+        assert!(app.poll_autosave(now + Duration::from_secs(3)).is_none());
+        assert!(app.pending_project_save.is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]

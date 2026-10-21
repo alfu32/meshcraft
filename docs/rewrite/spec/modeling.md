@@ -230,7 +230,8 @@ a shared underside maintains at least that thickness, allowing thicker joins.
 Invalid plan outlines reject atomically. Opening UVs remain stable, and openings
 crossing roof folds produce closed, oriented solids. Wall wireframes expose
 boundary/reveal geometry rather than internal triangulation or a nine-cell grid.
-Wheel zoom rates are normal, Ctrl ×0.5 and Alt ×0.1, with Alt taking precedence.
+Wheel zoom rates are normal, Ctrl ×0.1 and Alt ×0.05 (revised 2026-10-21),
+with Alt taking precedence.
 
 ### P03 Stairs, window frames, and door frames
 

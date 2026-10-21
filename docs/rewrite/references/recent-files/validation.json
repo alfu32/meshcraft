@@ -1,0 +1,74 @@
+{
+  "version": "0.22.0",
+  "date": "2026-10-21",
+  "environment": {
+    "display": ":96",
+    "size": "1500x1000",
+    "renderer": "Mesa software",
+    "mcp_port": 8766,
+    "isolated_project_config_cache": true
+  },
+  "native_recent_files": [
+    {
+      "nativeMenuOpen": true,
+      "sameFilenameDistinctPaths": true,
+      "mruOrder": [
+        "/home/alfu64/Development/meshcraft/target/ci-debug/native-finish/recent-a/design.octd",
+        "/home/alfu64/Development/meshcraft/target/ci-debug/native-finish/recent-b/design.octd"
+      ],
+      "persistedImmediately": true
+    },
+    {
+      "scrollConsumed": true,
+      "secondRecentItemReopens": true
+    },
+    {
+      "keyboardRightDownEnterReopen": true
+    },
+    {
+      "unsavedGuardFromRecentMenu": true,
+      "nativeCancelButtonRetainsUntitled": true,
+      "newDoesNotOverwritePreviousFile": true
+    },
+    {
+      "wheelLogRates": {
+        "plain": 0.35999992401291403,
+        "ctrl": 0.0359999779490364,
+        "alt": 0.017999985535947595
+      },
+      "ctrlRatio": 0.09999995985483874,
+      "altRatio": 0.04999997037583234
+    },
+    {
+      "nativeDiscardButtonContinuesRecentOpen": true,
+      "historyPresentAfterNativeRestart": true
+    }
+  ],
+  "native_guides": {
+    "slantedSegment": [
+      4,
+      2,
+      3
+    ],
+    "placedViaNativeMidpointHover": true,
+    "axisGuideCapture": "cursor-aligned-axis-guide.png",
+    "gridGuideCapture": "cursor-aligned-grid-guide.png",
+    "escapeClosesMenuWithoutCancelingTool": true
+  },
+  "tests": {
+    "core": 273,
+    "desktop": 307,
+    "cli": 5,
+    "io": 15,
+    "total": 600,
+    "ignored_opt_in": 2
+  },
+  "checks": [
+    "cargo test --workspace",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo build -p meshcraft-desktop --bin meshcraft",
+    "cargo fmt --all -- --check",
+    "git diff --check",
+    "python3 docs/rewrite/scripts/verify_plan.py"
+  ]
+}

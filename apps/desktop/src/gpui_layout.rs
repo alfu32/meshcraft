@@ -757,7 +757,7 @@ pub(super) fn menu_items(menu: &str) -> &'static [&'static str] {
             "Save As…",
             "Import Objects…",
             "Export…",
-            "Recent Projects",
+            "Recent Files",
             "Exit",
         ],
         "Edit" => &[

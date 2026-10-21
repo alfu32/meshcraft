@@ -70,8 +70,12 @@ Select one or several architectural elements to expose their controls:
 Wall/slab wireframes show boundary, reveal and roof-fold edges, without internal
 tessellation lines or a grid dividing wall faces around openings.
 
-Wheel zoom supports **Ctrl for half speed** and **Alt for one-tenth speed**;
+Wheel zoom supports **Ctrl for one-tenth speed** and **Alt for one-twentieth speed**;
 Alt takes precedence when both modifiers are held.
+
+Axis and grid guides keep the full cursor alignment when placed: red, green and
+blue become the guide’s U, V and W axes. This includes blue following a snapped
+segment. **G** places a grid guide and **T** an axis guide at the cursor.
 
 Every drag previews privately, shows relative feedback, commits once on release,
 and supports Escape, Undo and Redo. Visibility/editability and prototype context

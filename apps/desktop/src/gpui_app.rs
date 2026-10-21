@@ -20,6 +20,8 @@ mod annotations;
 mod architecture;
 #[path = "gpui_mcp.rs"]
 mod automation;
+#[path = "gpui_files.rs"]
+mod files;
 #[path = "gpui_helpers.rs"]
 mod helpers;
 #[path = "gpui_hotspots.rs"]
@@ -965,6 +967,7 @@ struct MeshcraftShell {
     layout: ViewportLayout,
     active_ribbon_tab: &'static str,
     open_menu: Option<&'static str>,
+    files: files::Ui,
     menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     lighting: lighting::Lighting,
     cached_document_revision: Option<u64>,
@@ -1016,6 +1019,7 @@ impl MeshcraftShell {
             layout: ViewportLayout::default(),
             active_ribbon_tab: "Home",
             open_menu: None,
+            files: files::Ui::default(),
             menu_bounds: Arc::default(),
             lighting: lighting::Lighting::default(),
             cached_document_revision: None,
@@ -1534,7 +1538,9 @@ impl MeshcraftShell {
     }
 
     pub(super) fn viewport_input_blocked(&self) -> bool {
-        self.command_palette_open || self.open_menu.is_some()
+        self.command_palette_open
+            || self.open_menu.is_some()
+            || self.session.native_document_replacement_prompt().is_some()
     }
 
     fn pointer_down(
@@ -2419,7 +2425,7 @@ fn ribbon_command_for_key<'a>(
         "open" => &["file.open"],
         "save" => &["file.save"],
         "save-as" => &["file.save_as"],
-        "recent-projects" => &["file.open_recent"],
+        "recent-projects" | "recent-files" => &["file.open_recent"],
         "exit" => &["app.quit"],
         "undo" => &["edit.undo"],
         "redo" => &["edit.redo"],
@@ -2867,6 +2873,9 @@ impl Render for MeshcraftShell {
                 |frame| format!("raylib frame {} · {:.1} ms", frame.sequence, frame.frame_ms),
             ));
 
+        if self.open_menu != Some("File") {
+            self.files = files::Ui::default();
+        }
         let popup = self.open_menu.and_then(|menu| {
             let bounds = self.menu_bounds.lock().ok()?.get(menu).copied()?;
             let catalog = MeshcraftApp::command_catalog();
@@ -2896,6 +2905,9 @@ impl Render for MeshcraftShell {
                     })
                     .map(|command| (command_label(&command).to_owned(), Some(command))),
             );
+            if menu == "File" {
+                return Some(files::popup(self, entries, bounds, window, cx));
+            }
             Some(
                 div()
                     .id("menu-popup")
@@ -3092,6 +3104,24 @@ impl Render for MeshcraftShell {
                     }
                     return;
                 }
+                if this.session.native_document_replacement_prompt().is_some() {
+                    if event.keystroke.key == "escape" {
+                        this.session.native_resolve_document_replacement(
+                            crate::app::ReplacementDecision::Cancel,
+                        );
+                        this.refresh_scene();
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
+                if this.open_menu.is_some() && event.keystroke.key == "escape" {
+                    this.open_menu = None;
+                    window.focus(&this.focus);
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
                 if this.settings.active.is_some() {
                     if event.keystroke.key == "escape" {
                         this.settings.active = None;
@@ -3126,6 +3156,7 @@ impl Render for MeshcraftShell {
         if let Some(material_editor) = materials::overlay(self, cx) {
             root = root.child(material_editor);
         }
+        root = root.children(files::replacement_dialog(self, cx));
         root
     }
 }
@@ -3204,9 +3235,9 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
 fn wheel_zoom_steps(steps: f32, modifiers: gpui::Modifiers) -> f32 {
     steps
         * if modifiers.alt {
-            0.1
+            0.05
         } else if modifiers.control {
-            0.5
+            0.1
         } else {
             1.0
         }
@@ -3239,9 +3270,9 @@ mod tests {
         };
         for steps in [-3., 1., 4.] {
             assert_eq!(super::wheel_zoom_steps(steps, plain), steps);
-            assert_eq!(super::wheel_zoom_steps(steps, ctrl), steps * 0.5);
-            assert_eq!(super::wheel_zoom_steps(steps, alt), steps * 0.1);
-            assert_eq!(super::wheel_zoom_steps(steps, both), steps * 0.1);
+            assert_eq!(super::wheel_zoom_steps(steps, ctrl), steps * 0.1);
+            assert_eq!(super::wheel_zoom_steps(steps, alt), steps * 0.05);
+            assert_eq!(super::wheel_zoom_steps(steps, both), steps * 0.05);
         }
     }
     #[test]
