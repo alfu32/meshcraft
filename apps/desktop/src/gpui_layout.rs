@@ -1975,6 +1975,11 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             bindings,
         ))
         .child(setting_section(
+            "MCP Server",
+            super::automation::panel(bindings.shell, bindings.cx),
+            bindings,
+        ))
+        .child(setting_section(
             "Help / About",
             div()
                 .flex()
@@ -2008,7 +2013,8 @@ pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
         "random" => (11, "Random Tools & Surface Remesh"),
         "tutorials" => (12, "Tutorials"),
         "shaders" => (13, "Shader Settings"),
-        "help" => (14, "Help / About"),
+        "mcp" => (14, "MCP Server"),
+        "help" => (15, "Help / About"),
         _ => return None,
     })
 }

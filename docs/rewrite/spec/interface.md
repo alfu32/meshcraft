@@ -143,6 +143,20 @@ New typed commands supply deterministic model reset, geometry setup, selection c
 
 Source: `K/mcp/{McpHttpServer,McpModels,StdoutTap}.kt`, MCP dispatch functions in Main, `docs/MCP_CONTRACT_RELIABLE_AGENTS.md`. Acceptance: C18, C28.
 
+The native Rust server adds an MCP Server accordion with persisted port (default 8765),
+Start, Stop and Restart. It starts stopped, binds only IPv4 loopback, validates Host/Origin,
+and bounds request bytes/connections/queue/deadlines. Stop, disconnect and expired requests
+prevent queued application work from executing; the server closes with the shell. MCP discovery
+publishes protocol versions, onboarding guidance, tools, resources and current typed command
+schemas/states. Application-owned command execution shares UI transactions and camera effects;
+world picks and exact-ID selection drive tools without screen-coordinate guesses. Prototype,
+instance, geometry/material/model-setting, script and job queries expose current state. Generated
+primitive IDs are decimal strings where needed to avoid JavaScript integer precision loss.
+The scripting API catalog is shared with editor completion and contains each public signature,
+description and example plus model/this accessors and the exact SDK source. The modern stateless
+JSON transport and legacy MCP initialization are implemented; full old REST-route equivalence
+remains tracked in T41. See [agent guide](../../mcp.md).
+
 ### A03 Developer console and CLI/TUI
 
 **Observed, deferred by user.** Legacy desktop launches a persistent Groovy REPL with `app`, `scene`, selection, camera, lighting, unit/save/mcp/version bindings; terminal UI has input/history/output, meta commands and introspection. `app.run` marshals to the render thread and can defer nested operations. Desktop `groovy <script>` and developer performance/introspection tools are part of that legacy surface.

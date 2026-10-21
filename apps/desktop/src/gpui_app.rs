@@ -16,6 +16,8 @@ use std::{
 
 #[path = "gpui_annotations.rs"]
 mod annotations;
+#[path = "gpui_mcp.rs"]
+mod automation;
 #[path = "gpui_helpers.rs"]
 mod helpers;
 #[path = "gpui_hotspots.rs"]
@@ -942,6 +944,7 @@ impl Render for RaylibCanvas {
 
 struct MeshcraftShell {
     annotations: annotations::Ui,
+    mcp: automation::Ui,
     cached_annotations: Arc<Vec<meshcraft_core::document::annotations::Annotation>>,
     scripts: scripts::ScriptsUi,
     materials: materials::MaterialsUi,
@@ -994,6 +997,7 @@ impl MeshcraftShell {
         });
         let mut this = Self {
             annotations: Default::default(),
+            mcp: Default::default(),
             cached_annotations: Arc::default(),
             materials: materials::MaterialsUi::default(),
             scripts: scripts::ScriptsUi::default(),
@@ -1299,6 +1303,14 @@ impl MeshcraftShell {
 
     fn dispatch_payload(&mut self, id: &str, payload: &CommandPayload) {
         let dispatch = self.session.dispatch_command(id, payload);
+        self.apply_command_effects(id, &dispatch);
+    }
+
+    fn apply_command_effects(
+        &mut self,
+        id: &str,
+        dispatch: &meshcraft_core::commands::CommandDispatch,
+    ) {
         if id == "edit.paste"
             && self.cursor_snap.is_none()
             && dispatch.result.completion == CommandCompletion::Completed
@@ -1342,6 +1354,33 @@ impl MeshcraftShell {
                     self.camera.pitch = eye.y.asin() as f32;
                     self.camera.up = up;
                     self.bridge.publish_camera(self.camera);
+                }
+                "view.camera.set_pose"
+                    if dispatch.result.completion == CommandCompletion::Completed =>
+                {
+                    let value = &dispatch.result.outputs["camera"];
+                    let point = |key: &str| -> Option<Vec3> {
+                        serde_json::from_value(value[key].clone()).ok()
+                    };
+                    if let (Some(eye), Some(target)) = (point("position"), point("target")) {
+                        let offset = eye - target;
+                        self.walking = false;
+                        self.camera.eye = None;
+                        self.camera.target = target;
+                        self.camera.distance = offset.length() as f32;
+                        self.camera.yaw = offset.x.atan2(offset.z) as f32;
+                        self.camera.pitch =
+                            (offset.y / offset.length()).clamp(-1., 1.).asin() as f32;
+                        self.camera.up = if self.camera.pitch.abs() > 89_f32.to_radians() {
+                            Vec3::Z
+                        } else {
+                            Vec3::Y
+                        };
+                        self.camera.field_of_view =
+                            value["fieldOfView"].as_f64().unwrap_or(45.) as f32;
+                        self.camera.orthographic = false;
+                        self.bridge.publish_camera(self.camera);
+                    }
                 }
                 "view.camera.reset" => {
                     self.walking = false;
@@ -2384,6 +2423,10 @@ impl Render for MeshcraftShell {
                             let revision = this.session.document_revision();
                             let status = this.session.status_text().to_owned();
                             this.session.poll_native_host_work();
+                            if automation::poll(this) {
+                                this.refresh_scene();
+                                cx.notify();
+                            }
                             if scripts::tick(this) {
                                 this.refresh_scene();
                                 cx.notify();
@@ -2465,6 +2508,7 @@ impl Render for MeshcraftShell {
         }
         settings::prepare(self, window, cx);
         annotations::prepare(self, window, cx);
+        automation::prepare(self, window, cx);
         self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();
         if let Some(frame) = frame.as_ref() {

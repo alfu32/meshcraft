@@ -17,3 +17,8 @@ pub mod script_engine;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod script_runtime;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod mcp;
+#[cfg(not(target_arch = "wasm32"))]
+mod script_api;

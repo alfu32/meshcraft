@@ -4,6 +4,9 @@ mod annotation_workflow;
 mod clipboard_workflow;
 #[path = "materials_workflow.rs"]
 mod materials_workflow;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "mcp_workflow.rs"]
+mod mcp_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
 #[path = "script_workflow.rs"]
@@ -186,6 +189,7 @@ const INSPECTOR_PANELS: &[(&str, &str)] = &[
     ("random", "Random Tools"),
     ("tutorials", "Tutorials"),
     ("shaders", "Shader Settings"),
+    ("mcp", "MCP Server"),
 ];
 const LEGACY_BUILTIN_TOOLS: &[(&str, &str)] = &[
     ("select", "Select"),
@@ -2076,6 +2080,7 @@ struct Preferences {
     panels_visible: bool,
     panel_open: BTreeMap<String, bool>,
     recent_projects: Vec<String>,
+    mcp_port: u16,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2149,6 +2154,7 @@ impl Default for Preferences {
             panels_visible: true,
             panel_open: BTreeMap::new(),
             recent_projects: Vec::new(),
+            mcp_port: 8765,
         }
     }
 }

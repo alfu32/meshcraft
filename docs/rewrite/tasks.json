@@ -1960,7 +1960,11 @@
         "C28"
       ],
       "targets": [
-        "crates/meshcraft-desktop/src/automation/",
+        "apps/desktop/src/mcp.rs",
+        "apps/desktop/src/mcp_protocol.rs",
+        "apps/desktop/src/mcp_workflow.rs",
+        "apps/desktop/src/gpui_mcp.rs",
+        "docs/mcp.md",
         "fixtures/scenarios/"
       ],
       "source_paths": [
@@ -1986,7 +1990,7 @@
         "Unsupported console/plugin tools are not advertised as functional."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T42",
