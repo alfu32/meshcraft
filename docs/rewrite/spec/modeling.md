@@ -98,6 +98,25 @@ Test an elbow, a nonplanar path, tight/collinear turns, a closed path seam, and 
 
 Source: `K/tools/{ExtrudeSwipeTool,ExtrudeSwipe3dTool,Ribbon3dTool,Sweep3dSupport,RevolveTool}.kt`. Acceptance: C19.
 
+**Native corner correction (0.15.2).** Planar/spatial profile sweeps and 3D ribbons
+use shared miter sections at polyline fractures. Each section is oblique to the
+adjoining span: its bend-plane component is scaled by `1 / cos(turn / 2)` so the
+perpendicular profile dimensions remain constant on both sides. Other components
+are preserved. The first span defines the profile basis; a closed path also miters
+its first/last join. Spatial frames transport along span tangents, avoiding roll
+changes when a collinear point is inserted. Closed-loop roll compensation is
+weighted by traveled distance.
+
+This is an analytic mesh miter, following the extend/intersect principle described
+for [Open CASCADE's RightCorner transition](https://occt3d.com/dev/doc/refman/html/class_b_rep_offset_a_p_i___make_pipe_shell.html).
+No CAD-kernel dependency is introduced. Round/bevel joins remain future options.
+A direction reversal or miter ratio over 64 is rejected with a split/round-path
+instruction. Profiles whose offset rails reverse within a span are rejected
+rather than generating folded surfaces. This does not perform a global Boolean
+union or resolve collisions between distant parts of a self-intersecting path.
+The existing surface/cap behavior is retained.
+
+
 ### T06 Hole and cutout variants
 
 **Observed.** `CUT_HOLES`, `CUT_HOLES_2`, `CUT_OUT_3`. Both hole tools are registered; the second is presented as robust and uses a different implementation. They use selected faces and selected boundary/edge geometry. Cutout has its own algorithm/interaction. Preserve all IDs and characterize the supported differences rather than dropping an older tool because a newer file exists.

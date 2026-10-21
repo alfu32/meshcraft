@@ -51,68 +51,51 @@ pub fn build_sweep_frames(
                 .ok_or("A spatial sweep path contains a degenerate span.")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let normals = if closed {
-        (0..path.len())
-            .map(|index| {
-                let previous = tangents[(index + tangents.len() - 1) % tangents.len()];
-                let next = tangents[index];
-                (previous + next).try_normalized(tolerance).unwrap_or(next)
-            })
-            .collect::<Vec<_>>()
-    } else {
-        let mut normals = Vec::with_capacity(path.len());
-        normals.push(tangents[0]);
-        for pair in tangents.windows(2) {
-            normals.push(
-                (pair[0] + pair[1])
-                    .try_normalized(tolerance)
-                    .unwrap_or(pair[1]),
-            );
-        }
-        normals.push(*tangents.last().expect("open paths have a span"));
-        normals
-    };
+    let normals = node_headings(&tangents, closed)?;
 
     let mut frames = Vec::with_capacity(path.len());
-    let mut u = initial_frame_u(normals[0], up, tolerance);
-    let mut v = normals[0]
-        .cross(u)
-        .try_normalized(tolerance)
-        .ok_or("A spatial sweep could not build its initial frame.")?;
-    frames.push(SweepFrame {
-        origin: path[0],
-        normal: normals[0],
-        u,
-        v,
-    });
-    for index in 1..path.len() {
-        u = transport_frame_vector(u, normals[index - 1], normals[index], tolerance);
-        u = reject_from_axis(u, normals[index]);
-        u = u
-            .try_normalized(tolerance)
-            .unwrap_or_else(|| initial_frame_u(normals[index], up, tolerance));
-        v = normals[index]
-            .cross(u)
+    // Transport along actual spans, then rotate only half-way into each join
+    // plane. Transporting between averaged node tangents adds unwanted roll on
+    // nonplanar polylines and makes an inserted collinear point change the sweep.
+    let mut span_u = initial_frame_u(tangents[0], up, tolerance);
+    for index in 0..path.len() {
+        let incoming = if index == 0 {
+            tangents[0]
+        } else {
+            tangents[index - 1]
+        };
+        let u = transport_frame_vector(span_u, incoming, normals[index], tolerance);
+        let u = reject_from_axis(u, normals[index])
             .try_normalized(tolerance)
             .ok_or("A spatial sweep could not transport its frame.")?;
+        let v = normals[index]
+            .cross(u)
+            .try_normalized(tolerance)
+            .ok_or("A spatial sweep could not build its frame.")?;
         frames.push(SweepFrame {
             origin: path[index],
             normal: normals[index],
             u,
             v,
         });
+        if index > 0 && index < tangents.len() {
+            span_u = transport_frame_vector(span_u, incoming, tangents[index], tolerance);
+        }
     }
 
     if closed {
-        let closing_u = transport_frame_vector(
-            frames.last().expect("closed paths have frames").u,
-            normals[path.len() - 1],
-            normals[0],
-            tolerance,
-        );
+        let last = frames.last().expect("closed paths have frames");
+        let closing_tangent = *tangents.last().expect("closed paths have spans");
+        let closing_u = transport_frame_vector(last.u, last.normal, closing_tangent, tolerance);
+        let closing_u = transport_frame_vector(closing_u, closing_tangent, normals[0], tolerance);
         let twist = signed_angle_around_axis(closing_u, frames[0].u, normals[0], tolerance);
+        let perimeter = (0..path.len())
+            .map(|i| path[i].distance(path[(i + 1) % path.len()]))
+            .sum::<f64>();
+        let mut travelled = 0.0;
         for (index, frame) in frames.iter_mut().enumerate().skip(1) {
-            let correction = twist * index as f64 / path.len() as f64;
+            travelled += path[index - 1].distance(path[index]);
+            let correction = twist * travelled / perimeter;
             frame.u = rotate_about_axis(frame.u, frame.normal, correction);
             frame.u = reject_from_axis(frame.u, frame.normal)
                 .try_normalized(tolerance)
@@ -147,12 +130,16 @@ pub fn extrude_swipe_3d(
     }
     let path = clean_spatial_path(path, closed, tolerance)?;
     let frames = build_sweep_frames(&path, closed, up_axis, tolerance)?;
+    let first = (path[1] - path[0]).try_normalized(tolerance).unwrap();
+    let up = up_axis.try_normalized(tolerance).unwrap();
+    let base_u = initial_frame_u(first, up, tolerance);
+    let base_v = first.cross(base_u);
     let profile = profile
         .iter()
         .filter_map(|segment| {
             let coordinates = segment.endpoints.map(|point| {
                 let relative = point - path[0];
-                [relative.dot(frames[0].u), relative.dot(frames[0].v)]
+                [relative.dot(base_u), relative.dot(base_v)]
             });
             (distance_2d(coordinates[0], coordinates[1]) > tolerance).then_some(coordinates)
         })
@@ -270,6 +257,16 @@ fn build_frame_sweep(
     } else {
         frames.len() - 1
     };
+    let miters = path_miters(path, closed)?;
+    let sections = frames
+        .iter()
+        .zip(&miters)
+        .map(|(frame, miter)| SweepFrame {
+            u: miter.apply(frame.u),
+            v: miter.apply(frame.v),
+            ..*frame
+        })
+        .collect::<Vec<_>>();
     let origin = path[0];
     let mut mesh = SweepMesh::default();
     let mut point_indices = BTreeMap::<PointKey, usize>::new();
@@ -277,10 +274,11 @@ fn build_frame_sweep(
     for [[ax, ay], [bx, by]] in profile {
         for span in 0..span_count {
             let next = (span + 1) % frames.len();
-            let a0 = frame_section_point(frames[span], [ax, ay]);
-            let b0 = frame_section_point(frames[span], [bx, by]);
-            let a1 = frame_section_point(frames[next], [ax, ay]);
-            let b1 = frame_section_point(frames[next], [bx, by]);
+            let a0 = frame_section_point(sections[span], [ax, ay]);
+            let b0 = frame_section_point(sections[span], [bx, by]);
+            let a1 = frame_section_point(sections[next], [ax, ay]);
+            let b1 = frame_section_point(sections[next], [bx, by]);
+            check_span_order(a0, a1, b0, b1, path[next] - path[span], tolerance)?;
             let preferred_normal = (b0 - a0).cross(path[next] - path[span]);
             if preferred_normal.length() <= tolerance * tolerance {
                 continue;
@@ -316,7 +314,8 @@ fn frame_section_point(frame: SweepFrame, [x, y]: [f64; 2]) -> Vec3 {
 ///
 /// The source profiles are projected onto the plane normal to the first path segment. Their
 /// orientation follows the horizontal path heading around `up_axis`; path positions supply the
-/// translation. Closed paths wrap their final span to the first section.
+/// translation. Sharp turns use shared miter sections, preserving perpendicular profile
+/// dimensions on both adjacent spans. Closed paths miter their seam as well.
 pub fn extrude_swipe(
     profile: &[SweepProfileSegment],
     path: &[Vec3],
@@ -372,8 +371,9 @@ pub fn extrude_swipe(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let headings = segment_headings(&directions, up, tolerance);
-    let nodes = node_headings(&headings, closed, tolerance);
-    let base_heading = nodes[0];
+    let nodes = node_headings(&headings, closed)?;
+    let miters = direction_miters(&headings, closed)?;
+    let base_heading = headings[0];
     let node_angles = nodes
         .iter()
         .map(|heading| signed_angle_around_axis(base_heading, *heading, up, tolerance))
@@ -400,14 +400,39 @@ pub fn extrude_swipe(
     for [profile_start, profile_end] in projected_profile {
         for span in 0..segment_count {
             let next = (span + 1) % path.len();
-            let a0 =
-                transform_profile_point(profile_start, origin, path[span], up, node_angles[span]);
-            let b0 =
-                transform_profile_point(profile_end, origin, path[span], up, node_angles[span]);
-            let a1 =
-                transform_profile_point(profile_start, origin, path[next], up, node_angles[next]);
-            let b1 =
-                transform_profile_point(profile_end, origin, path[next], up, node_angles[next]);
+            let a0 = transform_profile_point(
+                profile_start,
+                origin,
+                path[span],
+                up,
+                node_angles[span],
+                miters[span],
+            );
+            let b0 = transform_profile_point(
+                profile_end,
+                origin,
+                path[span],
+                up,
+                node_angles[span],
+                miters[span],
+            );
+            let a1 = transform_profile_point(
+                profile_start,
+                origin,
+                path[next],
+                up,
+                node_angles[next],
+                miters[next],
+            );
+            let b1 = transform_profile_point(
+                profile_end,
+                origin,
+                path[next],
+                up,
+                node_angles[next],
+                miters[next],
+            );
+            check_span_order(a0, a1, b0, b1, path[next] - path[span], tolerance)?;
             let preferred_normal = (b0 - a0).cross(path[next] - path[span]);
             if preferred_normal.length() <= tolerance * tolerance {
                 continue;
@@ -449,28 +474,104 @@ fn segment_headings(directions: &[Vec3], up: Vec3, tolerance: f64) -> Vec<Vec3> 
     headings
 }
 
-fn node_headings(segment_headings: &[Vec3], closed: bool, tolerance: f64) -> Vec<Vec3> {
-    if closed {
-        return (0..segment_headings.len())
-            .map(|index| {
-                let previous =
-                    segment_headings[(index + segment_headings.len() - 1) % segment_headings.len()];
-                let next = segment_headings[index];
-                (previous + next).try_normalized(tolerance).unwrap_or(next)
-            })
-            .collect();
+// A miter is an oblique section, not a rigidly rotated profile. Stretch only
+// its bend-plane component by sec(turn/2); projection onto either adjacent
+// span then recovers the original cross-section exactly.
+#[derive(Clone, Copy, Default)]
+struct Miter {
+    bend: Vec3,
+    extra: f64,
+}
+impl Miter {
+    fn apply(self, vector: Vec3) -> Vec3 {
+        vector + self.bend * (self.bend.dot(vector) * self.extra)
     }
-    let mut result = Vec::with_capacity(segment_headings.len() + 1);
-    result.push(segment_headings[0]);
-    for pair in segment_headings.windows(2) {
-        result.push(
-            (pair[0] + pair[1])
-                .try_normalized(tolerance)
-                .unwrap_or(pair[1]),
+}
+const MAX_MITER_RATIO: f64 = 64.0;
+fn corner(previous: Vec3, next: Vec3) -> Result<(Vec3, Miter), &'static str> {
+    let cosine_half = ((1.0 + previous.dot(next).clamp(-1.0, 1.0)) * 0.5).sqrt();
+    if cosine_half < 1.0 / MAX_MITER_RATIO {
+        return Err(
+            "Sweep corner reverses direction or is too sharp for a miter; split or round the path.",
         );
     }
-    result.push(*segment_headings.last().expect("open path has a segment"));
-    result
+    let normal = (previous + next) / (2.0 * cosine_half);
+    let bend = (next - previous)
+        .try_normalized(1.0e-12)
+        .unwrap_or(Vec3::ZERO);
+    Ok((
+        normal,
+        Miter {
+            bend,
+            extra: 1.0 / cosine_half - 1.0,
+        },
+    ))
+}
+fn node_headings(headings: &[Vec3], closed: bool) -> Result<Vec<Vec3>, &'static str> {
+    (0..if closed {
+        headings.len()
+    } else {
+        headings.len() + 1
+    })
+        .map(|i| {
+            if !closed && i == 0 {
+                return Ok(headings[0]);
+            }
+            if !closed && i == headings.len() {
+                return Ok(headings[i - 1]);
+            }
+            corner(
+                headings[(i + headings.len() - 1) % headings.len()],
+                headings[i],
+            )
+            .map(|c| c.0)
+        })
+        .collect()
+}
+fn direction_miters(headings: &[Vec3], closed: bool) -> Result<Vec<Miter>, &'static str> {
+    (0..if closed {
+        headings.len()
+    } else {
+        headings.len() + 1
+    })
+        .map(|i| {
+            if !closed && (i == 0 || i == headings.len()) {
+                return Ok(Miter::default());
+            }
+            corner(
+                headings[(i + headings.len() - 1) % headings.len()],
+                headings[i],
+            )
+            .map(|c| c.1)
+        })
+        .collect()
+}
+fn path_miters(path: &[Vec3], closed: bool) -> Result<Vec<Miter>, &'static str> {
+    let spans = if closed { path.len() } else { path.len() - 1 };
+    let directions = (0..spans)
+        .map(|i| {
+            (path[(i + 1) % path.len()] - path[i])
+                .try_normalized(0.0)
+                .expect("cleaned path has nonzero spans")
+        })
+        .collect::<Vec<_>>();
+    direction_miters(&directions, closed)
+}
+fn check_span_order(
+    a0: Vec3,
+    a1: Vec3,
+    b0: Vec3,
+    b1: Vec3,
+    direction: Vec3,
+    tolerance: f64,
+) -> Result<(), &'static str> {
+    let minimum = -tolerance * direction.length();
+    if (a1 - a0).dot(direction) < minimum || (b1 - b0).dot(direction) < minimum {
+        return Err(
+            "Sweep profile folds back at a corner; lengthen the path spans, narrow the profile or round the corner.",
+        );
+    }
+    Ok(())
 }
 
 fn default_heading(up: Vec3, tolerance: f64) -> Vec3 {
@@ -480,12 +581,19 @@ fn default_heading(up: Vec3, tolerance: f64) -> Vec3 {
         .expect("a normalized up axis cannot be parallel to both X and Z")
 }
 
-fn transform_profile_point(point: Vec3, origin: Vec3, node: Vec3, up: Vec3, angle: f64) -> Vec3 {
+fn transform_profile_point(
+    point: Vec3,
+    origin: Vec3,
+    node: Vec3,
+    up: Vec3,
+    angle: f64,
+    miter: Miter,
+) -> Vec3 {
     let relative = point - origin;
     let rotated = relative * angle.cos()
         + up.cross(relative) * angle.sin()
         + up * (up.dot(relative) * (1.0 - angle.cos()));
-    node + rotated
+    node + miter.apply(rotated)
 }
 
 fn intern_vertex(
@@ -773,5 +881,205 @@ mod tests {
             )
             .is_err()
         );
+    }
+    fn assert_has_vertex(mesh: &super::SweepMesh, point: Vec3) {
+        assert!(
+            mesh.vertices.iter().any(|p| p.distance(point) < TOLERANCE),
+            "missing vertex {point:?} in {:?}",
+            mesh.vertices
+        );
+    }
+
+    #[test]
+    fn miters_preserve_profile_offsets_at_both_turn_directions_and_acute_angles() {
+        let profile = [SweepProfileSegment {
+            endpoints: [Vec3::Z, Vec3::Z + Vec3::Y],
+        }];
+        for degrees in [0.0_f64, 0.01, 20.0, 90.0, 160.0, -20.0, -90.0, -160.0] {
+            let angle = degrees.to_radians();
+            let outgoing = Vec3::new(angle.cos(), 0.0, angle.sin());
+            let path = [Vec3::ZERO, Vec3::X * 20.0, Vec3::X * 20.0 + outgoing * 20.0];
+            let corner = path[1] + Vec3::new(-(angle * 0.5).tan(), 0.0, 1.0);
+            let end = path[2] + Vec3::new(-angle.sin(), 0.0, angle.cos());
+            for mesh in [
+                extrude_swipe(&profile, &path, false, Vec3::Y, TOLERANCE).unwrap(),
+                extrude_swipe_3d(&profile, &path, false, Vec3::Y, TOLERANCE).unwrap(),
+            ] {
+                assert_has_vertex(&mesh, Vec3::Z);
+                assert_has_vertex(&mesh, corner);
+                assert_has_vertex(&mesh, corner + Vec3::Y);
+                assert_has_vertex(&mesh, end);
+                // Both rails are exactly one unit from their span's centerline.
+                assert!(((corner - path[1]).cross(Vec3::X).length() - 1.0).abs() < TOLERANCE);
+                assert!(((corner - path[1]).cross(outgoing).length() - 1.0).abs() < TOLERANCE);
+            }
+        }
+    }
+
+    #[test]
+    fn stepped_profile_keeps_each_tread_width_through_a_square_elbow() {
+        let points = [
+            Vec3::ZERO,
+            Vec3::Y,
+            Vec3::Y + Vec3::Z,
+            Vec3::Y * 2.0 + Vec3::Z,
+            Vec3::Y * 2.0 + Vec3::Z * 2.0,
+            Vec3::Y * 3.0 + Vec3::Z * 2.0,
+            Vec3::Y * 3.0 + Vec3::Z * 3.0,
+        ];
+        let profile = points
+            .windows(2)
+            .map(|p| SweepProfileSegment {
+                endpoints: [p[0], p[1]],
+            })
+            .collect::<Vec<_>>();
+        let path = [Vec3::ZERO, Vec3::X * 10.0, Vec3::X * 10.0 + Vec3::Z * 10.0];
+        for mesh in [
+            extrude_swipe(&profile, &path, false, Vec3::Y, TOLERANCE).unwrap(),
+            extrude_swipe_3d(&profile, &path, false, Vec3::Y, TOLERANCE).unwrap(),
+        ] {
+            for p in points {
+                assert_has_vertex(&mesh, Vec3::new(10.0 - p.z, p.y, p.z));
+                assert_has_vertex(&mesh, Vec3::new(10.0 - p.z, p.y, 10.0));
+            }
+            // Shared join edges are welded and no triangle duplicates a face.
+            assert!(edge_uses(&mesh).values().all(|uses| *uses <= 2));
+        }
+    }
+
+    #[test]
+    fn closed_planar_sweep_miters_the_seam_against_the_first_span() {
+        let profile = [SweepProfileSegment {
+            endpoints: [Vec3::Z, Vec3::Z + Vec3::Y],
+        }];
+        let path = [
+            Vec3::ZERO,
+            Vec3::X * 10.0,
+            (Vec3::X + Vec3::Z) * 10.0,
+            Vec3::Z * 10.0,
+        ];
+        for mesh in [
+            extrude_swipe(&profile, &path, true, Vec3::Y, TOLERANCE).unwrap(),
+            extrude_swipe_3d(&profile, &path, true, Vec3::Y, TOLERANCE).unwrap(),
+        ] {
+            for p in [
+                Vec3::new(1.0, 0.0, 1.0),
+                Vec3::new(9.0, 0.0, 1.0),
+                Vec3::new(9.0, 0.0, 9.0),
+                Vec3::new(1.0, 0.0, 9.0),
+            ] {
+                assert_has_vertex(&mesh, p);
+                assert_has_vertex(&mesh, p + Vec3::Y);
+            }
+        }
+    }
+
+    #[test]
+    fn spatial_transport_is_invariant_under_collinear_path_subdivision() {
+        let path = [
+            Vec3::ZERO,
+            Vec3::X * 10.0,
+            Vec3::X * 10.0 + (Vec3::Y + Vec3::Z) * 10.0,
+            Vec3::new(20.0, 15.0, 10.0),
+        ];
+        let split = [
+            path[0],
+            path[1] * 0.5,
+            path[1],
+            (path[1] + path[2]) * 0.5,
+            path[2],
+            path[3],
+        ];
+        let a = build_sweep_frames(&path, false, Vec3::Y, TOLERANCE).unwrap();
+        let b = build_sweep_frames(&split, false, Vec3::Y, TOLERANCE).unwrap();
+        for (i, j) in [(0, 0), (1, 2), (2, 4), (3, 5)] {
+            assert!(a[i].u.distance(b[j].u) < TOLERANCE);
+            assert!(a[i].v.distance(b[j].v) < TOLERANCE);
+        }
+        let profile = [SweepProfileSegment {
+            endpoints: [Vec3::Y, Vec3::Y + Vec3::Z],
+        }];
+        let mesh = extrude_swipe_3d(&profile, &path, false, Vec3::Y, TOLERANCE).unwrap();
+        let split_mesh = extrude_swipe_3d(&profile, &split, false, Vec3::Y, TOLERANCE).unwrap();
+        for point in mesh.vertices {
+            assert_has_vertex(&split_mesh, point);
+        }
+    }
+
+    #[test]
+    fn ribbon_miters_its_width_in_the_bend_plane() {
+        let path = [Vec3::ZERO, Vec3::X * 10.0, (Vec3::X + Vec3::Z) * 10.0];
+        let mesh = ribbon_3d(&path, false, 2.0, 0.0, Vec3::Z, TOLERANCE).unwrap();
+        assert_has_vertex(&mesh, Vec3::new(9.0, 0.0, 1.0));
+        assert_has_vertex(&mesh, Vec3::new(11.0, 0.0, -1.0));
+    }
+
+    #[test]
+    fn reversals_and_folded_inner_rails_fail_instead_of_emitting_inverted_meshes() {
+        let profile = [SweepProfileSegment {
+            endpoints: [Vec3::Z * 3.0, Vec3::Z * 3.0 + Vec3::Y],
+        }];
+        for path in [
+            vec![Vec3::ZERO, Vec3::X, Vec3::ZERO],
+            vec![Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Z],
+            vec![Vec3::ZERO, Vec3::X, Vec3::X + Vec3::new(-1.0, 0.0, 0.001)],
+        ] {
+            assert!(extrude_swipe(&profile, &path, false, Vec3::Y, TOLERANCE).is_err());
+            assert!(extrude_swipe_3d(&profile, &path, false, Vec3::Y, TOLERANCE).is_err());
+        }
+    }
+    #[test]
+    fn nonplanar_miter_rings_preserve_perpendicular_radius_and_closed_winding() {
+        let path = [
+            Vec3::ZERO,
+            Vec3::X * 10.0,
+            Vec3::new(10.0, 10.0, 10.0),
+            Vec3::new(0.0, 5.0, 10.0),
+        ];
+        let points = [
+            Vec3::new(0.0, -0.2, -0.2),
+            Vec3::new(0.0, 0.2, -0.2),
+            Vec3::new(0.0, 0.2, 0.2),
+            Vec3::new(0.0, -0.2, 0.2),
+        ];
+        let profile = (0..4)
+            .map(|i| SweepProfileSegment {
+                endpoints: [points[i], points[(i + 1) % 4]],
+            })
+            .collect::<Vec<_>>();
+        let mesh = extrude_swipe_3d(&profile, &path, true, Vec3::Y, TOLERANCE).unwrap();
+        assert_eq!(mesh.vertices.len(), 16);
+        assert!(edge_uses(&mesh).values().all(|uses| *uses == 2));
+        let mut directed = BTreeMap::<[usize; 2], i32>::new();
+        for triangle in &mesh.triangles {
+            let [a, b, c] = triangle.vertices;
+            for [a, b] in [[a, b], [b, c], [c, a]] {
+                *directed.entry([a.min(b), a.max(b)]).or_default() += if a < b { 1 } else { -1 };
+            }
+        }
+        assert!(directed.values().all(|balance| *balance == 0));
+        for i in 0..path.len() {
+            let incoming = (path[i] - path[(i + path.len() - 1) % path.len()])
+                .try_normalized(TOLERANCE)
+                .unwrap();
+            let outgoing = (path[(i + 1) % path.len()] - path[i])
+                .try_normalized(TOLERANCE)
+                .unwrap();
+            let bisector = (incoming + outgoing).try_normalized(TOLERANCE).unwrap();
+            let ring = mesh
+                .vertices
+                .iter()
+                .filter(|p| (**p - path[i]).dot(bisector).abs() < TOLERANCE)
+                .collect::<Vec<_>>();
+            assert_eq!(ring.len(), 4);
+            for p in ring {
+                for direction in [incoming, outgoing] {
+                    assert!(
+                        ((*p - path[i]).cross(direction).length() - 0.08_f64.sqrt()).abs()
+                            < TOLERANCE
+                    );
+                }
+            }
+        }
     }
 }
