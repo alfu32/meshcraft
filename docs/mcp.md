@@ -134,6 +134,31 @@ instance's **local** coordinates; leave prototype editing before operating an in
 By contrast, `hotspot.add.position` takes a world Point object. Discover command schemas to
 distinguish Point objects from three-number arrays.
 
+### Architecture
+
+Use `tool.builtin.arch_wall`, `tool.builtin.arch_slab` (Rectangular Slab),
+`tool.arch_slab_freeform`, `tool.builtin.arch_add_hole`,
+`tool.builtin.arch_window_frame` and `tool.builtin.arch_door_frame` for point input.
+Enter finishes a wall chain or closes a freeform slab; A/C/L switch path modes.
+The slab tools both produce a closed polyline profile. Native selection exposes
+blue draggable profile controls; `architecture.move_slab_vertex` is the equivalent
+world-coordinate command.
+
+For direct creation, discover `architecture.create_wall`,
+`architecture.create_rectangular_slab`, `architecture.create_slab` and
+`architecture.create_frame`. Supply `start`/`end` or `points`, plus a plane `normal`
+where relevant. Frame `kind` is `window` or `door`. Dimensions use model units;
+colors are `{r,g,b,a}` with normalized channels. `architecture.settings` edits
+persisted defaults; `architecture.update` edits the selected owner or the supplied
+`id` and optional `occurrence:{path:[...]}`.
+
+`meshcraft_geometry.architecture` returns canonical records, semantic selection
+targets and editability. Derived face/edge targets resolve to their owner; edit
+parameters rather than the generated cache. `architecture.add_hole` takes an owner
+`id` and two world points `start`/`end`; `architecture.remove_hole` also takes
+`hole_id`. Openings belong exclusively to that wall/slab. Windows and doors are
+independent object instances and never cut a wall or slab implicitly.
+
 ## Transport and scope
 
 The transport follows [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).

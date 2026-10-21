@@ -49,6 +49,103 @@ impl Color {
         }
     }
 }
+
+/// Apply a representable affine edit to canonical parameters, retaining owner-local holes.
+/// Sheared extrusions must be exploded before editing as an unrestricted mesh.
+pub fn transform_record(field: &str, record: &Value, transform: Affine3) -> Result<Value, String> {
+    let mut element = Element::from_value(field, record.clone())?;
+    let plane = element.plane()?;
+    let u = transform.transform_vector(plane.u);
+    let v = transform.transform_vector(plane.v);
+    let n = transform.transform_vector(plane.normal);
+    let (su, sv, sn) = (u.length(), v.length(), n.length());
+    if ![su, sv, sn].into_iter().all(|x| x.is_finite() && x > EPS)
+        || u.dot(n).abs() > EPS * su * sn
+        || v.dot(n).abs() > EPS * sv * sn
+    {
+        return Err("Explode architecture before applying a sheared or singular transform.".into());
+    }
+    let normal = transform
+        .transform_normal(plane.normal, crate::geometry::GeometryTolerance::default())
+        .ok_or("Singular architecture transform.")?;
+    if (!element.holes().is_empty() || matches!(element, Element::Wall(_)))
+        && u.dot(v).abs() > EPS * su * sv
+    {
+        return Err("Explode architecture before skewing its rectangular openings.".into());
+    }
+    let old_holes = element.holes().to_vec();
+    match &mut element {
+        Element::Wall(w) => {
+            w.start = transform.transform_point(w.start);
+            w.end = transform.transform_point(w.end);
+            w.up = v / sv;
+            w.height *= sv;
+            w.thickness *= sn;
+            let new_normal = (w.end - w.start)
+                .cross(w.up)
+                .try_normalized(EPS)
+                .ok_or("Invalid wall frame.")?;
+            w.inclination_deg = (w.inclination_deg.to_radians().tan() * n.dot(new_normal) / sv)
+                .atan()
+                .to_degrees();
+        }
+        Element::Slab(s) => {
+            for p in &mut s.profile.points {
+                *p = transform.transform_point(*p);
+            }
+            s.origin = Some(transform.transform_point(plane.origin));
+            s.axis_u = Some(u / su);
+            s.normal = normal;
+            s.thickness *= sn;
+        }
+        Element::Frame(f) => {
+            if (su - sv).abs() > EPS * su.max(sv) || u.dot(v).abs() > EPS * su * sv {
+                return Err("Explode a window or door before scaling its frame unevenly.".into());
+            }
+            for p in &mut f.contour {
+                *p = transform.transform_point(*p);
+            }
+            f.normal = normal;
+            f.depth *= sn;
+            f.frame_width *= su;
+        }
+    }
+    if !old_holes.is_empty() {
+        let next_plane = element.plane()?;
+        let holes = element.holes_mut()?;
+        for (hole, old) in holes.iter_mut().zip(old_holes) {
+            let a = next_plane
+                .project(transform.transform_point(plane.point(Vec2::new(old.u0, old.v0))));
+            let b = next_plane
+                .project(transform.transform_point(plane.point(Vec2::new(old.u1, old.v1))));
+            hole.u0 = a.x.min(b.x);
+            hole.u1 = a.x.max(b.x);
+            hole.v0 = a.y.min(b.y);
+            hole.v1 = a.y.max(b.y);
+        }
+    }
+    element.mesh()?;
+    let mut result = record.clone();
+    result
+        .as_object_mut()
+        .ok_or("Architecture record must be an object.")?
+        .extend(element.value().as_object().unwrap().clone());
+    Ok(result)
+}
+
+/// Derived geometry becomes authored mesh when an object is exploded.
+pub fn materialize(bundle: &mut GeometryBundle) {
+    for vertex in bundle.vertices.values_mut() {
+        vertex.legacy_aliases.retain(|a| a.source != GENERATED);
+    }
+    for edge in bundle.segments.values_mut() {
+        edge.extensions.remove(GENERATED);
+    }
+    for face in bundle.triangles.values_mut() {
+        face.extensions.remove(GENERATED);
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub struct Hole {
@@ -445,7 +542,7 @@ impl Element {
             Self::Frame(v) => &v.id,
         }
     }
-    fn set_id(&mut self, id: String) {
+    pub(super) fn set_id(&mut self, id: String) {
         match self {
             Self::Wall(v) => v.id = id,
             Self::Slab(v) => v.id = id,
@@ -585,9 +682,9 @@ impl Element {
                     .try_normalized(EPS)
                     .ok_or("Wall endpoints must differ.")?;
                 let n = u
-                    .cross(Vec3::Y)
+                    .cross(w.up)
                     .try_normalized(EPS)
-                    .ok_or("A wall baseline cannot be vertical.")?;
+                    .ok_or("Wall up direction must differ from its baseline.")?;
                 Ok(Plane {
                     origin: w.start,
                     u,
@@ -1470,5 +1567,244 @@ mod tests {
         let mesh = e.mesh().unwrap();
         closed(&mesh);
         assert!((volume(&mesh) - 24.0 * 0.2).abs() < 1e-5);
+    }
+    #[test]
+    fn semantic_copy_move_and_preview_preserve_owned_openings() {
+        use crate::{
+            operations::transforms::{preview_selection_transform, transform_selection},
+            selection::SelectionSession,
+        };
+        let mut d = Document::new();
+        let wall = Element::Wall(Wall {
+            end: Vec3::X * 5.,
+            holes: vec![Hole {
+                u0: 1.,
+                u1: 2.,
+                v0: 0.5,
+                v1: 2.,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let id = d
+            .put_architecture(Document::SCENE_ROOT_DEFINITION_ID, None, wall.clone())
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(target(SelectionKind::Wall, id));
+        let delta = Vec3::new(3., 2., 1.);
+        assert!(
+            !preview_selection_transform(&d, &selection, Affine3::from_translation(delta))
+                .unwrap()
+                .is_empty()
+        );
+        transform_selection(
+            &mut d,
+            &mut selection,
+            Affine3::from_translation(delta),
+            true,
+        )
+        .unwrap();
+        assert_eq!(d.architecture_elements().len(), 2);
+        let copy = d
+            .architecture_element(selection.selected().first().unwrap())
+            .unwrap();
+        assert_ne!(copy.element.id(), wall.id());
+        let Element::Wall(w) = copy.element else {
+            panic!()
+        };
+        assert_eq!(w.start, delta);
+        assert_eq!(w.holes, wall.holes());
+        transform_selection(
+            &mut d,
+            &mut selection,
+            Affine3::from_translation(Vec3::Y),
+            false,
+        )
+        .unwrap();
+        let copy = d
+            .architecture_element(selection.selected().first().unwrap())
+            .unwrap();
+        let Element::Wall(w) = copy.element else {
+            panic!()
+        };
+        assert_eq!(w.start, delta + Vec3::Y);
+        assert!(d.validate().is_ok());
+    }
+    #[test]
+    fn clipboard_slab_retains_one_canonical_solid_and_fresh_identity() {
+        use crate::{
+            document::clipboard::ClipboardSelection,
+            selection::{EditContext, SelectionSession},
+        };
+        let mut d = Document::new();
+        let id = d
+            .put_architecture(
+                Document::SCENE_ROOT_DEFINITION_ID,
+                None,
+                Element::Slab(rectangle()),
+            )
+            .unwrap();
+        let t = target(SelectionKind::Slab, id);
+        d.add_architecture_hole(&t, Vec3::new(1., 0., 1.), Vec3::new(2., 0., 2.))
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(t.clone());
+        let clipboard = ClipboardSelection::capture(&d, &selection).unwrap();
+        assert!(!clipboard.preview_edges.is_empty());
+        let pasted = clipboard
+            .paste(&mut d, &EditContext::Document, Vec3::X * 10., true)
+            .unwrap();
+        assert_eq!(pasted.len(), 1);
+        assert_ne!(t, pasted[0]);
+        let slabs = d.architecture_elements();
+        assert_eq!(slabs.len(), 2);
+        let copy = d.architecture_element(&pasted[0]).unwrap();
+        assert_eq!(copy.element.holes().len(), 1);
+        let Element::Slab(s) = copy.element else {
+            panic!()
+        };
+        assert_eq!(s.profile.points[0], Vec3::X * 10.);
+        let counts = d.definitions[&Document::SCENE_ROOT_DEFINITION_ID]
+            .geometry
+            .triangles
+            .len();
+        d.regenerate_architecture();
+        assert_eq!(
+            counts,
+            d.definitions[&Document::SCENE_ROOT_DEFINITION_ID]
+                .geometry
+                .triangles
+                .len()
+        );
+    }
+    #[test]
+    fn grouping_and_exploding_architecture_materializes_mesh_for_export() {
+        use crate::{operations::objects, selection::SelectionSession};
+        let mut d = Document::new();
+        let id = d
+            .put_architecture(
+                Document::SCENE_ROOT_DEFINITION_ID,
+                None,
+                Element::Slab(rectangle()),
+            )
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(target(SelectionKind::Slab, id));
+        let object = objects::group_mesh_selection(&mut d, &selection, "Floor").unwrap();
+        assert_eq!(d.architecture_elements().len(), 1);
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: object,
+            entity: SelectedEntity::Occurrence,
+        });
+        let report = objects::explode_selection(
+            &mut d,
+            &selection,
+            &objects::LegacyAnnotationExplodeAdapter,
+        )
+        .unwrap();
+        assert!(report.triangles > 0);
+        let count = d
+            .definitions
+            .values()
+            .map(|d| {
+                d.geometry
+                    .triangles
+                    .values()
+                    .filter(|f| !generated(&f.extensions))
+                    .count()
+            })
+            .sum::<usize>();
+        assert!(count > 0);
+        d.strip_architecture_geometry();
+        assert_eq!(
+            count,
+            d.definitions
+                .values()
+                .map(|d| d.geometry.triangles.len())
+                .sum::<usize>()
+        );
+    }
+    #[test]
+    fn transformed_wall_uses_its_own_up_axis_and_slab_holes_follow_reflection() {
+        let wall = Element::Wall(Wall {
+            end: Vec3::X * 4.,
+            ..Default::default()
+        });
+        let turn = Affine3::from_linear_translation(
+            [[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]],
+            Vec3::ZERO,
+        );
+        let transformed =
+            Element::from_value(WALLS, transform_record(WALLS, &wall.value(), turn).unwrap())
+                .unwrap();
+        assert!((transformed.plane().unwrap().v - Vec3::Z).length() < 1e-6);
+        let mut slab = rectangle();
+        slab.holes.push(Hole {
+            u0: 1.,
+            u1: 2.,
+            v0: -2.,
+            v1: -1.,
+            ..Default::default()
+        });
+        let original = Element::Slab(slab);
+        let reflection =
+            Affine3::from_linear_translation([[-2., 0., 0.], [0., 1., 0.], [0., 0., 3.]], Vec3::X);
+        let transformed = Element::from_value(
+            SLABS,
+            transform_record(SLABS, &original.value(), reflection).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            (volume(&transformed.mesh().unwrap()) - volume(&original.mesh().unwrap()) * 6.).abs()
+                < 1e-5
+        );
+    }
+    #[test]
+    fn architecture_only_scene_root_survives_export_with_and_without_child_objects() {
+        for child in [false, true] {
+            let mut d = Document::new();
+            let root = Document::SCENE_ROOT_DEFINITION_ID;
+            d.put_architecture(root, None, Element::Slab(rectangle()))
+                .unwrap();
+            d.put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+            if child {
+                d.add_cuboid("Independent object", Vec3::new(1., 1., 1.), Vec3::ZERO)
+                    .unwrap();
+            }
+            let source = crate::legacy::export_current_value(&d).unwrap();
+            let root = source["prototypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["name"] == "Root")
+                .unwrap();
+            assert_eq!(root[SLABS].as_array().unwrap().len(), 1);
+            assert_eq!(root[WALLS].as_array().unwrap().len(), 1);
+            let loaded = crate::legacy::import_current_value(&source).unwrap();
+            assert_eq!(loaded.architecture_elements().len(), 2);
+            let saved = crate::legacy::export_current_value(&loaded).unwrap();
+            let loaded_root = saved["prototypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["name"] == "Root")
+                .unwrap();
+            assert_eq!(root[SLABS], loaded_root[SLABS]);
+            assert_eq!(root[WALLS], loaded_root[WALLS]);
+            assert_eq!(loaded.architecture_elements().len(), 2);
+            assert_eq!(
+                source["rootInstance"]["children"],
+                saved["rootInstance"]["children"]
+            );
+        }
     }
 }

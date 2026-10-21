@@ -16,7 +16,7 @@ fn groupable_domain_field(kind: SelectionKind) -> Option<&'static str> {
     match kind {
         SelectionKind::Dimension => Some("dimensions"),
         SelectionKind::Text => Some("texts"),
-        _ => None,
+        _ => crate::document::architecture::field(kind),
     }
 }
 
@@ -455,6 +455,9 @@ pub fn delete_selection(
         .revision
         .checked_add(1)
         .ok_or_else(|| "document revision counter is exhausted".to_owned())?;
+    if selection.selected().iter().any(|target|matches!(&target.entity,SelectedEntity::SemanticHandle {kind,..} if crate::document::architecture::field(*kind).is_some())) {
+        candidate.regenerate_architecture();
+    }
     candidate.validate()?;
     *document = candidate;
     Ok(report)
@@ -553,7 +556,10 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
             (
                 resolved.definition.name.clone(),
                 resolved.definition.domain_data.keys().any(|field| {
-                    field != "hotspots" || document.script_frame(occurrence).is_none()
+                    !matches!(
+                        field.as_str(),
+                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                    ) && (field != "hotspots" || document.script_frame(occurrence).is_none())
                 }),
                 resolved.definition.domain_entity_ids.clone(),
                 resolved.edits.is_some_and(|edits| {
@@ -572,6 +578,10 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                 !identities.is_empty()
                     && field != "dimensions"
                     && field != "texts"
+                    && !matches!(
+                        field.as_str(),
+                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                    )
                     && !(field == "hotspots" && document.script_frame(occurrence).is_some())
             })
             || has_unsupported_edits
@@ -579,6 +589,21 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
             return Err(format!(
                 "object {definition_name:?} contains domain content without an explode adapter"
             ));
+        }
+        for field in [
+            "architectureWalls",
+            "architectureSlabs",
+            "architectureFrames",
+        ] {
+            for record in extensions
+                .get(&format!("k3d.{field}"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                crate::document::architecture::Element::from_value(field, record.clone())?
+                    .mesh()?;
+            }
         }
         for field in ["dimensions", "texts"] {
             let Some(records) = extensions
@@ -623,6 +648,12 @@ pub(crate) fn transform_annotation_record(
     record: &Value,
     transform: Affine3,
 ) -> Result<Value, String> {
+    if matches!(
+        field,
+        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+    ) {
+        return crate::document::architecture::transform_record(field, record, transform);
+    }
     let mut record = record.clone();
     let object = record
         .as_object_mut()
@@ -942,6 +973,11 @@ pub fn group_mesh_selection(
             .definitions
             .get_mut(&definition_id)
             .expect("selected definition was resolved");
+        if definition.domain_data.contains_key(*field) {
+            definition
+                .domain_data
+                .insert((*field).to_owned(), Value::Array(remaining.clone()));
+        }
         definition
             .extensions
             .insert(extension_key, Value::Array(remaining));
@@ -1115,6 +1151,15 @@ pub fn group_mesh_selection(
     let entry_id = candidate
         .add_layout_entry(target_layout, object_definition, Affine3::IDENTITY)
         .ok_or_else(|| "could not insert the new object into the active graph".to_owned())?;
+    if selected_domain_ids.keys().any(|field| {
+        matches!(
+            *field,
+            "architectureWalls" | "architectureSlabs" | "architectureFrames"
+        )
+    }) {
+        // Invalid unrelated legacy records remain opaque, just as on import.
+        candidate.regenerate_architecture();
+    }
     candidate.validate()?;
     let grouped = if target_parent.is_scene_root() {
         OccurrenceRef::root(entry_id)
@@ -1638,6 +1683,7 @@ pub fn explode_occurrences(
             &mut content,
             adapter,
         )?;
+        crate::document::architecture::materialize(&mut content.geometry);
         content.geometry.validate()?;
         materialized.push((parent, definition_name, content));
     }

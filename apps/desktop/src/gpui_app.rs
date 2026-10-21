@@ -1193,6 +1193,7 @@ impl MeshcraftShell {
                 ),
             });
         }
+        self.preview_architecture_drag();
         let preferences = self.session.native_ui_preferences();
         let selection_rect =
             self.selection_gesture
@@ -1254,6 +1255,7 @@ impl MeshcraftShell {
         let geometry_snap =
             self.session
                 .native_architecture_plane_snap(origin, direction, geometry_snap);
+        let geometry_snap = self.architecture_drag_snap(origin, direction, geometry_snap);
         let preferences = self.session.native_ui_preferences();
         let snap = helpers::snap(
             self.camera,
@@ -1551,7 +1553,7 @@ impl MeshcraftShell {
             self.camera_drag = Some((button, x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
             self.update_pointer(x, y);
-            if self.begin_hotspot_drag(x, y, modifiers) {
+            if self.begin_architecture_drag(x, y) || self.begin_hotspot_drag(x, y, modifiers) {
                 return;
             }
             self.selection_gesture = Some(SelectionGesture {
@@ -1615,6 +1617,7 @@ impl MeshcraftShell {
         }
         self.update_pointer(x, y);
         self.update_hotspot_drag(x, y);
+        self.update_architecture_drag(x, y);
     }
 
     fn pointer_up(&mut self, button: gpui::MouseButton, x: f32, y: f32) {
@@ -1633,7 +1636,7 @@ impl MeshcraftShell {
         if button != gpui::MouseButton::Left {
             return;
         }
-        if self.finish_hotspot_drag() {
+        if self.finish_architecture_drag() || self.finish_hotspot_drag() {
             return;
         }
         let Some(gesture) = self.selection_gesture.take() else {
@@ -1758,7 +1761,7 @@ impl MeshcraftShell {
             self.camera_drag = None;
             self.selection_gesture = None;
             self.selection_cursor = None;
-            if self.hotspot_drag.take().is_some() {
+            if self.architecture.drag.take().is_some() || self.hotspot_drag.take().is_some() {
                 self.cached_document_revision = None;
             } else {
                 self.session.handle_native_escape();
@@ -2777,7 +2780,9 @@ impl Render for MeshcraftShell {
                     )),
             );
 
-        let viewport = viewport.children(annotations::labels(self));
+        let viewport = viewport
+            .children(annotations::labels(self))
+            .children(architecture::controls(self));
         let viewport = viewport.when(!self.scripts.errors.is_empty(), |view| {
             view.child(
                 div()

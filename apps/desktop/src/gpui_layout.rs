@@ -575,7 +575,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     .checked(checked)
                     .disabled(disabled)
                     .on_click(self.cx.listener(move |this, enabled: &bool, _, cx| {
-                        if this.hotspot_drag.take().is_some() {
+                        if this.architecture.drag.take().is_some()
+                            || this.hotspot_drag.take().is_some()
+                        {
                             this.cached_document_revision = None;
                         }
                         this.selection_gesture = None;

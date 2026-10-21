@@ -85,7 +85,7 @@ pub(crate) fn selected_annotation_record<'a>(
     let field = match kind {
         SelectionKind::Dimension => "dimensions",
         SelectionKind::Text => "texts",
-        _ => return None,
+        _ => crate::document::architecture::field(kind)?,
     };
     let SelectedEntity::SemanticHandle { id, .. } = &target.entity else {
         return None;
@@ -126,6 +126,18 @@ pub(crate) fn selected_annotation_record<'a>(
 }
 
 fn selected_annotation_points(record: &Value, field: &str) -> Option<Vec<Vec3>> {
+    if matches!(
+        field,
+        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+    ) {
+        return Some(
+            crate::document::architecture::Element::from_value(field, record.clone())
+                .ok()?
+                .mesh()
+                .ok()?
+                .points,
+        );
+    }
     let read = |key: &str| -> Option<Vec3> {
         let value = record.get(key)?.clone();
         let point: Vec3 = serde_json::from_value(value).ok()?;

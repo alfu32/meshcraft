@@ -4739,6 +4739,26 @@ impl MeshcraftApp {
     }
 
     pub fn native_target_editable(&self, target: &SelectionTarget) -> bool {
+        // Generated architecture facets are selected/edited through their canonical owner.
+        if let Some(geometry) = self.document.effective_geometry(&target.occurrence) {
+            let generated = match target.entity {
+                SelectedEntity::Segment(id) => geometry.segments.get(&id).is_some_and(|e| {
+                    meshcraft_core::document::architecture::generated(&e.extensions)
+                }),
+                SelectedEntity::Triangle(id) => geometry.triangles.get(&id).is_some_and(|e| {
+                    meshcraft_core::document::architecture::generated(&e.extensions)
+                }),
+                SelectedEntity::Vertex(id) => geometry.vertices.get(&id).is_some_and(|v| {
+                    v.legacy_aliases
+                        .iter()
+                        .any(|a| a.source == meshcraft_core::document::architecture::GENERATED)
+                }),
+                _ => false,
+            };
+            if generated {
+                return false;
+            }
+        }
         if !self
             .selection_display_policy
             .can_edit_target(&self.document, target)

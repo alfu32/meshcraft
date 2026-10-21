@@ -176,11 +176,9 @@ fn transform_selection_internal(
             let field = match kind {
                 SelectionKind::Dimension => "dimensions",
                 SelectionKind::Text => "texts",
-                _ => {
-                    return Err(format!(
-                        "transform does not support semantic selection kind {kind:?}"
-                    ));
-                }
+                _ => crate::document::architecture::field(*kind).ok_or_else(|| {
+                    format!("transform does not support semantic selection kind {kind:?}")
+                })?,
             };
             let owner =
                 geometry_owner(document, &selection.context, target, resolved.definition.id);
@@ -378,6 +376,17 @@ fn transform_selection_internal(
         }
         candidate_selection.apply(copy_targets, SelectionMode::Replace);
     }
+    if domain.values().any(|g| {
+        g.ids_by_field.keys().any(|field| {
+            matches!(
+                *field,
+                "architectureWalls" | "architectureSlabs" | "architectureFrames"
+            )
+        })
+    }) {
+        // Invalid unrelated legacy records remain opaque, just as on import.
+        candidate.regenerate_architecture();
+    }
     candidate.validate()?;
     candidate.hotspot_cache.clear();
     candidate.revision = document
@@ -550,7 +559,7 @@ fn transform_domain_selections(
                         "selected {field} identity {selected_id:?} is ambiguous"
                     ));
                 }
-                let transformed = crate::operations::objects::transform_annotation_record(
+                let mut transformed = crate::operations::objects::transform_annotation_record(
                     field,
                     &records[index],
                     local_transform,
@@ -558,6 +567,12 @@ fn transform_domain_selections(
                 if copy {
                     let fresh = document.allocate_id();
                     let new_id = format!("meshcraft:transform:{}:{field}:{fresh}", definition_id.0);
+                    if matches!(
+                        field,
+                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                    ) {
+                        transformed["id"] = serde_json::json!(new_id);
+                    }
                     next_records.push(transformed);
                     next_identities.push(new_id.clone());
                     generated.push((field, new_id));
@@ -580,6 +595,11 @@ fn transform_domain_selections(
                 .get_mut(definition_id)
                 .ok_or_else(|| format!("selected definition {} is missing", definition_id.0))?;
             for (key, field, records, identities) in updates {
+                if definition.domain_data.contains_key(field) {
+                    definition
+                        .domain_data
+                        .insert(field.to_owned(), serde_json::Value::Array(records.clone()));
+                }
                 definition
                     .extensions
                     .insert(key, serde_json::Value::Array(records));
@@ -594,6 +614,9 @@ fn transform_domain_selections(
                     let kind = match *field {
                         "dimensions" => SelectionKind::Dimension,
                         "texts" => SelectionKind::Text,
+                        "architectureWalls" => SelectionKind::Wall,
+                        "architectureSlabs" => SelectionKind::Slab,
+                        "architectureFrames" => SelectionKind::Frame,
                         _ => unreachable!("domain transform fields are validated at collection"),
                     };
                     copy_targets.insert(SelectionTarget {
@@ -957,7 +980,12 @@ fn preview_transform_internal(
             let field = match kind {
                 SelectionKind::Dimension => "dimensions",
                 SelectionKind::Text => "texts",
-                _ => continue,
+                _ => {
+                    let Some(field) = crate::document::architecture::field(*kind) else {
+                        continue;
+                    };
+                    field
+                }
             };
             let resolved = document
                 .resolve_occurrence(&target.occurrence)
@@ -1126,6 +1154,19 @@ fn append_preview_annotation(
     world: Affine3,
     output: &mut Vec<[Vec3; 2]>,
 ) -> Result<(), String> {
+    if matches!(
+        field,
+        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+    ) {
+        let mesh =
+            crate::document::architecture::Element::from_value(field, record.clone())?.mesh()?;
+        output.extend(
+            mesh.edges
+                .iter()
+                .map(|edge| edge.map(|i| world.transform_point(mesh.points[i]))),
+        );
+        return Ok(());
+    }
     let vector = |name: &str| -> Result<Option<Vec3>, String> {
         let Some(value) = record.get(name) else {
             return Ok(None);
@@ -2000,8 +2041,8 @@ mod tests {
         selection.select(selected(
             occurrence,
             SelectedEntity::SemanticHandle {
-                kind: SelectionKind::Wall,
-                id: "wall-endpoint".to_owned(),
+                kind: SelectionKind::Voxel,
+                id: "voxel-handle".to_owned(),
             },
         ));
 
@@ -2013,7 +2054,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.contains("semantic selection kind Wall"));
+        assert!(error.contains("semantic selection kind Voxel"));
         assert_eq!(revision, document.revision());
     }
 

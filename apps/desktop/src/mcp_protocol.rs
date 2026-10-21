@@ -73,7 +73,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "meshcraft_geometry",
-            "Read an occurrence's current evaluated LOCAL geometry and world transform, including stable primitive IDs, authored/evaluated distinction, hotspots and script state. Supply its numeric path from meshcraft_scene. Primitives are paginated; vertex records needed by returned primitives are included. Apply transform for world coordinates.",
+            "Read an occurrence's current evaluated LOCAL geometry and world transform, including stable primitive IDs, authored/evaluated distinction, hotspots, script state and canonical architecture records/owner targets. Supply its numeric path from meshcraft_scene. Primitives are paginated; vertex records needed by returned primitives are included. Apply transform for world coordinates.",
             schema(
                 json!({"path":{"type":"array","items":{"type":"integer","minimum":0}},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":1000}}),
                 &["path"],

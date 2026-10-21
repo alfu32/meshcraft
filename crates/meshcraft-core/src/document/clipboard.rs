@@ -242,6 +242,27 @@ impl ClipboardSelection {
                     .clone();
                 let local = local.compose(definition.frame);
                 let mut geometry = definition.geometry.clone();
+                // Canonical architecture is inserted below; its derived cache is regenerated.
+                geometry
+                    .segments
+                    .retain(|_, e| !architecture::generated(&e.extensions));
+                geometry
+                    .triangles
+                    .retain(|_, f| !architecture::generated(&f.extensions));
+                let references = geometry
+                    .segments
+                    .values()
+                    .flat_map(|e| e.endpoints)
+                    .chain(geometry.triangles.values().flat_map(|f| f.vertices))
+                    .map(|r| r.id)
+                    .collect::<BTreeSet<_>>();
+                geometry.vertices.retain(|id, v| {
+                    references.contains(id)
+                        || !v
+                            .legacy_aliases
+                            .iter()
+                            .any(|a| a.source == architecture::GENERATED)
+                });
                 for vertex in geometry.vertices.values_mut() {
                     vertex.position = local.transform_point(vertex.position);
                 }
@@ -277,6 +298,9 @@ impl ClipboardSelection {
                 for (field, kind) in [
                     ("dimensions", crate::selection::SelectionKind::Dimension),
                     ("texts", crate::selection::SelectionKind::Text),
+                    (architecture::WALLS, crate::selection::SelectionKind::Wall),
+                    (architecture::SLABS, crate::selection::SelectionKind::Slab),
+                    (architecture::FRAMES, crate::selection::SelectionKind::Frame),
                 ] {
                     for record in definition
                         .extensions
@@ -288,7 +312,13 @@ impl ClipboardSelection {
                         let record = crate::operations::objects::transform_annotation_record(
                             field, record, local,
                         )?;
-                        let id = draft.add_annotation(destination, field, record)?;
+                        let id = if architecture::field(kind).is_some() {
+                            let mut element = architecture::Element::from_value(field, record)?;
+                            element.set_id(String::new());
+                            draft.put_architecture(destination, None, element)?
+                        } else {
+                            draft.add_annotation(destination, field, record)?
+                        };
                         selected.push(SelectionTarget {
                             occurrence: owner.clone(),
                             entity: SelectedEntity::SemanticHandle { kind, id },
@@ -424,6 +454,17 @@ fn selection_wireframe(
                 let p = world.transform_point(vertex.position);
                 edges.push([p, p]);
             }
+        }
+    }
+    for placed in document.architecture_elements() {
+        if selected(&placed.target.occurrence, placed.target.entity)
+            && let Ok(mesh) = placed.element.mesh()
+        {
+            edges.extend(
+                mesh.edges
+                    .iter()
+                    .map(|edge| edge.map(|i| placed.transform.transform_point(mesh.points[i]))),
+            );
         }
     }
     for annotation in document.annotations() {

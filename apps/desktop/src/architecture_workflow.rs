@@ -480,11 +480,21 @@ impl MeshcraftApp {
                     self.status = "Pick an editable wall or slab surface for the opening.".into();
                     return;
                 };
+                let plane = owner.element.plane().ok();
+                self.architecture.normal = plane.and_then(|p| {
+                    owner
+                        .transform
+                        .transform_vector(p.u)
+                        .cross(owner.transform.transform_vector(p.v))
+                        .try_normalized(1e-9)
+                });
                 self.architecture.owner = Some(owner.target.clone());
                 self.selection.apply([owner.target], SelectionMode::Replace);
             }
             self.architecture.normal = Some(if tool == "Wall" {
                 Vec3::Y
+            } else if tool == "Add Hole" {
+                self.architecture.normal.unwrap_or(Vec3::Y)
             } else {
                 snap.filter(|s| s.kind == SnapKind::Face)
                     .map(|s| s.normal)
@@ -1186,5 +1196,79 @@ mod tests {
         };
         assert_eq!(s.normal, Vec3::Z);
         assert!(s.profile.points.iter().all(|p| p.z.abs() < 1e-9));
+    }
+    #[test]
+    fn opening_started_on_an_edge_uses_its_owner_plane() {
+        let mut app = app();
+        let target = wall(&mut app);
+        command(&mut app, "tool.builtin.arch_add_hole", json!({}));
+        let a = Vec3::new(1., 0., 0.1);
+        let b = Vec3::new(2., 2., 0.1);
+        app.handle_native_world_pick(
+            a,
+            Some(SnapResult {
+                point: a,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.,
+            }),
+            Some(target.clone()),
+        );
+        assert!(app.architecture.normal.unwrap().dot(Vec3::Y).abs() < 1e-6);
+        app.handle_native_world_pick(b, None, None);
+        let wall = app.document.architecture_element(&target).unwrap();
+        assert_eq!(wall.element.holes().len(), 1);
+        assert!((wall.element.holes()[0].v1 - 2.).abs() < 1e-6);
+    }
+    #[test]
+    fn generated_facets_are_protected_and_mcp_publishes_the_canonical_owner() {
+        let mut app = app();
+        let target = wall(&mut app);
+        let g = app.document.effective_geometry(&target.occurrence).unwrap();
+        let facet = SelectionTarget {
+            occurrence: target.occurrence.clone(),
+            entity: SelectedEntity::Triangle(*g.triangles.keys().next().unwrap()),
+        };
+        assert!(!app.native_target_editable(&facet));
+        assert!(app.native_target_editable(&target));
+        let response = app.mcp_geometry(&json!({"path":[]})).unwrap();
+        assert_eq!(response["architecture"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            response["primitives"][0]["target"]["kind"],
+            "semantic_handle"
+        );
+    }
+    #[test]
+    fn slab_profile_drag_commits_one_undo_and_invalid_release_is_atomic() {
+        let mut app = app();
+        command(
+            &mut app,
+            "architecture.create_rectangular_slab",
+            json!({"start":[0,0,0],"end":[5,0,5]}),
+        );
+        let t = app.native_selected_architecture().unwrap().target;
+        let before = app.document.architecture_element(&t).unwrap().element;
+        let entries = app.history.entries().len();
+        app.commit_native_slab_control(&t, 1, Vec3::new(6., 3., 0.))
+            .unwrap();
+        assert_eq!(app.history.entries().len(), entries + 1);
+        let after = app.document.architecture_element(&t).unwrap().element;
+        assert_ne!(before, after);
+        command(&mut app, "edit.undo", json!({}));
+        assert_eq!(
+            app.document.architecture_element(&t).unwrap().element,
+            before
+        );
+        command(&mut app, "edit.redo", json!({}));
+        assert_eq!(
+            app.document.architecture_element(&t).unwrap().element,
+            after
+        );
+        let revision = app.document.revision();
+        assert!(
+            app.commit_native_slab_control(&t, 0, Vec3::new(5., 0., 5.))
+                .is_err()
+        );
+        assert_eq!(revision, app.document.revision());
     }
 }

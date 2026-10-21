@@ -1,0 +1,559 @@
+{
+  "version": 17,
+  "prototypes": [
+    {
+      "id": "meshcraft-prototype-0",
+      "name": "Root",
+      "kind": "MESH",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureSlabs": [
+        {
+          "id": "meshcraft:architecture:36",
+          "name": "Courtyard slab",
+          "profile": {
+            "points": [
+              {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              {
+                "x": 8.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              {
+                "x": 8.0,
+                "y": 0.0,
+                "z": 4.0
+              },
+              {
+                "x": 6.0,
+                "y": 0.0,
+                "z": 3.0
+              },
+              {
+                "x": 5.0,
+                "y": 0.0,
+                "z": 6.0
+              },
+              {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 6.0
+              }
+            ],
+            "closed": true
+          },
+          "normal": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "origin": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "axisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "thickness": 0.25,
+          "topColor": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "bottomColor": {
+            "r": 0.84,
+            "g": 0.84,
+            "b": 0.84,
+            "a": 1.0
+          },
+          "sideColor": {
+            "r": 0.88,
+            "g": 0.88,
+            "b": 0.88,
+            "a": 1.0
+          },
+          "holes": [
+            {
+              "id": "meshcraft:opening:272",
+              "name": "Opening 1",
+              "u0": 1.0,
+              "u1": 2.5,
+              "v0": -3.5,
+              "v1": -2.0
+            }
+          ],
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 8.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 8.0,
+              "y": 0.0,
+              "z": 4.0
+            },
+            {
+              "x": 6.0,
+              "y": 0.0,
+              "z": 3.0
+            },
+            {
+              "x": 5.0,
+              "y": 0.0,
+              "z": 6.0
+            },
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 6.0
+            }
+          ],
+          "min": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "max": {
+            "x": 6.0,
+            "y": 0.0,
+            "z": 3.0
+          },
+          "axisV": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          }
+        }
+      ],
+      "architectureWalls": [
+        {
+          "id": "meshcraft:architecture:2",
+          "name": "North wall",
+          "start": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "end": {
+            "x": 8.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "thickness": 0.2,
+          "height": 3.0,
+          "up": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "inclinationDeg": 0.0,
+          "exteriorColor": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "interiorColor": {
+            "r": 0.84,
+            "g": 0.84,
+            "b": 0.84,
+            "a": 1.0
+          },
+          "holes": [
+            {
+              "id": "meshcraft:opening:88",
+              "name": "Opening 1",
+              "u0": 1.0,
+              "u1": 3.0,
+              "v0": 1.0,
+              "v1": 2.5
+            },
+            {
+              "id": "meshcraft:opening:162",
+              "name": "Opening 2",
+              "u0": 5.0,
+              "u1": 6.4,
+              "v0": 0.0,
+              "v1": 2.4
+            }
+          ]
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false,
+      "meshcraftChildren": [
+        {
+          "id": "meshcraft-instance-446",
+          "prototypeId": "meshcraft-prototype-364",
+          "instanceOrigin": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "instanceAxisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "instanceAxisV": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "instanceAxisW": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "children": []
+        },
+        {
+          "id": "meshcraft-instance-523",
+          "prototypeId": "meshcraft-prototype-447",
+          "instanceOrigin": {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "instanceAxisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "instanceAxisV": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "instanceAxisW": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "meshcraft-prototype-364",
+      "name": "Independent window",
+      "kind": "ARCHITECTURE",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureFrames": [
+        {
+          "id": "meshcraft:architecture:366",
+          "name": "Independent window",
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 2.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 2.0,
+              "y": 1.5,
+              "z": 0.0
+            },
+            {
+              "x": 0.0,
+              "y": 1.5,
+              "z": 0.0
+            }
+          ],
+          "normal": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "depth": 0.12,
+          "frameWidth": 0.06,
+          "kind": "WINDOW",
+          "color": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "glazingEnabled": true,
+          "glazingColor": {
+            "r": 0.72,
+            "g": 0.84,
+            "b": 0.95,
+            "a": 0.4
+          },
+          "cornerA": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "cornerB": {
+            "x": 2.0,
+            "y": 1.5,
+            "z": 0.0
+          }
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false
+    },
+    {
+      "id": "meshcraft-prototype-447",
+      "name": "Independent door",
+      "kind": "ARCHITECTURE",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureFrames": [
+        {
+          "id": "meshcraft:architecture:449",
+          "name": "Independent door",
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 1.4000000000000004,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 1.4000000000000004,
+              "y": 2.4,
+              "z": 0.0
+            },
+            {
+              "x": 0.0,
+              "y": 2.4,
+              "z": 0.0
+            }
+          ],
+          "normal": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "depth": 0.12,
+          "frameWidth": 0.06,
+          "kind": "DOOR",
+          "color": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "glazingEnabled": false,
+          "glazingColor": {
+            "r": 0.72,
+            "g": 0.84,
+            "b": 0.95,
+            "a": 0.4
+          },
+          "cornerA": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "cornerB": {
+            "x": 1.4000000000000004,
+            "y": 2.4,
+            "z": 0.0
+          }
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false
+    }
+  ],
+  "rootInstance": {
+    "id": "meshcraft-scene-root-instance",
+    "prototypeId": "meshcraft-prototype-0",
+    "instanceOrigin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "instanceAxisU": {
+      "x": 1.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "instanceAxisV": {
+      "x": 0.0,
+      "y": 1.0,
+      "z": 0.0
+    },
+    "instanceAxisW": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 1.0
+    },
+    "children": [
+      {
+        "id": "meshcraft-instance-446",
+        "prototypeId": "meshcraft-prototype-364",
+        "instanceOrigin": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "instanceAxisU": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "instanceAxisV": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "instanceAxisW": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "children": []
+      },
+      {
+        "id": "meshcraft-instance-523",
+        "prototypeId": "meshcraft-prototype-447",
+        "instanceOrigin": {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "instanceAxisU": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "instanceAxisV": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "instanceAxisW": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "children": []
+      }
+    ]
+  },
+  "modelUnit": {
+    "name": "unit",
+    "size": 1.0
+  },
+  "gridSpacing": 1.0,
+  "circleSegments": 24,
+  "snapEpsilon": 12.0,
+  "cameraState": {
+    "position": {
+      "x": 11.999999999999998,
+      "y": 10.0,
+      "z": 13.999999999999998
+    },
+    "direction": {
+      "x": -0.49051147158797254,
+      "y": -0.5518254055364693,
+      "z": -0.6744532734334623
+    },
+    "up": {
+      "x": -0.324568085594606,
+      "y": 0.8339596643750291,
+      "z": -0.44628111769258333
+    },
+    "target": {
+      "x": 4.0,
+      "y": 1.0,
+      "z": 3.0
+    },
+    "near": 0.1,
+    "far": 500.0,
+    "fieldOfView": 45.0
+  }
+}

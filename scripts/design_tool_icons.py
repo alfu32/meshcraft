@@ -50,6 +50,16 @@ def glyph(name):
     """Choose deliberately drawn geometry by the operation represented by each name."""
     n = name.lower().replace('_','-').replace('.','-')
     modifier = ''
+    if n.endswith('arch-wall') or n == 'wall':
+        return path('M4 12L24 5L28 8V24L8 29L4 26ZM4 12L8 15L28 8M8 15V29',PURPLE)
+    if n.endswith('arch-slab') or n in ('slab','freeform-slab') or n.endswith('arch-slab-freeform'):
+        return path('M3 13L14 6L20 10L27 7L29 18L18 26L12 22L5 26ZM3 13L5 26M3 17L14 10M14 6V10',PURPLE) if 'freeform' in n else path('M3 14L20 5L29 11L12 21ZM3 14V19L12 26L29 16V11M12 21V26',PURPLE)
+    if n in ('add-hole','arch-add-hole','arch-hole') or n.endswith('arch-add-hole'):
+        return rect(3,4,26,24,PURPLE)+rect(11,11,10,12,ORANGE)+path('M11 23L15 19H21M15 19V11',ORANGE)
+    if n.endswith('arch-window-frame') or n == 'window-frame':
+        return rect(4,3,24,26,PURPLE)+rect(8,7,16,18,BLUE)+path('M16 7V25M8 16H24',BLUE)
+    if n.endswith('arch-door-frame') or n == 'door-frame':
+        return path('M5 29V3H27V29M9 29V7H23V29M9 7L20 11V29L9 25Z',PURPLE)+circle(17,20,1,ORANGE,ORANGE)
     if any(w in n for w in ('delete','eraser','remove','clear')):
         return path('M7 9H25M12 9V5H20V9M9 9L10 28H22L23 9M14 13V24M18 13V24',ORANGE)
     if 'undo' in n or 'redo' in n:
@@ -159,7 +169,7 @@ def glyph(name):
         return circle(13,13,9,BLUE)+path('M20 20L29 29M8 13H18M13 8V18',BLUE)
     if 'pan' in n or 'panning' in n:
         return path('M9 26L4 18Q2 14 6 14L10 18V7Q10 3 13 7V15V4Q16 1 17 5V15V6Q21 3 21 7V16V10Q25 7 25 12V22L22 29H12Z',BLUE)
-    if 'camera' in n or n in ('front','top','back','perspective','orthographic'):
+    if 'camera' in n or n in ('front','top','back','perspective','orthographic','walkthrough'):
         return BOX+path('M5 24L27 9',ORANGE)
     if 'play' in n or 'tutorial' in n or 'lesson' in n:
         return path('M8 4L28 16L8 28Z',GREEN,'#254d40')

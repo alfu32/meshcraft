@@ -21,6 +21,7 @@ See the [MCP guide](docs/mcp.md).
 - **Inspect your model:** perspective and orthographic views, orbit, pan, zoom and walkthrough navigation in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.
 - **Annotate designs:** dimensions, text and leaders, with editable labels and sizes.
 - **Reuse selections:** system cut/copy/paste with floating wireframe placement, Paste in Place, and Copy as Script for an editable JavaScript geometry snapshot.
+- **Build architecture:** draw walls, rectangular or freeform polyline slabs, and owned wall/slab openings. Drag slab profile controls to reshape the outline; place independent windows and doors without automatic wall cuts. See the [architecture workflow and example](docs/architecture.md).
 - **Materials:** create and edit named RGBA materials, assign them to selections, and see their colors and transparency in the viewport. Optional texture paths, U/V sizes and shading types are retained for future rendering work.
 - **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
 
@@ -45,7 +46,7 @@ See the [SDK, example and runtime requirements](docs/rewrite/spec/scripted-objec
 Meshcraft is under active development. The following capabilities are planned; they are not yet complete in the current application:
 
 - **JavaScript plugins:** extend the application through a JavaScriptCore runtime and a versioned application API.
-- **Built-in architecture tools:** walls, slabs, openings, stairs and frames, alongside plumbing and ventilation tools.
+- **More architecture tools:** stairs, additional architectural editing controls, and plumbing and ventilation tools.
 - **Photorealistic rendering:** offline rendering for presentation images, complementing the interactive shaded viewport.
 - **Vector annotations:** glyph-based vector text and additional annotation presentation options.
 

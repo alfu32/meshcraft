@@ -878,12 +878,14 @@ fn export_definition(
 fn scene_root_has_content(definition: &crate::document::Definition) -> bool {
     !definition.geometry.is_empty()
         || !definition.domain_data.is_empty()
-        || ["k3d.hotspots", "k3d.dimensions", "k3d.texts"]
+        || SCHEMA17_DOMAIN_ARRAY_FIELDS
             .iter()
+            .copied()
+            .chain(["dimensions", "texts"])
             .any(|key| {
                 definition
                     .extensions
-                    .get(*key)
+                    .get(&format!("k3d.{key}"))
                     .and_then(Value::as_array)
                     .is_some_and(|v| !v.is_empty())
             })

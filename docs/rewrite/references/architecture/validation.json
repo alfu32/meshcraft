@@ -1,0 +1,326 @@
+{
+  "version": "0.18.0",
+  "date": "2026-10-21",
+  "host": "Linux, X11 Xvfb :96, Mesa software rendering; isolated config/cache and project",
+  "workspaceTests": {
+    "core": 258,
+    "desktop": 297,
+    "cli": 5,
+    "io": 15,
+    "ignoredOptInRendererProbes": 2
+  },
+  "profileDrag": {
+    "before": {
+      "id": "meshcraft:architecture:36",
+      "name": "Courtyard slab",
+      "profile": {
+        "points": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "x": 8.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "x": 8.0,
+            "y": 0.0,
+            "z": 4.0
+          },
+          {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 4.0
+          },
+          {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 6.0
+          },
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 6.0
+          }
+        ],
+        "closed": true
+      },
+      "normal": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "axisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "thickness": 0.25,
+      "topColor": {
+        "r": 0.93,
+        "g": 0.93,
+        "b": 0.93,
+        "a": 1.0
+      },
+      "bottomColor": {
+        "r": 0.84,
+        "g": 0.84,
+        "b": 0.84,
+        "a": 1.0
+      },
+      "sideColor": {
+        "r": 0.88,
+        "g": 0.88,
+        "b": 0.88,
+        "a": 1.0
+      },
+      "holes": [
+        {
+          "id": "meshcraft:opening:272",
+          "name": "Opening 1",
+          "u0": 1.0,
+          "u1": 2.5,
+          "v0": -3.5,
+          "v1": -2.0
+        }
+      ],
+      "contour": [
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 4.0
+        },
+        {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 4.0
+        },
+        {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 6.0
+        },
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 6.0
+        }
+      ],
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 5.0,
+        "y": 0.0,
+        "z": 4.0
+      },
+      "axisV": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -1.0
+      }
+    },
+    "after": {
+      "id": "meshcraft:architecture:36",
+      "name": "Courtyard slab",
+      "profile": {
+        "points": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "x": 8.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "x": 8.0,
+            "y": 0.0,
+            "z": 4.0
+          },
+          {
+            "x": 6.0,
+            "y": 0.0,
+            "z": 3.0
+          },
+          {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 6.0
+          },
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 6.0
+          }
+        ],
+        "closed": true
+      },
+      "normal": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "axisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "thickness": 0.25,
+      "topColor": {
+        "r": 0.93,
+        "g": 0.93,
+        "b": 0.93,
+        "a": 1.0
+      },
+      "bottomColor": {
+        "r": 0.84,
+        "g": 0.84,
+        "b": 0.84,
+        "a": 1.0
+      },
+      "sideColor": {
+        "r": 0.88,
+        "g": 0.88,
+        "b": 0.88,
+        "a": 1.0
+      },
+      "holes": [
+        {
+          "id": "meshcraft:opening:272",
+          "name": "Opening 1",
+          "u0": 1.0,
+          "u1": 2.5,
+          "v0": -3.5,
+          "v1": -2.0
+        }
+      ],
+      "contour": [
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 4.0
+        },
+        {
+          "x": 6.0,
+          "y": 0.0,
+          "z": 3.0
+        },
+        {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 6.0
+        },
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 6.0
+        }
+      ],
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 6.0,
+        "y": 0.0,
+        "z": 3.0
+      },
+      "axisV": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -1.0
+      }
+    },
+    "previewPrivate": true,
+    "escapeCancels": true,
+    "oneUndo": true,
+    "redo": true
+  },
+  "reopen": {
+    "canonicalRecords": 2,
+    "independentFrames": 2,
+    "profilesAndHolesPreserved": true,
+    "generatedCountsStable": true
+  },
+  "nativePointer": [
+    {
+      "tool": "tool.builtin.arch_slab",
+      "mouseClicks": 2,
+      "enterFinished": false,
+      "oneUndoPerElement": true
+    },
+    {
+      "tool": "tool.arch_slab_freeform",
+      "mouseClicks": 3,
+      "enterFinished": true,
+      "oneUndoPerElement": true
+    },
+    {
+      "tool": "tool.builtin.arch_wall",
+      "mouseClicks": 3,
+      "enterFinished": true,
+      "oneUndoPerElement": true
+    },
+    {
+      "tool": "tool.builtin.arch_add_hole",
+      "nativeRayOwnerPicking": true,
+      "undo": true
+    },
+    {
+      "tool": "tool.builtin.arch_window_frame",
+      "nativeMousePlacement": true,
+      "independentObject": true,
+      "ownerHolesUnchanged": true
+    },
+    {
+      "tool": "tool.builtin.arch_door_frame",
+      "nativeMousePlacement": true,
+      "independentObject": true,
+      "ownerHolesUnchanged": true
+    }
+  ],
+  "nativePanel": {
+    "slabThicknessEditable": true,
+    "ownedOpeningButton": true,
+    "undo": true
+  }
+}

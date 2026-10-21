@@ -482,7 +482,9 @@ impl Renderer {
             raylib::ffi::rlDisableDepthTest();
         }
         for edge in &self.edges {
-            if self.selection.exact.contains(&edge.target) {
+            if matches!(edge.target.entity, SelectedEntity::Segment(_))
+                && self.selection.exact.contains(&edge.target)
+            {
                 direction_arrow(view, edge.points, scene.thick_line_width, camera, height);
             }
         }

@@ -13,6 +13,7 @@ pub(super) struct Ui {
     colors: BTreeMap<&'static str, Entity<ColorPickerState>>,
     dirty: bool,
     subscriptions: Vec<gpui::Subscription>,
+    pub drag: Option<ProfileDrag>,
 }
 const COLORS: &[(&str, &str)] = &[
     ("wall_exterior_color", "Exterior"),
@@ -243,4 +244,196 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         }
     }
     body.child(div().text_xs().text_color(rgb(0xa5adb7)).child("Add Hole cuts only its picked wall or slab. Windows and doors are independent objects and never cut an opening automatically.")).into_any_element()
+}
+
+/// A drag previews a private snapshot and commits once, leaving Escape and undo atomic.
+pub(super) struct ProfileDrag {
+    target: SelectionTarget,
+    index: usize,
+    start: (f32, f32),
+    original: Vec3,
+    point: Vec3,
+    normal: Vec3,
+    base: Arc<Document>,
+    moved: bool,
+}
+fn profile(shell: &MeshcraftShell) -> Option<(SelectionTarget, Vec<Vec3>, Vec3)> {
+    if shell.session.native_pointer_tool_active() {
+        return None;
+    }
+    let selected = inspected(shell)?;
+    let placed = shell
+        .cached_document
+        .architecture_element(&selected.target)?;
+    if !shell.session.native_architecture_editable(&placed.target) {
+        return None;
+    }
+    let Element::Slab(slab) = &placed.element else {
+        return None;
+    };
+    let plane = placed.element.plane().ok()?;
+    let normal = placed
+        .transform
+        .transform_vector(plane.u)
+        .cross(placed.transform.transform_vector(plane.v))
+        .try_normalized(1e-12)?;
+    let points = slab
+        .profile
+        .points
+        .iter()
+        .map(|p| placed.transform.transform_point(*p))
+        .collect();
+    Some((placed.target, points, normal))
+}
+pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
+    let Some((_, points, _)) = profile(shell) else {
+        return Vec::new();
+    };
+    points
+        .into_iter()
+        .filter_map(|p| {
+            let (x, y) = project_point(
+                shell.camera,
+                (shell.layout.width as f32, shell.layout.height as f32),
+                p,
+            )?;
+            Some(
+                div()
+                    .absolute()
+                    .left(px(x / shell.layout.scale - 5.))
+                    .top(px(y / shell.layout.scale - 5.))
+                    .size(px(10.))
+                    .bg(rgb(0x39a8ff))
+                    .border_1()
+                    .border_color(rgb(0x102d46))
+                    .into_any_element(),
+            )
+        })
+        .collect()
+}
+impl MeshcraftShell {
+    pub(super) fn begin_architecture_drag(&mut self, x: f32, y: f32) -> bool {
+        let Some((target, points, normal)) = profile(self) else {
+            return false;
+        };
+        let Some((index, original)) = points
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let (hx, hy) = project_point(
+                    self.camera,
+                    (self.layout.width as f32, self.layout.height as f32),
+                    p,
+                )?;
+                let distance = (hx - x).hypot(hy - y);
+                (distance <= 10. * self.layout.scale).then_some((distance, i, p))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, i, p)| (i, p))
+        else {
+            return false;
+        };
+        self.architecture.drag = Some(ProfileDrag {
+            target,
+            index,
+            start: (x, y),
+            original,
+            point: original,
+            normal,
+            base: Arc::clone(&self.cached_document),
+            moved: false,
+        });
+        true
+    }
+    pub(super) fn architecture_drag_snap(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        snap: Option<SnapResult>,
+    ) -> Option<SnapResult> {
+        let Some(drag) = &self.architecture.drag else {
+            return snap;
+        };
+        if let Some(s) = snap
+            && (s.point - drag.original).dot(drag.normal).abs() < 1e-6
+            && matches!(
+                s.kind,
+                SnapKind::Endpoint | SnapKind::Midpoint | SnapKind::Line
+            )
+        {
+            return Some(s);
+        }
+        let d = direction.dot(drag.normal);
+        if d.abs() < 1e-10 {
+            return None;
+        }
+        let t = (drag.original - origin).dot(drag.normal) / d;
+        (t >= 0. && t.is_finite()).then_some(SnapResult {
+            point: origin + direction * t,
+            normal: drag.normal,
+            kind: SnapKind::Face,
+            screen_distance: 0.,
+        })
+    }
+    pub(super) fn update_architecture_drag(&mut self, x: f32, y: f32) {
+        let Some(drag) = self.architecture.drag.as_mut() else {
+            return;
+        };
+        if (x - drag.start.0).hypot(y - drag.start.1) < 4. && !drag.moved {
+            return;
+        }
+        let Some(snap) = self.cursor_snap else {
+            return;
+        };
+        drag.point = snap.point - drag.normal * (snap.point - drag.original).dot(drag.normal);
+        drag.moved = true;
+        self.refresh_scene();
+    }
+    pub(super) fn preview_architecture_drag(&mut self) {
+        let Some(drag) = &self.architecture.drag else {
+            return;
+        };
+        if !drag.moved {
+            return;
+        }
+        let mut preview = (*drag.base).clone();
+        let result = preview.move_slab_vertex(&drag.target, drag.index, drag.point);
+        let delta = drag.point - drag.original;
+        self.feedback = Some(ToolFeedback {
+            screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
+            text: format!(
+                "Slab profile · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}{}",
+                delta.x,
+                delta.y,
+                delta.z,
+                delta.length(),
+                preview.model_settings().unit_name,
+                if result.is_ok() {
+                    ""
+                } else {
+                    " · invalid outline"
+                }
+            ),
+        });
+        self.cached_document = if result.is_ok() {
+            Arc::new(preview)
+        } else {
+            Arc::clone(&drag.base)
+        };
+    }
+    pub(super) fn finish_architecture_drag(&mut self) -> bool {
+        let Some(drag) = self.architecture.drag.take() else {
+            return false;
+        };
+        if drag.moved
+            && let Err(error) =
+                self.session
+                    .commit_native_slab_control(&drag.target, drag.index, drag.point)
+        {
+            self.session.set_native_status(error);
+        }
+        self.cached_document_revision = None;
+        self.refresh_scene();
+        true
+    }
 }
