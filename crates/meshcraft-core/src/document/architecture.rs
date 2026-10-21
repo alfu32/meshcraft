@@ -18,6 +18,8 @@ const EPS: f64 = 1e-7;
 mod controls;
 #[path = "architecture_joins.rs"]
 mod joins;
+#[path = "architecture_slabs.rs"]
+mod slabs;
 pub use controls::{Control, ControlPoint};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -720,8 +722,7 @@ impl Element {
         // Compatibility fields describe the same canonical polyline; legacy readers
         // retain the full contour even when they only understand rectangular slabs.
         if let Self::Slab(v) = self
-            && let Ok((plane, _)) =
-                surface_with_basis(&v.profile.points, v.normal, v.origin, v.axis_u)
+            && let Ok((plane, _)) = slabs::surface(v)
         {
             value["contour"] = serde_json::json!(v.profile.points);
             value["min"] = serde_json::json!(plane.origin - plane.normal * v.thickness);
@@ -742,9 +743,7 @@ impl Element {
     pub fn plane(&self) -> Result<Plane, String> {
         match self {
             Self::Wall(w) => w.plane(),
-            Self::Slab(s) => {
-                surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u).map(|v| v.0)
-            }
+            Self::Slab(s) => slabs::surface(s).map(|v| v.0),
             Self::Frame(f) => surface(&f.contour, f.normal).map(|v| v.0),
         }
     }
@@ -752,23 +751,7 @@ impl Element {
         let mut mesh = Mesh::default();
         match self {
             Self::Wall(w) => return joins::wall_mesh(w, &[]),
-            Self::Slab(s) => {
-                positive(s.thickness, "Slab thickness")?;
-                if !s.profile.closed {
-                    return Err("A slab needs a closed polyline profile.".into());
-                }
-                let (plane, shape) =
-                    surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u)?;
-                let shape = cut(shape, &s.holes)?;
-                prism(
-                    &mut mesh,
-                    &shape,
-                    plane,
-                    -plane.normal * s.thickness,
-                    Vec3::ZERO,
-                    [s.top_color, s.bottom_color, s.side_color],
-                )?;
-            }
+            Self::Slab(s) => return slabs::mesh(s),
             Self::Frame(f) => {
                 positive(f.depth, "Frame depth")?;
                 positive(f.frame_width, "Frame width")?;
@@ -952,7 +935,7 @@ impl Document {
         mut element: Element,
     ) -> Result<String, String> {
         if let Element::Slab(s) = &mut element {
-            let (plane, _) = surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u)?;
+            let (plane, _) = slabs::surface(s)?;
             s.origin = Some(plane.origin);
             s.axis_u = Some(plane.u);
         }
@@ -1296,10 +1279,7 @@ impl Document {
         hole.polygon()?;
         let available = match &owner.element {
             Element::Wall(w) => cut(w.profile()?, &w.holes)?,
-            Element::Slab(s) => cut(
-                surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u)?.1,
-                &s.holes,
-            )?,
+            Element::Slab(s) => cut(slabs::surface(s)?.1, &s.holes)?,
             _ => return Err("Only walls and slabs own openings.".into()),
         };
         let overlap = available
@@ -2239,5 +2219,137 @@ mod tests {
                 .all(|p| p.z >= -0.5 - EPS && p.z <= 0.5 + EPS)
         );
         assert_eq!(Element::from_value(WALLS, legacy.value()).unwrap(), legacy);
+    }
+    #[test]
+    fn wall_controls_stay_on_axis_even_with_offset_and_inclination() {
+        let wall = Wall {
+            start: Vec3::new(2., 1., 3.),
+            end: Vec3::new(7., 2., 3.),
+            height: 3.,
+            end_height: Some(5.),
+            offset: 1.25,
+            inclination_deg: 20.,
+            ..Default::default()
+        };
+        let plane = wall.plane().unwrap();
+        for c in Element::Wall(wall.clone()).controls().unwrap() {
+            assert!((c.point - plane.origin).dot(plane.normal).abs() < EPS);
+        }
+        let top = Element::Wall(wall.clone())
+            .controls()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.control == Control::WallTop { end: true })
+            .unwrap();
+        assert_eq!(top.point, wall.end + Vec3::Y * 5.);
+    }
+    #[test]
+    fn wall_opening_has_no_rectangular_grid_segments_on_either_face() {
+        let wall = Wall {
+            end: Vec3::X * 6.,
+            height: 4.,
+            auto_join: false,
+            holes: vec![Hole {
+                u0: 2.,
+                u1: 4.,
+                v0: 1.,
+                v1: 3.,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mesh = Element::Wall(wall.clone()).mesh().unwrap();
+        closed(&mesh);
+        for e in mesh.edges {
+            let [a, b] = e.map(|i| mesh.points[i]);
+            if (a.z - b.z).abs() < EPS {
+                let p = (a + b) * 0.5;
+                let on_outer = p.x.abs() < EPS
+                    || (p.x - 6.).abs() < EPS
+                    || p.y.abs() < EPS
+                    || (p.y - 4.).abs() < EPS;
+                let on_hole = ((p.x - 2.).abs() < EPS || (p.x - 4.).abs() < EPS)
+                    && p.y >= 1. - EPS
+                    && p.y <= 3. + EPS
+                    || ((p.y - 1.).abs() < EPS || (p.y - 3.).abs() < EPS)
+                        && p.x >= 2. - EPS
+                        && p.x <= 4. + EPS;
+                assert!(
+                    on_outer || on_hole,
+                    "artificial wall subdivision: {a:?} -> {b:?}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn sloped_roof_retains_normal_thickness_vertical_sides_and_owned_openings() {
+        let mut s = rectangle();
+        for p in &mut s.profile.points {
+            p.y = 2. + p.x * 0.5;
+        }
+        s.holes = vec![Hole {
+            u0: 1.,
+            u1: 3.,
+            v0: -3.,
+            v1: -1.,
+            ..Default::default()
+        }];
+        let mesh = Element::Slab(s.clone()).mesh().unwrap();
+        closed(&mesh);
+        let normal = Vec3::new(-0.5, 1., 0.).try_normalized(EPS).unwrap();
+        let drop = s.thickness * 1.25_f64.sqrt();
+        for p in &mesh.points {
+            let height = 2. + p.x * 0.5;
+            assert!((p.y - height).abs() < EPS || (p.y - height + drop).abs() < EPS);
+            let distance = (Vec3::new(p.x, height, p.z) - *p).dot(normal);
+            assert!(distance.abs() < EPS || (distance - s.thickness).abs() < EPS);
+        }
+        for e in &mesh.edges {
+            let [a, b] = e.map(|i| mesh.points[i]);
+            if (a.y - b.y).abs() > EPS && (a - b).cross(Vec3::Y).length() < EPS {
+                assert!((a.distance(b) - drop).abs() < EPS);
+            }
+        }
+        for c in Element::Slab(s).controls().unwrap() {
+            if matches!(c.control, Control::HoleCorner { .. }) {
+                assert!((c.point.y - 2. - c.point.x * 0.5).abs() < EPS);
+            }
+        }
+    }
+    #[test]
+    fn warped_roof_with_a_hole_across_its_fold_is_closed_and_keeps_profile_heights() {
+        let mut s = rectangle();
+        s.profile.points[1].y = 2.;
+        s.profile.points[2].y = 4.;
+        s.profile.points[3].y = 1.;
+        s.holes = vec![Hole {
+            u0: 1.,
+            u1: 4.,
+            v0: -4.,
+            v1: -1.,
+            ..Default::default()
+        }];
+        let mesh = Element::Slab(s.clone()).mesh().unwrap();
+        closed(&mesh);
+        for p in s.profile.points {
+            assert!(mesh.points.iter().any(|v| v.distance(p) < EPS));
+        }
+    }
+    #[test]
+    fn roof_height_control_roundtrip_and_collinear_plan_vertex_are_preserved() {
+        let mut s = rectangle();
+        s.profile.points.insert(1, Vec3::new(2.5, 2., 0.));
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d.put_architecture(root, None, Element::Slab(s)).unwrap();
+        let t = target(SelectionKind::Slab, id);
+        d.move_slab_vertex(&t, 1, Vec3::new(2.5, 3., 0.)).unwrap();
+        let e = d.architecture_element(&t).unwrap().element;
+        closed(&e.mesh().unwrap());
+        let Element::Slab(s) = &e else { panic!() };
+        assert_eq!(s.profile.points[1].y, 3.);
+        let loaded = Element::from_value(SLABS, e.value()).unwrap();
+        assert_eq!(loaded.value(), e.value());
+        closed(&loaded.mesh().unwrap());
     }
 }

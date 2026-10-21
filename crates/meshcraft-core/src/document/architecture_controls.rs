@@ -26,7 +26,7 @@ pub struct ControlPoint {
     pub control: Control,
     pub point: Vec3,
     pub normal: Vec3,
-    /// Shift changes wall base dragging from elevation/length to plan movement.
+    /// Shift selects the alternate plane (wall plan movement or slab elevation).
     pub alternate_normal: Option<Vec3>,
     pub axis: Option<Vec3>,
 }
@@ -46,30 +46,31 @@ impl Element {
         match self {
             Self::Slab(s) => {
                 for (index, p) in s.profile.points.iter().enumerate() {
-                    add(Control::SlabVertex { index }, *p, plane.normal, None, None);
+                    add(
+                        Control::SlabVertex { index },
+                        *p,
+                        plane.normal,
+                        Some(plane.v),
+                        None,
+                    );
                 }
             }
             Self::Wall(w) => {
-                let top_axis = plane.v + plane.normal * w.inclination_deg.to_radians().tan();
-                let top_normal = plane
-                    .u
-                    .cross(top_axis)
-                    .try_normalized(EPS)
-                    .ok_or("Invalid wall control plane.")?;
+                let top_axis = plane.v;
                 for end in [false, true] {
                     let base = if end { w.end } else { w.start };
                     let height = if end { w.end_height() } else { w.height };
                     add(
                         Control::WallBase { end },
-                        base + plane.normal * w.offset,
+                        base,
                         plane.normal,
                         Some(plane.v),
                         None,
                     );
                     add(
                         Control::WallTop { end },
-                        base + plane.normal * w.offset + top_axis * height,
-                        top_normal,
+                        base + top_axis * height,
+                        plane.normal,
                         None,
                         Some(top_axis),
                     );
@@ -105,6 +106,8 @@ impl Element {
                             .try_normalized(EPS)
                             .ok_or("Invalid opening plane.")?,
                     )
+                } else if let Self::Slab(s) = self {
+                    (slabs::point(s, p)?, plane.normal)
                 } else {
                     (plane.point(p), plane.normal)
                 };
@@ -168,7 +171,7 @@ impl Document {
                 *s.profile
                     .points
                     .get_mut(*index)
-                    .ok_or("Slab vertex is missing.")? = plane.point(plane.project(point));
+                    .ok_or("Slab vertex is missing.")? = point;
             }
             (Control::WallBase { end }, Element::Wall(w)) => {
                 if *end {

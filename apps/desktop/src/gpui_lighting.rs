@@ -45,6 +45,44 @@ struct Face {
     wireframe: bool,
     selected: bool,
 }
+fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool)> {
+    let mut outlines = BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool)>::new();
+    let key = |p: Vec3| [p.x, p.y, p.z].map(|v| if v == 0. { 0 } else { v.to_bits() });
+    for face in faces {
+        // Architecture publishes its boundary/reveal edges explicitly. Drawing
+        // every tessellation edge exposes a grid around openings in wireframe.
+        if matches!(
+            face.target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: meshcraft_core::selection::SelectionKind::Wall
+                    | meshcraft_core::selection::SelectionKind::Slab
+                    | meshcraft_core::selection::SelectionKind::Frame,
+                ..
+            }
+        ) || (!face.selected && !face.wireframe)
+        {
+            continue;
+        }
+        for [a, b] in [
+            [face.points[0], face.points[1]],
+            [face.points[1], face.points[2]],
+            [face.points[2], face.points[0]],
+        ] {
+            let (ka, kb) = (key(a), key(b));
+            let edge = if ka <= kb { (ka, kb) } else { (kb, ka) };
+            let entry = outlines.entry(edge).or_insert(([a, b], 0, false, false));
+            entry.1 += 1;
+            entry.2 |= face.wireframe;
+            entry.3 |= face.selected;
+        }
+    }
+    outlines
+        .into_values()
+        .filter(|(_, count, wire, _)| *wire || *count == 1)
+        .map(|(edge, _, _, selected)| (edge, selected))
+        .collect()
+}
+
 struct Edge {
     color: Rgba8,
     points: [Vec3; 2],
@@ -321,31 +359,10 @@ impl Renderer {
     fn update_selection(&mut self, targets: &[SelectionTarget]) {
         self.selection = SelectionIndex::new(targets);
         self.last_selection = targets.to_vec();
-        let mut outlines = BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool)>::new();
-        let key = |p: Vec3| [p.x, p.y, p.z].map(|v| if v == 0. { 0 } else { v.to_bits() });
         for face in &mut self.faces {
             face.selected = self.selection.contains(&face.target);
-            if !face.selected && !face.wireframe {
-                continue;
-            }
-            for [a, b] in [
-                [face.points[0], face.points[1]],
-                [face.points[1], face.points[2]],
-                [face.points[2], face.points[0]],
-            ] {
-                let (ka, kb) = (key(a), key(b));
-                let edge = if ka <= kb { (ka, kb) } else { (kb, ka) };
-                let entry = outlines.entry(edge).or_insert(([a, b], 0, false, false));
-                entry.1 += 1;
-                entry.2 |= face.wireframe;
-                entry.3 |= face.selected;
-            }
         }
-        self.outlines = outlines
-            .into_values()
-            .filter(|(_, count, wire, _)| *wire || *count == 1)
-            .map(|(edge, _, _, selected)| (edge, selected))
-            .collect();
+        self.outlines = face_outlines(&self.faces);
         for edge in &mut self.edges {
             edge.selected = self.selection.contains(&edge.target);
         }
@@ -619,6 +636,51 @@ fn external(context: &EditContext, document: &Document, target: &SelectionTarget
 mod tests {
     use super::*;
 
+    #[test]
+    fn architecture_wireframe_uses_explicit_edges_without_exposing_tessellation() {
+        use meshcraft_core::{document::OccurrenceRef, selection::SelectionKind};
+        let wall = meshcraft_core::document::architecture::Wall {
+            end: Vec3::X * 6.,
+            height: 4.,
+            holes: vec![meshcraft_core::document::architecture::Hole {
+                u0: 2.,
+                u1: 4.,
+                v0: 1.,
+                v1: 3.,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mesh = meshcraft_core::document::architecture::Element::Wall(wall)
+            .mesh()
+            .unwrap();
+        let mut faces = mesh
+            .faces
+            .iter()
+            .map(|(t, color)| Face {
+                points: t.map(|i| mesh.points[i]),
+                color: *color,
+                selected: true,
+                wireframe: true,
+                target: SelectionTarget {
+                    occurrence: OccurrenceRef::scene_root(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Wall,
+                        id: "wall".into(),
+                    },
+                },
+            })
+            .collect::<Vec<_>>();
+        assert!(face_outlines(&faces).is_empty());
+        assert!(
+            !mesh.edges.is_empty(),
+            "owner provides explicit boundary and reveal segments"
+        );
+        // Ordinary mesh wireframes still expose their triangulation.
+        faces.truncate(1);
+        faces[0].target.entity = SelectedEntity::Occurrence;
+        assert_eq!(face_outlines(&faces).len(), 3);
+    }
     #[test]
     fn lighting_defaults_match_the_requested_shader_preset() {
         let l = Lighting::default();

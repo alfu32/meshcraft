@@ -276,7 +276,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             );
         }
         if matches!(e.element, Element::Slab(_)) {
-            body=body.child(div().text_xs().child("Drag blue slab profile controls and orange opening corners in the canvas. Holes remain owned by this slab."));
+            body=body.child(div().text_xs().child("Drag blue controls in plan; Shift-drag changes their height to shape a roof. Orange controls resize owned openings."));
         }
     }
     if frame {
@@ -419,7 +419,15 @@ impl MeshcraftShell {
         let Some(p) = handle else {
             return false;
         };
-        let normal = if modifiers.shift {
+        let vertical_slab = modifiers.shift && matches!(p.control, Control::SlabVertex { .. });
+        let normal = if vertical_slab {
+            // A view-facing vertical plane keeps height dragging usable at every azimuth.
+            let forward = self.camera.target - self.camera.position();
+            let up = p.normal;
+            (forward - up * forward.dot(up))
+                .try_normalized(1e-9)
+                .unwrap_or(p.alternate_normal.unwrap_or(Vec3::Z))
+        } else if modifiers.shift {
             p.alternate_normal.unwrap_or(p.normal)
         } else {
             p.normal
@@ -427,7 +435,11 @@ impl MeshcraftShell {
         self.architecture.drag = Some(ProfileDrag {
             target: p.target,
             control: p.control,
-            axis: p.axis,
+            axis: if vertical_slab {
+                Some(p.normal)
+            } else {
+                p.axis
+            },
             start: (x, y),
             original: p.point,
             point: p.point,

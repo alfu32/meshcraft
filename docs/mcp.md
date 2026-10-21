@@ -142,7 +142,12 @@ Use `tool.builtin.arch_wall`, `tool.builtin.arch_slab` (Rectangular Slab),
 Enter finishes a wall chain or closes a freeform slab; A/C/L switch path modes.
 The slab tools both produce a closed polyline profile. Native selection exposes
 blue draggable profile controls; `architecture.move_slab_vertex` is the equivalent
-world-coordinate command.
+world-coordinate command. Slab profile points may have unequal heights. Native
+Shift-drag adjusts height; commands accept the full 3D position without planar
+projection. The profile normal is the extrusion axis; vertical sides and owned
+opening reveals follow it. Sloped planar roofs retain their normal thickness;
+at folds the underside preserves at least that thickness. Opening controls
+follow the interpolated roof surface while their stored UVs remain fixed.
 
 For direct creation, discover `architecture.create_wall`,
 `architecture.create_rectangular_slab`, `architecture.create_slab` and
@@ -176,7 +181,9 @@ world coordinates. Send the descriptor with a **world** `position` to
 
 Other descriptors are `wall_base` with `end:false|true`, `slab_vertex` with
 `index`, `hole_corner` with `hole_id` and `corner:0|1`, and `frame_corner` with
-`corner:0|1`. Wall base edits preserve that end's height; top edits alter only
+`corner:0|1`. All four wall control positions lie on the axis plane, regardless of offset or
+inclination. Window/door input uses the cursor’s blue up vector for the exterior
+plane normal. Wall base edits preserve that end's height; top edits alter only
 its height. Opening/frame controls resize on their owner's definition plane.
 `object.explode_selection` also accepts canonical wall/slab/frame selections,
 replacing them with their realized lines and triangles in one undoable edit.

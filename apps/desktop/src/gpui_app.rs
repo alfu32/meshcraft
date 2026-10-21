@@ -2700,7 +2700,7 @@ impl Render for MeshcraftShell {
                         gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 80.0,
                         gpui::ScrollDelta::Lines(delta) => delta.y,
                     };
-                    this.zoom_camera(steps);
+                    this.zoom_camera(wheel_zoom_steps(steps, event.modifiers));
                     cx.notify();
                 }
             });
@@ -3200,6 +3200,18 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
     renderer.stop();
 }
 
+// Scale the logarithmic zoom rate; Alt takes precedence when both modifiers are held.
+fn wheel_zoom_steps(steps: f32, modifiers: gpui::Modifiers) -> f32 {
+    steps
+        * if modifiers.alt {
+            0.1
+        } else if modifiers.control {
+            0.5
+        } else {
+            1.0
+        }
+}
+
 #[cfg(test)]
 mod tests {
     use super::layout::ribbon_groups;
@@ -3212,6 +3224,26 @@ mod tests {
     use image::{Frame, ImageBuffer};
     use std::sync::Arc;
 
+    #[test]
+    fn wheel_modifiers_reduce_the_zoom_rate() {
+        let plain = gpui::Modifiers::default();
+        let ctrl = gpui::Modifiers {
+            control: true,
+            ..plain
+        };
+        let alt = gpui::Modifiers { alt: true, ..plain };
+        let both = gpui::Modifiers {
+            control: true,
+            alt: true,
+            ..plain
+        };
+        for steps in [-3., 1., 4.] {
+            assert_eq!(super::wheel_zoom_steps(steps, plain), steps);
+            assert_eq!(super::wheel_zoom_steps(steps, ctrl), steps * 0.5);
+            assert_eq!(super::wheel_zoom_steps(steps, alt), steps * 0.1);
+            assert_eq!(super::wheel_zoom_steps(steps, both), steps * 0.1);
+        }
+    }
     #[test]
     fn viewport_bounds_follow_visibility_at_each_dpi() {
         for scale in [1.0, 1.5, 2.0] {

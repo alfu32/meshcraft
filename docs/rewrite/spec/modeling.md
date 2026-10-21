@@ -191,7 +191,8 @@ command supplies four corners; freeform input reuses line/arc polyline modes and
 Enter finishes the closed profile. Slab profile controls can be dragged to change
 the boundary. Openings belong to one wall/slab record, are stored in its stable
 local plane and regenerate its solid, including the reveal surfaces. Editing a
-slab profile does not change the world location of its stored openings. Generated
+slab profile retains the plan location of its stored openings; height edits
+move their controls/reveals onto the interpolated roof surface. Generated
 geometry has owner attribution and is rebuilt from parameters after loading;
 it is excluded from authored-mesh export so reload never duplicates it.
 
@@ -210,13 +211,26 @@ base dragging adjusts elevation/length and Shift-drag adjusts plan position.
 Top controls alter their own end height only. Openings expose two opposite-corner
 controls on their owner's definition plane. Frames expose opposite bounds controls
 that resize their entire planar contour. Windows take their initial definition
-normal from the cursor normal, including non-face snaps. Direct Explode on a
+normal from the cursor’s blue up vector, including non-face snaps. All four
+wall controls stay on the axis plane, regardless of offset or inclination. Direct Explode on a
 selected architectural element replaces its canonical record with its current
 realized lines/mesh; the existing object explode handles placed frame instances.
 Legacy inner-face wall axes normalize through a half-thickness offset, while
 existing centered native records stay centered. Legacy slabs extrude upward from
 min/max; import maps those to the canonical top profile without flipping opening
 UVs that already use the normalized normal/axisU basis.
+
+**Confirmed roof and presentation extension (2026-10-21).** Slab control points
+retain independent 3D heights. Plan dragging edits the footprint; Shift-drag
+changes elevation along the extrusion axis. A constrained triangulation through
+the height-bearing profile defines the roof, retaining collinear plan controls
+with distinct heights. Sides and opening reveals stay parallel to the extrusion
+axis. Sloped planar surfaces retain the specified normal thickness. At folds,
+a shared underside maintains at least that thickness, allowing thicker joins.
+Invalid plan outlines reject atomically. Opening UVs remain stable, and openings
+crossing roof folds produce closed, oriented solids. Wall wireframes expose
+boundary/reveal geometry rather than internal triangulation or a nine-cell grid.
+Wheel zoom rates are normal, Ctrl ×0.5 and Alt ×0.1, with Alt taking precedence.
 
 ### P03 Stairs, window frames, and door frames
 

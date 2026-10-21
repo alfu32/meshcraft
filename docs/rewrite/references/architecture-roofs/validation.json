@@ -1,0 +1,68 @@
+{
+  "version": "0.21.0",
+  "date": "2026-10-21",
+  "environment": {
+    "display": ":96",
+    "size": "1500x1000",
+    "window_origin": [
+      52,
+      50
+    ],
+    "renderer": "Mesa software",
+    "mcp_port": 8766,
+    "isolated_config_cache_project": true
+  },
+  "native": [
+    {
+      "wallAxisHandlesIgnoreOffsetAndInclination": true
+    },
+    {
+      "control": {
+        "kind": "slab_vertex",
+        "index": 2
+      },
+      "startPixel": [
+        734,
+        797
+      ],
+      "endPixel": [
+        731,
+        602
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "escapeCancel": true,
+      "shiftHeight": true
+    },
+    {
+      "nativeSlopedAndWarpedRoof": true,
+      "openingControlsFollowRoof": true
+    },
+    {
+      "nativeWheelLogRates": {
+        "plain": 0.35999992401291403,
+        "ctrl": 0.17999998615962104,
+        "alt": 0.0359999779490364
+      },
+      "ctrlRatio": 0.5000000670921364,
+      "altRatio": 0.09999995985483874
+    },
+    {
+      "nativeSaveReopenPreservesAllHeightsAndHoles": true
+    }
+  ],
+  "regular_tests": {
+    "core": 273,
+    "desktop": 304,
+    "cli": 5,
+    "io": 15,
+    "total": 597,
+    "ignored_opt_in": 2
+  },
+  "static_checks": [
+    "cargo fmt --all -- --check",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "git diff --check",
+    "python3 docs/rewrite/scripts/verify_plan.py"
+  ]
+}

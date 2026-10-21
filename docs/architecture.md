@@ -25,14 +25,25 @@ sets defaults for new elements when nothing is selected.
   contour. Each placement is an independent object with its own prototype.
   Dimensions, frame color and optional glazing are editable. These tools never
   create a wall/slab hole automatically; use Add Hole explicitly. The initial
-  frame plane takes its normal from the cursor, including endpoint/line snaps.
+  frame plane takes its normal from the cursor’s **blue up vector**, including
+  endpoint/line snaps (which can have a different snap normal).
 
-Select a slab to show its blue profile controls. Drag a control on the slab plane
-with live geometry and relative-distance feedback. Releasing commits one undoable
-edit; Escape cancels the preview. Existing openings retain their positions while
-its outline changes. Invalid/self-intersecting outlines are rejected.
+Select a slab to show its blue profile controls. Drag a control in plan;
+**Shift-drag changes its height** along the slab’s
+extrusion axis (vertical for ground-plane slabs), with live geometry and
+relative-distance feedback. Releasing commits one undoable
+edit; Escape cancels the preview. Existing openings retain their plan positions
+and follow the roof’s height
+while its outline changes. Invalid/self-intersecting plan outlines are rejected.
+Profile points can have different heights: the roof is triangulated through them.
+Sides and opening reveals stay parallel to the extrusion axis. A planar sloped
+roof retains the specified normal thickness; at folds the continuous underside
+maintains at least that thickness, allowing a thicker join.
 
-![Selected slab and profile controls](rewrite/references/architecture/slab-profile-controls.png)
+![Roof height controls and owned opening](rewrite/references/architecture-roofs/roof-controls.png)
+
+Try [the roof example](../examples/architecture-roof.octd) to edit a warped slab
+and an inclined, offset wall with owned openings.
 
 Wall/slab selections operate on canonical elements rather than generated facets.
 Move, copy, arrays and clipboard placement retain their profiles and owned holes.
@@ -47,13 +58,20 @@ Select one or several architectural elements to expose their controls:
 
 - **Blue wall bases:** drag on the wall's vertical plane to adjust length and
   elevation. Shift-drag moves a base in plan. Moving a base preserves that end's
-  height, so its top moves with it.
+  height, so its top moves with it. All four wall controls stay on the wall axis
+  plane, independently of axis offset or inclination.
 - **Magenta wall tops:** adjust each end's height independently of its base and
   the opposite end. Both bottom and top edges can slope.
 - **Orange opening corners:** resize each wall/slab hole using two opposite
   corners on the owner's definition plane.
 - **Purple frame corners:** resize the complete planar contour between opposite
   bounds, keeping its border width and depth.
+
+Wall/slab wireframes show boundary, reveal and roof-fold edges, without internal
+tessellation lines or a grid dividing wall faces around openings.
+
+Wheel zoom supports **Ctrl for half speed** and **Alt for one-tenth speed**;
+Alt takes precedence when both modifiers are held.
 
 Every drag previews privately, shows relative feedback, commits once on release,
 and supports Escape, Undo and Redo. Visibility/editability and prototype context

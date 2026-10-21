@@ -324,12 +324,22 @@ impl MeshcraftApp {
             .apply([target.clone()], SelectionMode::Replace);
         Ok(target)
     }
+    fn arch_cursor_blue(&mut self, snap: SnapResult) -> Option<Vec3> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.native_cursor_axes(snap).map(|axes| axes[2])
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            snap.normal.try_normalized(1e-9)
+        }
+    }
     pub(super) fn arch_begin(&mut self) {
         self.architecture = State::default();
         self.architecture.normal =
             Some(if matches!(self.active_tool.as_str(), "Window" | "Door") {
                 self.cursor_snap
-                    .and_then(|s| s.normal.try_normalized(1e-9))
+                    .and_then(|s| self.arch_cursor_blue(s))
                     .unwrap_or(Vec3::Z)
             } else {
                 self.preferences.grid_normal_axis.vector()
@@ -514,6 +524,9 @@ impl MeshcraftApp {
                 Vec3::Y
             } else if tool == "Add Hole" {
                 self.architecture.normal.unwrap_or(Vec3::Y)
+            } else if matches!(tool.as_str(), "Window" | "Door") {
+                snap.and_then(|s| self.arch_cursor_blue(s))
+                    .unwrap_or(self.architecture.normal.unwrap_or(Vec3::Z))
             } else {
                 snap.and_then(|s| s.normal.try_normalized(1e-9))
                     .unwrap_or(self.architecture.normal.unwrap_or(Vec3::Y))
@@ -1431,6 +1444,34 @@ mod tests {
         };
         assert!((f.normal - Vec3::X).length() < 1e-6);
         assert!(f.contour.iter().all(|p| p.x.abs() < 1e-6));
+    }
+    #[test]
+    fn window_uses_blue_cursor_axis_on_a_line_instead_of_snap_normal() {
+        let mut app = app();
+        app.document
+            .append_colored_indexed_mesh_to_definition(
+                Document::SCENE_ROOT_DEFINITION_ID,
+                vec![Vec3::new(0., 0., -2.), Vec3::new(0., 0., 2.)],
+                vec![([0, 1], Rgba8::new(0, 0, 0, 255))],
+                vec![],
+            )
+            .unwrap();
+        let snap = SnapResult {
+            point: Vec3::ZERO,
+            normal: Vec3::Y,
+            kind: SnapKind::Line,
+            screen_distance: 0.,
+        };
+        assert!((app.native_cursor_axes(snap).unwrap()[2] - Vec3::Z).length() < 1e-6);
+        app.set_native_cursor_snap(Some(snap));
+        command(&mut app, "tool.builtin.arch_window_frame", json!({}));
+        app.handle_native_world_pick(Vec3::ZERO, Some(snap), None);
+        app.handle_native_world_pick(Vec3::new(3., 2., 0.), None, None);
+        let Element::Frame(f) = app.native_selected_architecture().unwrap().element else {
+            panic!()
+        };
+        assert!((f.normal - Vec3::Z).length() < 1e-6);
+        assert!(f.contour.iter().all(|p| p.z.abs() < 1e-6));
     }
     #[test]
     fn selected_architecture_explodes_directly_to_mesh_with_one_undo() {
