@@ -16,6 +16,8 @@ use std::{
 
 #[path = "gpui_annotations.rs"]
 mod annotations;
+#[path = "gpui_architecture.rs"]
+mod architecture;
 #[path = "gpui_mcp.rs"]
 mod automation;
 #[path = "gpui_helpers.rs"]
@@ -946,6 +948,7 @@ impl Render for RaylibCanvas {
 
 struct MeshcraftShell {
     annotations: annotations::Ui,
+    architecture: architecture::Ui,
     mcp: automation::Ui,
     cached_annotations: Arc<Vec<meshcraft_core::document::annotations::Annotation>>,
     scripts: scripts::ScriptsUi,
@@ -999,6 +1002,7 @@ impl MeshcraftShell {
         });
         let mut this = Self {
             annotations: Default::default(),
+            architecture: Default::default(),
             mcp: Default::default(),
             cached_annotations: Arc::default(),
             materials: materials::MaterialsUi::default(),
@@ -1247,6 +1251,9 @@ impl MeshcraftShell {
         let geometry_snap = self
             .session
             .native_snap_point_on_ray(origin, direction, radius);
+        let geometry_snap =
+            self.session
+                .native_architecture_plane_snap(origin, direction, geometry_snap);
         let preferences = self.session.native_ui_preferences();
         let snap = helpers::snap(
             self.camera,
@@ -1944,6 +1951,14 @@ fn selection_region_in_context(
         let mut projected_vertices =
             std::collections::BTreeMap::<VertexId, Option<(f32, f32)>>::new();
         for vertex in geometry.vertices.values() {
+            if vertex
+                .legacy_aliases
+                .iter()
+                .any(|a| a.source == meshcraft_core::document::architecture::GENERATED)
+            {
+                continue;
+            }
+
             projected_vertices.insert(
                 vertex.id,
                 project_point(
@@ -2004,7 +2019,10 @@ fn selection_region_in_context(
             if hit {
                 selected.push(SelectionTarget {
                     occurrence: occurrence.clone(),
-                    entity: SelectedEntity::Segment(segment.id),
+                    entity: meshcraft_core::document::architecture::semantic_entity(
+                        &segment.extensions,
+                    )
+                    .unwrap_or(SelectedEntity::Segment(segment.id)),
                 });
             }
         }
@@ -2035,7 +2053,10 @@ fn selection_region_in_context(
             if hit {
                 selected.push(SelectionTarget {
                     occurrence: occurrence.clone(),
-                    entity: SelectedEntity::Triangle(triangle.id),
+                    entity: meshcraft_core::document::architecture::semantic_entity(
+                        &triangle.extensions,
+                    )
+                    .unwrap_or(SelectedEntity::Triangle(triangle.id)),
                 });
             }
         }
@@ -2094,6 +2115,19 @@ fn selection_region_in_context(
             });
         }
     }
+    selected.retain(|target| {
+        crossing
+            || document.architecture_element(target).is_none_or(|e| {
+                e.element.mesh().is_ok_and(|mesh| {
+                    mesh.points.iter().all(|p| {
+                        project_point(camera, size, e.transform.transform_point(*p))
+                            .is_some_and(|(x, y)| rect_contains(region, x, y))
+                    })
+                })
+            })
+    });
+    selected.sort();
+    selected.dedup();
     selected
 }
 
@@ -2319,6 +2353,8 @@ fn ribbon_command_for_key<'a>(
         "leader" => &["tool.leader"],
         "wall" => &["tool.builtin.arch_wall"],
         "slab" => &["tool.builtin.arch_slab"],
+        "freeform-slab" => &["tool.arch_slab_freeform"],
+        "add-hole" => &["tool.builtin.arch_add_hole"],
         "stair" => &["tool.builtin.arch_stair"],
         "frame" => &[
             "tool.builtin.arch_window_frame",
@@ -2510,6 +2546,7 @@ impl Render for MeshcraftShell {
         }
         settings::prepare(self, window, cx);
         annotations::prepare(self, window, cx);
+        architecture::prepare(self, window, cx);
         automation::prepare(self, window, cx);
         self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();

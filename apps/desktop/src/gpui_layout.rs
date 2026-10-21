@@ -44,10 +44,10 @@ impl SceneCounts {
                     ("voxels", SelectionKind::Voxel),
                     ("dimensions", SelectionKind::Dimension),
                     ("texts", SelectionKind::Text),
-                    ("walls", SelectionKind::Wall),
-                    ("slabs", SelectionKind::Slab),
-                    ("stairs", SelectionKind::Stair),
-                    ("frames", SelectionKind::Frame),
+                    ("architectureWalls", SelectionKind::Wall),
+                    ("architectureSlabs", SelectionKind::Slab),
+                    ("architectureStairs", SelectionKind::Stair),
+                    ("architectureFrames", SelectionKind::Frame),
                     ("hvac", SelectionKind::Hvac),
                 ] {
                     let count = r
@@ -72,8 +72,16 @@ impl SceneCounts {
                 counts.objects += 1;
             }
             if let Some(geometry) = document.effective_geometry(&occurrence) {
-                counts.edges += geometry.segments.len();
-                counts.faces += geometry.triangles.len();
+                counts.edges += geometry
+                    .segments
+                    .values()
+                    .filter(|e| !meshcraft_core::document::architecture::generated(&e.extensions))
+                    .count();
+                counts.faces += geometry
+                    .triangles
+                    .values()
+                    .filter(|e| !meshcraft_core::document::architecture::generated(&e.extensions))
+                    .count();
             }
         }
         counts
@@ -900,7 +908,9 @@ const HOME_GROUPS: &[RibbonGroup] = &[
         commands: &[
             ("dimension", "Dimension"),
             ("wall", "Wall"),
-            ("slab", "Slab"),
+            ("slab", "Rectangular Slab"),
+            ("freeform-slab", "Freeform Slab"),
+            ("add-hole", "Add Hole"),
             ("stair", "Stair"),
             ("frame", "Frame"),
             ("orbit", "Orbit"),
@@ -934,7 +944,9 @@ const CONSTRUCTION_GROUPS: &[RibbonGroup] = &[
             ("text", "Text"),
             ("leader", "Leader"),
             ("wall", "Wall"),
-            ("slab", "Slab"),
+            ("slab", "Rectangular Slab"),
+            ("freeform-slab", "Freeform Slab"),
+            ("add-hole", "Add Hole"),
             ("stair", "Stair"),
             ("frame", "Frame"),
         ],
@@ -1031,7 +1043,9 @@ const ARCHITECTURE_GROUPS: &[RibbonGroup] = &[
         namespace: "ribbon/architecture/building",
         commands: &[
             ("wall", "Wall"),
-            ("slab", "Slab"),
+            ("slab", "Rectangular Slab"),
+            ("freeform-slab", "Freeform Slab"),
+            ("add-hole", "Add Hole"),
             ("stair", "Stair"),
             ("frame", "Frame"),
             ("door", "Door"),
@@ -1452,7 +1466,9 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
                 ("text", "Text"),
                 ("leader", "Leader"),
                 ("wall", "Wall"),
-                ("slab", "Slab"),
+                ("slab", "Rectangular Slab"),
+                ("freeform-slab", "Freeform Slab"),
+                ("add-hole", "Add Hole"),
                 ("stair", "Stair"),
                 ("frame", "Frame"),
                 ("voxel", "Voxel"),
@@ -1477,7 +1493,9 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
             "toolbar/architecture",
             &[
                 ("wall", "Wall"),
-                ("slab", "Slab"),
+                ("slab", "Rectangular Slab"),
+                ("freeform-slab", "Freeform Slab"),
+                ("add-hole", "Add Hole"),
                 ("stair", "Stair"),
                 ("frame", "Frame"),
                 ("door", "Door"),
@@ -1775,41 +1793,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         ))
         .child(setting_section(
             "Architecture — Walls / Slabs / Stairs / Frames",
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(7.))
-                .child(setting_pair(
-                    "Wall thickness",
-                    "0.200",
-                    "Wall height",
-                    "2.700",
-                    bindings,
-                ))
-                .child(setting_pair(
-                    "Slab thickness",
-                    "0.200",
-                    "Stair height / steps",
-                    "2.700 / 14",
-                    bindings,
-                ))
-                .child(setting_pair(
-                    "Frame depth",
-                    "0.120",
-                    "Frame width",
-                    "0.060",
-                    bindings,
-                ))
-                .child(setting_check(
-                    "Stair left and right rail grids",
-                    true,
-                    bindings,
-                ))
-                .child(setting_field(
-                    "Material colors",
-                    "Exterior / interior / glazing",
-                    bindings,
-                )),
+            super::architecture::panel(bindings.shell, bindings.cx),
             bindings,
         ))
         .child(setting_section(

@@ -2683,7 +2683,8 @@ impl Viewport {
             };
             if !scope.contains(document, &item.target.occurrence)
                 || !policy.occurrence_visible(document, &item.target.occurrence)
-                || !policy.can_draw(SelectionKind::Face)
+                || (!policy.can_draw(SelectionKind::Face)
+                    && item.target.entity.kind() == SelectionKind::Face)
                 || policy.target_wireframe(document, &item.target)
             {
                 continue;
@@ -2714,7 +2715,8 @@ impl Viewport {
                     }
                 }
                 NativeSpatialPrimitive::Segment([start, end])
-                    if policy.can_select(SelectionKind::Edge) =>
+                    if (policy.can_select(SelectionKind::Edge)
+                        || item.target.entity.kind() != SelectionKind::Edge) =>
                 {
                     let Some((depth, miss_distance)) =
                         ray_segment_distance(ray_origin, direction, start, end)
@@ -2728,7 +2730,8 @@ impl Viewport {
                     }
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
-                    if policy.can_select(SelectionKind::Face)
+                    if (policy.can_select(SelectionKind::Face)
+                        || item.target.entity.kind() != SelectionKind::Face)
                         && !policy.target_wireframe(document, target) =>
                 {
                     if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
@@ -2856,7 +2859,8 @@ impl Viewport {
             };
             if !scope.contains(document, &item.target.occurrence)
                 || !policy.can_draw_target(document, &item.target)
-                || !policy.can_draw(SelectionKind::Face)
+                || (!policy.can_draw(SelectionKind::Face)
+                    && item.target.entity.kind() == SelectionKind::Face)
                 || policy.target_wireframe(document, &item.target)
             {
                 continue;
@@ -2895,7 +2899,8 @@ impl Viewport {
                     }
                 }
                 NativeSpatialPrimitive::Segment([start, end])
-                    if policy.can_draw(SelectionKind::Edge) =>
+                    if (policy.can_draw(SelectionKind::Edge)
+                        || item.target.entity.kind() != SelectionKind::Edge) =>
                 {
                     for (point, kind) in [
                         (start, SnapKind::Endpoint),
@@ -2946,7 +2951,8 @@ impl Viewport {
                     );
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
-                    if policy.can_draw(SelectionKind::Face) =>
+                    if (policy.can_draw(SelectionKind::Face)
+                        || item.target.entity.kind() != SelectionKind::Face) =>
                 {
                     let Some(normal) = (b - a).cross(c - a).try_normalized(1e-12) else {
                         continue;

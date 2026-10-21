@@ -1,5 +1,7 @@
 #[path = "annotation_workflow.rs"]
 mod annotation_workflow;
+#[path = "architecture_workflow.rs"]
+mod architecture_workflow;
 #[path = "clipboard_workflow.rs"]
 mod clipboard_workflow;
 #[path = "materials_workflow.rs"]
@@ -204,11 +206,11 @@ const LEGACY_BUILTIN_TOOLS: &[(&str, &str)] = &[
     ("voxel_volume", "Voxel Volume"),
     ("voxel_frame", "Voxel Frame"),
     ("arch_wall", "Wall"),
-    ("arch_slab", "Slab"),
+    ("arch_slab", "Rectangular Slab"),
     ("arch_stair", "Stair"),
     ("arch_add_hole", "Add Hole"),
-    ("arch_window_frame", "Window Frame"),
-    ("arch_door_frame", "Door Frame"),
+    ("arch_window_frame", "Window"),
+    ("arch_door_frame", "Door"),
     ("hvac_plumbing", "HVAC Plumbing"),
     ("hvac_ventilation", "HVAC Ventilation"),
     ("primitive_sphere", "Sphere"),
@@ -693,6 +695,7 @@ enum ShellAction {
     RemoveGuide,
     AddCuboid,
     AnnotationSettings,
+    ArchitectureAction(&'static str),
     FlipSelection,
     CopySelection,
     ClipboardAction(&'static str),
@@ -1381,6 +1384,16 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 ShellAction::TogglePanelSection(panel_id),
             );
         }
+        register_shell_command(&mut registry,"tool.arch_slab_freeform","Tool> Freeform Slab","Tool","architecture slab closed polyline profile arc",Some("arch_slab"),ShellAction::SelectToolAlias("Freeform Slab"));
+        for (action,label) in [
+            ("settings","Architecture Defaults"),("update","Update Selected Architecture"),
+            ("create_wall","Create Wall"),("create_rectangular_slab","Create Rectangular Slab"),
+            ("create_slab","Create Freeform Slab"),("create_frame","Create Independent Window or Door"),
+            ("add_hole","Add Owned Wall or Slab Opening"),("remove_hole","Remove Owned Opening"),
+            ("move_slab_vertex","Move Slab Profile Vertex"),
+        ] {
+            register_shell_command(&mut registry,&format!("architecture.{action}"),&format!("Architecture> {label}"),"Architecture","wall slab opening window door profile settings",Some("arch_wall"),ShellAction::ArchitectureAction(action));
+        }
         for (tool_id, label) in LEGACY_BUILTIN_TOOLS {
             let id = format!("tool.builtin.{tool_id}");
             let name = format!("Tool> {label}");
@@ -1390,6 +1403,11 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 .find(|(id, _)| id == tool_id)
                 .map_or(*tool_id, |(_, icon)| *icon);
             let action = match *tool_id {
+                "arch_wall" => ShellAction::SelectToolAlias("Wall"),
+                "arch_slab" => ShellAction::SelectToolAlias("Rectangular Slab"),
+                "arch_add_hole" => ShellAction::SelectToolAlias("Add Hole"),
+                "arch_window_frame" => ShellAction::SelectToolAlias("Window"),
+                "arch_door_frame" => ShellAction::SelectToolAlias("Door"),
                 "select" => ShellAction::SelectToolAlias("Select"),
                 "line" => ShellAction::SelectToolAlias("Line"),
                 "construction_line" => ShellAction::SelectToolAlias("Construction Line"),
@@ -1562,6 +1580,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::MaterialAction(_)
         | ShellAction::AddCuboid
         | ShellAction::AnnotationSettings
+        | ShellAction::ArchitectureAction(_)
         | ShellAction::FlipSelection
         | ShellAction::CopySelection
         | ShellAction::ClipboardAction(_)
@@ -1953,6 +1972,34 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("near", CommandValueType::Number),
             ("far", CommandValueType::Number),
         ],
+        id if id.starts_with("architecture.") => &[
+            ("id", CommandValueType::String),
+            ("occurrence", CommandValueType::Object),
+            ("start", CommandValueType::Array),
+            ("end", CommandValueType::Array),
+            ("points", CommandValueType::Array),
+            ("normal", CommandValueType::Array),
+            ("kind", CommandValueType::String),
+            ("name", CommandValueType::String),
+            ("wall_thickness", CommandValueType::Number),
+            ("wall_height", CommandValueType::Number),
+            ("wall_inclination", CommandValueType::Number),
+            ("slab_thickness", CommandValueType::Number),
+            ("frame_depth", CommandValueType::Number),
+            ("frame_width", CommandValueType::Number),
+            ("glazing_enabled", CommandValueType::Boolean),
+            ("record", CommandValueType::Object),
+            ("wall_exterior_color", CommandValueType::Object),
+            ("wall_interior_color", CommandValueType::Object),
+            ("slab_top_color", CommandValueType::Object),
+            ("slab_bottom_color", CommandValueType::Object),
+            ("slab_side_color", CommandValueType::Object),
+            ("frame_color", CommandValueType::Object),
+            ("glazing_color", CommandValueType::Object),
+            ("hole_id", CommandValueType::String),
+            ("index", CommandValueType::Integer),
+            ("position", CommandValueType::Array),
+        ],
         "annotation.update" => &[
             ("text", CommandValueType::String),
             ("size", CommandValueType::Number),
@@ -2197,6 +2244,7 @@ pub struct MeshcraftApp {
     document: Document,
     document_generation: u64,
     annotations: annotation_workflow::AnnotationState,
+    architecture: architecture_workflow::State,
     clipboard: clipboard_workflow::ClipboardState,
     #[cfg(not(target_arch = "wasm32"))]
     mcp_jobs: mcp_workflow::Jobs,
@@ -2522,7 +2570,42 @@ impl MeshcraftApp {
             self.selection_click_tracker.reset();
             return;
         }
-        let target = target.filter(|target| self.native_target_editable(target));
+        let target = target
+            .filter(|target| self.native_target_editable(target))
+            .map(|mut target| {
+                if matches!(
+                    target.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Frame,
+                        ..
+                    }
+                ) && !target.occurrence.is_scene_root()
+                    && self.document.scene_container_occurrence().as_ref()
+                        != Some(&target.occurrence)
+                    && self
+                        .document
+                        .resolve_occurrence(&target.occurrence)
+                        .is_some_and(|r| {
+                            r.definition.kind
+                                == meshcraft_core::document::DefinitionKind::Architecture
+                                && r.definition
+                                    .domain_entity_ids
+                                    .get("architectureFrames")
+                                    .is_some_and(|ids| ids.len() == 1)
+                                && r.definition
+                                    .domain_entity_ids
+                                    .get("architectureWalls")
+                                    .is_none_or(Vec::is_empty)
+                                && r.definition
+                                    .domain_entity_ids
+                                    .get("architectureSlabs")
+                                    .is_none_or(Vec::is_empty)
+                        })
+                {
+                    target.entity = SelectedEntity::Occurrence;
+                }
+                target
+            });
         let click_count = self
             .selection_click_tracker
             .record(at_millis, screen_position);
@@ -2676,6 +2759,10 @@ impl MeshcraftApp {
     ) {
         if !point.is_finite() {
             self.status = "World pointer needs finite coordinates.".to_owned();
+            return;
+        }
+        if architecture_workflow::active(&self.active_tool) {
+            self.arch_click(point, snap, target);
             return;
         }
         if self.active_tool == "Paint" {
@@ -3116,6 +3203,7 @@ impl MeshcraftApp {
             document,
             document_generation: 0,
             annotations: Default::default(),
+            architecture: Default::default(),
             clipboard: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             mcp_jobs: Default::default(),
@@ -4122,6 +4210,7 @@ impl MeshcraftApp {
     }
 
     fn finish_polyline(&mut self, closed: bool) -> CommandResult {
+        let closed = closed || self.active_tool == "Freeform Slab";
         let previous = self.polyline_tool_state.clone();
         let path = if closed {
             self.polyline_tool_state.close()
@@ -4136,6 +4225,7 @@ impl MeshcraftApp {
             });
         };
         let result = match self.active_tool.as_str() {
+            "Freeform Slab" => self.commit_arch_slab_path(path),
             "Extrude Swipe" => self.commit_extrude_swipe_path(path),
             "Extrude Swipe 3D" | "Ribbon 3D" => self.commit_spatial_sweep_path(path),
             _ => self.commit_polyline_path(path),
@@ -4143,7 +4233,7 @@ impl MeshcraftApp {
         if result.completion == CommandCompletion::Completed
             && matches!(
                 self.active_tool.as_str(),
-                "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+                "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D" | "Freeform Slab"
             )
         {
             let status = self.status.clone();
@@ -5692,6 +5782,7 @@ impl MeshcraftApp {
     fn activate_tool(&mut self, tool: &str) {
         self.clipboard.placement = None;
         self.annotations.points.clear();
+        self.architecture = Default::default();
         if matches!(tool, "Linear Dimension" | "Text" | "Leader") {
             self.panel_focus = Some("annotations".into());
         }
@@ -5714,7 +5805,12 @@ impl MeshcraftApp {
         self.cuboid_first = None;
         self.polyline_tool_state.activate(matches!(
             tool,
-            "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+            "Polyline"
+                | "Double Line"
+                | "Extrude Swipe"
+                | "Extrude Swipe 3D"
+                | "Ribbon 3D"
+                | "Freeform Slab"
         ));
         if matches!(tool, "Extrude Swipe 3D" | "Ribbon 3D") {
             self.polyline_tool_state.set_mode(PolylineSegmentMode::Line);
@@ -5804,6 +5900,9 @@ impl MeshcraftApp {
             "Volumetric Translate Multiple" => "Volumetric Translate Multiple: pick origin (O), XYZ step (A), then extent (B). Copies fill the measured volume; the source cell is omitted.".to_owned(),
             _ => format!("{tool} tool selected."),
         };
+        if architecture_workflow::active(tool) {
+            self.arch_begin();
+        }
     }
 
     fn rotational_array_selection_span(&self) -> f64 {
@@ -5890,6 +5989,9 @@ impl MeshcraftApp {
     }
 
     pub fn native_point_input_hint(&self) -> &'static str {
+        if architecture_workflow::active(&self.active_tool) {
+            return self.arch_hint();
+        }
         if self.active_tool == "Paste" {
             return "Pick insertion point · Esc cancel";
         }
@@ -6014,6 +6116,11 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::FinishToolInput => {
+                if self.active_tool == "Wall" {
+                    self.activate_tool("Select");
+                    self.status = "Wall chain finished.".into();
+                    return CommandResult::completed();
+                }
                 if self.transform_tool_state.active().is_some() {
                     return self.finish_transform_input();
                 }
@@ -6030,7 +6137,12 @@ impl MeshcraftApp {
                 }
                 if matches!(
                     self.active_tool.as_str(),
-                    "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+                    "Polyline"
+                        | "Double Line"
+                        | "Extrude Swipe"
+                        | "Extrude Swipe 3D"
+                        | "Ribbon 3D"
+                        | "Freeform Slab"
                 ) {
                     return self.finish_polyline(false);
                 }
@@ -6042,6 +6154,13 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::UndoToolPoint => {
+                if architecture_workflow::active(&self.active_tool)
+                    && self.active_tool != "Freeform Slab"
+                {
+                    self.architecture.points.pop();
+                    self.status = self.arch_hint().into();
+                    return CommandResult::completed();
+                }
                 if self.rotational_array_tool_state.active() {
                     if !self.rotational_array_tool_state.backspace() {
                         return CommandResult::failed("there is no rotational array point to undo");
@@ -6089,7 +6208,12 @@ impl MeshcraftApp {
                 }
                 if matches!(
                     self.active_tool.as_str(),
-                    "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+                    "Polyline"
+                        | "Double Line"
+                        | "Extrude Swipe"
+                        | "Extrude Swipe 3D"
+                        | "Ribbon 3D"
+                        | "Freeform Slab"
                 ) {
                     if !self.polyline_tool_state.backspace() {
                         return CommandResult::failed("there is no path point to undo");
@@ -6255,6 +6379,9 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::AnnotationSettings => return self.annotation_settings(payload),
+            ShellAction::ArchitectureAction(action) => {
+                return self.architecture_action(action, payload);
+            }
             ShellAction::FlipSelection => {
                 let selection = self.selection.clone();
                 return match self.commit_document_edit("Flip direction / normals", |doc| {
@@ -6270,6 +6397,14 @@ impl MeshcraftApp {
             ShellAction::CopySelection => return self.copy_selection(),
             ShellAction::ClipboardAction(action) => return self.clipboard_action(action, payload),
             ShellAction::DeleteSelection => {
+                if self
+                    .selection
+                    .selected()
+                    .iter()
+                    .any(|t| self.document.architecture_element(t).is_some())
+                {
+                    return self.delete_architecture_selection();
+                }
                 if self.selection.selected().iter().any(|target| {
                     matches!(
                         target.entity,
@@ -7237,7 +7372,12 @@ impl MeshcraftApp {
                 || !self.revolve_tool_state.axis_points().is_empty());
         let path_tool_active = matches!(
             self.active_tool.as_str(),
-            "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+            "Polyline"
+                | "Double Line"
+                | "Extrude Swipe"
+                | "Extrude Swipe 3D"
+                | "Ribbon 3D"
+                | "Freeform Slab"
         );
         let polyline_finish_ready =
             path_tool_active && self.polyline_tool_state.points().len() >= 2;
@@ -7261,6 +7401,7 @@ impl MeshcraftApp {
             );
         }
         if id == "tool.finish"
+            && self.active_tool != "Wall"
             && !line_distance_ready
             && !transform_input_ready
             && !push_pull_input_ready
@@ -7273,6 +7414,8 @@ impl MeshcraftApp {
             );
         }
         if id == "tool.undo_point"
+            && !(architecture_workflow::active(&self.active_tool)
+                && !self.architecture.points.is_empty())
             && !line_distance_ready
             && !transform_input_ready
             && !polyline_undo_ready
@@ -7428,6 +7571,23 @@ impl MeshcraftApp {
                     return CommandState::disabled("another project operation is already running");
                 }
             }
+        }
+        if id == "edit.delete_selection"
+            && self
+                .selection
+                .selected()
+                .iter()
+                .any(|t| self.document.architecture_element(t).is_some())
+        {
+            return if self.selection.selected().iter().all(|t| {
+                self.document
+                    .architecture_element(t)
+                    .is_none_or(|e| self.arch_editable(&e))
+            }) {
+                CommandState::default()
+            } else {
+                CommandState::disabled("Architecture selection is read-only")
+            };
         }
         if id == "edit.delete_selection"
             && self.selection.selected().iter().any(|target| {
@@ -7907,6 +8067,7 @@ impl MeshcraftApp {
     fn cancel_active_tool(&mut self) {
         self.clipboard.placement = None;
         self.annotations.points.clear();
+        self.architecture = Default::default();
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
         self.array_tool_state.cancel();
@@ -8158,6 +8319,12 @@ impl MeshcraftApp {
         modifiers: egui::Modifiers,
         click_count: u8,
     ) {
+        if architecture_workflow::active(&self.active_tool) {
+            if let Some(point) = construction_point {
+                self.arch_click(point, snap, None);
+            }
+            return;
+        }
         if self.active_tool == "Paste" {
             if let Some(point) = construction_point {
                 self.paste_at(point);
@@ -8453,7 +8620,12 @@ impl MeshcraftApp {
 
         if matches!(
             self.active_tool.as_str(),
-            "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+            "Polyline"
+                | "Double Line"
+                | "Extrude Swipe"
+                | "Extrude Swipe 3D"
+                | "Ribbon 3D"
+                | "Freeform Slab"
         ) {
             let tool_name = self.active_tool.clone();
             if matches!(tool_name.as_str(), "Extrude Swipe" | "Extrude Swipe 3D")
@@ -9111,6 +9283,14 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if architecture_workflow::active(&self.active_tool) {
+            let point = snap.map(|s| s.point).or_else(|| {
+                pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p))
+            })?;
+            return self
+                .arch_preview(point)
+                .or(Some(ToolPreview::Point { position: point }));
+        }
         if self.active_tool == "Paste" {
             let point = snap.map(|s| s.point).or_else(|| {
                 pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p))
@@ -9757,6 +9937,14 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if architecture_workflow::active(&self.active_tool) {
+            return self
+                .architecture
+                .points
+                .last()
+                .copied()
+                .or_else(|| self.polyline_tool_state.points().last().copied());
+        }
         if let Some(placement) = &self.clipboard.placement {
             return Some(placement.anchor);
         }
@@ -9794,9 +9982,8 @@ impl MeshcraftApp {
             "Rectangle" | "Surface Rect" | "Quad" | "Circle" => {
                 self.shape_tool_state.picks().last().copied()
             }
-            "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D" => {
-                self.polyline_tool_state.points().last().copied()
-            }
+            "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+            | "Freeform Slab" => self.polyline_tool_state.points().last().copied(),
             "Mesh" => self.mesh_tool_state.points().last().copied(),
             "Sphere" | "Cylinder" | "Cone" | "Pill" => {
                 self.primitive_tool_state.picks().last().copied()
@@ -11349,7 +11536,12 @@ impl MeshcraftApp {
         if shortcuts_allowed
             && matches!(
                 self.active_tool.as_str(),
-                "Polyline" | "Double Line" | "Extrude Swipe" | "Extrude Swipe 3D" | "Ribbon 3D"
+                "Polyline"
+                    | "Double Line"
+                    | "Extrude Swipe"
+                    | "Extrude Swipe 3D"
+                    | "Ribbon 3D"
+                    | "Freeform Slab"
             )
         {
             if ui.input(|input| input.key_pressed(egui::Key::Backspace))
@@ -12333,6 +12525,7 @@ mod tests {
             document: Document::new(),
             document_generation: 0,
             annotations: Default::default(),
+            architecture: Default::default(),
             clipboard: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             mcp_jobs: Default::default(),

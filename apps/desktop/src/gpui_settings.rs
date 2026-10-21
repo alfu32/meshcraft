@@ -41,6 +41,34 @@ macro_rules! field {
     };
 }
 const FIELDS: &[Field] = &[
+    field!("Architecture name", "arch", "architecture_name", 0., 0., 0.),
+    field!(
+        "Wall thickness",
+        "arch",
+        "wall_thickness",
+        0.05,
+        0.000001,
+        1e6
+    ),
+    field!("Wall height", "arch", "wall_height", 0.1, 0.000001, 1e6),
+    field!(
+        "Wall inclination",
+        "arch",
+        "wall_inclination",
+        1.,
+        -84.9,
+        84.9
+    ),
+    field!(
+        "Slab thickness",
+        "arch",
+        "slab_thickness",
+        0.05,
+        0.000001,
+        1e6
+    ),
+    field!("Frame depth", "arch", "frame_depth", 0.01, 0.000001, 1e6),
+    field!("Frame width", "arch", "frame_width", 0.01, 0.000001, 1e6),
     field!("Unit name", "model", "unit_name", 0., 0., 0.),
     field!("Unit size", "model", "unit_size", 0.1, 0.000001, 1.0e12),
     field!("Grid size", "model", "grid_size", 0.1, 0.000001, 1.0e9),
@@ -109,6 +137,7 @@ const FIELDS: &[Field] = &[
 ];
 fn current(shell: &MeshcraftShell, field: Field) -> String {
     let payload = match field.group {
+        "arch" => shell.session.native_architecture_payload(),
         "model" => model_settings_payload(shell.cached_document.model_settings()),
         "ui" => shell.session.native_ui_preferences_payload(),
         _ => {
@@ -129,7 +158,11 @@ fn current(shell: &MeshcraftShell, field: Field) -> String {
     };
     let value = payload
         .values
-        .get(field.key)
+        .get(if field.key == "architecture_name" {
+            "name"
+        } else {
+            field.key
+        })
         .cloned()
         .unwrap_or(Value::Null);
     value
@@ -144,7 +177,7 @@ fn format_number(value: f64) -> String {
         .to_owned()
 }
 fn parsed(field: Field, text: &str) -> Result<Value, String> {
-    if field.key == "unit_name" {
+    if matches!(field.key, "unit_name" | "architecture_name") {
         return if text.trim().is_empty() {
             Err("Unit name is required".into())
         } else {
@@ -188,7 +221,28 @@ fn commit(shell: &mut MeshcraftShell, field: Field, text: &str) {
     if text == current(shell, field) {
         return;
     }
-    if field.group == "light" {
+    if field.group == "arch" {
+        let mut payload = CommandPayload::default();
+        payload.values.insert(
+            if field.key == "architecture_name" {
+                "name"
+            } else {
+                field.key
+            }
+            .into(),
+            value,
+        );
+        let selected = shell.session.active_tool_label() == "Select"
+            && shell.session.native_selected_architecture().is_some();
+        shell.dispatch_payload(
+            if selected {
+                "architecture.update"
+            } else {
+                "architecture.settings"
+            },
+            &payload,
+        );
+    } else if field.group == "light" {
         let v = value.as_f64().unwrap() as f32;
         match field.key {
             "ambient" => shell.lighting.ambient = v,
@@ -303,7 +357,7 @@ pub(super) fn prepare(
                 cx.notify();
             },
         ));
-        if field.key != "unit_name" {
+        if !matches!(field.key, "unit_name" | "architecture_name") {
             shell.settings.subscriptions.push(cx.subscribe_in(
                 &input,
                 window,
@@ -457,7 +511,7 @@ pub(super) fn render_field(
     } else {
         let field = FIELDS.iter().find(|f| f.label == label)?;
         let input = shell.settings.inputs.get(field.key)?;
-        let editor = if field.key == "unit_name" {
+        let editor = if matches!(field.key, "unit_name" | "architecture_name") {
             Input::new(input).small().w_full().into_any_element()
         } else {
             NumberInput::new(input).small().w_full().into_any_element()

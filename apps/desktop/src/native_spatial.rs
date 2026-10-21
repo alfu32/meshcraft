@@ -63,6 +63,13 @@ impl NativeSpatialIndex {
                     continue;
                 };
                 include_bounds(&mut occurrence_bounds, point);
+                if vertex
+                    .legacy_aliases
+                    .iter()
+                    .any(|a| a.source == meshcraft_core::document::architecture::GENERATED)
+                {
+                    continue;
+                }
                 index.push_item(
                     bounds,
                     NativeSpatialPrimitive::Vertex(point),
@@ -94,7 +101,10 @@ impl NativeSpatialIndex {
                     NativeSpatialPrimitive::Segment(points),
                     SelectionTarget {
                         occurrence: occurrence.clone(),
-                        entity: SelectedEntity::Segment(segment.id),
+                        entity: meshcraft_core::document::architecture::semantic_entity(
+                            &segment.extensions,
+                        )
+                        .unwrap_or(SelectedEntity::Segment(segment.id)),
                     },
                 );
             }
@@ -120,7 +130,10 @@ impl NativeSpatialIndex {
                     NativeSpatialPrimitive::Triangle(points),
                     SelectionTarget {
                         occurrence: occurrence.clone(),
-                        entity: SelectedEntity::Triangle(triangle.id),
+                        entity: meshcraft_core::document::architecture::semantic_entity(
+                            &triangle.extensions,
+                        )
+                        .unwrap_or(SelectedEntity::Triangle(triangle.id)),
                     },
                 );
             }

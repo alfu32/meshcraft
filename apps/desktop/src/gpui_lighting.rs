@@ -248,7 +248,10 @@ impl Renderer {
                         selected: false,
                         target: SelectionTarget {
                             occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Triangle(face.id),
+                            entity: meshcraft_core::document::architecture::semantic_entity(
+                                &face.extensions,
+                            )
+                            .unwrap_or(SelectedEntity::Triangle(face.id)),
                         },
                     });
                 }
@@ -261,7 +264,10 @@ impl Renderer {
                         selected: false,
                         target: SelectionTarget {
                             occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Segment(edge.id),
+                            entity: meshcraft_core::document::architecture::semantic_entity(
+                                &edge.extensions,
+                            )
+                            .unwrap_or(SelectedEntity::Segment(edge.id)),
                         },
                     });
                 }

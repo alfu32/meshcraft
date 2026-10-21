@@ -95,6 +95,7 @@ pub struct Wall {
     pub end: Vec3,
     pub thickness: f64,
     pub height: f64,
+    pub up: Vec3,
     pub inclination_deg: f64,
     pub exterior_color: Color,
     pub interior_color: Color,
@@ -109,6 +110,7 @@ impl Default for Wall {
             end: Vec3::X,
             thickness: 0.2,
             height: 2.7,
+            up: Vec3::Y,
             inclination_deg: 0.0,
             exterior_color: Color::default(),
             interior_color: Color {
@@ -744,6 +746,18 @@ pub struct PlacedElement {
     pub transform: Affine3,
 }
 impl Document {
+    pub fn architecture_defaults(&self) -> Option<&Value> {
+        self.extensions.get("k3d.meshcraftArchitectureDefaults")
+    }
+    pub fn set_architecture_defaults(&mut self, value: Value) -> Result<(), String> {
+        if !value.is_object() {
+            return Err("Architecture defaults must be an object.".into());
+        }
+        self.extensions
+            .insert("k3d.meshcraftArchitectureDefaults".into(), value);
+        self.bump_revision();
+        Ok(())
+    }
     pub fn architecture_elements(&self) -> Vec<PlacedElement> {
         let mut result = vec![];
         for occurrence in self.scene_geometry_refs().unwrap_or_default() {
@@ -1369,10 +1383,7 @@ mod tests {
                 < EPS
         );
         let snapshot = d.clone();
-        assert!(
-            d.move_slab_vertex(&t, 1, Vec3::new(2.0, 0.0, 7.0))
-                .is_err()
-        );
+        assert!(d.move_slab_vertex(&t, 1, Vec3::new(2.0, 0.0, 7.0)).is_err());
         assert_eq!(d, snapshot);
     }
     #[test]
