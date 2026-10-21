@@ -29,6 +29,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [patch.crates-io]
+# Pinned component with a corrected Tree-sitter Rope text provider.
+gpui-component = { path = "vendor/gpui-component" }
 # GPUI 0.2.2 currently resolves xattr 0.2.3, whose Linux branch uses ENOATTR.
 xattr = { path = "experiments/stack-gpui-raylib/vendor/xattr" }
 

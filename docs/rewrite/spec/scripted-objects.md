@@ -160,3 +160,15 @@ helpers include `dot`, `cross`, `norm`, `normalize`, `distance`, `add`, and
 linear `lookup`, and optionally seeded `rands` are available. Ctrl+Space lists the
 functions and examples. Standard JavaScript Math and Array operations remain
 available.
+
+### Editor syntax and hover help
+
+The native monospace editor parses JavaScript locally with Tree-sitter. It colors
+JavaScript keywords, literals and comments, and distinguishes injected constructors,
+functions and fields from ordinary identifiers. API symbols come from the same
+catalog as Ctrl+Space completion and MCP discovery, including `this`, `instance`
+and `model` members. Hover an API symbol to see its signature, description and an
+example without moving the caret or changing the script. Member access tolerates
+whitespace; comments, strings and regular expressions do not trigger API help.
+This is syntax/name-based assistance, not full JavaScript scope/type analysis.
+No language server, subprocess or network request is needed for editor assistance.

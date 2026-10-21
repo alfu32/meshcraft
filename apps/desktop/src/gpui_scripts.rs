@@ -4,6 +4,8 @@ use crate::script_runtime::{Clock, Runtime};
 use meshcraft_core::document::{DefinitionId, scripts::ScriptDefinition};
 #[path = "gpui_script_api.rs"]
 mod api;
+#[path = "gpui_script_language.rs"]
+mod language;
 
 #[derive(Default)]
 pub(super) struct ScriptsUi {
@@ -186,10 +188,17 @@ pub(super) fn edit(
         return;
     };
     let _ = document.set_script(target, source.clone());
+    language::register();
+    {
+        let theme = cx.global_mut::<Theme>();
+        theme.highlight_theme = Arc::new(language::theme(&theme.highlight_theme));
+    }
     let code = cx.new(|cx| {
-        InputState::new(window, cx)
-            .code_editor("javascript")
-            .default_value(source.editor_source())
+        let mut input = InputState::new(window, cx)
+            .code_editor(language::NAME)
+            .default_value(source.editor_source());
+        input.lsp.hover_provider = Some(std::rc::Rc::new(language::ApiHover::default()));
+        input
     });
     let subscription = cx.subscribe_in(&code, window, |this, _, event: &InputEvent, _, cx| {
         if matches!(event, InputEvent::Change)
@@ -499,7 +508,7 @@ pub(super) fn overlay(
         .capture_action(cx.listener(|this,_:&gpui_component::input::IndentInline,window,cx|{if api::navigate(this,"tab",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
         .capture_action(cx.listener(|this,_:&gpui_component::input::Escape,window,cx|{if api::navigate(this,"escape",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
         .child(div().text_lg().child("Object Script Editor"))
-        .child(div().text_sm().child("Define onCreate and onAnimationFrame here, along with your own helpers. Ctrl+Space: API help/completion. Preview: right-drag orbit · Shift+right / middle pan · wheel zoom."))
+        .child(div().text_sm().child("Define onCreate and onAnimationFrame here, along with your own helpers. Hover API symbols for help · Ctrl+Space: API help/completion. Preview: right-drag orbit · Shift+right / middle pan · wheel zoom."))
         .child(div().flex().flex_1().min_h(px(0.)).gap(px(12.)).child(code).child(preview))
         .when_some(editor.error.clone(), |e, error| e.child(div().text_color(rgb(0xff9999)).child(error)))
         .child(buttons);
