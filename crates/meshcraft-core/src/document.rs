@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod annotations;
+pub mod architecture;
 pub mod clipboard;
 pub mod derived;
 pub mod hotspots;

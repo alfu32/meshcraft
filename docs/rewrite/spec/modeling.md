@@ -185,6 +185,17 @@ Selection includes semantic elements, wall/slab hole contours and corner/edge/ce
 
 Source: `K/model/ArchitectureStore.kt`, architecture parts of `GroupScene.kt`, `K/tools/ArchitectureTools.kt`, `ArchitectureSettings.kt`. Acceptance: C22.
 
+**Confirmed architecture workflow (2026-10-21).** Rectangular Slab and Freeform
+Slab create the same canonical closed-polyline slab profile. The rectangular
+command supplies four corners; freeform input reuses line/arc polyline modes and
+Enter finishes the closed profile. Slab profile controls can be dragged to change
+the boundary. Openings belong to one wall/slab record, are stored in its stable
+local plane and regenerate its solid, including the reveal surfaces. Editing a
+slab profile does not change the world location of its stored openings. Generated
+geometry has owner attribution and is rebuilt from parameters after loading;
+it is excluded from authored-mesh export so reload never duplicates it.
+
+
 ### P03 Stairs, window frames, and door frames
 
 **Observed.** `ARCH_STAIR`, `ARCH_WINDOW_FRAME`, `ARCH_DOOR_FRAME`. Stairs retain contour, walking path/start/end, height, step count, support thickness, left/right rail settings, tread/support colors. Frames retain corners or contour, normal, depth, frame width, window/door kind, color, glazing enabled/color. Current frames can be free-form contours; restricting them to rectangles loses later functionality.
@@ -192,6 +203,12 @@ Source: `K/model/ArchitectureStore.kt`, architecture parts of `GroupScene.kt`, `
 Defaults: stair height 2.7, 14 steps, support thickness 0.2, both rails on; frame depth 0.12, width 0.06. New-frame settings enable glazing, while persisted FrameDto defaults glazing off: preserve that distinction when loading omitted values. Support panel editing, generated mesh selection semantics, transforms, explode, and reopen.
 
 Source: architecture store/tools/settings and architecture DTOs. Acceptance: C03, C22.
+
+**Confirmed frame ownership (2026-10-21).** Windows and doors are independent
+object instances with their own prototype/frame parameters. Creating, moving or
+deleting them never implicitly edits another wall or slab. Wall/slab openings
+are created explicitly with Tool → Add Hole.
+
 
 ### P04 HVAC
 

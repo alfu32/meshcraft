@@ -466,6 +466,7 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
     document
         .definitions
         .remove(&Document::SCENE_ROOT_DEFINITION_ID);
+    document.regenerate_architecture();
     document.validate()?;
     // Keep a stable signature for the imported root in document metadata.
     document.extensions.insert(
@@ -549,6 +550,7 @@ fn preserve_root_fields(root: &Map<String, Value>, document: &mut Document) {
 pub fn export_current_value(document: &Document) -> ImportResult<Value> {
     let mut snapshot = document.clone();
     snapshot.persist_script_states();
+    snapshot.strip_architecture_geometry();
     let document = &snapshot;
     document.validate()?;
     let mut prototype_ids = BTreeMap::new();
@@ -3476,8 +3478,28 @@ mod tests {
             .find(|definition| definition.name == "Root")
             .unwrap();
 
-        assert_eq!(48, root.geometry.segments.len());
-        assert_eq!(50, root.geometry.triangles.len());
+        assert_eq!(
+            48,
+            root.geometry
+                .segments
+                .values()
+                .filter(|e| !crate::document::architecture::generated(&e.extensions))
+                .count()
+        );
+        assert_eq!(
+            50,
+            root.geometry
+                .triangles
+                .values()
+                .filter(|e| !crate::document::architecture::generated(&e.extensions))
+                .count()
+        );
+        assert!(
+            root.geometry
+                .triangles
+                .values()
+                .any(|e| crate::document::architecture::generated(&e.extensions))
+        );
         for (field, expected) in [
             ("k3d.architectureWalls", 5),
             ("k3d.architectureSlabs", 6),

@@ -3,6 +3,7 @@
 use crate::geometry::polygon::{PolygonSet, PolygonShape};
 use crate::geometry::{GeometryTolerance, Vec2, Vec3};
 use crate::tools::shapes::PlanarMesh;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 const DEFAULT_CLOSE_DISTANCE: f64 = 0.15;
@@ -22,7 +23,7 @@ pub enum PolylineSegmentMode {
     ArcCenter,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct PolylinePath {
     pub points: Vec<Vec3>,
     pub closed: bool,

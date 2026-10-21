@@ -1431,7 +1431,8 @@
       "slices": [
         "Implement canonical wall/slab/hole parameters, generated mesh attribution and auto-create/edit architecture contexts.",
         "Port wall chain/inclination/joins and oriented slabs/holes; preserve colors and exact defaults.",
-        "Integrate semantic selection, endpoint/hole corner/edge/center handles, deletion, parameter panels, explode and one-pass load regeneration."
+        "Integrate semantic selection, endpoint/hole corner/edge/center handles, deletion, parameter panels, explode and one-pass load regeneration.",
+        "Provide Rectangular Slab and Freeform Slab backed by one closed-polyline profile; support slab profile dragging and explicitly owned wall/slab openings."
       ],
       "done": [
         "C12/C22 semantic edits affect parameters and correctly regenerated geometry.",
@@ -1442,7 +1443,7 @@
         "ARCH_SLAB",
         "ARCH_ADD_HOLE"
       ],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T30",
@@ -1478,7 +1479,8 @@
       "slices": [
         "Implement stair contour/walking-path/step/support/rail generation and source picking workflow.",
         "Implement window/door free-form contour frames, width/depth/normal/glazing behavior and handle/panel controls.",
-        "Test new-tool versus persisted glazing defaults, regeneration, explode and canonical DTO round trips."
+        "Test new-tool versus persisted glazing defaults, regeneration, explode and canonical DTO round trips.",
+        "Windows and doors are independent object instances and never implicitly cut wall/slab openings."
       ],
       "done": [
         "C22 contour stair/frame cases pass with editable parameters after reopen.",
@@ -1489,7 +1491,7 @@
         "ARCH_WINDOW_FRAME",
         "ARCH_DOOR_FRAME"
       ],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T31",
