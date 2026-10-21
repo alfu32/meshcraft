@@ -196,6 +196,24 @@ geometry has owner attribution and is rebuilt from parameters after loading;
 it is excluded from authored-mesh export so reload never duplicates it.
 
 
+**Confirmed wall/control extension (2026-10-21).** Walls have a per-element
+Autojoin flag (enabled by default) and signed axis offset measured along the
+wall's exterior normal. Compatible walls sharing a baseline endpoint join only
+when both enable Autojoin. Regeneration updates their neighbors, with bounded
+miters and shared centers for multiwall junctions. Canonical owners and openings
+remain separate; deleting or disabling a neighbor restores the remaining end.
+
+Wall start/end positions are independent lower endpoints. The start and end
+heights are independent positive distances along the wall up direction, so both
+the bottom and the top may slope. Four controls edit the two bases and two tops;
+base dragging adjusts elevation/length and Shift-drag adjusts plan position.
+Top controls alter their own end height only. Openings expose two opposite-corner
+controls on their owner's definition plane. Frames expose opposite bounds controls
+that resize their entire planar contour. Windows take their initial definition
+normal from the cursor normal, including non-face snaps. Direct Explode on a
+selected architectural element replaces its canonical record with its current
+realized lines/mesh; the existing object explode handles placed frame instances.
+
 ### P03 Stairs, window frames, and door frames
 
 **Observed.** `ARCH_STAIR`, `ARCH_WINDOW_FRAME`, `ARCH_DOOR_FRAME`. Stairs retain contour, walking path/start/end, height, step count, support thickness, left/right rail settings, tread/support colors. Frames retain corners or contour, normal, depth, frame width, window/door kind, color, glazing enabled/color. Current frames can be free-form contours; restricting them to rectangles loses later functionality.

@@ -14,6 +14,11 @@ pub const WALLS: &str = "architectureWalls";
 pub const SLABS: &str = "architectureSlabs";
 pub const FRAMES: &str = "architectureFrames";
 const EPS: f64 = 1e-7;
+#[path = "architecture_controls.rs"]
+mod controls;
+#[path = "architecture_joins.rs"]
+mod joins;
+pub use controls::{Control, ControlPoint};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
@@ -80,11 +85,13 @@ pub fn transform_record(field: &str, record: &Value, transform: Affine3) -> Resu
             w.end = transform.transform_point(w.end);
             w.up = v / sv;
             w.height *= sv;
+            w.end_height = w.end_height.map(|h| h * sv);
             w.thickness *= sn;
             let new_normal = (w.end - w.start)
                 .cross(w.up)
                 .try_normalized(EPS)
                 .ok_or("Invalid wall frame.")?;
+            w.offset *= n.dot(new_normal);
             w.inclination_deg = (w.inclination_deg.to_radians().tan() * n.dot(new_normal) / sv)
                 .atan()
                 .to_degrees();
@@ -192,6 +199,9 @@ pub struct Wall {
     pub end: Vec3,
     pub thickness: f64,
     pub height: f64,
+    pub end_height: Option<f64>,
+    pub offset: f64,
+    pub auto_join: bool,
     pub up: Vec3,
     pub inclination_deg: f64,
     pub exterior_color: Color,
@@ -207,6 +217,9 @@ impl Default for Wall {
             end: Vec3::X,
             thickness: 0.2,
             height: 2.7,
+            end_height: None,
+            offset: 0.,
+            auto_join: true,
             up: Vec3::Y,
             inclination_deg: 0.0,
             exterior_color: Color::default(),
@@ -218,6 +231,48 @@ impl Default for Wall {
             },
             holes: vec![],
         }
+    }
+}
+impl Wall {
+    pub fn end_height(&self) -> f64 {
+        self.end_height.unwrap_or(self.height)
+    }
+    pub fn plane(&self) -> Result<Plane, String> {
+        let v = self
+            .up
+            .try_normalized(EPS)
+            .ok_or("Wall up must be nonzero.")?;
+        let delta = self.end - self.start;
+        let u = (delta - v * delta.dot(v))
+            .try_normalized(EPS)
+            .ok_or("Wall endpoints must differ in plan.")?;
+        Ok(Plane {
+            origin: self.start,
+            u,
+            v,
+            normal: u.cross(v),
+        })
+    }
+    fn profile(&self) -> Result<PolygonSet, String> {
+        let p = self.plane()?;
+        let delta = self.end - self.start;
+        let length = delta.dot(p.u);
+        let rise = delta.dot(p.v);
+        Ok(polygon(vec![
+            Vec2::new(0., 0.),
+            Vec2::new(length, rise),
+            Vec2::new(length, rise + self.end_height()),
+            Vec2::new(0., self.height),
+        ]))
+    }
+    pub fn point(&self, uv: Vec2) -> Result<Vec3, String> {
+        let p = self.plane()?;
+        let delta = self.end - self.start;
+        Ok(p.point(uv)
+            + p.normal
+                * (self.offset
+                    + (uv.y - delta.dot(p.v) * uv.x / delta.dot(p.u))
+                        * self.inclination_deg.to_radians().tan()))
     }
 }
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -677,21 +732,7 @@ impl Element {
     }
     pub fn plane(&self) -> Result<Plane, String> {
         match self {
-            Self::Wall(w) => {
-                let u = (w.end - w.start)
-                    .try_normalized(EPS)
-                    .ok_or("Wall endpoints must differ.")?;
-                let n = u
-                    .cross(w.up)
-                    .try_normalized(EPS)
-                    .ok_or("Wall up direction must differ from its baseline.")?;
-                Ok(Plane {
-                    origin: w.start,
-                    u,
-                    v: n.cross(u),
-                    normal: n,
-                })
-            }
+            Self::Wall(w) => w.plane(),
             Self::Slab(s) => {
                 surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u).map(|v| v.0)
             }
@@ -701,40 +742,7 @@ impl Element {
     pub fn mesh(&self) -> Result<Mesh, String> {
         let mut mesh = Mesh::default();
         match self {
-            Self::Wall(w) => {
-                positive(w.height, "Wall height")?;
-                positive(w.thickness, "Wall thickness")?;
-                if !w.start.is_finite()
-                    || !w.end.is_finite()
-                    || !w.inclination_deg.is_finite()
-                    || w.inclination_deg.abs() >= 85.0
-                {
-                    return Err("Wall geometry or inclination is invalid.".into());
-                }
-                let plane = self.plane()?;
-                let shape = cut(
-                    polygon(vec![
-                        Vec2::new(0.0, 0.0),
-                        Vec2::new(w.start.distance(w.end), 0.0),
-                        Vec2::new(w.start.distance(w.end), w.height),
-                        Vec2::new(0.0, w.height),
-                    ]),
-                    &w.holes,
-                )?;
-                // Inclination is a shear of the closed perforated prism.
-                prism(
-                    &mut mesh,
-                    &shape,
-                    plane,
-                    -plane.normal * w.thickness * 0.5,
-                    plane.normal * w.thickness * 0.5,
-                    [w.exterior_color, w.interior_color, w.exterior_color],
-                )?;
-                let shear = w.inclination_deg.to_radians().tan();
-                for p in &mut mesh.points {
-                    *p += plane.normal * (plane.project(*p).y * shear);
-                }
-            }
+            Self::Wall(w) => return joins::wall_mesh(w, &[]),
             Self::Slab(s) => {
                 positive(s.thickness, "Slab thickness")?;
                 if !s.profile.closed {
@@ -986,10 +994,68 @@ impl Document {
         if d.domain_data.contains_key(field) {
             d.domain_data.insert(field.into(), Value::Array(records));
         }
-        staged.replace_architecture_mesh(definition, field, &id, mesh)?;
+        if field == WALLS {
+            staged.rebuild_walls(definition);
+        } else {
+            staged.replace_architecture_mesh(definition, field, &id, mesh)?;
+        }
         staged.bump_revision();
         *self = staged;
         Ok(id)
+    }
+    fn wall_records(&self, definition: DefinitionId) -> Vec<(String, Wall)> {
+        let Some(d) = self.definitions.get(&definition) else {
+            return vec![];
+        };
+        let values = d
+            .domain_data
+            .get(WALLS)
+            .or_else(|| d.extensions.get(&format!("k3d.{WALLS}")))
+            .and_then(Value::as_array);
+        values
+            .into_iter()
+            .flatten()
+            .zip(d.domain_entity_ids.get(WALLS).into_iter().flatten())
+            .filter_map(
+                |(v, id)| match Element::from_value(WALLS, v.clone()).ok()? {
+                    Element::Wall(mut w) => {
+                        w.id = id.clone();
+                        Some((id.clone(), w))
+                    }
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+    fn rebuild_walls(&mut self, definition: DefinitionId) {
+        let records = self.wall_records(definition);
+        let neighbors = records.iter().map(|(_, w)| w.clone()).collect::<Vec<_>>();
+        for (id, w) in records {
+            if let Ok(mesh) = joins::wall_mesh(&w, &neighbors) {
+                let _ = self.replace_architecture_mesh(definition, WALLS, &id, mesh);
+            }
+        }
+    }
+    pub fn architecture_mesh(&self, target: &SelectionTarget) -> Result<Mesh, String> {
+        let placed = self
+            .architecture_element(target)
+            .ok_or("Architecture owner is missing.")?;
+        match placed.element {
+            Element::Wall(mut w) => {
+                if let SelectedEntity::SemanticHandle { id, .. } = &target.entity {
+                    w.id = id.clone();
+                }
+                joins::wall_mesh(
+                    &w,
+                    &self
+                        .wall_records(placed.definition)
+                        .into_iter()
+                        .map(|(_, w)| w)
+                        .collect::<Vec<_>>(),
+                )
+            }
+            e => e.mesh(),
+        }
     }
     fn remove_architecture_mesh(&mut self, definition: DefinitionId, id: &str) {
         let Some(d) = self.definitions.get_mut(&definition) else {
@@ -1134,7 +1200,20 @@ impl Document {
         let mut errors = vec![];
         for (definition, field, id, value) in records {
             match Element::from_value(field, value)
-                .and_then(|e| e.mesh())
+                .and_then(|e| match e {
+                    Element::Wall(mut w) => {
+                        w.id = id.clone();
+                        joins::wall_mesh(
+                            &w,
+                            &self
+                                .wall_records(definition)
+                                .into_iter()
+                                .map(|(_, w)| w)
+                                .collect::<Vec<_>>(),
+                        )
+                    }
+                    e => e.mesh(),
+                })
                 .and_then(|mesh| self.replace_architecture_mesh(definition, field, &id, mesh))
             {
                 Ok(()) => {}
@@ -1181,6 +1260,9 @@ impl Document {
             d.domain_data.insert(field.into(), Value::Array(records));
         }
         self.remove_architecture_mesh(element.definition, id);
+        if field == WALLS {
+            self.rebuild_walls(element.definition);
+        }
         self.bump_revision();
         Ok(())
     }
@@ -1204,15 +1286,7 @@ impl Document {
         );
         hole.polygon()?;
         let available = match &owner.element {
-            Element::Wall(w) => cut(
-                polygon(vec![
-                    Vec2::new(0.0, 0.0),
-                    Vec2::new(w.start.distance(w.end), 0.0),
-                    Vec2::new(w.start.distance(w.end), w.height),
-                    Vec2::new(0.0, w.height),
-                ]),
-                &w.holes,
-            )?,
+            Element::Wall(w) => cut(w.profile()?, &w.holes)?,
             Element::Slab(s) => cut(
                 surface_with_basis(&s.profile.points, s.normal, s.origin, s.axis_u)?.1,
                 &s.holes,
@@ -1256,28 +1330,7 @@ impl Document {
         index: usize,
         world: Vec3,
     ) -> Result<(), String> {
-        let mut owner = self
-            .architecture_element(target)
-            .ok_or("Slab is missing.")?;
-        let plane = owner.element.plane()?;
-        let inverse = owner
-            .transform
-            .inverse(crate::geometry::GeometryTolerance::default())
-            .ok_or("Slab transform is singular.")?;
-        let p = inverse.transform_point(world);
-        let p = plane.point(plane.project(p));
-        let Element::Slab(s) = &mut owner.element else {
-            return Err("Only slabs have profile controls.".into());
-        };
-        *s.profile
-            .points
-            .get_mut(index)
-            .ok_or("Slab control no longer exists.")? = p;
-        let SelectedEntity::SemanticHandle { id, .. } = &target.entity else {
-            return Err("Select a slab.".into());
-        };
-        self.put_architecture(owner.definition, Some(id), owner.element)?;
-        Ok(())
+        self.move_architecture_control(target, &Control::SlabVertex { index }, world)
     }
     pub fn remove_architecture_hole(
         &mut self,
@@ -1806,5 +1859,294 @@ mod tests {
                 saved["rootInstance"]["children"]
             );
         }
+    }
+    #[test]
+    fn wall_independent_endpoint_levels_heights_and_axis_offset_generate_closed_solids() {
+        let w = Wall {
+            start: Vec3::new(0., 1., 0.),
+            end: Vec3::new(5., 2., 0.),
+            height: 2.,
+            end_height: Some(4.),
+            offset: 0.75,
+            ..Default::default()
+        };
+        let mesh = Element::Wall(w.clone()).mesh().unwrap();
+        closed(&mesh);
+        assert!((volume(&mesh) - 5. * 3. * w.thickness).abs() < 1e-5);
+        assert!(
+            mesh.points
+                .iter()
+                .all(|p| p.z >= 0.65 - EPS && p.z <= 0.85 + EPS)
+        );
+        assert!(mesh.points.iter().any(|p| (p.y - 6.).abs() < EPS));
+        assert_eq!(w.plane().unwrap().v, Vec3::Y);
+    }
+    #[test]
+    fn adjacent_walls_share_miter_vertices_and_updating_or_disabling_a_join_rebuilds_neighbors() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let a = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 4.,
+                    thickness: 0.4,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let b = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    start: Vec3::X * 4.,
+                    end: Vec3::new(4., 0., 4.),
+                    thickness: 0.4,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let a = target(SelectionKind::Wall, a);
+        let b = target(SelectionKind::Wall, b);
+        let ma = d.architecture_mesh(&a).unwrap();
+        let mb = d.architecture_mesh(&b).unwrap();
+        closed(&ma);
+        closed(&mb);
+        assert!(
+            ma.points
+                .iter()
+                .any(|p| p.distance(Vec3::new(4.2, 0., -0.2)) < 1e-5)
+        );
+        assert!(
+            mb.points
+                .iter()
+                .any(|p| p.distance(Vec3::new(4.2, 0., -0.2)) < 1e-5)
+        );
+        let before = d.effective_geometry(&a.occurrence).unwrap().clone();
+        let mut wb = d.architecture_element(&b).unwrap().element;
+        let Element::Wall(w) = &mut wb else { panic!() };
+        w.auto_join = false;
+        let SelectedEntity::SemanticHandle { id, .. } = &b.entity else {
+            panic!()
+        };
+        d.put_architecture(root, Some(id), wb).unwrap();
+        assert!(
+            !d.architecture_mesh(&a)
+                .unwrap()
+                .points
+                .iter()
+                .any(|p| p.x > 4. + EPS)
+        );
+        assert_ne!(before, d.effective_geometry(&a.occurrence).unwrap().clone());
+        d.remove_architecture(&b).unwrap();
+        closed(&d.architecture_mesh(&a).unwrap());
+    }
+    #[test]
+    fn three_way_wall_junction_has_a_shared_center_without_an_open_triangle() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let mut targets = vec![];
+        for end in [Vec3::X * 4., Vec3::Z * 4., -Vec3::X * 4.] {
+            let id = d
+                .put_architecture(
+                    root,
+                    None,
+                    Element::Wall(Wall {
+                        end,
+                        thickness: 0.4,
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+            targets.push(target(SelectionKind::Wall, id));
+        }
+        let meshes = targets
+            .iter()
+            .map(|t| d.architecture_mesh(t).unwrap())
+            .collect::<Vec<_>>();
+        for m in &meshes {
+            closed(m);
+        }
+        assert!(meshes[0].points.iter().any(|p| {
+            p.y.abs() < EPS
+                && p.length() < 0.3
+                && meshes
+                    .iter()
+                    .all(|m| m.points.iter().any(|v| v.distance(*p) < EPS))
+        }));
+    }
+    #[test]
+    fn wall_top_and_base_controls_change_independent_levels_and_reject_zero_height() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let t = target(SelectionKind::Wall, id);
+        d.move_architecture_control(&t, &Control::WallTop { end: true }, Vec3::new(5., 5., 0.))
+            .unwrap();
+        d.move_architecture_control(&t, &Control::WallBase { end: true }, Vec3::new(5., 1., 0.))
+            .unwrap();
+        let Element::Wall(w) = d.architecture_element(&t).unwrap().element else {
+            panic!()
+        };
+        assert_eq!(w.end.y, 1.);
+        assert_eq!(w.end_height(), 5.);
+        assert_eq!(w.height, 2.7);
+        closed(&d.architecture_mesh(&t).unwrap());
+        let revision = d.revision();
+        assert!(
+            d.move_architecture_control(&t, &Control::WallTop { end: true }, Vec3::new(5., 0., 0.))
+                .is_err()
+        );
+        assert_eq!(revision, d.revision());
+    }
+    #[test]
+    fn hole_controls_resize_in_the_owner_plane_and_retain_owner_identity() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    height: 4.,
+                    offset: 0.5,
+                    inclination_deg: 10.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let t = target(SelectionKind::Wall, id);
+        let hole = d
+            .add_architecture_hole(&t, Vec3::new(1., 1., 0.5), Vec3::new(2., 2., 0.5))
+            .unwrap();
+        let control = Control::HoleCorner {
+            hole_id: hole.clone(),
+            corner: 1,
+        };
+        d.move_architecture_control(&t, &control, Vec3::new(3., 3., 2.))
+            .unwrap();
+        let e = d.architecture_element(&t).unwrap().element;
+        assert_eq!(e.holes()[0].id, hole);
+        assert_eq!(e.holes()[0].u1, 3.);
+        assert_eq!(e.holes()[0].v1, 3.);
+        assert_eq!(
+            e.controls()
+                .unwrap()
+                .iter()
+                .filter(|c| matches!(c.control, Control::HoleCorner { .. }))
+                .count(),
+            2
+        );
+        closed(&d.architecture_mesh(&t).unwrap());
+    }
+    #[test]
+    fn frame_opposite_controls_resize_freeform_contours_without_touching_walls() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let wall = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let frame = Frame {
+            contour: vec![
+                Vec3::ZERO,
+                Vec3::X * 2.,
+                Vec3::new(2., 2., 0.),
+                Vec3::new(1., 3., 0.),
+                Vec3::Y * 2.,
+            ],
+            normal: Vec3::Z,
+            ..Default::default()
+        };
+        let id = d
+            .put_architecture(root, None, Element::Frame(frame))
+            .unwrap();
+        let t = target(SelectionKind::Frame, id);
+        d.move_architecture_control(
+            &t,
+            &Control::FrameCorner { corner: 1 },
+            Vec3::new(4., 6., 5.),
+        )
+        .unwrap();
+        let Element::Frame(f) = d.architecture_element(&t).unwrap().element else {
+            panic!()
+        };
+        assert_eq!(f.contour[2], Vec3::new(4., 4., 0.));
+        assert_eq!(f.contour[3], Vec3::new(2., 6., 0.));
+        assert!(
+            d.architecture_element(&target(SelectionKind::Wall, wall))
+                .unwrap()
+                .element
+                .holes()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn direct_semantic_explode_keeps_realized_join_geometry_and_survives_reopen() {
+        use crate::{operations::objects, selection::SelectionSession};
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 4.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        d.put_architecture(
+            root,
+            None,
+            Element::Wall(Wall {
+                start: Vec3::X * 4.,
+                end: Vec3::new(4., 0., 4.),
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let t = target(SelectionKind::Wall, id);
+        let mut selection = SelectionSession::default();
+        selection.select(t.clone());
+        let report = objects::explode_selection(
+            &mut d,
+            &selection,
+            &objects::LegacyAnnotationExplodeAdapter,
+        )
+        .unwrap();
+        assert!(report.segments > 0 && report.triangles > 0);
+        assert!(d.architecture_element(&t).is_none());
+        assert_eq!(d.architecture_elements().len(), 1);
+        let saved = crate::legacy::export_current_value(&d).unwrap();
+        let loaded = crate::legacy::import_current_value(&saved).unwrap();
+        assert_eq!(loaded.architecture_elements().len(), 1);
+        assert_eq!(
+            report.triangles,
+            loaded
+                .definitions
+                .values()
+                .flat_map(|d| d.geometry.triangles.values())
+                .filter(|f| !generated(&f.extensions))
+                .count()
+        );
     }
 }

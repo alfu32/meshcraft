@@ -1624,6 +1624,27 @@ pub fn explode_selection(
     if selection.selected().is_empty() {
         return Err("select one or more objects to explode".to_owned());
     }
+    if selection.selected().iter().any(|t|matches!(t.entity,SelectedEntity::SemanticHandle {kind,..} if crate::document::architecture::field(kind).is_some())) {
+        let mut draft=document.clone();let mut objects=SelectionSession::default();objects.set_context(selection.context.clone());
+        let object_paths=selection.selected().iter().filter(|t|t.entity==SelectedEntity::Occurrence).map(|t|t.occurrence.clone()).collect::<Vec<_>>();
+        let mut elements=vec![];
+        for target in selection.selected() {
+            if target.entity==SelectedEntity::Occurrence {objects.select(target.clone());continue;}
+            if object_paths.iter().any(|p|target.occurrence.path.starts_with(&p.path)) {continue;}
+            let SelectedEntity::SemanticHandle {kind,..}=target.entity else {return Err("Select objects or architecture to explode.".into());};
+            if crate::document::architecture::field(kind).is_none() || crate::operations::copy::selected_annotation_record(document,selection,target,kind).is_none() {return Err("Open the prototype before exploding inherited architecture.".into());}
+            elements.push(target.clone());
+        }
+        let mut report=if objects.selected().is_empty() {ExplodeReport::default()} else {explode_selection(&mut draft,&objects,adapter)?};
+        for target in elements {
+            let (vertices,selected)=draft.explode_architecture(&target)?;
+            report.vertices+=vertices;report.exploded_occurrences+=1;
+            report.segments+=selected.iter().filter(|t|matches!(t.entity,SelectedEntity::Segment(_))).count();
+            report.triangles+=selected.iter().filter(|t|matches!(t.entity,SelectedEntity::Triangle(_))).count();
+            report.selected_results.extend(selected);
+        }
+        draft.validate()?;*document=draft;return Ok(report);
+    }
     let mut occurrences = Vec::with_capacity(selection.selected().len());
     for target in selection.selected() {
         if target.entity != SelectedEntity::Occurrence {
