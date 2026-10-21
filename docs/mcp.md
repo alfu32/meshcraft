@@ -3,7 +3,7 @@
 Meshcraft is a direct mesh modeler. Start its local server in the **MCP Server** settings
 panel; the default URL is `http://127.0.0.1:8765/mcp`. Change the port, then Restart to
 apply it. It starts stopped and closes with the application. Connect an MCP client using
-Streamable HTTP at that URL. No cloud service, account or API key is required.
+Streamable HTTP at that URL. No cloud service, account or API key is required. The Settings ribbon has a shortcut to this panel.
 
 ## Discover before operating
 
@@ -20,6 +20,8 @@ Streamable HTTP at that URL. No cloud service, account or API key is required.
 Coordinates are in **model units**, Y is up, +Z faces the Front view. A prototype owns local
 geometry, scripts, hotspots and nested instances. An occurrence is a placed instance with a
 numeric `path` of layout-entry IDs. An empty path `[]` addresses scene-root geometry.
+Imported scenes can have a wrapper occurrence with a nonempty path; `is_scene_root` identifies
+that record. Its own mesh counts exclude its child instances.
 World point = the occurrence's `transform` applied to a local point. Selection targets returned
 by geometry queries can be passed unchanged to `meshcraft_select`. External geometry in
 prototype edit mode stays visible/snappable but cannot be selected or changed.
@@ -76,8 +78,65 @@ Scripts have ordinary ECMAScript built-ins and the documented SDK. They cannot w
 to the document or access Node, DOM, filesystem or network APIs. Execution runs in the bounded
 JavaScript worker, never on the UI/render threads. Script failures preserve the previous frame.
 
+## One-shot geometry scripts
+
+Call `meshcraft_run_script` with a hook **body**:
+
+```json
+{
+  "source": "return [cuboid(new Point(), new Point(this.width, 2, 1), 'body', phong('#83bdeaff')), hotspot(new Point(this.width, 0, 0), 'width')];",
+  "properties": {"width": 3},
+  "name": "Generated part",
+  "position": [0, 0, 0]
+}
+```
+
+The result contains `job_id`. Poll `meshcraft_get_job` until `result.completion.state` is
+`completed` or `failed`; do not re-run to check completion. The worker uses the same SDK,
+geometry validator and immutable `model` facade as object scripts. `this.geometry` starts
+empty; `this.id` is `mcp-once`, time/deltaTime are zero and supplied JSON properties initialize
+`this`. For a full module containing shared code and both hooks, set `source_type` to `module`.
+The initializer and frame hook each run once. Only one one-shot may run at a time.
+
+Default `commit:true` inserts the returned geometry and hotspots as a **static object**, in one
+undo step. There is no continuing per-frame script cost. Coordinates are world model units,
+translated by optional `position`; the object is owned by the active editing context. The result
+includes counts, bounds, resulting instance targets and final custom properties. `commit:false`
+only evaluates and reports those values. A source error, timeout, cancellation or document/edit
+context change leaves the model untouched. Use `meshcraft_cancel_script` or Stop/Restart to
+cancel; closing the app cancels too. Source is limited to 256 KiB, initial properties to 64 KiB;
+existing JS time, memory and output limits apply. Completed one-shot job history is bounded to 128 entries; final properties larger than 64 KiB
+are omitted from summaries, diagnostics and logs are length-limited.
+
+Use `meshcraft_capture_view` to receive a PNG image and frame/revision metadata after an edit.
+It captures the 3D canvas, including helpers and wireframe feedback. GPUI text labels/panels
+are separate. Retry a rendering-pending error, or request `allow_stale:true` explicitly.
+Query geometry for exact numeric verification; images supplement the model data.
+
+If an Open/New command returns pending and `k3d_status.pendingDialog` is non-null, explicitly
+call `meshcraft_resolve_document` with `save`, `discard` or `cancel`. Provide an absolute save
+path for an unnamed document. This continues the existing replacement job; poll its ID.
+
+### Selection and transforms
+
+A target example is `{"path":[44,42],"kind":"segment","id":"17"}`; an object target is
+`{"path":[44,42],"kind":"occurrence","id":null}`. `meshcraft_geometry` returns these targets
+verbatim. Primitive IDs are decimal strings because generated IDs can exceed JavaScript's safe
+integer range; keep them as strings. Occurrence paths and prototype IDs are different identities.
+`transform` is an affine object with a 3×3 `linear` matrix and a `translation` Point; each world
+coordinate is a row of `linear` dotted with the local point, plus that translation component.
+To use SDK `multmatrix`, append translation as column four and `[0,0,0,1]` as the final row.
+
+For instance hotspots, read the occurrence's `hotspots` list, select a target such as
+`{"path":[44,42],"kind":"semantic_handle","semantic_kind":"hotspot","id":"width"}`,
+then execute `hotspot.target` with `{"target":{"x":4,"y":0,"z":0}}`. This target uses the
+instance's **local** coordinates; leave prototype editing before operating an instance handle.
+By contrast, `hotspot.add.position` takes a world Point object. Discover command schemas to
+distinguish Point objects from three-number arrays.
+
 ## Transport and scope
 
+The transport follows [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
 POST `/mcp` (or `/`) with JSON-RPC. Stateless JSON responses support MCP 2025-03-26,
 2025-06-18, 2025-11-25 initialization and 2026-07-28 per-request metadata/discovery.
 The server binds IPv4 loopback only, checks Host/Origin and has bounded body size, connections,

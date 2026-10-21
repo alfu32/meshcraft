@@ -255,6 +255,7 @@ struct ViewFrame {
     image: Arc<RenderImage>,
     sequence: u64,
     frame_ms: f32,
+    request_revision: u64,
 }
 
 #[derive(Clone)]
@@ -497,6 +498,7 @@ fn render_loop(
                 image: Arc::new(RenderImage::new(vec![Frame::new(image)])),
                 sequence,
                 frame_ms: frame_start.elapsed().as_secs_f32() * 1_000.0,
+                request_revision: next_revision,
             });
         }
         let elapsed = frame_start.elapsed();
@@ -2387,6 +2389,7 @@ fn ribbon_command_for_key<'a>(
         "export" => &["export.mesh"],
         "model-settings" | "settings-panel" => &["view.model_settings"],
         "ui-settings" => &["view.panel.ui_settings.toggle"],
+        "mcp-settings" => &["view.panel.mcp.toggle"],
         "selection-panel" => &["view.selection"],
         "object-panel" => &["view.object_info"],
         "reset-layout" => &["view.workspace.reset_layout"],
@@ -2424,7 +2427,6 @@ impl Render for MeshcraftShell {
                             let status = this.session.status_text().to_owned();
                             this.session.poll_native_host_work();
                             if automation::poll(this) {
-                                this.refresh_scene();
                                 cx.notify();
                             }
                             if scripts::tick(this) {

@@ -6,6 +6,11 @@ Meshcraft is a **direct mesh modeler** for building and editing 3D geometry. Dra
 
 The desktop workspace combines a 3D viewport with menus, labeled tool buttons, a searchable command palette and settings panels. Meshcraft is written in Rust, with a GPUI interface and an offscreen raylib renderer integrated into the layout.
 
+Agents can control the running app through its built-in **MCP server**. Start it in the MCP Server
+settings panel, then connect to `http://127.0.0.1:8765/mcp`. It publishes live command schemas,
+scene/selection data and the complete scripting API, and supports one-shot geometry scripts.
+See the [MCP guide](docs/mcp.md).
+
 ## Modeling tools
 
 - **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
@@ -39,7 +44,6 @@ See the [SDK, example and runtime requirements](docs/rewrite/spec/scripted-objec
 
 Meshcraft is under active development. The following capabilities are planned; they are not yet complete in the current application:
 
-- **MCP integration:** structured access to modeling commands and application state through the Model Context Protocol, for automation and assistant workflows.
 - **JavaScript plugins:** extend the application through a JavaScriptCore runtime and a versioned application API.
 - **Built-in architecture tools:** walls, slabs, openings, stairs and frames, alongside plumbing and ventilation tools.
 - **Photorealistic rendering:** offline rendering for presentation images, complementing the interactive shaded viewport.

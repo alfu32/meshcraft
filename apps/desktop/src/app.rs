@@ -2198,6 +2198,8 @@ pub struct MeshcraftApp {
     document_generation: u64,
     annotations: annotation_workflow::AnnotationState,
     clipboard: clipboard_workflow::ClipboardState,
+    #[cfg(not(target_arch = "wasm32"))]
+    mcp_jobs: mcp_workflow::Jobs,
     saved_revision: u64,
     #[cfg(not(target_arch = "wasm32"))]
     autosave_observed_revision: u64,
@@ -2485,6 +2487,7 @@ impl MeshcraftApp {
     /// Polls asynchronous project operations and autosave work for hosts that do not use egui.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn poll_native_host_work(&mut self) {
+        self.poll_mcp_script();
         self.poll_project_load();
         self.poll_project_save();
         self.poll_object_import();
@@ -3114,6 +3117,8 @@ impl MeshcraftApp {
             document_generation: 0,
             annotations: Default::default(),
             clipboard: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            mcp_jobs: Default::default(),
             saved_revision,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: saved_revision,
@@ -12329,6 +12334,8 @@ mod tests {
             document_generation: 0,
             annotations: Default::default(),
             clipboard: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            mcp_jobs: Default::default(),
             saved_revision: 0,
             #[cfg(not(target_arch = "wasm32"))]
             autosave_observed_revision: 0,

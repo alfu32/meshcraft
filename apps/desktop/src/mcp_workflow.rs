@@ -84,6 +84,18 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
             _ =>
                 "Typed command argument; omitted optional fields retain command defaults or current settings.",
         });
+        if parameter.value_type == CommandValueType::Object
+            && matches!(name, "position" | "target" | "origin" | "offset")
+        {
+            spec["description"] = json!(if command.id.as_str() == "hotspot.target" {
+                "Point object {x,y,z} in the selected instance's LOCAL model coordinates. Finish prototype editing before operating an instance hotspot."
+            } else {
+                "Point object {x,y,z} in WORLD model units (Y up, +Z Front)."
+            });
+            spec["properties"] =
+                json!({"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}});
+            spec["required"] = json!(["x", "y", "z"]);
+        }
         if parameter.value_type == CommandValueType::Array
             && matches!(
                 name,
@@ -147,7 +159,8 @@ impl MeshcraftApp {
             EditContext::Definition(id) => json!({"kind":"definition","definition_id":id}),
             EditContext::Occurrence(p) => json!({"kind":"occurrence","path":p.path}),
         };
-        json!({"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path,"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
+        let pending_dialog=self.pending_replacement.as_ref().map(|p|json!({"job_id":p.job_id,"kind":match &p.target {ReplacementTarget::NewDocument=>"new",ReplacementTarget::OpenProject(_)=>"open"},"choices":["save","discard","cancel"],"instructions":"Use meshcraft_resolve_document explicitly; save needs a path when the document is unnamed."}));
+        json!({"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
     }
     pub(crate) fn mcp_commands(&self, args: &Value) -> Value {
         let query = args["query"].as_str().unwrap_or("").to_lowercase();
@@ -165,7 +178,7 @@ impl MeshcraftApp {
             let r=self.document.resolve_occurrence(p)?;
             let g=self.document.effective_geometry(p)?;
             let bounds=meshcraft_core::geometry::Aabb3::from_points(g.vertices.values().map(|v|r.world_transform.transform_point(v.position)));
-            Some(json!({"path":p.path,"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"target":target_json(&SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence})}))
+            Some(json!({"path":p.path,"is_scene_root":p.is_scene_root()||self.document.scene_container_occurrence().as_ref()==Some(p),"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"target":target_json(&SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence})}))
         }).collect::<Vec<_>>();
         let prototypes=self.document.definitions().map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some()})).collect::<Vec<_>>();
         Ok(
@@ -447,5 +460,461 @@ mod tests {
                 .unwrap()
                 .contains("cuboid")
         );
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Jobs {
+    pending: Option<ScriptJob>,
+    recent: std::collections::VecDeque<String>,
+}
+struct ScriptJob {
+    id: String,
+    generation: u64,
+    revision: u64,
+    context: EditContext,
+    name: String,
+    position: Vec3,
+    commit: bool,
+    receiver:
+        std::sync::mpsc::Receiver<Result<meshcraft_core::document::scripts::ScriptFrame, String>>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+impl Drop for Jobs {
+    fn drop(&mut self) {
+        if let Some(job) = &self.pending {
+            job.cancel.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+impl MeshcraftApp {
+    pub(crate) fn mcp_run_script(&mut self, args: &Value) -> Result<Value, String> {
+        if self.mcp_jobs.pending.is_some() {
+            return Err(
+                "a one-shot script is already running; poll its job ID or cancel it".into(),
+            );
+        }
+        let source = args["source"].as_str().ok_or("source required")?;
+        if source.len() > 256 * 1024 {
+            return Err("script source exceeds 256 KiB".into());
+        }
+        let mut definition = meshcraft_core::document::scripts::ScriptDefinition::default();
+        match args["source_type"].as_str().unwrap_or("body") {
+            "body" => definition.on_animation_frame = source.into(),
+            "module" => definition.source = source.into(),
+            _ => return Err("source_type must be body or module".into()),
+        }
+        let name = args["name"]
+            .as_str()
+            .unwrap_or("Agent Geometry")
+            .trim()
+            .to_owned();
+        if name.is_empty() || name.len() > 256 {
+            return Err("name must contain 1–256 UTF-8 bytes".into());
+        }
+        let position = args
+            .get("position")
+            .map(|v| payload_vec3_value(v, "position"))
+            .transpose()?
+            .unwrap_or(Vec3::ZERO);
+        let properties = args.get("properties").cloned().unwrap_or(json!({}));
+        if properties.to_string().len() > 65536 {
+            return Err("properties exceed 64 KiB".into());
+        }
+        let properties = properties
+            .as_object()
+            .ok_or("properties must be an object")?
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let commit = args["commit"].as_bool().unwrap_or(true);
+        self.document.persist_script_states();
+        let document = std::sync::Arc::new(self.document.clone());
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancel = std::sync::Arc::clone(&cancel);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let id = format!("mcp-script-{}", self.next_job_id);
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        std::thread::Builder::new()
+            .name(id.clone())
+            .spawn(move || {
+                let result = crate::script_runtime::evaluate_once(
+                    document,
+                    definition,
+                    properties,
+                    worker_cancel,
+                );
+                let _ = sender.send(result);
+            })
+            .map_err(|e| e.to_string())?;
+        let mut result = CommandResult::completed();
+        result.completion = CommandCompletion::Pending { job_id: id.clone() };
+        result.document_revision = Some(self.document.revision());
+        self.job_results.insert(id.clone(), result.clone());
+        self.mcp_jobs.recent.push_back(id.clone());
+        while self.mcp_jobs.recent.len() > 128 {
+            if let Some(old) = self.mcp_jobs.recent.pop_front() {
+                self.job_results.remove(&old);
+            }
+        }
+        self.mcp_jobs.pending = Some(ScriptJob {
+            id: id.clone(),
+            generation: self.document_generation,
+            revision: self.document.revision(),
+            context: self.selection.context.clone(),
+            name,
+            position,
+            commit,
+            receiver,
+            cancel,
+        });
+        self.status = format!("Running one-shot script {id}.");
+        Ok(
+            json!({"job_id":id,"result":result,"next":"Poll meshcraft_get_job; do not repeat the script to check completion."}),
+        )
+    }
+    pub(crate) fn cancel_mcp_script(&mut self) -> Result<Value, String> {
+        let Some(job) = self.mcp_jobs.pending.take() else {
+            return Err("no one-shot script is running".into());
+        };
+        job.cancel.store(true, std::sync::atomic::Ordering::Release);
+        let result = CommandResult::failed("One-shot script canceled; no geometry committed");
+        self.job_results.insert(job.id.clone(), result.clone());
+        self.status = "One-shot script canceled.".into();
+        Ok(json!({"job_id":job.id,"result":result}))
+    }
+    pub(super) fn poll_mcp_script(&mut self) {
+        let Some(job) = self.mcp_jobs.pending.as_ref() else {
+            return;
+        };
+        let frame = match job.receiver.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("script worker disconnected".into())
+            }
+        };
+        let job = self.mcp_jobs.pending.take().unwrap();
+        let result = if job.generation != self.document_generation
+            || job.revision != self.document.revision()
+            || job.context != self.selection.context
+        {
+            Err("Document or edit context changed during script execution; no geometry committed. Inspect current state before rerunning.".into())
+        } else {
+            frame.and_then(|frame| self.install_mcp_script_frame(&job, frame))
+        };
+        let result = match result {
+            Ok(result) => {
+                self.status = if job.commit {
+                    "One-shot script geometry committed."
+                } else {
+                    "One-shot script evaluated without changing the model."
+                }
+                .into();
+                result
+            }
+            Err(error) => {
+                let error = error.chars().take(4096).collect::<String>();
+                self.status = error.clone();
+                CommandResult::failed(error)
+            }
+        };
+        self.job_results.insert(job.id, result);
+    }
+    fn install_mcp_script_frame(
+        &mut self,
+        job: &ScriptJob,
+        frame: meshcraft_core::document::scripts::ScriptFrame,
+    ) -> Result<CommandResult, String> {
+        let mut result = CommandResult::completed();
+        result.outputs.insert("counts".into(),json!({"vertices":frame.geometry.vertices.len(),"segments":frame.geometry.segments.len(),"triangles":frame.geometry.triangles.len(),"hotspots":frame.hotspots.len()}));
+        result.outputs.insert(
+            "bounds".into(),
+            json!(meshcraft_core::geometry::Aabb3::from_points(
+                frame
+                    .geometry
+                    .vertices
+                    .values()
+                    .map(|v| v.position + job.position)
+            )),
+        );
+        if serde_json::to_vec(&frame.state.properties)
+            .map_err(|e| e.to_string())?
+            .len()
+            <= 65536
+        {
+            result
+                .outputs
+                .insert("properties".into(), json!(frame.state.properties));
+        } else {
+            result.outputs.insert("properties".into(), json!({}));
+            result
+                .outputs
+                .insert("propertiesOmitted".into(), json!(true));
+            result.diagnostics.push(
+                "Final script properties exceed 64 KiB and were omitted from the job summary."
+                    .into(),
+            );
+        }
+        result.outputs.insert("committed".into(), json!(job.commit));
+        if job.commit {
+            let snapshot = baked_snapshot(&job.name, &frame)?;
+            let targets = self.commit_document_edit("One-shot script", |document| {
+                snapshot.paste(document, &job.context, job.position, false)
+            })?;
+            result.outputs.insert(
+                "targets".into(),
+                json!(targets.iter().map(target_json).collect::<Vec<_>>()),
+            );
+            self.cancel_active_tool();
+            self.selection.apply(targets, SelectionMode::Replace);
+        }
+        result.document_revision = Some(self.document.revision());
+        Ok(result)
+    }
+}
+fn baked_snapshot(
+    name: &str,
+    frame: &meshcraft_core::document::scripts::ScriptFrame,
+) -> Result<meshcraft_core::document::clipboard::ClipboardSelection, String> {
+    use meshcraft_core::document::{
+        DefinitionKind, RawGeometrySegment, RawGeometryTriangle, RawGeometryVertex, RawVertexRef,
+    };
+    let mut document = Document::new();
+    let definition = document.add_definition(name, DefinitionKind::Mesh);
+    let indices = frame
+        .geometry
+        .vertices
+        .keys()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect::<BTreeMap<_, _>>();
+    let corner = |v: meshcraft_core::document::VertexRef| RawVertexRef {
+        vertex: indices[&v.id],
+        position_offset: v.position_offset,
+    };
+    let vertices = frame
+        .geometry
+        .vertices
+        .values()
+        .map(|v| RawGeometryVertex {
+            position: v.position,
+            legacy_aliases: v.legacy_aliases.clone(),
+        })
+        .collect();
+    let segments = frame
+        .geometry
+        .segments
+        .values()
+        .map(|s| RawGeometrySegment {
+            endpoints: s.endpoints.map(corner),
+            color: s.color,
+            extensions: s.extensions.clone(),
+            legacy_aliases: s.legacy_aliases.clone(),
+        })
+        .collect();
+    let triangles = frame
+        .geometry
+        .triangles
+        .values()
+        .map(|f| RawGeometryTriangle {
+            vertices: f.vertices.map(corner),
+            color: f.color,
+            extensions: f.extensions.clone(),
+            legacy_aliases: f.legacy_aliases.clone(),
+        })
+        .collect();
+    document.replace_definition_geometry_raw(definition, vertices, segments, triangles)?;
+    for hotspot in &frame.hotspots {
+        document.put_hotspot(definition, hotspot.clone())?;
+    }
+    let path = modeling_objects::place_definition(
+        &mut document,
+        &EditContext::Document,
+        definition,
+        Vec3::ZERO,
+        None,
+        false,
+    )?;
+    let mut selection = SelectionSession::default();
+    selection.select(SelectionTarget {
+        occurrence: path,
+        entity: SelectedEntity::Occurrence,
+    });
+    meshcraft_core::document::clipboard::ClipboardSelection::capture(&document, &selection)
+}
+
+impl MeshcraftApp {
+    pub(crate) fn mcp_resolve_document(&mut self, args: &Value) -> Result<Value, String> {
+        let pending = self
+            .pending_replacement
+            .as_ref()
+            .ok_or("no document replacement is pending")?
+            .clone();
+        match args["action"].as_str().ok_or("action required")? {
+            "cancel" => self.resolve_document_replacement(ReplacementDecision::Cancel),
+            "discard" => self.resolve_document_replacement(ReplacementDecision::Discard),
+            "save" => {
+                if let Some(path) = args.get("path") {
+                    let path = path.as_str().ok_or("path must be a string")?;
+                    if !std::path::Path::new(path).is_absolute() {
+                        return Err("provide an absolute save path".into());
+                    }
+                    self.pending_replacement = None;
+                    self.replacement_after_save = Some(pending.clone());
+                    let payload = CommandPayload {
+                        values: BTreeMap::from([("path".into(), json!(path))]),
+                        ..Default::default()
+                    };
+                    let result = self.save_project_native(true, &payload);
+                    if !matches!(result.completion, CommandCompletion::Pending { .. }) {
+                        self.replacement_after_save = None;
+                        self.pending_replacement = Some(pending.clone());
+                        return Err(result.diagnostics.join("; "));
+                    }
+                } else {
+                    if self.current_project_path.is_none() {
+                        return Err("provide an absolute save path for an unnamed document".into());
+                    }
+                    self.resolve_document_replacement(ReplacementDecision::Save);
+                }
+            }
+            _ => return Err("action must be save, discard or cancel".into()),
+        }
+        Ok(
+            json!({"job_id":pending.job_id,"result":self.job_results.get(&pending.job_id),"status":self.mcp_status()}),
+        )
+    }
+}
+
+#[cfg(test)]
+mod job_tests {
+    use super::*;
+    use meshcraft_core::document::scripts::{Drawable, ScriptFrame};
+    fn frame() -> ScriptFrame {
+        let items:Vec<Drawable>=serde_json::from_value(json!([
+            {"kind":"segment","id":"line","points":[{"x":0,"y":0,"z":0},{"x":3,"y":0,"z":0}],"color":{"red":20,"green":25,"blue":30,"alpha":255}},
+            {"kind":"hotspot","id":"handle","position":{"x":3,"y":0,"z":0}}
+        ])).unwrap();
+        ScriptFrame::build(&Default::default(), items, Default::default()).unwrap()
+    }
+    fn queued(
+        app: &mut MeshcraftApp,
+        commit: bool,
+    ) -> std::sync::mpsc::SyncSender<Result<ScriptFrame, String>> {
+        let (send, receiver) = std::sync::mpsc::sync_channel(1);
+        app.mcp_jobs.pending = Some(ScriptJob {
+            id: "test-script".into(),
+            generation: app.document_generation,
+            revision: app.document.revision(),
+            context: app.selection.context.clone(),
+            name: "Test Geometry".into(),
+            position: Vec3::X * 2.,
+            commit,
+            receiver,
+            cancel: Default::default(),
+        });
+        send
+    }
+    #[test]
+    fn committed_result_bakes_geometry_hotspots_and_is_one_undo_step() {
+        let mut app = super::super::tests::test_app();
+        let revision = app.document.revision();
+        let entries = app.history.entries().len();
+        queued(&mut app, true).send(Ok(frame())).unwrap();
+        app.poll_mcp_script();
+        let result = app.command_job_result("test-script").unwrap();
+        assert_eq!(CommandCompletion::Completed, result.completion);
+        assert_eq!(true, result.outputs["committed"]);
+        assert!(app.document.revision() != revision);
+        assert_eq!(entries + 1, app.history.entries().len());
+        let path = app.selected_occurrences()[0].clone();
+        let r = app.document.resolve_occurrence(&path).unwrap();
+        assert!(app.document.script(r.definition.id).is_none());
+        assert_eq!(1, app.document.hotspots(r.definition.id).unwrap().len());
+        assert_eq!(2., r.world_transform.transform_point(Vec3::ZERO).x);
+        assert_eq!(
+            1,
+            app.document
+                .effective_geometry(&path)
+                .unwrap()
+                .segments
+                .len()
+        );
+        app.run_command("edit.undo");
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
+    }
+    #[test]
+    fn preview_failure_cancel_and_stale_results_cannot_change_model() {
+        let mut app = super::super::tests::test_app();
+        let revision = app.document.revision();
+        queued(&mut app, false).send(Ok(frame())).unwrap();
+        app.poll_mcp_script();
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(
+            false,
+            app.command_job_result("test-script").unwrap().outputs["committed"]
+        );
+        queued(&mut app, true)
+            .send(Err("Bad source".into()))
+            .unwrap();
+        app.poll_mcp_script();
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.command_job_result("test-script").unwrap().completion
+        );
+        let send = queued(&mut app, true);
+        app.cancel_mcp_script().unwrap();
+        assert!(send.send(Ok(frame())).is_err());
+        app.poll_mcp_script();
+        assert_eq!(revision, app.document.revision());
+        let send = queued(&mut app, true);
+        app.document
+            .add_cuboid("user edit", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let changed = app.document.revision();
+        send.send(Ok(frame())).unwrap();
+        app.poll_mcp_script();
+        assert_eq!(changed, app.document.revision());
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        assert!(app.command_job_result("test-script").unwrap().diagnostics[0].contains("changed"));
+    }
+    #[test]
+    fn oversized_properties_and_errors_do_not_accumulate_in_job_summaries() {
+        let mut app = super::super::tests::test_app();
+        let mut output = frame();
+        output
+            .state
+            .properties
+            .insert("large".into(), json!("x".repeat(70_000)));
+        queued(&mut app, false).send(Ok(output)).unwrap();
+        app.poll_mcp_script();
+        assert_eq!(
+            true,
+            app.command_job_result("test-script").unwrap().outputs["propertiesOmitted"]
+        );
+        queued(&mut app, false)
+            .send(Err("x".repeat(70_000)))
+            .unwrap();
+        app.poll_mcp_script();
+        assert_eq!(
+            4096,
+            app.command_job_result("test-script").unwrap().diagnostics[0].len()
+        );
+    }
+    #[test]
+    fn pending_document_choices_are_visible_and_explicitly_resolvable() {
+        let mut app = super::super::tests::test_app();
+        app.run_command("geometry.add_cuboid");
+        app.run_command("file.new");
+        assert!(!app.mcp_status()["pendingDialog"].is_null());
+        app.mcp_resolve_document(&json!({"action":"cancel"}))
+            .unwrap();
+        assert_eq!(1, app.document.occurrence_refs().unwrap().len());
+        app.run_command("file.new");
+        app.mcp_resolve_document(&json!({"action":"discard"}))
+            .unwrap();
+        assert!(app.document.occurrence_refs().unwrap().is_empty());
     }
 }

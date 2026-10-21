@@ -38,6 +38,7 @@ pub struct Runtime {
 struct Worker {
     child: Child,
     broken: bool,
+    cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     input: BufWriter<std::process::ChildStdin>,
     output: mpsc::Receiver<Result<String, String>>,
     reader: Option<thread::JoinHandle<()>>,
@@ -89,6 +90,7 @@ impl Worker {
         Ok(Self {
             child,
             broken: false,
+            cancel: None,
             input: BufWriter::with_capacity(64 * 1024, input),
             output,
             reader: Some(reader),
@@ -114,6 +116,13 @@ impl Worker {
             .map_err(|e| e.to_string())?;
         let started = Instant::now();
         let line = loop {
+            if self
+                .cancel
+                .as_ref()
+                .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire))
+            {
+                return Err("Script execution canceled".into());
+            }
             match self.output.recv_timeout(Duration::from_millis(25)) {
                 Ok(result) => break result?,
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -390,6 +399,37 @@ impl Drop for Runtime {
         }
     }
 }
+/// One immutable scene, one initialization/frame evaluation, and the same SDK/runtime limits.
+/// This function runs on a background thread; its output is not installed in the live document.
+pub(crate) fn evaluate_once(
+    document: Arc<Document>,
+    source: meshcraft_core::document::scripts::ScriptDefinition,
+    properties: BTreeMap<String, Value>,
+    canceled: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<ScriptFrame, String> {
+    let mut worker = Worker::new()?;
+    worker.cancel = Some(canceled);
+    evaluate_once_with(document, source, properties, &mut |input| {
+        worker.evaluate(input)
+    })
+}
+fn evaluate_once_with(
+    document: Arc<Document>,
+    source: meshcraft_core::document::scripts::ScriptDefinition,
+    properties: BTreeMap<String, Value>,
+    worker: &mut impl FnMut(Value) -> Result<Value, String>,
+) -> Result<ScriptFrame, String> {
+    let sweep = Sweep::new(Request {
+        document,
+        query_model: None,
+        key: 0,
+        time: 0.,
+        delta: 0.,
+    });
+    worker(json!({"prepareModel":sweep.model()}))?;
+    let out: Output=serde_json::from_value(worker(json!({"id":"mcp-once","source":source,"state":{"initializer":"","properties":properties},"geometry":[],"hotspots":{},"time":0.,"deltaTime":0.}))?).map_err(|e|format!("Invalid script output: {e}"))?;
+    ScriptFrame::build(&Default::default(), out.items, out.state)
+}
 pub struct Clock {
     pub start: Instant,
     pub last: Instant,
@@ -543,5 +583,49 @@ function onAnimationFrame(){this.frames=(this.frames||0)+1;return [cube(new Poin
         assert!(response.frames.is_empty());
         assert!(!response.pending);
         assert!(!response.halted);
+    }
+}
+
+#[cfg(test)]
+mod one_shot_tests {
+    use super::*;
+    #[test]
+    fn one_shot_reuses_full_sdk_model_facade_and_custom_instance_properties() {
+        let mut document = Document::new();
+        document
+            .add_cuboid(
+                "existing",
+                meshcraft_core::geometry::Vec3::new(1., 1., 1.),
+                meshcraft_core::geometry::Vec3::ZERO,
+            )
+            .unwrap();
+        let source=meshcraft_core::document::scripts::ScriptDefinition {
+            on_animation_frame:"this.count=model.objects.length; return [translate(new Point(2,0,0))(cuboid(new Point(),new Point(this.width,2,1),'body',phong('#338cffff'))),hotspot(new Point(this.width,0,0),'width')];".into(),..Default::default()
+        };
+        let mut session = None;
+        let frame = evaluate_once_with(
+            Arc::new(document),
+            source,
+            BTreeMap::from([("width".into(), json!(3))]),
+            &mut |input| {
+                if let Some(model) = input.get("prepareModel") {
+                    session = Some(crate::script_engine::Session::new(model)?);
+                    Ok(json!(true))
+                } else {
+                    session.as_ref().unwrap().evaluate(&input)
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(12, frame.geometry.triangles.len());
+        assert_eq!(1, frame.hotspots.len());
+        assert!(frame.state.properties["count"].as_u64().unwrap() >= 1);
+        assert_eq!(3, frame.state.properties["width"]);
+        let bounds = meshcraft_core::geometry::Aabb3::from_points(
+            frame.geometry.vertices.values().map(|v| v.position),
+        )
+        .unwrap();
+        assert_eq!(2., bounds.min.x);
+        assert_eq!(5., bounds.max.x);
     }
 }

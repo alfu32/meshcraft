@@ -1141,6 +1141,7 @@ const SETTINGS_GROUPS: &[RibbonGroup] = &[
             ("ui-text-size", "Text Size"),
             ("toolbar-size", "Toolbar Size"),
             ("permanent-grid", "Permanent Grid"),
+            ("mcp-settings", "MCP Server"),
         ],
     },
     RibbonGroup {

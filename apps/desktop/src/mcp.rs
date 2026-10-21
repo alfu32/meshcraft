@@ -42,7 +42,7 @@ impl Work {
     }
 }
 
-type Inflight = Arc<Mutex<BTreeMap<String, Arc<AtomicBool>>>>;
+type Inflight = Arc<Mutex<BTreeMap<String, Vec<Arc<AtomicBool>>>>>;
 pub(crate) struct Server {
     pub port: u16,
     receiver: mpsc::Receiver<Work>,
@@ -340,9 +340,10 @@ fn handle(
     protocol::dispatch(body, &request.headers, |method, params, id| {
         if method == "notifications/cancelled" {
             if let Some(id) = params.get("requestId")
-                && let Some(flag) = inflight.lock().unwrap().get(&id.to_string())
+                && let Some(flags) = inflight.lock().unwrap().get(&id.to_string())
+                && flags.len() == 1
             {
-                flag.store(true, Ordering::Release);
+                flags[0].store(true, Ordering::Release);
             }
             return Ok(Value::Null);
         }
@@ -350,10 +351,10 @@ fn handle(
         let canceled = Arc::new(AtomicBool::new(false));
         {
             let mut pending = inflight.lock().unwrap();
-            if pending.contains_key(&key) {
-                return Err("request ID is already in flight".into());
-            }
-            pending.insert(key.clone(), Arc::clone(&canceled));
+            pending
+                .entry(key.clone())
+                .or_default()
+                .push(Arc::clone(&canceled));
         }
         let (reply, receiver) = mpsc::sync_channel(1);
         let deadline = Instant::now() + REQUEST_TIMEOUT;
@@ -394,7 +395,13 @@ fn handle(
             result
         };
         canceled.store(true, Ordering::Release);
-        inflight.lock().unwrap().remove(&key);
+        let mut pending = inflight.lock().unwrap();
+        if let Some(flags) = pending.get_mut(&key) {
+            flags.retain(|flag| !Arc::ptr_eq(flag, &canceled));
+            if flags.is_empty() {
+                pending.remove(&key);
+            }
+        }
         result
     })
     .map_err(bad)
@@ -512,5 +519,39 @@ mod tests {
         }
         drop(server);
         assert!(!work.live());
+    }
+}
+
+#[cfg(test)]
+mod concurrent_tests {
+    use super::*;
+    #[test]
+    fn independent_clients_can_reuse_the_same_json_rpc_counter() {
+        let server = Server::start(0).unwrap();
+        let port = server.port;
+        let clients=(0..2).map(|_|thread::spawn(move||{
+            let mut stream=TcpStream::connect((std::net::Ipv4Addr::LOCALHOST,port)).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let body=r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"k3d_status"}}"#;
+            write!(stream,"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
+            let mut output=String::new();stream.read_to_string(&mut output).unwrap();output
+        })).collect::<Vec<_>>();
+        let start = Instant::now();
+        let mut work = Vec::new();
+        while work.len() < 2 {
+            if let Some(request) = server.try_recv() {
+                work.push(request);
+            }
+            assert!(start.elapsed() < Duration::from_secs(2));
+            thread::sleep(Duration::from_millis(5));
+        }
+        for request in work {
+            assert!(request.live());
+            request.finish(Ok(json!({"revision":1})));
+        }
+        for client in clients {
+            let output = client.join().unwrap();
+            assert!(output.contains("\"isError\":false"), "{output}");
+        }
     }
 }

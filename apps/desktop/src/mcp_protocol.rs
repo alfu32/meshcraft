@@ -105,6 +105,39 @@ pub fn tools() -> Vec<Value> {
             false,
         ),
         tool(
+            "meshcraft_run_script",
+            "Run a ONE-SHOT script through the SAME JavaScript SDK as object scripts, off the UI thread. Default source_type=body accepts e.g. return cuboid(new Point(),new Point(3,2,1)); source_type=module defines onCreate/onAnimationFrame. this.geometry starts empty; model is an immutable live-scene snapshot, custom properties initialize this. Returns a job ID; poll meshcraft_get_job. commit=true (default) inserts one static object with emitted geometry/hotspots in ONE undo transaction, in the active editing context. Output coordinates are world model units plus optional position offset. commit=false evaluates without model changes. Rejects stale results after document/context changes; failures/cancel leave no geometry.",
+            schema(
+                json!({"source":{"type":"string"},"source_type":{"enum":["body","module"]},"properties":{"type":"object"},"name":{"type":"string"},"position":{"type":"array","items":{"type":"number"}},"commit":{"type":"boolean"}}),
+                &["source"],
+            ),
+            false,
+        ),
+        tool(
+            "meshcraft_cancel_script",
+            "Cancel the current one-shot script; queued output cannot commit. Inspect its job result for cancellation. Stop/Restart or closing the app also cancels it.",
+            schema(json!({}), &[]),
+            false,
+        ),
+        tool(
+            "meshcraft_capture_view",
+            "Capture the current 3D viewport as a PNG image for visual verification. It includes model, helpers and tool preview, without UI panels or GPUI text labels. Default requires a freshly rendered frame; retry on rendering-pending errors, or set allow_stale=true for the latest available frame. Max width defaults to 1024. Returns image content plus frame/revision metadata.",
+            schema(
+                json!({"max_width":{"type":"integer","minimum":64,"maximum":2048},"allow_stale":{"type":"boolean"}}),
+                &[],
+            ),
+            true,
+        ),
+        tool(
+            "meshcraft_resolve_document",
+            "Resolve an explicit pending New/Open unsaved-changes choice reported by k3d_status.pendingDialog. action=cancel retains the document; discard continues replacement; save saves before replacement (supply an absolute path when unnamed). Does not bypass the UI workflow or silently discard edits.",
+            schema(
+                json!({"action":{"enum":["save","discard","cancel"]},"path":{"type":"string"}}),
+                &["action"],
+            ),
+            false,
+        ),
+        tool(
             "meshcraft_get_job",
             "Poll accepted asynchronous open/save/import/script jobs by ID. Returns pending/completed/failed and outputs; this does not re-execute the operation.",
             schema(json!({"job_id":{"type":"string"}}), &["job_id"]),
@@ -303,9 +336,15 @@ pub(super) fn dispatch(
             }
             let result = owner(method, params, id.clone());
             match result {
-                Ok(value) => Ok(
-                    json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false}),
-                ),
+                Ok(mut value) => {
+                    let mut content = value
+                        .as_object_mut()
+                        .and_then(|v| v.remove("_mcpContent"))
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default();
+                    content.push(json!({"type":"text","text":value.to_string()}));
+                    Ok(json!({"content":content,"structuredContent":value,"isError":false}))
+                }
                 Err(e) => Ok(json!({"content":[{"type":"text","text":e}],"isError":true})),
             }
         }
@@ -418,5 +457,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(true, reply["result"]["isError"]);
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    #[test]
+    fn viewport_png_is_image_content_and_metadata_stays_structured() {
+        let (_,reply)=dispatch(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meshcraft_capture_view"}}),&BTreeMap::new(),|_,_,_|Ok(json!({"_mcpContent":[{"type":"image","data":"png-data","mimeType":"image/png"}],"fresh":true}))).unwrap();
+        assert_eq!("image", reply["result"]["content"][0]["type"]);
+        assert_eq!(true, reply["result"]["structuredContent"]["fresh"]);
+        assert!(
+            reply["result"]["structuredContent"]
+                .get("_mcpContent")
+                .is_none()
+        );
+        assert!(
+            !reply["result"]["content"][1]["text"]
+                .as_str()
+                .unwrap()
+                .contains("png-data")
+        );
     }
 }

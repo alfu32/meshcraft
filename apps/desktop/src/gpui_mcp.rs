@@ -62,6 +62,7 @@ fn control(shell: &mut MeshcraftShell, action: &str, cx: &mut Context<MeshcraftS
     }
     if action != "start" || !running(shell) {
         shell.mcp.server = None;
+        let _ = shell.session.cancel_mcp_script();
     }
     if action != "stop" && shell.mcp.server.is_none() {
         match mcp::Server::start(shell.session.native_mcp_port()) {
@@ -143,12 +144,38 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
             work.finish(Err("request canceled before execution".into()));
             continue;
         }
+        // A host job may have committed immediately before this queue was pumped.
+        // Publish it before a queued capture can compare its frame revision.
+        if shell.cached_document_revision != Some(shell.session.native_visual_revision())
+            || shell.cached_document_generation != Some(shell.session.document_generation())
+            || shell.cached_edit_context.as_ref() != Some(&shell.session.native_edit_context())
+        {
+            shell.refresh_scene();
+        }
+        if !work.live() {
+            work.finish(Err("request expired before execution".into()));
+            continue;
+        }
         let operation = if work.method == "tools/call" {
             work.params["name"].as_str().unwrap_or("tool")
         } else {
             work.params["uri"].as_str().unwrap_or("resource")
         }
-        .to_owned();
+        .chars()
+        .take(256)
+        .collect::<String>();
+        let changed = work.method == "tools/call"
+            && !matches!(
+                operation.as_str(),
+                "k3d_contract"
+                    | "k3d_status"
+                    | "k3d_list_commands"
+                    | "meshcraft_scene"
+                    | "meshcraft_geometry"
+                    | "meshcraft_script_api"
+                    | "meshcraft_get_job"
+                    | "meshcraft_capture_view"
+            );
         let start = Instant::now();
         let result = if work.method == "tools/call" {
             call(
@@ -159,7 +186,12 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
         } else {
             read(shell, work.params["uri"].as_str().unwrap_or(""))
         };
-        let log = json!({"operation":operation,"success":result.is_ok(),"elapsedMs":start.elapsed().as_millis(),"revision":shell.session.document_revision(),"error":result.as_ref().err()});
+        // Publish each edit before acknowledging it or processing the next request.
+        // Generic commands already do this through apply_command_effects.
+        if changed && operation != "k3d_execute_command" {
+            shell.refresh_scene();
+        }
+        let log = json!({"operation":operation,"success":result.is_ok(),"elapsedMs":start.elapsed().as_millis(),"revision":shell.session.document_revision(),"error":result.as_ref().err().map(|s|s.chars().take(1024).collect::<String>())});
         shell.mcp.logs.push_back(log);
         while shell.mcp.logs.len() > 100 {
             shell.mcp.logs.pop_front();
@@ -182,6 +214,9 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
         "k3d_list_commands" => Ok(shell.session.mcp_commands(args)),
         "k3d_execute_command" => {
             let id = args["commandId"].as_str().ok_or("commandId required")?;
+            if id.len() > 128 {
+                return Err("commandId exceeds 128 bytes".into());
+            }
             let values = args.get("arguments").cloned().unwrap_or(json!({}));
             let values = values
                 .as_object()
@@ -193,10 +228,11 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
                 values,
                 ..Default::default()
             };
-            if matches!(
+            if (matches!(
                 id,
                 "file.open" | "file.save_as" | "object.import_scene" | "object.reference_scene"
-            ) && !payload.values.contains_key("path")
+            ) || id == "file.save" && shell.session.current_project_path().is_none())
+                && !payload.values.contains_key("path")
             {
                 return Err(
                     "provide an absolute path; MCP does not open interactive file dialogs".into(),
@@ -254,6 +290,10 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
             )
         }
         "meshcraft_object_script" => shell.session.mcp_script(args),
+        "meshcraft_run_script" => shell.session.mcp_run_script(args),
+        "meshcraft_cancel_script" => shell.session.cancel_mcp_script(),
+        "meshcraft_capture_view" => capture(shell, args),
+        "meshcraft_resolve_document" => shell.session.mcp_resolve_document(args),
         "meshcraft_get_job" => {
             let id = args["job_id"].as_str().ok_or("job_id required")?;
             shell
@@ -266,6 +306,9 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
     }
 }
 fn read(shell: &mut MeshcraftShell, uri: &str) -> Result<Value, String> {
+    if uri.len() > 1024 {
+        return Err("resource URI exceeds 1024 bytes".into());
+    }
     let uri = uri.replace("k3d://", "meshcraft://");
     let uri = if uri == "meshcraft://selection/summary" {
         "meshcraft://selection"
@@ -293,4 +336,66 @@ fn read(shell: &mut MeshcraftShell, uri: &str) -> Result<Value, String> {
         _ => return Err("unknown resource URI; use resources/list".into()),
     };
     Ok(json!({"contents":[{"uri":uri,"mimeType":mime,"text":text}]}))
+}
+
+fn capture(shell: &MeshcraftShell, args: &Value) -> Result<Value, String> {
+    use base64::Engine as _;
+    use image::ImageEncoder as _;
+    let frame = shell
+        .bridge
+        .latest_frame()
+        .ok_or("viewport has not rendered yet; retry capture")?;
+    let requested = *shell
+        .bridge
+        .redraw
+        .0
+        .lock()
+        .map_err(|_| "renderer is unavailable")?;
+    let fresh = frame.request_revision == requested;
+    if !fresh && !args["allow_stale"].as_bool().unwrap_or(false) {
+        return Err("viewport rendering is pending; retry capture, or set allow_stale=true".into());
+    }
+    let size = frame.image.size(0);
+    let (width, height) = (
+        u32::try_from(size.width.0).map_err(|_| "invalid viewport width")?,
+        u32::try_from(size.height.0).map_err(|_| "invalid viewport height")?,
+    );
+    let mut bytes = frame
+        .image
+        .as_bytes(0)
+        .ok_or("viewport frame is empty")?
+        .to_vec();
+    for pixel in bytes.as_chunks_mut::<4>().0 {
+        pixel.swap(0, 2);
+    }
+    let image =
+        image::RgbaImage::from_raw(width, height, bytes).ok_or("invalid viewport image size")?;
+    let max = args["max_width"].as_u64().unwrap_or(1024) as u32;
+    let image = if width > max {
+        image::imageops::resize(
+            &image,
+            max,
+            (height as f64 * max as f64 / width as f64).round().max(1.) as u32,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image
+    };
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut png,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::NoFilter,
+    )
+    .write_image(
+        image.as_raw(),
+        image.width(),
+        image.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(|e| e.to_string())?;
+    let data = base64::engine::general_purpose::STANDARD.encode(png);
+    Ok(
+        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"frameSequence":frame.sequence,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
+    )
 }

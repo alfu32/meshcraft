@@ -157,6 +157,15 @@ description and example plus model/this accessors and the exact SDK source. The 
 JSON transport and legacy MCP initialization are implemented; full old REST-route equivalence
 remains tracked in T41. See [agent guide](../../mcp.md).
 
+One-shot agent scripts use the same SDK and immutable model facade in the bounded script worker.
+A call returns a job ID; accepted work is not a completed geometry edit. Success optionally bakes
+geometry/hotspots as a static object in the active context, in one undo step. Runtime errors,
+timeouts, cancellation and stale document/context results cannot commit. Stop/Restart/close
+cancel pending scripts. Agents can evaluate without commit, resolve explicit pending document
+replacement choices, poll job results, and capture a fresh viewport PNG with frame/revision
+metadata. Read-only requests do not trigger scene redraws; capture cannot report an old frame
+as fresh. Public usage, limits and examples are in the [agent guide](../../mcp.md).
+
 ### A03 Developer console and CLI/TUI
 
 **Observed, deferred by user.** Legacy desktop launches a persistent Groovy REPL with `app`, `scene`, selection, camera, lighting, unit/save/mcp/version bindings; terminal UI has input/history/output, meta commands and introspection. `app.run` marshals to the render thread and can defer nested operations. Desktop `groovy <script>` and developer performance/introspection tools are part of that legacy surface.
