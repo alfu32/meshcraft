@@ -8,7 +8,6 @@ use ropey::Rope;
 use std::{
     collections::{BTreeSet, HashMap},
     ops::Range,
-    usize,
 };
 use sum_tree::Bias;
 use tree_sitter::{
