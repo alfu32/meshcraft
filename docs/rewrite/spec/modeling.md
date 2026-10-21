@@ -213,6 +213,10 @@ that resize their entire planar contour. Windows take their initial definition
 normal from the cursor normal, including non-face snaps. Direct Explode on a
 selected architectural element replaces its canonical record with its current
 realized lines/mesh; the existing object explode handles placed frame instances.
+Legacy inner-face wall axes normalize through a half-thickness offset, while
+existing centered native records stay centered. Legacy slabs extrude upward from
+min/max; import maps those to the canonical top profile without flipping opening
+UVs that already use the normalized normal/axisU basis.
 
 ### P03 Stairs, window frames, and door frames
 

@@ -233,7 +233,7 @@ impl MeshcraftApp {
         let vertices=geometry.vertices.values().filter(|v|referenced.contains(&v.id)).map(|v|json!({"id":v.id.0.to_string(),"position":v.position,"target":target_json(&SelectionTarget {occurrence:occurrence.clone(),entity:SelectedEntity::Vertex(v.id)})})).collect::<Vec<_>>();
         let total = geometry.segments.len() + geometry.triangles.len();
         let mut result = json!({"path":occurrence.path,"definition_id":r.definition.id,"transform":r.world_transform,"primitives":primitives,"vertices":vertices,"total":total,"nextOffset":if offset.saturating_add(limit)<total{Some(offset+limit)}else{None},"hotspots":self.document.instance_hotspots(&occurrence)?,"scriptState":self.document.script_frame(&occurrence).map(|f|&f.state),"annotations":self.document.annotations().into_iter().filter(|a|a.target.occurrence==occurrence).map(|a|json!({"target":target_json(&a.target),"record":a.record,"editable":self.native_target_editable(&a.target)})).collect::<Vec<_>>()});
-        result["architecture"] = json!(self.document.architecture_elements().into_iter().filter(|e|e.target.occurrence==occurrence).map(|e|json!({"target":target_json(&e.target),"record":e.element.value(),"editable":self.native_architecture_editable(&e.target)})).collect::<Vec<_>>());
+        result["architecture"] = json!(self.document.architecture_elements().into_iter().filter(|e|e.target.occurrence==occurrence).map(|e|json!({"target":target_json(&e.target),"record":e.element.value(),"controls":e.element.controls().unwrap_or_default(),"editable":self.native_architecture_editable(&e.target)})).collect::<Vec<_>>());
         // Stable generated IDs can exceed JavaScript's 53-bit integer precision.
         fn ids(value: &mut Value) {
             match value {

@@ -1553,7 +1553,9 @@ impl MeshcraftShell {
             self.camera_drag = Some((button, x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
             self.update_pointer(x, y);
-            if self.begin_architecture_drag(x, y) || self.begin_hotspot_drag(x, y, modifiers) {
+            if self.begin_architecture_drag(x, y, modifiers)
+                || self.begin_hotspot_drag(x, y, modifiers)
+            {
                 return;
             }
             self.selection_gesture = Some(SelectionGesture {
@@ -2121,7 +2123,7 @@ fn selection_region_in_context(
     selected.retain(|target| {
         crossing
             || document.architecture_element(target).is_none_or(|e| {
-                e.element.mesh().is_ok_and(|mesh| {
+                document.architecture_mesh(target).is_ok_and(|mesh| {
                     mesh.points.iter().all(|p| {
                         project_point(camera, size, e.transform.transform_point(*p))
                             .is_some_and(|(x, y)| rect_contains(region, x, y))

@@ -159,6 +159,28 @@ parameters rather than the generated cache. `architecture.add_hole` takes an own
 `hole_id`. Openings belong exclusively to that wall/slab. Windows and doors are
 independent object instances and never cut a wall or slab implicitly.
 
+Wall records also expose default-on `autoJoin`, signed `offset`, independent 3D
+`start`/`end` base endpoints and optional `endHeight` (falling back to `height`).
+Flat command properties are `wall_auto_join`, `wall_offset`, `wall_height` and
+`wall_end_height`. Compatible shared endpoints join when both owners enable it.
+
+Each `meshcraft_geometry.architecture` item publishes a `controls` array with
+local `point`, `normal`, optional drag axis/alternate plane, and a copyable
+`control` descriptor. Convert its point through the occurrence transform for
+world coordinates. Send the descriptor with a **world** `position` to
+`architecture.move_control`, for example:
+
+```json
+{"id":"<owner id>","control":{"kind":"wall_top","end":true},"position":[5,4,0]}
+```
+
+Other descriptors are `wall_base` with `end:false|true`, `slab_vertex` with
+`index`, `hole_corner` with `hole_id` and `corner:0|1`, and `frame_corner` with
+`corner:0|1`. Wall base edits preserve that end's height; top edits alter only
+its height. Opening/frame controls resize on their owner's definition plane.
+`object.explode_selection` also accepts canonical wall/slab/frame selections,
+replacing them with their realized lines and triangles in one undoable edit.
+
 ## Transport and scope
 
 The transport follows [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).

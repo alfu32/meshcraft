@@ -1,0 +1,572 @@
+{
+  "version": 17,
+  "prototypes": [
+    {
+      "id": "meshcraft-prototype-0",
+      "name": "Root",
+      "kind": "MESH",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureSlabs": [
+        {
+          "id": "meshcraft:architecture:151",
+          "name": "Editable slab",
+          "profile": {
+            "points": [
+              {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              {
+                "x": 6.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              {
+                "x": 6.0,
+                "y": 0.0,
+                "z": 5.0
+              },
+              {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 5.0
+              }
+            ],
+            "closed": true
+          },
+          "normal": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "origin": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "axisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "thickness": 0.25,
+          "topColor": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "bottomColor": {
+            "r": 0.84,
+            "g": 0.84,
+            "b": 0.84,
+            "a": 1.0
+          },
+          "sideColor": {
+            "r": 0.88,
+            "g": 0.88,
+            "b": 0.88,
+            "a": 1.0
+          },
+          "holes": [
+            {
+              "id": "meshcraft:opening:506",
+              "name": "Opening 1",
+              "u0": 1.0,
+              "u1": 2.0,
+              "v0": -3.0,
+              "v1": -2.0
+            }
+          ],
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 6.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 6.0,
+              "y": 0.0,
+              "z": 5.0
+            },
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 5.0
+            }
+          ],
+          "min": {
+            "x": 0.0,
+            "y": -0.25,
+            "z": 0.0
+          },
+          "max": {
+            "x": 6.0,
+            "y": -0.25,
+            "z": 5.0
+          },
+          "axisV": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -1.0
+          }
+        }
+      ],
+      "architectureWalls": [
+        {
+          "id": "meshcraft:architecture:2",
+          "name": "Joined wall A",
+          "start": {
+            "x": 0.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "end": {
+            "x": 6.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "thickness": 0.4,
+          "height": 3.0,
+          "endHeight": 4.5,
+          "offset": 0.25,
+          "autoJoin": true,
+          "up": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "inclinationDeg": 0.0,
+          "exteriorColor": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "interiorColor": {
+            "r": 0.84,
+            "g": 0.84,
+            "b": 0.84,
+            "a": 1.0
+          },
+          "holes": [
+            {
+              "id": "meshcraft:opening:185",
+              "name": "Opening 1",
+              "u0": 1.0,
+              "u1": 3.5,
+              "v0": 1.0,
+              "v1": 2.3
+            }
+          ]
+        },
+        {
+          "id": "meshcraft:architecture:52",
+          "name": "Joined wall B",
+          "start": {
+            "x": 6.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "end": {
+            "x": 6.0,
+            "y": 0.0,
+            "z": 5.0
+          },
+          "thickness": 0.4,
+          "height": 3.0,
+          "endHeight": null,
+          "offset": 0.1,
+          "autoJoin": true,
+          "up": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "inclinationDeg": 0.0,
+          "exteriorColor": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "interiorColor": {
+            "r": 0.84,
+            "g": 0.84,
+            "b": 0.84,
+            "a": 1.0
+          },
+          "holes": []
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false,
+      "meshcraftChildren": [
+        {
+          "id": "meshcraft-instance-422",
+          "prototypeId": "meshcraft-prototype-340",
+          "instanceOrigin": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 0.1
+          },
+          "instanceAxisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "instanceAxisV": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "instanceAxisW": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "children": []
+        },
+        {
+          "id": "meshcraft-instance-505",
+          "prototypeId": "meshcraft-prototype-423",
+          "instanceOrigin": {
+            "x": 6.099999999999999,
+            "y": 1.0,
+            "z": 1.354550538907631
+          },
+          "instanceAxisU": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "instanceAxisV": {
+            "x": 0.0,
+            "y": 1.0,
+            "z": 0.0
+          },
+          "instanceAxisW": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "meshcraft-prototype-340",
+      "name": "Editable frame",
+      "kind": "ARCHITECTURE",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureFrames": [
+        {
+          "id": "meshcraft:architecture:342",
+          "name": "Editable frame",
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 2.5,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 2.5,
+              "y": 1.2999999999999998,
+              "z": 0.0
+            },
+            {
+              "x": 0.0,
+              "y": 1.2999999999999998,
+              "z": 0.0
+            }
+          ],
+          "normal": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 1.0
+          },
+          "depth": 0.12,
+          "frameWidth": 0.06,
+          "kind": "WINDOW",
+          "color": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "glazingEnabled": true,
+          "glazingColor": {
+            "r": 0.72,
+            "g": 0.84,
+            "b": 0.95,
+            "a": 0.4
+          },
+          "cornerA": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "cornerB": {
+            "x": 2.5,
+            "y": 1.2999999999999998,
+            "z": 0.0
+          }
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false
+    },
+    {
+      "id": "meshcraft-prototype-423",
+      "name": "Window",
+      "kind": "ARCHITECTURE",
+      "definitionOrigin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "definitionAxisV": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "definitionAxisW": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "segments": [],
+      "faces": [],
+      "architectureFrames": [
+        {
+          "id": "meshcraft:architecture:425",
+          "name": "Window",
+          "contour": [
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 2.027703947741349
+            },
+            {
+              "x": 0.0,
+              "y": 1.415661261746428,
+              "z": 2.027703947741349
+            },
+            {
+              "x": 0.0,
+              "y": 1.415661261746428,
+              "z": 0.0
+            }
+          ],
+          "normal": {
+            "x": 1.0,
+            "y": 0.0,
+            "z": 1.7415263131375007e-16
+          },
+          "depth": 0.12,
+          "frameWidth": 0.06,
+          "kind": "WINDOW",
+          "color": {
+            "r": 0.93,
+            "g": 0.93,
+            "b": 0.93,
+            "a": 1.0
+          },
+          "glazingEnabled": true,
+          "glazingColor": {
+            "r": 0.72,
+            "g": 0.84,
+            "b": 0.95,
+            "a": 0.4
+          },
+          "cornerA": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "cornerB": {
+            "x": 0.0,
+            "y": 1.415661261746428,
+            "z": 2.027703947741349
+          }
+        }
+      ],
+      "externalReferenceEnabled": false,
+      "externalReferencePath": "",
+      "gluedToSurface": false
+    }
+  ],
+  "rootInstance": {
+    "id": "meshcraft-scene-root-instance",
+    "prototypeId": "meshcraft-prototype-0",
+    "instanceOrigin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "instanceAxisU": {
+      "x": 1.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "instanceAxisV": {
+      "x": 0.0,
+      "y": 1.0,
+      "z": 0.0
+    },
+    "instanceAxisW": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 1.0
+    },
+    "children": [
+      {
+        "id": "meshcraft-instance-422",
+        "prototypeId": "meshcraft-prototype-340",
+        "instanceOrigin": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 0.1
+        },
+        "instanceAxisU": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "instanceAxisV": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "instanceAxisW": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "children": []
+      },
+      {
+        "id": "meshcraft-instance-505",
+        "prototypeId": "meshcraft-prototype-423",
+        "instanceOrigin": {
+          "x": 6.099999999999999,
+          "y": 1.0,
+          "z": 1.354550538907631
+        },
+        "instanceAxisU": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "instanceAxisV": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "instanceAxisW": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 1.0
+        },
+        "children": []
+      }
+    ]
+  },
+  "modelUnit": {
+    "name": "unit",
+    "size": 1.0
+  },
+  "gridSpacing": 1.0,
+  "circleSegments": 24,
+  "snapEpsilon": 12.0,
+  "cameraState": {
+    "position": {
+      "x": -9.000000000000007,
+      "y": 9.0,
+      "z": 12.000000000000004
+    },
+    "direction": {
+      "x": 0.683763458757828,
+      "y": -0.4558423058385516,
+      "z": -0.5698028822981898
+    },
+    "up": {
+      "x": 0.3501877594859105,
+      "y": 0.8900605553600229,
+      "z": -0.29182313290492534
+    },
+    "target": {
+      "x": 3.0,
+      "y": 1.0,
+      "z": 2.0
+    },
+    "near": 0.1,
+    "far": 500.0,
+    "fieldOfView": 45.0
+  }
+}

@@ -141,6 +141,9 @@ pub(super) fn wall_mesh(wall: &Wall, neighbors: &[Wall]) -> Result<Mesh, String>
             let center = joint + plane.v * height;
             let limit = (8. * (a.thickness.max(b.thickness) + a.offset.abs().max(b.offset.abs())))
                 .max(1e-4);
+            let span_a = (a.end - a.start).dot(pa.u).abs();
+            let span_b = (b.end - b.start).dot(pb.u).abs();
+            let limit = limit.min(0.45 * span_a.min(span_b));
             let delta = hit - center;
             if delta.length() > limit {
                 center + delta * (limit / delta.length())

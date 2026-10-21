@@ -633,14 +633,25 @@ impl Element {
                 .and_then(|p| serde_json::from_value::<Vec3>(p).ok())
         };
         match field {
-            WALLS => serde_json::from_value(value)
-                .map(Self::Wall)
-                .map_err(|e| e.to_string()),
+            WALLS => {
+                let mut wall: Wall =
+                    serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+                // Legacy wall axes lie on the inner face. Native records have an up
+                // vector and use a centered axis; preserve both representations.
+                if value.get("offset").is_none() && value.get("up").is_none() {
+                    wall.offset = wall.thickness * 0.5;
+                }
+                Ok(Self::Wall(wall))
+            }
             SLABS => {
                 let mut slab: Slab =
                     serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
                 if slab.origin.is_none() {
-                    slab.origin = point("min");
+                    slab.origin = if value.get("profile").is_some() {
+                        slab.profile.points.first().copied()
+                    } else {
+                        point("min")
+                    };
                 }
                 if slab.profile.points.is_empty() {
                     slab.profile.points = value
@@ -663,23 +674,19 @@ impl Element {
                     let d = b - a;
                     slab.profile.points = vec![a, a + u * d.dot(u), b, a + v * d.dot(v)];
                 }
-                if value.get("profile").is_none()
-                    && let Some(v) = point("axisV")
-                {
-                    let plane = surface_with_basis(
-                        &slab.profile.points,
-                        slab.normal,
-                        slab.origin,
-                        slab.axis_u,
-                    )?
-                    .0;
-                    if v.dot(plane.v) < 0.0 {
-                        for h in &mut slab.holes {
-                            let v0 = -h.v1;
-                            h.v1 = -h.v0;
-                            h.v0 = v0;
-                        }
+                if value.get("profile").is_none() {
+                    // K3d normalizes handedness before storing hole UVs: its slabBasis
+                    // already uses normal.cross(axisU), even if stored axisV opposes it.
+                    // Its min/max plane is the lower face; our profile is the top face.
+                    let lift = slab
+                        .normal
+                        .try_normalized(EPS)
+                        .ok_or("Slab normal is invalid.")?
+                        * slab.thickness;
+                    for p in &mut slab.profile.points {
+                        *p += lift;
                     }
+                    slab.origin = slab.origin.map(|p| p + lift);
                 }
                 Ok(Self::Slab(slab))
             }
@@ -717,8 +724,10 @@ impl Element {
                 surface_with_basis(&v.profile.points, v.normal, v.origin, v.axis_u)
         {
             value["contour"] = serde_json::json!(v.profile.points);
-            value["min"] = serde_json::json!(plane.origin);
-            value["max"] = serde_json::json!(v.profile.points[v.profile.points.len() / 2]);
+            value["min"] = serde_json::json!(plane.origin - plane.normal * v.thickness);
+            value["max"] = serde_json::json!(
+                v.profile.points[v.profile.points.len() / 2] - plane.normal * v.thickness
+            );
             value["axisU"] = serde_json::json!(plane.u);
             value["axisV"] = serde_json::json!(plane.v);
         }
@@ -1615,7 +1624,7 @@ mod tests {
     #[test]
     fn sparse_legacy_rectangle_hole_axes_match_the_source_slab() {
         let value = serde_json::json!({"min":Vec3::ZERO,"max":Vec3::new(5.0,0.0,5.0),"axisU":Vec3::X,"axisV":Vec3::Z,"normal":Vec3::Y,"thickness":0.2,
-            "holes":[{"u0":1.0,"u1":2.0,"v0":1.0,"v1":2.0}]});
+            "holes":[{"u0":1.0,"u1":2.0,"v0":-2.0,"v1":-1.0}]});
         let e = Element::from_value(SLABS, value).unwrap();
         let mesh = e.mesh().unwrap();
         closed(&mesh);
@@ -2148,5 +2157,87 @@ mod tests {
                 .filter(|f| !generated(&f.extensions))
                 .count()
         );
+    }
+    #[test]
+    fn clipboard_wireframe_includes_realized_miter_extensions() {
+        use crate::{document::clipboard::ClipboardSelection, selection::SelectionSession};
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 6.,
+                    thickness: 0.4,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        d.put_architecture(
+            root,
+            None,
+            Element::Wall(Wall {
+                start: Vec3::X * 6.,
+                end: Vec3::new(6., 0., 4.),
+                thickness: 0.4,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(target(SelectionKind::Wall, id));
+        let clipboard = ClipboardSelection::capture(&d, &selection).unwrap();
+        assert!(
+            clipboard
+                .preview_edges
+                .iter()
+                .flatten()
+                .any(|p| p.x > 6.1 && p.z < -0.1)
+        );
+    }
+    #[test]
+    fn legacy_roof_holes_use_normalized_basis_and_controls_lie_on_the_actual_top() {
+        let legacy = serde_json::json!({"id":"roof","min":Vec3::new(-12.,9.,-19.),"max":Vec3::new(9.,9.,14.),"axisU":Vec3::X,"axisV":Vec3::Z,"normal":Vec3::Y,"thickness":1.,"holes":[{"id":"opening","u0":6.,"u1":10.,"v0":-28.,"v1":-16.}]});
+        let element = Element::from_value(SLABS, legacy.clone()).unwrap();
+        let mesh = element.mesh().unwrap();
+        closed(&mesh);
+        assert!((volume(&mesh) - (21. * 33. - 4. * 12.)).abs() < 1e-5);
+        assert!(
+            mesh.points
+                .iter()
+                .all(|p| p.y >= 9. - EPS && p.y <= 10. + EPS)
+        );
+        let controls = element
+            .controls()
+            .unwrap()
+            .into_iter()
+            .filter(|c| matches!(c.control, Control::HoleCorner { .. }))
+            .collect::<Vec<_>>();
+        assert_eq!(controls[0].point, Vec3::new(-6., 10., 9.));
+        assert_eq!(controls[1].point, Vec3::new(-2., 10., -3.));
+        let canonical = element.value();
+        assert_eq!(canonical["min"], legacy["min"]);
+        assert_eq!(canonical["holes"][0]["v0"], legacy["holes"][0]["v0"]);
+        assert_eq!(canonical["holes"][0]["v1"], legacy["holes"][0]["v1"]);
+        let reopened = Element::from_value(SLABS, canonical).unwrap();
+        assert_eq!(element, reopened);
+    }
+    #[test]
+    fn legacy_inner_wall_axis_is_normalized_without_shifting_centered_native_records() {
+        let mut value =
+            serde_json::json!({"start":Vec3::ZERO,"end":Vec3::X*5.,"height":3.,"thickness":1.});
+        let legacy = Element::from_value(WALLS, value.clone()).unwrap();
+        let mesh = legacy.mesh().unwrap();
+        assert!(mesh.points.iter().all(|p| p.z >= -EPS && p.z <= 1. + EPS));
+        value["up"] = serde_json::json!(Vec3::Y);
+        let native = Element::from_value(WALLS, value).unwrap();
+        let mesh = native.mesh().unwrap();
+        assert!(
+            mesh.points
+                .iter()
+                .all(|p| p.z >= -0.5 - EPS && p.z <= 0.5 + EPS)
+        );
+        assert_eq!(Element::from_value(WALLS, legacy.value()).unwrap(), legacy);
     }
 }

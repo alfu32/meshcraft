@@ -1,0 +1,170 @@
+{
+  "version": "0.20.0",
+  "date": "2026-10-21",
+  "environment": "Linux/X11, isolated Xvfb :96, separate config/cache/project, Mesa software rendering, MCP port 8766",
+  "workspaceTests": {
+    "core": 268,
+    "desktop": 301,
+    "cli": 5,
+    "io": 15,
+    "total": 589,
+    "ignoredOptInRendererProbes": 2
+  },
+  "native": [
+    {
+      "control": {
+        "kind": "wall_top",
+        "end": true
+      },
+      "startPixel": [
+        982,
+        537
+      ],
+      "endPixel": [
+        993,
+        439
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": false,
+      "escapeCancel": false
+    },
+    {
+      "control": {
+        "kind": "wall_base",
+        "end": false
+      },
+      "startPixel": [
+        714,
+        602
+      ],
+      "endPixel": [
+        713,
+        557
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": false,
+      "escapeCancel": false
+    },
+    {
+      "control": {
+        "kind": "wall_base",
+        "end": false
+      },
+      "startPixel": [
+        714,
+        602
+      ],
+      "endPixel": [
+        711,
+        633
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": true,
+      "escapeCancel": false
+    },
+    {
+      "control": {
+        "kind": "hole_corner",
+        "hole_id": "meshcraft:opening:185",
+        "corner": 1
+      },
+      "startPixel": [
+        829,
+        548
+      ],
+      "endPixel": [
+        875,
+        536
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": false,
+      "escapeCancel": false
+    },
+    {
+      "control": {
+        "kind": "frame_corner",
+        "corner": 1
+      },
+      "startPixel": [
+        829,
+        548
+      ],
+      "endPixel": [
+        875,
+        536
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": false,
+      "escapeCancel": true
+    },
+    {
+      "nativeWindowNormal": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 1.7415263131375007e-16
+      },
+      "noImplicitHole": true
+    },
+    {
+      "directWallExplode": true,
+      "undoRestoresOwnerAndHole": true
+    },
+    {
+      "control": {
+        "kind": "hole_corner",
+        "hole_id": "meshcraft:opening:506",
+        "corner": 1
+      },
+      "startPixel": [
+        717,
+        701
+      ],
+      "endPixel": [
+        732,
+        672
+      ],
+      "privatePreview": true,
+      "undoRedo": true,
+      "shiftPlan": false,
+      "escapeCancel": false
+    },
+    {
+      "nativeAutojoinCheckboxRebuildsMesh": true,
+      "nativeOffsetField": true,
+      "undo": true
+    },
+    {
+      "explode": "Editable slab",
+      "undo": true
+    },
+    {
+      "explode": "Editable frame",
+      "undo": true
+    },
+    {
+      "nativeSaveReopenAllRecords": true,
+      "records": 5,
+      "offsetsHeightsControlsPreserved": true
+    }
+  ],
+  "legacy": {
+    "copiedSourceOnly": true,
+    "sourceHashUnchanged": true,
+    "walls": 6,
+    "slabs": 1,
+    "controlsPerWall": 4,
+    "twoControlsPerOpening": true,
+    "nativeSaveReopen": true,
+    "slabTop": 10,
+    "roofHoleControlsInsideOutline": true,
+    "nativeLegacyRoofHoleResizeUndoRedo": true,
+    "legacyInnerFaceOffsets": true,
+    "finalBinaryCanonicalExampleAndFrameDrag": true
+  },
+  "numericPersistenceTolerance": 1e-10
+}

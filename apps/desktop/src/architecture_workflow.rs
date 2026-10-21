@@ -2,7 +2,7 @@
 use super::*;
 use meshcraft_core::document::{
     DefinitionKind,
-    architecture::{self as arch, Element, Frame, FrameKind, PlacedElement, Slab, Wall},
+    architecture::{self as arch, Control, Element, Frame, FrameKind, PlacedElement, Slab, Wall},
 };
 use serde_json::Value;
 
@@ -113,7 +113,7 @@ impl MeshcraftApp {
             }
         }
         let value = json!({"name":selected.as_ref().map(|e|e.element.name()).unwrap_or(""),
-            "wall_thickness":d.wall.thickness,"wall_height":d.wall.height,"wall_inclination":d.wall.inclination_deg,
+            "wall_thickness":d.wall.thickness,"wall_height":d.wall.height,"wall_end_height":d.wall.end_height(),"wall_offset":d.wall.offset,"wall_auto_join":d.wall.auto_join,"wall_inclination":d.wall.inclination_deg,
             "wall_exterior_color":d.wall.exterior_color,"wall_interior_color":d.wall.interior_color,
             "slab_thickness":d.slab.thickness,"slab_top_color":d.slab.top_color,"slab_bottom_color":d.slab.bottom_color,"slab_side_color":d.slab.side_color,
             "frame_depth":d.frame.depth,"frame_width":d.frame.frame_width,"frame_color":d.frame.color,"glazing_enabled":d.frame.glazing_enabled,"glazing_color":d.frame.glazing_color});
@@ -203,6 +203,23 @@ impl MeshcraftApp {
                         .ok_or("Wall up axis is invalid.")?,
                     thickness: scalar(payload, "wall_thickness", d.wall.thickness)?,
                     height: scalar(payload, "wall_height", d.wall.height)?,
+                    end_height: payload
+                        .values
+                        .get("wall_end_height")
+                        .map(|v| {
+                            v.as_f64()
+                                .filter(|v| v.is_finite())
+                                .ok_or("wall_end_height must be finite.")
+                        })
+                        .transpose()?
+                        .or(d.wall.end_height),
+                    offset: scalar(payload, "wall_offset", d.wall.offset)?,
+                    auto_join: payload
+                        .values
+                        .get("wall_auto_join")
+                        .map(|v| v.as_bool().ok_or("wall_auto_join must be boolean."))
+                        .transpose()?
+                        .unwrap_or(d.wall.auto_join),
                     inclination_deg: scalar(payload, "wall_inclination", d.wall.inclination_deg)?,
                     exterior_color: color(payload, "wall_exterior_color", d.wall.exterior_color)?,
                     interior_color: color(payload, "wall_interior_color", d.wall.interior_color)?,
@@ -311,7 +328,9 @@ impl MeshcraftApp {
         self.architecture = State::default();
         self.architecture.normal =
             Some(if matches!(self.active_tool.as_str(), "Window" | "Door") {
-                Vec3::Z
+                self.cursor_snap
+                    .and_then(|s| s.normal.try_normalized(1e-9))
+                    .unwrap_or(Vec3::Z)
             } else {
                 self.preferences.grid_normal_axis.vector()
             });
@@ -496,8 +515,7 @@ impl MeshcraftApp {
             } else if tool == "Add Hole" {
                 self.architecture.normal.unwrap_or(Vec3::Y)
             } else {
-                snap.filter(|s| s.kind == SnapKind::Face)
-                    .map(|s| s.normal)
+                snap.and_then(|s| s.normal.try_normalized(1e-9))
                     .unwrap_or(self.architecture.normal.unwrap_or(Vec3::Y))
             });
         }
@@ -649,6 +667,28 @@ impl MeshcraftApp {
         self.status = "Slab profile updated.".into();
         Ok(())
     }
+    pub fn commit_native_architecture_control(
+        &mut self,
+        target: &SelectionTarget,
+        control: &Control,
+        point: Vec3,
+    ) -> Result<(), String> {
+        let placed = self
+            .document
+            .architecture_element(target)
+            .ok_or("Architecture owner is missing.")?;
+        if !self.arch_editable(&placed) {
+            return Err(
+                "Open the prototype or unlock its type before editing architecture controls."
+                    .into(),
+            );
+        }
+        self.commit_document_edit(control.label(), |d| {
+            d.move_architecture_control(target, control, point)
+        })?;
+        self.status = format!("{} updated.", control.label());
+        Ok(())
+    }
     fn arch_payload_target(&self, payload: &CommandPayload) -> Result<PlacedElement, String> {
         if let Some(id) = payload.values.get("id").and_then(Value::as_str) {
             let occurrence = payload
@@ -680,6 +720,17 @@ impl MeshcraftApp {
             Element::Wall(w) => {
                 w.thickness = scalar(payload, "wall_thickness", w.thickness)?;
                 w.height = scalar(payload, "wall_height", w.height)?;
+                if let Some(v) = payload.values.get("wall_end_height") {
+                    w.end_height = Some(
+                        v.as_f64()
+                            .filter(|v| v.is_finite())
+                            .ok_or("wall_end_height must be finite.")?,
+                    );
+                }
+                w.offset = scalar(payload, "wall_offset", w.offset)?;
+                if let Some(v) = payload.values.get("wall_auto_join") {
+                    w.auto_join = v.as_bool().ok_or("wall_auto_join must be boolean.")?;
+                }
                 w.inclination_deg = scalar(payload, "wall_inclination", w.inclination_deg)?;
                 w.exterior_color = color(payload, "wall_exterior_color", w.exterior_color)?;
                 w.interior_color = color(payload, "wall_interior_color", w.interior_color)?;
@@ -778,6 +829,13 @@ impl MeshcraftApp {
                                 .into(),
                         );
                     }
+                    if let Element::Wall(w) = &mut e.element
+                        && w.end_height.is_none()
+                        && payload.values.contains_key("wall_height")
+                        && !payload.values.contains_key("wall_end_height")
+                    {
+                        w.end_height = Some(w.height);
+                    }
                     Self::arch_patch(&mut e.element, payload)?;
                     let SelectedEntity::SemanticHandle { id, .. } = &e.target.entity else {
                         return Err("Select an architecture element.".into());
@@ -814,6 +872,20 @@ impl MeshcraftApp {
                         doc.remove_architecture_hole(&e.target, hole)
                     })?;
                     Ok(json!({"removed":hole}))
+                }
+                "move_control" => {
+                    let e = self.arch_payload_target(payload)?;
+                    let control = serde_json::from_value::<Control>(
+                        payload
+                            .values
+                            .get("control")
+                            .cloned()
+                            .ok_or("control is required.")?,
+                    )
+                    .map_err(|e| format!("Invalid architecture control: {e}"))?;
+                    let point = payload_vec3(payload, "position", Vec3::ZERO)?;
+                    self.commit_native_architecture_control(&e.target, &control, point)?;
+                    Ok(json!({"control":control}))
                 }
                 "move_slab_vertex" => {
                     let e = self.arch_payload_target(payload)?;
@@ -1270,5 +1342,110 @@ mod tests {
                 .is_err()
         );
         assert_eq!(revision, app.document.revision());
+    }
+    #[test]
+    fn wall_defaults_and_properties_include_autojoin_offset_and_separate_end_heights() {
+        let mut app = app();
+        command(
+            &mut app,
+            "architecture.settings",
+            json!({"wall_height":4.,"wall_end_height":6.,"wall_offset":0.5,"wall_auto_join":false}),
+        );
+        let t = wall(&mut app);
+        let Element::Wall(w) = app.document.architecture_element(&t).unwrap().element else {
+            panic!()
+        };
+        assert_eq!(w.height, 3.); // the wall() helper explicitly supplies its start height
+        assert_eq!(w.end_height(), 6.);
+        assert_eq!(w.offset, 0.5);
+        assert!(!w.auto_join);
+        command(
+            &mut app,
+            "architecture.update",
+            json!({"wall_auto_join":true,"wall_offset":-0.25}),
+        );
+        let payload = app.native_architecture_payload();
+        assert_eq!(payload.values["wall_auto_join"], json!(true));
+        assert_eq!(payload.values["wall_offset"], json!(-0.25));
+    }
+    #[test]
+    fn generic_controls_are_single_undo_edits_and_bad_releases_preserve_history() {
+        let mut app = app();
+        let t = wall(&mut app);
+        let before = app.document.architecture_element(&t).unwrap().element;
+        let SelectedEntity::SemanticHandle { id, .. } = &t.entity else {
+            panic!()
+        };
+        let id = id.clone();
+        command(
+            &mut app,
+            "architecture.move_control",
+            json!({"id":id,"control":{"kind":"wall_top","end":true},"position":[5.,5.,0.]}),
+        );
+        assert_eq!(app.history.entries().len(), 2);
+        let Element::Wall(w) = app.document.architecture_element(&t).unwrap().element else {
+            panic!()
+        };
+        assert_eq!(w.end_height(), 5.);
+        assert_eq!(w.height, 3.);
+        command(&mut app, "edit.undo", json!({}));
+        assert_eq!(
+            app.document.architecture_element(&t).unwrap().element,
+            before
+        );
+        let revision = app.document.revision();
+        let entries = app.history.entries().len();
+        let result = app.dispatch_command(
+            "architecture.move_control",
+            &CommandPayload {
+                values: BTreeMap::from([
+                    ("id".into(), json!(id)),
+                    ("control".into(), json!({"kind":"wall_top","end":true})),
+                    ("position".into(), json!([5, -1, 0])),
+                ]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(result.result.completion, CommandCompletion::Failed);
+        assert_eq!(revision, app.document.revision());
+        assert_eq!(entries, app.history.entries().len());
+    }
+    #[test]
+    fn window_uses_cursor_normal_even_when_the_first_snap_is_an_endpoint() {
+        let mut app = app();
+        let a = Vec3::new(5., 0., 0.);
+        let b = Vec3::new(5., 2., 3.);
+        let snap = SnapResult {
+            point: a,
+            normal: Vec3::X,
+            kind: SnapKind::Endpoint,
+            screen_distance: 0.,
+        };
+        app.set_native_cursor_snap(Some(snap));
+        command(&mut app, "tool.builtin.arch_window_frame", json!({}));
+        app.handle_native_world_pick(a, Some(snap), None);
+        app.handle_native_world_pick(b, None, None);
+        let frame = app.native_selected_architecture().unwrap();
+        let Element::Frame(f) = frame.element else {
+            panic!()
+        };
+        assert!((f.normal - Vec3::X).length() < 1e-6);
+        assert!(f.contour.iter().all(|p| p.x.abs() < 1e-6));
+    }
+    #[test]
+    fn selected_architecture_explodes_directly_to_mesh_with_one_undo() {
+        let mut app = app();
+        let t = wall(&mut app);
+        assert!(app.query_command_state("object.explode_selection").enabled);
+        command(&mut app, "object.explode_selection", json!({}));
+        assert!(app.document.architecture_element(&t).is_none());
+        assert!(app.selection.selected().iter().all(|t| matches!(
+            t.entity,
+            SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+        )));
+        assert!(!app.selection.selected().is_empty());
+        assert_eq!(app.history.entries().len(), 2);
+        command(&mut app, "edit.undo", json!({}));
+        assert!(app.document.architecture_element(&t).is_some());
     }
 }

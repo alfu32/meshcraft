@@ -50,7 +50,23 @@ const FIELDS: &[Field] = &[
         0.000001,
         1e6
     ),
-    field!("Wall height", "arch", "wall_height", 0.1, 0.000001, 1e6),
+    field!(
+        "Wall start height",
+        "arch",
+        "wall_height",
+        0.1,
+        0.000001,
+        1e6
+    ),
+    field!(
+        "Wall end height",
+        "arch",
+        "wall_end_height",
+        0.1,
+        0.000001,
+        1e6
+    ),
+    field!("Wall axis offset", "arch", "wall_offset", 0.05, -1e6, 1e6),
     field!(
         "Wall inclination",
         "arch",

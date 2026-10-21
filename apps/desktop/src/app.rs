@@ -1390,7 +1390,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("create_wall","Create Wall"),("create_rectangular_slab","Create Rectangular Slab"),
             ("create_slab","Create Freeform Slab"),("create_frame","Create Independent Window or Door"),
             ("add_hole","Add Owned Wall or Slab Opening"),("remove_hole","Remove Owned Opening"),
-            ("move_slab_vertex","Move Slab Profile Vertex"),
+            ("move_slab_vertex","Move Slab Profile Vertex"),("move_control","Move Architecture Control"),
         ] {
             register_shell_command(&mut registry,&format!("architecture.{action}"),&format!("Architecture> {label}"),"Architecture","wall slab opening window door profile settings",Some("arch_wall"),ShellAction::ArchitectureAction(action));
         }
@@ -1983,6 +1983,10 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("name", CommandValueType::String),
             ("wall_thickness", CommandValueType::Number),
             ("wall_height", CommandValueType::Number),
+            ("wall_end_height", CommandValueType::Number),
+            ("wall_offset", CommandValueType::Number),
+            ("wall_auto_join", CommandValueType::Boolean),
+            ("control", CommandValueType::Object),
             ("wall_inclination", CommandValueType::Number),
             ("slab_thickness", CommandValueType::Number),
             ("frame_depth", CommandValueType::Number),

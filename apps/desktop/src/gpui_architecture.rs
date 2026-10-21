@@ -5,7 +5,7 @@ use gpui_component::{
     checkbox::Checkbox,
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
 };
-use meshcraft_core::document::architecture::{Color as SurfaceColor, Element};
+use meshcraft_core::document::architecture::{Color as SurfaceColor, Control, Element};
 
 #[derive(Default)]
 pub(super) struct Ui {
@@ -141,7 +141,13 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     for (show, labels) in [
         (
             wall,
-            &["Wall thickness", "Wall height", "Wall inclination"][..],
+            &[
+                "Wall thickness",
+                "Wall start height",
+                "Wall end height",
+                "Wall axis offset",
+                "Wall inclination",
+            ][..],
         ),
         (slab, &["Slab thickness"][..]),
         (frame, &["Frame depth", "Frame width"][..]),
@@ -153,6 +159,36 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                 }
             }
         }
+    }
+    if wall {
+        let enabled = shell
+            .session
+            .native_architecture_payload()
+            .values
+            .get("wall_auto_join")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        body = body.child(
+            Checkbox::new("architecture/auto-join")
+                .label("Autojoin walls")
+                .checked(enabled)
+                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                    let mut payload = CommandPayload::default();
+                    payload
+                        .values
+                        .insert("wall_auto_join".into(), json!(*enabled));
+                    this.dispatch_payload(
+                        if inspected(this).is_some() {
+                            "architecture.update"
+                        } else {
+                            "architecture.settings"
+                        },
+                        &payload,
+                    );
+                    cx.notify();
+                })),
+        );
+        body=body.child(div().text_xs().child("Blue base handles change length/elevation; Shift-drag moves in plan. Magenta top handles adjust each end's height."));
     }
     for &(key, label) in COLORS {
         let show = if key.starts_with("wall_") {
@@ -240,8 +276,15 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             );
         }
         if matches!(e.element, Element::Slab(_)) {
-            body=body.child(div().text_xs().child("Drag the slab's blue profile controls in the canvas. Holes remain owned by this slab."));
+            body=body.child(div().text_xs().child("Drag blue slab profile controls and orange opening corners in the canvas. Holes remain owned by this slab."));
         }
+    }
+    if frame {
+        body = body.child(
+            div()
+                .text_xs()
+                .child("Drag the two purple frame corners on its definition plane to resize."),
+        );
     }
     body.child(div().text_xs().text_color(rgb(0xa5adb7)).child("Add Hole cuts only its picked wall or slab. Windows and doors are independent objects and never cut an opening automatically.")).into_any_element()
 }
@@ -249,7 +292,8 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
 /// A drag previews a private snapshot and commits once, leaving Escape and undo atomic.
 pub(super) struct ProfileDrag {
     target: SelectionTarget,
-    index: usize,
+    control: Control,
+    axis: Option<Vec3>,
     start: (f32, f32),
     original: Vec3,
     point: Vec3,
@@ -257,53 +301,94 @@ pub(super) struct ProfileDrag {
     base: Arc<Document>,
     moved: bool,
 }
-fn profile(shell: &MeshcraftShell) -> Option<(SelectionTarget, Vec<Vec3>, Vec3)> {
+struct Handle {
+    target: SelectionTarget,
+    control: Control,
+    point: Vec3,
+    normal: Vec3,
+    alternate_normal: Option<Vec3>,
+    axis: Option<Vec3>,
+}
+fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
     if shell.session.native_pointer_tool_active() {
-        return None;
+        return vec![];
     }
-    let selected = inspected(shell)?;
-    let placed = shell
-        .cached_document
-        .architecture_element(&selected.target)?;
-    if !shell.session.native_architecture_editable(&placed.target) {
-        return None;
+    let selected = shell.session.native_selection_targets();
+    let mut owners = BTreeMap::new();
+    for target in selected {
+        let placed = shell
+            .cached_document
+            .architecture_element(&target)
+            .or_else(|| {
+                if target.entity != SelectedEntity::Occurrence {
+                    return None;
+                }
+                shell
+                    .cached_document
+                    .architecture_elements()
+                    .into_iter()
+                    .find(|p| {
+                        p.target.occurrence == target.occurrence
+                            && matches!(p.element, Element::Frame(_))
+                    })
+            });
+        if let Some(p) = placed
+            && shell.session.native_architecture_editable(&p.target)
+        {
+            owners.insert(p.target.clone(), p);
+        }
     }
-    let Element::Slab(slab) = &placed.element else {
-        return None;
-    };
-    let plane = placed.element.plane().ok()?;
-    let normal = placed
-        .transform
-        .transform_vector(plane.u)
-        .cross(placed.transform.transform_vector(plane.v))
-        .try_normalized(1e-12)?;
-    let points = slab
-        .profile
-        .points
-        .iter()
-        .map(|p| placed.transform.transform_point(*p))
-        .collect();
-    Some((placed.target, points, normal))
+    owners
+        .into_values()
+        .flat_map(|placed| {
+            placed
+                .element
+                .controls()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(move |p| {
+                    Some(Handle {
+                        target: placed.target.clone(),
+                        control: p.control,
+                        point: placed.transform.transform_point(p.point),
+                        normal: placed.transform.transform_normal(
+                            p.normal,
+                            meshcraft_core::geometry::GeometryTolerance::default(),
+                        )?,
+                        alternate_normal: p.alternate_normal.and_then(|n| {
+                            placed.transform.transform_normal(
+                                n,
+                                meshcraft_core::geometry::GeometryTolerance::default(),
+                            )
+                        }),
+                        axis: p.axis.map(|a| placed.transform.transform_vector(a)),
+                    })
+                })
+        })
+        .collect()
 }
 pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
-    let Some((_, points, _)) = profile(shell) else {
-        return Vec::new();
-    };
-    points
+    handles(shell)
         .into_iter()
         .filter_map(|p| {
             let (x, y) = project_point(
                 shell.camera,
                 (shell.layout.width as f32, shell.layout.height as f32),
-                p,
+                p.point,
             )?;
+            let color = match p.control {
+                Control::WallTop { .. } => 0xe256d7,
+                Control::HoleCorner { .. } => 0xffa13a,
+                Control::FrameCorner { .. } => 0xb68aff,
+                _ => 0x39a8ff,
+            };
             Some(
                 div()
                     .absolute()
                     .left(px(x / shell.layout.scale - 5.))
                     .top(px(y / shell.layout.scale - 5.))
                     .size(px(10.))
-                    .bg(rgb(0x39a8ff))
+                    .bg(rgb(color))
                     .border_1()
                     .border_color(rgb(0x102d46))
                     .into_any_element(),
@@ -312,33 +397,40 @@ pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
         .collect()
 }
 impl MeshcraftShell {
-    pub(super) fn begin_architecture_drag(&mut self, x: f32, y: f32) -> bool {
-        let Some((target, points, normal)) = profile(self) else {
-            return false;
-        };
-        let Some((index, original)) = points
+    pub(super) fn begin_architecture_drag(
+        &mut self,
+        x: f32,
+        y: f32,
+        modifiers: gpui::Modifiers,
+    ) -> bool {
+        let handle = handles(self)
             .into_iter()
-            .enumerate()
-            .filter_map(|(i, p)| {
+            .filter_map(|p| {
                 let (hx, hy) = project_point(
                     self.camera,
                     (self.layout.width as f32, self.layout.height as f32),
-                    p,
+                    p.point,
                 )?;
                 let distance = (hx - x).hypot(hy - y);
-                (distance <= 10. * self.layout.scale).then_some((distance, i, p))
+                (distance <= 10. * self.layout.scale).then_some((distance, p))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, i, p)| (i, p))
-        else {
+            .map(|(_, p)| p);
+        let Some(p) = handle else {
             return false;
         };
+        let normal = if modifiers.shift {
+            p.alternate_normal.unwrap_or(p.normal)
+        } else {
+            p.normal
+        };
         self.architecture.drag = Some(ProfileDrag {
-            target,
-            index,
+            target: p.target,
+            control: p.control,
+            axis: p.axis,
             start: (x, y),
-            original,
-            point: original,
+            original: p.point,
+            point: p.point,
             normal,
             base: Arc::clone(&self.cached_document),
             moved: false,
@@ -386,6 +478,10 @@ impl MeshcraftShell {
             return;
         };
         drag.point = snap.point - drag.normal * (snap.point - drag.original).dot(drag.normal);
+        if let Some(axis) = drag.axis {
+            drag.point = drag.original
+                + axis * ((drag.point - drag.original).dot(axis) / axis.length_squared());
+        }
         drag.moved = true;
         self.refresh_scene();
     }
@@ -397,12 +493,13 @@ impl MeshcraftShell {
             return;
         }
         let mut preview = (*drag.base).clone();
-        let result = preview.move_slab_vertex(&drag.target, drag.index, drag.point);
+        let result = preview.move_architecture_control(&drag.target, &drag.control, drag.point);
         let delta = drag.point - drag.original;
         self.feedback = Some(ToolFeedback {
             screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
             text: format!(
-                "Slab profile · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}{}",
+                "{} · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}{}",
+                drag.control.label(),
                 delta.x,
                 delta.y,
                 delta.z,
@@ -411,7 +508,7 @@ impl MeshcraftShell {
                 if result.is_ok() {
                     ""
                 } else {
-                    " · invalid outline"
+                    " · invalid geometry"
                 }
             ),
         });
@@ -426,9 +523,11 @@ impl MeshcraftShell {
             return false;
         };
         if drag.moved
-            && let Err(error) =
-                self.session
-                    .commit_native_slab_control(&drag.target, drag.index, drag.point)
+            && let Err(error) = self.session.commit_native_architecture_control(
+                &drag.target,
+                &drag.control,
+                drag.point,
+            )
         {
             self.session.set_native_status(error);
         }

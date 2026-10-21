@@ -457,8 +457,8 @@ fn selection_wireframe(
         }
     }
     for placed in document.architecture_elements() {
-        if selected(&placed.target.occurrence, placed.target.entity)
-            && let Ok(mesh) = placed.element.mesh()
+        if selected(&placed.target.occurrence, placed.target.entity.clone())
+            && let Ok(mesh) = document.architecture_mesh(&placed.target)
         {
             edges.extend(
                 mesh.edges
