@@ -1,6 +1,43 @@
 //! Construction helpers share the canvas projection and respect the point-input snap radius.
 use super::*;
 
+/// A world-space 2 × 2 × 2 cross, visible even when the orbit target is inside a solid.
+pub(super) fn draw_camera_target(scene: &mut impl RaylibDraw3D, camera: OrbitCamera, height: f32) {
+    unsafe {
+        raylib::ffi::rlDrawRenderBatchActive();
+        raylib::ffi::rlDisableDepthTest();
+        raylib::ffi::rlDisableBackfaceCulling();
+    }
+    let axes = [
+        (Vec3::X, Color::new(217, 69, 62, 255)),
+        (Vec3::Y, Color::new(51, 155, 94, 255)),
+        (Vec3::Z, Color::new(58, 112, 204, 255)),
+    ];
+    // The outline keeps the marker legible against both light faces and dark linework.
+    // Only stroke thickness is in pixels; the endpoints stay one model unit from the target.
+    for outline in [true, false] {
+        for (axis, color) in axes {
+            lighting::stroke(
+                scene,
+                [camera.target - axis, camera.target + axis],
+                if outline {
+                    Color::new(245, 248, 252, 255)
+                } else {
+                    color
+                },
+                if outline { 5.0 } else { 3.0 },
+                camera,
+                height,
+            );
+        }
+    }
+    unsafe {
+        raylib::ffi::rlDrawRenderBatchActive();
+        raylib::ffi::rlEnableDepthTest();
+        raylib::ffi::rlEnableBackfaceCulling();
+    }
+}
+
 fn hit_plane(origin: Vec3, ray: Vec3, point: Vec3, normal: Vec3) -> Option<Vec3> {
     let denominator = ray.dot(normal);
     if denominator.abs() < 1.0e-10 {

@@ -592,6 +592,7 @@ fn draw_offscreen_scene(
                 target_height,
             );
         }
+        helpers::draw_camera_target(&mut view, orbit, target_height);
     }
     hotspots::draw(
         &mut drawing,

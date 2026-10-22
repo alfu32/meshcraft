@@ -260,6 +260,12 @@ Perspective and Frame Document leave walkthrough. UI Settings supplies walking s
 The ribbon content is 82 px (previously 138); its buttons use compact 24 px rows and retain labels.
 The ground receiver has only an upper face; authored open meshes still render from both sides.
 
+The native viewport displays the camera target as a world-axis 3D cross spanning 2 × 2 × 2
+internal model units (±1 along each axis). Its colored strokes have a contrasting outline and
+remain visible through solid geometry. Its model-space extent follows zoom and is independent
+of grid spacing and displayed units. It is view feedback, excluded from picking, snapping,
+shadows and document/export geometry.
+
 ### Native workflow follow-up (0.11)
 
 The ribbon content height is 97 px, adding 15 px to the compact 0.10 layout while retaining 24 px
