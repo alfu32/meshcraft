@@ -1,0 +1,12 @@
+{
+  "nativeNumberTextCheckboxList": true,
+  "copiedValues": true,
+  "independentInstances": true,
+  "sharedPrototypeValues": true,
+  "mixedSelectionBatchAndUndo": true,
+  "invalidBatchRejected": true,
+  "saveOpenPreservesValuesAndApiVersion": true,
+  "nativeDeclaredHotspotDragUpdatesParams": true,
+  "nativeDeclarationHover": true,
+  "nativeCtrlSpaceCompletion": true
+}

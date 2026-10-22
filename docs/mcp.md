@@ -50,6 +50,16 @@ Use `{"action":"finish"}` to finish a polyline/path or `{"action":"cancel"}` to 
 Escape. To save, discover `file.save_as` and provide an absolute `path`; this avoids a file dialog.
 Use `edit.undo` to undo an edit. Open/save/import can return a pending job.
 
+## Script model parameters
+
+Use `api_version: 2` with `meshcraft_object_script` to declare `$TEXT`, `$NUMBER`, `$CHECKBOX`,
+`$LIST` and `$HOTSPOT` model parameters. Top-level calls declare shared prototype properties;
+`onCreate` calls declare independent instance properties. Read combined values through
+`onAnimationFrame(params, model)`, with the instance still bound to `this`. `$HOTSPOT` replaces
+the old unprefixed helper. `meshcraft_parameters` gets the current selection's typed property forms
+or sets a shared prototype value / values for explicit instance paths in one Undo transaction.
+See [declarations, persistence and exact examples](script-parameters.md).
+
 ## JavaScript objects
 
 `meshcraft_script_api` and `meshcraft://scripting/api` publish the **same signatures,
@@ -69,7 +79,7 @@ function onAnimationFrame(instance, model) {
 
 Both hook arguments `instance` and `this` are the same per-instance object. Custom JSON
 properties persist per instance. `this.geometry` is authored local geometry; return it to
-retain it. `this.hotspots` holds dragged overrides; use `hotspot(position, stableId)` to
+retain it. `this.hotspots` holds dragged overrides; use `$HOTSPOT(position, stableId)` to
 expose instance handles. Stable, unique drawable IDs retain topology across evaluations.
 Transforms accept Points, drawables or nested arrays without mutating inputs. Use `withIds`
 when returning an original and a transformed copy together. SDK trigonometry/rotation uses
@@ -90,7 +100,7 @@ Call `meshcraft_run_script` with a hook **body**:
 
 ```json
 {
-  "source": "return [cuboid(new Point(), new Point(this.width, 2, 1), 'body', phong('#83bdeaff')), hotspot(new Point(this.width, 0, 0), 'width')];",
+  "source": "return [cuboid(new Point(), new Point(this.width, 2, 1), 'body', phong('#83bdeaff')), $HOTSPOT(new Point(this.width, 0, 0), 'width')];",
   "properties": {"width": 3},
   "name": "Generated part",
   "position": [0, 0, 0]

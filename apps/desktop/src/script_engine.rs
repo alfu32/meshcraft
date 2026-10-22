@@ -317,7 +317,7 @@ mod tests {
     fn javascriptcore_helpers_state_hotspots_and_explode_current_output() {
         let engine = unsafe { Engine::load() }
             .expect("JavaScriptCore must be installed for native runtime qualification");
-        let source = "const h=hotspot(new Point(this.width,0,0),'width'); this.frames=(this.frames||0)+1;return [this.geometry,cube(new Point(),new Point(h.position.x,2,1),'body',phong('#83bdea80')),h];";
+        let source = "const h=$HOTSPOT(new Point(this.width,0,0),'width'); this.frames=(this.frames||0)+1;return [this.geometry,cube(new Point(),new Point(h.position.x,2,1),'body',phong('#83bdea80')),h];";
         let create = "this.width=3;";
         let first = engine
             .evaluate(&request(
@@ -440,7 +440,7 @@ function dimensions() { return new Point(3, 2, 1); }
 function onCreate(instance, model) { this.name=model.getObject('source').name; this.created=(this.created||0)+1; }
 function onAnimationFrame(instance, model) {
   if(!Object.isFrozen(model.objects)) throw Error('model query is mutable');
-  return [this.geometry,cube(new Point(),dimensions(),'body',tint),hotspot(new Point(3,0,0),'width')];
+  return [this.geometry,cube(new Point(),dimensions(),'body',tint),$HOTSPOT(new Point(3,0,0),'width')];
 }
 "##;
         let mut request = serde_json::json!({"id":"test","source":{"source":module},"state":{"initializer":"","properties":{}},"geometry":[],"hotspots":{},"time":0,"deltaTime":0.033,"model":{"objects":[{"id":"source","name":"Source Object"}],"materials":[],"settings":{}}});
@@ -538,5 +538,129 @@ mod construction_tests {
                 .values()
                 .any(|f| f.color.alpha == 128)
         );
+    }
+}
+
+#[cfg(test)]
+mod parameter_tests {
+    use super::*;
+    use serde_json::{Value, json};
+    fn evaluate(
+        engine: &Engine,
+        source: &str,
+        state: Value,
+        prototype: Value,
+        instance: Value,
+        hotspots: Value,
+    ) -> Result<Value, String> {
+        engine.evaluate(&json!({"id":"parameter-test","source":{"source":source,"apiVersion":2},"state":state,"prototypeParameters":prototype,"instanceParameters":instance,"geometry":[],"hotspots":hotspots,"time":0,"deltaTime":0,"model":{"objects":[],"materials":[],"settings":{}}}))
+    }
+    const SOURCE: &str = r#"
+$TEXT('caption','Caption','Box');
+$NUMBER('depth','Depth',1);
+$LIST('finish',{plain:'Plain',blue:'Blue'},'Finish');
+function onCreate(){
+ this.created=(this.created||0)+1;
+ $NUMBER('width','Width',3);
+ $CHECKBOX('enabled','Enabled',true);
+ $HOTSPOT(new Point(2,1,0),'handle','Handle');
+}
+function onAnimationFrame(params,model){
+ const {caption,depth,finish,width,enabled,handle}=params;
+ if(!Object.isFrozen(params)||!Object.isFrozen(handle.position))throw Error('parameters must be immutable');
+ this.seen={caption,depth,finish,width,enabled,x:handle.position.x};
+ return enabled?[line(new Point(),new Point(width,depth,handle.position.x),'edge')]:[];
+}
+"#;
+    #[test]
+    fn model_inputs_preserve_scope_values_initializer_and_hotspot_positions_across_frames() {
+        let engine = unsafe { Engine::load() }.unwrap();
+        let first = evaluate(&engine, SOURCE, json!({}), json!({}), json!({}), json!({})).unwrap();
+        assert_eq!(
+            first["state"]["properties"]["seen"],
+            json!({"caption":"Box","depth":1,"finish":"plain","width":3,"enabled":true,"x":2})
+        );
+        assert_eq!(first["state"]["declarations"].as_array().unwrap().len(), 6);
+        assert_eq!(
+            first["items"].as_array().unwrap().len(),
+            2,
+            "declared hotspot is automatically emitted"
+        );
+        let next = evaluate(
+            &engine,
+            SOURCE,
+            first["state"].clone(),
+            json!({"caption":"Door","depth":2,"finish":"blue"}),
+            json!({"width":7,"enabled":false}),
+            json!({"handle":{"x":9,"y":1,"z":0}}),
+        )
+        .unwrap();
+        assert_eq!(next["state"]["properties"]["created"], 1);
+        assert_eq!(
+            next["state"]["properties"]["seen"],
+            json!({"caption":"Door","depth":2,"finish":"blue","width":7,"enabled":false,"x":9})
+        );
+        assert_eq!(next["items"].as_array().unwrap().len(), 1);
+        let independent = evaluate(
+            &engine,
+            SOURCE,
+            json!({}),
+            json!({"depth":2}),
+            json!({}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(independent["state"]["properties"]["seen"]["width"], 3);
+        let edited = SOURCE.replace(
+            "$NUMBER('width','Width',3);",
+            "$NUMBER('width','Renamed label',4); $NUMBER('newField');",
+        );
+        let changed = evaluate(
+            &engine,
+            &edited,
+            next["state"].clone(),
+            json!({}),
+            json!({"width":7}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(
+            changed["state"]["properties"]["seen"]["width"], 7,
+            "authored instance value survives initializer edits"
+        );
+        assert_eq!(
+            changed["state"]["declarations"].as_array().unwrap().len(),
+            7
+        );
+        let preserved = evaluate(
+            &engine,
+            &edited,
+            first["state"].clone(),
+            json!({}),
+            json!({}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(
+            preserved["state"]["properties"]["seen"]["width"], 3,
+            "initialized values survive source default changes"
+        );
+    }
+    #[test]
+    fn declarations_reject_duplicates_invalid_types_frame_registration_and_removed_alias() {
+        let engine = unsafe { Engine::load() }.unwrap();
+        for source in [
+            "$NUMBER('x'); function onCreate(){$TEXT('x');} function onAnimationFrame(){return [];}",
+            "$NUMBER('x','X','bad'); function onAnimationFrame(){return [];}",
+            "$LIST('x',{}); function onAnimationFrame(){return [];}",
+            "$CHECKBOX('__proto__'); function onAnimationFrame(){return [];}",
+            "function onAnimationFrame(){$TEXT('late');return [];}",
+            "function onAnimationFrame(){return [hotspot(new Point(),'old')];}",
+        ] {
+            assert!(
+                evaluate(&engine, source, json!({}), json!({}), json!({}), json!({})).is_err(),
+                "accepted {source}"
+            );
+        }
     }
 }

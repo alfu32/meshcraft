@@ -23,6 +23,9 @@ fn prefix(text: &str, cursor: usize) -> (usize, &str) {
     (start, &text[start..cursor])
 }
 fn entries(editor: &Editor, cx: &Context<MeshcraftShell>) -> Vec<Entry> {
+    let input = editor.code.read(cx);
+    let text = input.value();
+    let (_, filter) = prefix(&text, input.cursor());
     let mut entries = catalog();
     if let Some(frame) = editor
         .document
@@ -30,6 +33,30 @@ fn entries(editor: &Editor, cx: &Context<MeshcraftShell>) -> Vec<Entry> {
         .iter()
         .find_map(|p| editor.document.script_frame(p))
     {
+        for declaration in &frame.state.declarations {
+            let root = if filter.starts_with("parms") {
+                "parms"
+            } else {
+                "params"
+            };
+            let name = &declaration.id;
+            let access = if name.chars().enumerate().all(|(i, c)| {
+                c == '_' || c == '$' || c.is_alphabetic() || (i > 0 && c.is_numeric())
+            }) {
+                format!("{root}.{name}")
+            } else {
+                format!("{root}[{}]", serde_json::to_string(name).unwrap())
+            };
+            entries.push(entry(
+                &access,
+                &format!("{access}: {:?}", declaration.kind),
+                &access,
+                &format!(
+                    "{} · {:?} model parameter. Declared default: {}",
+                    declaration.label, declaration.scope, declaration.default_value
+                ),
+            ));
+        }
         for (name, value) in &frame.state.properties {
             let access = if name.chars().enumerate().all(|(i, c)| {
                 c == '_' || c == '$' || c.is_alphabetic() || (i > 0 && c.is_numeric())
@@ -61,9 +88,6 @@ fn entries(editor: &Editor, cx: &Context<MeshcraftShell>) -> Vec<Entry> {
             ));
         }
     }
-    let input = editor.code.read(cx);
-    let text = input.value();
-    let (_, filter) = prefix(&text, input.cursor());
     if filter.starts_with("instance.") {
         for item in &mut entries {
             if item.name.starts_with("this.") {
@@ -75,6 +99,7 @@ fn entries(editor: &Editor, cx: &Context<MeshcraftShell>) -> Vec<Entry> {
     }
     let filter = filter.to_lowercase();
     entries.retain(|e| e.name.to_lowercase().starts_with(&filter));
+    crate::script_api::prioritize(&mut entries);
     entries
 }
 pub(super) fn open(
@@ -253,6 +278,7 @@ pub(super) fn render(
                         ))
                     })
                     .children(entries.into_iter().enumerate().map(|(index, item)| {
+                        let declaration = crate::script_api::is_declaration(&item.name);
                         div()
                             .id(gpui::ElementId::Name(format!("script/api/{index}").into()))
                             .p(px(8.))
@@ -267,6 +293,10 @@ pub(super) fn render(
                                 div()
                                     .font_family(font.clone())
                                     .text_sm()
+                                    .when(declaration, |e| {
+                                        e.text_color(rgb(0xef7edb))
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                    })
                                     .child(item.signature),
                             )
                             .child(
@@ -306,7 +336,7 @@ mod tests {
             "model.queryGeometry",
             "Point",
             "cube",
-            "hotspot",
+            "$HOTSPOT",
         ] {
             assert!(apis.iter().any(|e| e.name == name), "{name}");
         }

@@ -16,8 +16,41 @@ pub(crate) fn entry(name: &str, signature: &str, insert: &str, help: &str) -> En
         help: help.into(),
     }
 }
+pub(crate) fn is_declaration(name: &str) -> bool {
+    matches!(
+        name,
+        "$TEXT" | "$NUMBER" | "$CHECKBOX" | "$LIST" | "$HOTSPOT"
+    )
+}
+pub(crate) fn prioritize(entries: &mut [Entry]) {
+    entries.sort_by_key(|e| !is_declaration(&e.name));
+}
 pub(crate) fn catalog() -> Vec<Entry> {
-    vec![
+    let mut entries = vec![
+        entry(
+            "$TEXT",
+            "$TEXT(id, label=id, defaultValue='')",
+            "$TEXT('caption', 'Caption', 'Panel');",
+            "Declare a text model parameter. Top level: shared prototype value; onCreate: independent instance value. API v2 onAnimationFrame(params,model) reads params.caption. IDs are unique across both scopes; labels/default changes preserve authored compatible values.",
+        ),
+        entry(
+            "$NUMBER",
+            "$NUMBER(id, label=id, defaultValue=0)",
+            "$NUMBER('width', 'Width', 3);",
+            "Declare a finite numeric model parameter in internal model units. Outside hooks registers a prototype parameter; onCreate registers an instance parameter. Read its value through the API v2 frame parameters.",
+        ),
+        entry(
+            "$CHECKBOX",
+            "$CHECKBOX(id, label=id, defaultValue=false)",
+            "$CHECKBOX('enabled', 'Enabled', true);",
+            "Declare a boolean model parameter. The Object Properties panel renders its checkbox; values are model data and support save/copy/Undo.",
+        ),
+        entry(
+            "$LIST",
+            "$LIST(id, values, label=id, defaultValue=firstKey)",
+            "$LIST('style', {solid: 'Solid', open: 'Open'}, 'Style', 'solid');",
+            "Declare a single-choice model parameter. values maps stable stored string keys to display labels; the frame receives the chosen key. Omitted default selects the first key. Declare outside hooks or in onCreate, never in onAnimationFrame.",
+        ),
         entry(
             "Point",
             "new Point(x=0, y=0, z=0, id='')",
@@ -73,10 +106,10 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "Same as new Face. Return this drawable or a nested array containing it from onAnimationFrame.",
         ),
         entry(
-            "hotspot",
-            "hotspot(position, id) → Hotspot",
-            "hotspot(new Point(3, 0, 0), 'width')",
-            "Return the handle with your geometry. Its position contains this instance's dragged override; use position.x/y/z to parameterize geometry.",
+            "$HOTSPOT",
+            "$HOTSPOT(position, id, label=id) → Hotspot",
+            "$HOTSPOT(new Point(3, 0, 0), 'width')",
+            "Declare a model hotspot outside hooks or in onCreate (API v2). It is emitted automatically; params[id].position is the current per-instance dragged position. In onAnimationFrame it can also return an explicit hotspot drawable, which must be included in returned geometry. All IDs must be stable and declared IDs are unique across inputs and hotspots.",
         ),
         entry(
             "polyline",
@@ -437,7 +470,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "this.hotspots",
             "this.hotspots: Record<string, Point>",
             "this.hotspots",
-            "Per-instance dragged position overrides. hotspot(position, id) supplies defaults when the map has no value for id.",
+            "Per-instance dragged position overrides. $HOTSPOT(position, id) supplies defaults when the map has no value for id.",
         ),
         entry(
             "this.time",
@@ -455,7 +488,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "instance",
             "instance: same object as this",
             "instance.",
-            "The first hook argument aliases this. Custom JSON properties belong to one instance and are preserved by copy and project save.",
+            "onCreate receives the instance as its first argument. Legacy API v1 onAnimationFrame also receives it; API v2 receives params instead, with the instance still bound as this. Custom JSON properties are preserved by copy and save.",
         ),
         entry(
             "model",
@@ -518,6 +551,12 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "Read an occurrence's current local drawable array. Apply its transform for world coordinates. Mutating query results is prohibited.",
         ),
         entry(
+            "params",
+            "params: readonly model parameter values (API v2)",
+            "params.",
+            "First argument of onAnimationFrame in API v2. Contains all $TEXT/$NUMBER/$CHECKBOX/$LIST values plus declared $HOTSPOT objects, with their current position. Prototype values are shared; onCreate declarations are per instance. The argument can be named params, parms, or any valid JS identifier. The instance remains this and model is the second argument.",
+        ),
+        entry(
             "onCreate",
             "function onCreate(instance, model) → void",
             "function onCreate(instance, model) {\n  this.width = 3;\n}",
@@ -525,8 +564,8 @@ pub(crate) fn catalog() -> Vec<Entry> {
         ),
         entry(
             "onAnimationFrame",
-            "function onAnimationFrame(instance, model) → Drawable[]",
-            "function onAnimationFrame(instance, model) {\n  return this.geometry;\n}",
+            "function onAnimationFrame(params, model) → Drawable[] (API v2)",
+            "function onAnimationFrame(params, model) {\n  return this.geometry;\n}",
             "Return arrays or nested arrays of drawables. This hook is required. Geometry uses local coordinates; placement happens afterward.",
         ),
         entry(
@@ -547,5 +586,18 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "Math.PI",
             "Standard JavaScript constant π. Other ECMAScript Math functions are available.",
         ),
-    ]
+    ];
+    prioritize(&mut entries);
+    entries
+}
+
+#[cfg(test)]
+mod declaration_tests {
+    #[test]
+    fn declarations_lead_the_catalog_and_removed_hotspot_alias_is_absent() {
+        let entries = super::catalog();
+        assert!(entries[..5].iter().all(|e| super::is_declaration(&e.name)));
+        assert!(entries.iter().any(|e| e.name == "$HOTSPOT"));
+        assert!(!entries.iter().any(|e| e.name == "hotspot"));
+    }
 }

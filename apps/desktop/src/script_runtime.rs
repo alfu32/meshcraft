@@ -274,6 +274,8 @@ impl Sweep {
             };
             let input = json!({"id":format!("{:?}",path.path),"source":source,"state":state,
                 "geometry":meshcraft_core::document::scripts::geometry_drawables(&authored),
+                "prototypeParameters":document.script_parameter_values(r.definition.id,None),
+                "instanceParameters":document.script_parameter_values(r.definition.id,Some(&path)),
                 "hotspots":r.edits.map(|e|&e.hotspot_positions),"time":self.request.time,"deltaTime":self.request.delta});
             evaluated = true;
             match worker(input)
@@ -513,7 +515,7 @@ mod tests {
             .id;
         document.set_script(definition,ScriptDefinition {source:r#"
 function onCreate(instance,model){this.created=(this.created||0)+1;this.count=model.objects.length;}
-function onAnimationFrame(){this.frames=(this.frames||0)+1;return [cube(new Point(),1,this.id),hotspot(new Point(2,0,0),'width')];}
+function onAnimationFrame(){this.frames=(this.frames||0)+1;return [cube(new Point(),1,this.id),$HOTSPOT(new Point(2,0,0),'width')];}
 "#.into(),..Default::default()}).unwrap();
         first = Sweep::new(Request {
             document: Arc::new(document),
@@ -600,7 +602,7 @@ mod one_shot_tests {
             )
             .unwrap();
         let source=meshcraft_core::document::scripts::ScriptDefinition {
-            on_animation_frame:"this.count=model.objects.length; return [translate(new Point(2,0,0))(cuboid(new Point(),new Point(this.width,2,1),'body',phong('#338cffff'))),hotspot(new Point(this.width,0,0),'width')];".into(),..Default::default()
+            on_animation_frame:"this.count=model.objects.length; return [translate(new Point(2,0,0))(cuboid(new Point(),new Point(this.width,2,1),'body',phong('#338cffff'))),$HOTSPOT(new Point(this.width,0,0),'width')];".into(),..Default::default()
         };
         let mut session = None;
         let frame = evaluate_once_with(

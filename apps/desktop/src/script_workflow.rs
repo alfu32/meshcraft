@@ -6,10 +6,23 @@ impl MeshcraftApp {
         id: meshcraft_core::document::DefinitionId,
         script: ScriptDefinition,
     ) -> Result<(), String> {
-        self.commit_global_document_edit("Save object script", |document| {
-            document.set_script(id, script)
-        })?;
+        self.save_native_script_with_declarations(id, script, None)?;
         self.status = "Saved prototype script.".into();
+        Ok(())
+    }
+    pub fn save_native_script_with_declarations(
+        &mut self,
+        id: meshcraft_core::document::DefinitionId,
+        script: ScriptDefinition,
+        declarations: Option<Vec<meshcraft_core::document::scripts::parameters::Declaration>>,
+    ) -> Result<(), String> {
+        self.commit_global_document_edit("Save object script", |document| {
+            document.set_script(id, script)?;
+            if let Some(declarations) = declarations {
+                document.set_script_parameter_declarations(id, declarations)?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
     pub fn create_native_scripted_object(
@@ -25,7 +38,9 @@ impl MeshcraftApp {
             .ok_or("missing object")?
             .definition
             .id;
-        self.select_native_prototype(id);
+        self.object_browser_selection = Some(id);
+        self.set_selection([path]);
+        self.panel_focus = Some("object".into());
         self.status = "Created scripted object.".into();
         Ok(id)
     }

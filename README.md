@@ -40,6 +40,11 @@ External scenes can also serve as referenced prototypes, allowing reusable desig
 
 Prototypes can also define JavaScript `onCreate` and `onAnimationFrame` hooks while retaining graphically authored geometry. The object script editor provides a single monospace code editor, Ctrl+Space API help/completion, and an orbitable preview. Geometry helpers create lines, faces and primitives; generated hotspots change each instance independently. Copies retain instance properties, and Explode freezes the current generated geometry.
 
+Scripts can declare `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and `$HOTSPOT` model parameters.
+Object Properties renders shared prototype controls and independent instance controls. API v2
+supplies their current values through `onAnimationFrame(params, model)`. See the
+[parameter guide](docs/script-parameters.md).
+
 See the [SDK, example and runtime requirements](docs/rewrite/spec/scripted-objects.md). Native script execution currently requires JavaScriptCore; Linux is locally qualified, with Windows runtime packaging and macOS live qualification still outstanding.
 
 ## Planned features

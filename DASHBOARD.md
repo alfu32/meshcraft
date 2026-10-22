@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.25.0 script model parameters:** `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and `$HOTSPOT`
+register prototype or instance parameters according to execution context. Object Properties renders
+typed controls, with selection-wide instance edits, shared prototype values, Undo and persistence.
+API v2 supplies read-only values to `onAnimationFrame(params, model)`; legacy scripts retain API v1.
+Declarations are bold magenta, lead completion and have hover/MCP help. See the
+[parameter guide](docs/script-parameters.md) and [T62 validation](docs/rewrite/handoffs/T62.md#0250--script-model-parameters).
+
 **0.24.3 import placement:** insertion feedback no longer clones/places/validates the document and
 rebuilds its wireframe on each move. It shares prepared edges and an uploaded GPU mesh, changing
 only the placement transform. The 51,200-face probe's 20 warmed CPU preview moves fell from

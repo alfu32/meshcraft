@@ -1,5 +1,20 @@
 # Scripted prototype configuration points
 
+## Model parameter declarations (0.25.0)
+
+`$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and `$HOTSPOT` declare model-owned properties.
+Top-level calls have prototype scope; calls made during `onCreate` have instance scope, including
+calls through shared helpers. The Object Properties panel projects this typed metadata into
+controls. API v2 receives `onAnimationFrame(params, model)` with read-only combined values;
+`this` remains the instance. New editor scripts use v2, and a visible selector preserves deliberate
+migration from existing v1 instance-argument scripts. `$HOTSPOT` replaces the old helper without
+an alias; declared handles are automatically emitted and exposed as `params[id].position`.
+See the [complete contract and example](../../../docs/script-parameters.md).
+
+Identifiers use bold magenta syntax highlighting, hover documentation and first-priority completion.
+Runtime scope/schema/values, typed Undo/Save/Copy behavior and the exact MCP API are shared across
+all scripts. Broader runtime/platform qualification below remains separate.
+
 ### P08 Scripted object geometry and editor
 
 **New user requirement (2026-10-20).** Scripting augments every object prototype, including prototypes retaining graphically authored geometry and nested instances. It does not introduce a separate incompatible object type. Instances share source hooks but retain their own serializable properties and hotspot values. Copying an instance preserves these values.
@@ -22,7 +37,7 @@ Source: new user explanation. Acceptance: C43. Implementation: T62; shared JSC e
 ## Initial SDK
 
 The source editor accepts a complete JavaScript script defining both hooks. `onAnimationFrame` is required; `onCreate` is optional. Shared helper functions and constants can be declared outside them.
-Arguments are `instance, model`; `this` and `instance` refer to the same object.
+In API v1, arguments are `instance, model`; `this` and `instance` refer to the same object. API v2 frame hooks receive `params, model`, with the instance still bound to `this`.
 Use serializable properties such as `this.height`; functions, cyclic objects,
 engine handles and closures are not persisted. `this.time`/`model.time` are elapsed
 seconds and `this.deltaTime`/`model.deltaTime` are frame intervals. Source and
@@ -39,7 +54,7 @@ function onCreate(instance, model) {
 }
 
 function onAnimationFrame(instance, model) {
-  const width = hotspot(new Point(this.width, 0, 0), "width");
+  const width = $HOTSPOT(new Point(this.width, 0, 0), "width");
   return [this.geometry,
     cube(new Point(0, 0, 0),
          new Point(Math.max(0.1, width.position.x), this.height, 1),
@@ -58,7 +73,7 @@ Supported signatures (coordinates/radii/heights/sizes are model units):
 | `phong(color)`, `gouraud(color)` | Material with the specified shading metadata |
 | `new Segment(a,b,id,material)`, `line(a,b,id,material)` | Segment; unassigned line color defaults to dark |
 | `new Face(a,b,c,id,material)`, `face(a,b,c,id,material)` | Triangle |
-| `hotspot(position,id)` | Handle whose position reflects this instance's override |
+| `$HOTSPOT(position,id)` | Handle whose position reflects this instance's override |
 | `polyline(points,id,material,closed=false)` | Segment array |
 | `circle(center,radius,id,material,segments=32)` | Closed path on the local XZ plane |
 | `cube(origin,size,id,material)` | Faces and boundary edges; size is a Point or scalar |

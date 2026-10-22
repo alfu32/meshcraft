@@ -3,11 +3,16 @@ use super::*;
 use std::sync::Arc;
 
 pub const SCRIPT_KEY: &str = "k3d.meshcraftScript";
+#[path = "script_parameters.rs"]
+pub mod parameters;
+
 pub const STATE_KEY: &str = "k3d.meshcraftScriptState";
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ScriptDefinition {
     pub enabled: bool,
+    /// 1 keeps the original instance argument; 2 supplies declared parameters.
+    pub api_version: u32,
     /// Unified module source; empty values use the older separate hook bodies.
     pub source: String,
     pub on_create: String,
@@ -17,6 +22,7 @@ impl Default for ScriptDefinition {
     fn default() -> Self {
         Self {
             enabled: true,
+            api_version: 1,
             source: String::new(),
             on_create: String::new(),
             on_animation_frame: "return this.geometry;".into(),
@@ -32,7 +38,12 @@ impl ScriptDefinition {
             if body.trim_start().starts_with("function") {
                 format!("const {name} = ({body});")
             } else {
-                format!("function {name}(instance, model) {{\n{body}\n}}")
+                let argument = if name == "onAnimationFrame" && self.api_version == 2 {
+                    "params"
+                } else {
+                    "instance"
+                };
+                format!("function {name}({argument}, model) {{\n{body}\n}}")
             }
         };
         format!(
@@ -46,6 +57,10 @@ impl ScriptDefinition {
 pub struct ScriptState {
     pub initializer: String,
     pub properties: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub declarations: Vec<parameters::Declaration>,
+    #[serde(default)]
+    pub parameters: BTreeMap<String, Value>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptFrame {
@@ -114,6 +129,16 @@ impl ScriptFrame {
         items: Vec<Drawable>,
         state: ScriptState,
     ) -> Result<Self, String> {
+        if state.declarations.len() > 256 {
+            return Err("Script exceeds 256 model parameters".into());
+        }
+        let mut parameter_ids = BTreeSet::new();
+        for declaration in &state.declarations {
+            declaration.validate()?;
+            if !parameter_ids.insert(&declaration.id) {
+                return Err("Duplicate model parameter ID".into());
+            }
+        }
         if items.len() > 100_000 {
             return Err("script output exceeds 100,000 drawables".into());
         }
@@ -288,6 +313,9 @@ impl Document {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
     pub fn set_script(&mut self, id: DefinitionId, source: ScriptDefinition) -> Result<(), String> {
+        if !matches!(source.api_version, 1 | 2) {
+            return Err("script apiVersion must be 1 or 2".into());
+        }
         if source.source.len() + source.on_create.len() + source.on_animation_frame.len()
             > 1_000_000
         {
@@ -315,14 +343,37 @@ impl Document {
         if frames.is_empty() {
             return;
         }
+        // Initialize shared defaults once. This is derived initialization, not a user edit;
+        // authored changes still go through set_script_parameter and document history.
+        for (path, frame) in &frames {
+            if let Some(id) = self.resolve_occurrence(path).map(|r| r.definition.id) {
+                let mut values = self.script_parameter_values(id, None);
+                for d in &frame.state.declarations {
+                    if d.scope == parameters::Scope::Prototype {
+                        values
+                            .entry(d.id.clone())
+                            .or_insert_with(|| d.default_value.clone());
+                    }
+                }
+                if !values.is_empty() {
+                    self.definitions.get_mut(&id).unwrap().extensions.insert(
+                        parameters::VALUES_KEY.into(),
+                        serde_json::to_value(values).unwrap(),
+                    );
+                }
+            }
+        }
         let mut next = (*self.script_cache.frames).clone();
         next.retain(|path, _| {
             self.resolve_occurrence(path)
                 .is_some_and(|r| self.script(r.definition.id).is_some_and(|s| s.enabled))
         });
         let visual_change = frames.iter().any(|(path, frame)| {
-            next.get(path)
-                .is_none_or(|old| old.geometry != frame.geometry || old.hotspots != frame.hotspots)
+            next.get(path).is_none_or(|old| {
+                old.geometry != frame.geometry
+                    || old.hotspots != frame.hotspots
+                    || old.state.declarations != frame.state.declarations
+            })
         });
         next.extend(frames);
         self.script_cache.frames = Arc::new(next);
@@ -344,6 +395,12 @@ impl Document {
                 serde_json::to_value(&frame.state).unwrap_or(Value::Null),
             );
             self.occurrence_edits.insert(path.clone(), edits);
+            if let Some(id) = self.resolve_occurrence(path).map(|r| r.definition.id) {
+                self.definitions.get_mut(&id).unwrap().extensions.insert(
+                    parameters::DECLARATIONS_KEY.into(),
+                    serde_json::to_value(&frame.state.declarations).unwrap_or(Value::Null),
+                );
+            }
         }
     }
     pub fn instance_hotspots(

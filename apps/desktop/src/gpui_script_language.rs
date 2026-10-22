@@ -20,7 +20,9 @@ fn highlight_query() -> String {
     // Match syntax nodes rather than arbitrary text: comments/strings stay untouched.
     for entry in catalog() {
         let name = entry.name;
-        let style = if !name.contains('.') && name.chars().next().is_some_and(char::is_uppercase) {
+        let style = if crate::script_api::is_declaration(&name) {
+            "emphasis.strong"
+        } else if !name.contains('.') && name.chars().next().is_some_and(char::is_uppercase) {
             "type"
         } else if entry.signature.contains('(') {
             "function"
@@ -88,6 +90,10 @@ pub(super) fn theme(base: &HighlightTheme) -> HighlightTheme {
                 .expect("valid built-in syntax color"),
         );
     }
+    theme.style.syntax.emphasis_strong = Some(
+        serde_json::from_value(serde_json::json!({"color":"#ef7edb","font_weight":700}))
+            .expect("declaration highlight"),
+    );
     theme
 }
 
@@ -233,7 +239,7 @@ mod tests {
     fn javascript_and_api_query_produce_distinct_highlights() {
         use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
         register();
-        let body = "const p = new Point(); return model . getObject(this.id); // cube\n'Point'";
+        let body = "const p = new Point(); $NUMBER('width'); $HOTSPOT(p, 'handle'); return model . getObject(this.id); // cube\n'Point'";
         // Exercise both a single rope chunk and node ranges after several chunks.
         for prefix in [String::new(), format!("/* {} */\n", "x".repeat(5000))] {
             let source = format!("{prefix}{body}");
@@ -245,6 +251,8 @@ mod tests {
             for (token, kind) in [
                 ("const", "keyword"),
                 ("Point", "type"),
+                ("$NUMBER", "emphasis.strong"),
+                ("$HOTSPOT", "emphasis.strong"),
                 ("getObject", "function"),
                 ("id)", "variable.special"),
             ] {

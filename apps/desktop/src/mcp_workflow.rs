@@ -423,7 +423,20 @@ impl MeshcraftApp {
                 if source.len() > 256 * 1024 {
                     return Err("script source exceeds 256 KiB".into());
                 }
+                let previous_version = args["definition_id"]
+                    .as_u64()
+                    .and_then(|id| self.document.script(DefinitionId(id)))
+                    .map(|script| u64::from(script.api_version))
+                    .unwrap_or(1);
+                let api_version = args
+                    .get("api_version")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(if action == "set" { previous_version } else { 1 });
+                if !matches!(api_version, 1 | 2) {
+                    return Err("api_version must be 1 or 2".into());
+                }
                 let script = meshcraft_core::document::scripts::ScriptDefinition {
+                    api_version: api_version as u32,
                     source: source.into(),
                     ..Default::default()
                 };
@@ -504,6 +517,17 @@ mod tests {
                 .unwrap()
                 .contains("cuboid")
         );
+        let id = script["definition_id"].clone();
+        app.mcp_script(&json!({"action":"set","definition_id":id,"api_version":2,"source":"function onAnimationFrame(params){return [];}"}))
+            .unwrap();
+        app.mcp_script(&json!({"action":"set","definition_id":id,"source":"function onAnimationFrame(params){return this.geometry;}"}))
+            .unwrap();
+        assert_eq!(
+            app.mcp_script(&json!({"action":"get","definition_id":id}))
+                .unwrap()["script"]["apiVersion"],
+            2,
+            "omitting api_version when editing preserves the existing contract"
+        );
     }
 }
 
@@ -542,7 +566,14 @@ impl MeshcraftApp {
         if source.len() > 256 * 1024 {
             return Err("script source exceeds 256 KiB".into());
         }
-        let mut definition = meshcraft_core::document::scripts::ScriptDefinition::default();
+        let api_version = args.get("api_version").and_then(Value::as_u64).unwrap_or(1);
+        if !matches!(api_version, 1 | 2) {
+            return Err("api_version must be 1 or 2".into());
+        }
+        let mut definition = meshcraft_core::document::scripts::ScriptDefinition {
+            api_version: api_version as u32,
+            ..Default::default()
+        };
         match args["source_type"].as_str().unwrap_or("body") {
             "body" => definition.on_animation_frame = source.into(),
             "module" => definition.source = source.into(),

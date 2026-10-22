@@ -22,7 +22,38 @@ class Face {constructor(a,b,c,id,material){Object.assign(this,{kind:"face",id:St
 const line=(...args)=>new Segment(...args),face=(...args)=>new Face(...args);
 const state=request.state||{initializer:"",properties:{}};
 const instance=Object.assign({},state.properties,{id:request.id,geometry:request.geometry,hotspots:request.hotspots||{},time:request.time,deltaTime:request.deltaTime});
-const hotspot=(position,id)=>({kind:"hotspot",id:String(id),position:point(instance.hotspots[id]||position)});
+let phase="prototype";
+const declarations=[];
+const initialized=state.parameters||{},parameterValues=Object.create(null);
+const prototypeValues=request.prototypeParameters||{},instanceValues=request.instanceParameters||{};
+const apiVersion=request.source.apiVersion||1;
+const reserved=new Set(["__proto__","prototype","constructor"]);
+const validValue=(d,v)=>d.kind==='text'?typeof v==='string'&&v.length<=16384:d.kind==='number'?Number.isFinite(v):d.kind==='checkbox'?typeof v==='boolean':d.kind==='list'?typeof v==='string'&&Object.prototype.hasOwnProperty.call(d.options,v):v&&[v.x,v.y,v.z].every(Number.isFinite);
+function declare(kind,id,label,defaultValue,options={}) {
+ if(apiVersion!==2)throw Error('Model declarations require script API v2; switch the editor API selector.');
+ if(phase==='frame')throw Error('Declare model inputs outside hooks or inside onCreate, not onAnimationFrame.');
+ if(typeof id!=='string'||!id||id.length>128||reserved.has(id))throw Error('Parameter IDs must be nonempty, safe strings of at most 128 characters.');
+ if(declarations.some(d=>d.id===id))throw Error('Duplicate parameter ID: '+id);
+ if(declarations.length>=256)throw Error('At most 256 model parameters are supported.');
+ if(label===undefined)label=id;
+ if(typeof label!=='string'||label.length>4096)throw Error('Parameter label must be a string of at most 4096 characters.');
+ const d={kind,id,label,scope:phase,defaultValue,options};
+ if(!validValue(d,defaultValue))throw Error('Invalid default for parameter '+id);
+ declarations.push(d);
+ const values=phase==='prototype'?prototypeValues:instanceValues;
+ return Object.prototype.hasOwnProperty.call(values,id)&&validValue(d,values[id])?values[id]:phase==='instance'&&Object.prototype.hasOwnProperty.call(initialized,id)&&validValue(d,initialized[id])?initialized[id]:defaultValue;
+}
+const $TEXT=(id,label=id,value="")=>declare('text',id,label,value);
+const $NUMBER=(id,label=id,value=0)=>declare('number',id,label,value);
+const $CHECKBOX=(id,label=id,value=false)=>declare('checkbox',id,label,value);
+function $LIST(id,values,label=id,value=Object.keys(values||{})[0]) {
+ if(!values||Array.isArray(values)||typeof values!=='object'||Object.keys(values).length===0||Object.keys(values).length>256||Object.entries(values).some(([k,v])=>reserved.has(k)||typeof v!=='string'))throw Error('List choices must map nonempty keys to labels (at most 256).');
+ return declare('list',id,label,value,values);
+}
+function $HOTSPOT(position,id,label=id) {
+ if(phase!=='frame'&&apiVersion===2)declare('hotspot',id,label,point(position));
+ return {kind:"hotspot",id:String(id),position:point(instance.hotspots[id]||position)};
+}
 const flatten=items=> {const out=[]; const walk=(v,depth)=> {if(depth>32)throw Error("Geometry nesting exceeds 32 levels");if(Array.isArray(v))for(const child of v)walk(child,depth+1);else if(v!=null){if(out.length>=100000)throw Error("Geometry exceeds 100000 drawables");out.push(v);}};walk(items,0);return out;};
 const polyline=(points,id=automaticId("polyline"),material,closed=false)=>points.slice(1).map((p,i)=>line(points[i],p,id+":"+i,material)).concat(closed&&points.length>2?[line(points[points.length-1],points[0],id+":close",material)]:[]);
 function circle(center,radius,id,material,segments=12){if(typeof id==='number'){segments=id;id=undefined;}if(id===undefined)id=automaticId("circle");center=point(center);segments=Math.max(3,Math.min(512,Math.floor(segments)));const pts=Array.from({length:segments},(_,i)=>new Point(center.x+radius*Math.cos(i*2*Math.PI/segments),center.y,center.z+radius*Math.sin(i*2*Math.PI/segments)));return polyline(pts,id,material,true);}
@@ -130,18 +161,37 @@ const model=Object.freeze({get objects(){return snapshot().objects;},get materia
 // Compile in a lexical scope containing only the SDK and immutable query facade.
 const compile=(source,name)=> {
  if(/^\s*(?:async\s+)?function\b/.test(source))return eval("("+source+"\n)");
- return eval("(function "+name+"(instance,model){\n"+source+"\n})");
+ return eval("(function "+name+"("+(name==='onAnimationFrame'&&apiVersion===2?'params':'instance')+",model){\n"+source+"\n})");
 };
 let hooks;
 if(request.source.source && request.source.source.trim()) {
  hooks=eval("(function(){\n"+request.source.source+"\n;return {onCreate:typeof onCreate==='function'?onCreate:function(){},onAnimationFrame:typeof onAnimationFrame==='function'?onAnimationFrame:null};})()");
  if(!hooks.onAnimationFrame)throw Error("Define function onAnimationFrame(instance, model) in the script.");
 } else hooks={onCreate:compile(request.source.onCreate,"onCreate"),onAnimationFrame:compile(request.source.onAnimationFrame,"onAnimationFrame")};
-const initializer=hooks.onCreate.toString();
+const initializer=hooks.onCreate.toString()+(apiVersion===2?"\n@api2":"");
+phase='instance';
 if(state.initializer!==initializer){hooks.onCreate.call(instance,instance,model);}
-const output=flatten(hooks.onAnimationFrame.call(instance,instance,model));
+else {
+ for(const d of state.declarations||[])if(d.scope==='instance') {
+  declare(d.kind,d.id,d.label,d.defaultValue,d.options);
+ }
+}
+const parms=Object.create(null),declaredHotspots=[];
+for(const d of declarations) {
+ const values=d.scope==='prototype'?prototypeValues:instanceValues;
+ const value=Object.prototype.hasOwnProperty.call(values,d.id)&&validValue(d,values[d.id])?values[d.id]:d.scope==='instance'&&Object.prototype.hasOwnProperty.call(initialized,d.id)&&validValue(d,initialized[d.id])?initialized[d.id]:d.defaultValue;
+ if(d.scope==='instance')parameterValues[d.id]=value;
+ if(d.kind==='hotspot') {
+  const h={kind:'hotspot',id:d.id,position:point(instance.hotspots[d.id]||value)};
+  parms[d.id]=h;declaredHotspots.push(h);
+ } else parms[d.id]=value;
+}
+freeze(parms);
+phase='frame';
+const output=flatten(hooks.onAnimationFrame.call(instance,apiVersion===2?parms:instance,model));
+for(const h of declaredHotspots)if(!output.some(v=>v.kind==='hotspot'&&v.id===h.id))output.push(h);
 const properties={};for(const[k,v]of Object.entries(instance))if(!["id","geometry","hotspots","time","deltaTime"].includes(k))properties[k]=v;
-const result=JSON.stringify({items:output,state:{initializer,properties}});
+const result=JSON.stringify({items:output,state:{initializer,properties,declarations,parameters:parameterValues}});
 if(result.length>16000000)throw Error("Script output exceeds 16 MB");
 return result;
 })

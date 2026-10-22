@@ -1657,6 +1657,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_selection()),
                 )
                 .child(setting_field("Object name", "", bindings))
+                .child(super::parameters::panel(bindings.shell, bindings.cx))
                 .child(command_row(
                     "panel/object",
                     &[

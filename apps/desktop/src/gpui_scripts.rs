@@ -17,6 +17,7 @@ pub(super) struct ScriptsUi {
 }
 pub(super) struct Editor {
     id: Option<DefinitionId>,
+    api_version: u32,
     code: Entity<InputState>,
     bounds: Arc<Mutex<gpui::Bounds<gpui::Pixels>>>,
     completion: Option<api::Popup>,
@@ -34,7 +35,7 @@ pub(super) struct Editor {
     valid: bool,
     error: Option<String>,
 }
-const EXAMPLE: &str = "// Shared helpers and constants can be defined outside the hooks.\nconst bodyMaterial = phong('#83bdeaff');\n\nfunction onCreate(instance, model) {\n  this.height = 2;\n  this.width = 3;\n}\n\nfunction onAnimationFrame(instance, model) {\n  const width = hotspot(new Point(this.width, 0, 0), 'width');\n  return [this.geometry,\n    cube(new Point(0, 0, 0),\n         new Point(Math.max(0.1, width.position.x), this.height, 1),\n         'body', bodyMaterial),\n    width];\n}\n";
+const EXAMPLE: &str = "$NUMBER('depth', 'Depth', 1);\n$LIST('finish', {plain: 'Plain', blue: 'Blue'}, 'Finish');\n\nfunction onCreate() {\n  $TEXT('caption', 'Caption', 'Box');\n  $CHECKBOX('enabled', 'Enabled', true);\n  $HOTSPOT(new Point(3, 2, 0), 'size', 'Size');\n}\n\nfunction onAnimationFrame(params, model) {\n  const { depth, finish, enabled, size } = params;\n  if (!enabled) return [];\n  return [this.geometry, cube(new Point(),\n    new Point(Math.max(0.1, size.position.x), Math.max(0.1, size.position.y), depth),\n    'body', phong(finish === 'blue' ? '#498bd6' : '#dddddd'))];\n}\n";
 fn key(shell: &MeshcraftShell) -> u64 {
     let mut value = shell
         .session
@@ -165,10 +166,14 @@ pub(super) fn edit(
             if new {
                 ScriptDefinition {
                     source: EXAMPLE.into(),
+                    api_version: 2,
                     ..Default::default()
                 }
             } else {
-                ScriptDefinition::default()
+                ScriptDefinition {
+                    api_version: 2,
+                    ..Default::default()
+                }
             }
         });
     let mut source_document = shell.session.document_snapshot();
@@ -222,6 +227,7 @@ pub(super) fn edit(
     });
     let editor = Editor {
         id,
+        api_version: source.api_version,
         code: code.clone(),
         bounds: Arc::new(Mutex::new(gpui::Bounds::default())),
         completion: None,
@@ -264,6 +270,7 @@ pub(super) fn close(
 }
 fn sources(editor: &Editor, cx: &Context<MeshcraftShell>) -> ScriptDefinition {
     ScriptDefinition {
+        api_version: editor.api_version,
         source: editor.code.read(cx).value().to_string(),
         ..Default::default()
     }
@@ -479,8 +486,15 @@ pub(super) fn overlay(
                         return;
                     }
                     let source = sources(editor, cx);
+                    let declarations = editor
+                        .document
+                        .scripted_occurrences()
+                        .first()
+                        .and_then(|p| editor.document.script_frame(p))
+                        .map(|f| f.state.declarations.clone());
                     let result = if let Some(id) = editor.id {
-                        this.session.save_native_script(id, source)
+                        this.session
+                            .save_native_script_with_declarations(id, source, declarations)
                     } else {
                         this.session
                             .create_native_scripted_object(source)
@@ -507,7 +521,9 @@ pub(super) fn overlay(
         .capture_action(cx.listener(|this,_:&gpui_component::input::Enter,window,cx|{if api::navigate(this,"enter",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
         .capture_action(cx.listener(|this,_:&gpui_component::input::IndentInline,window,cx|{if api::navigate(this,"tab",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
         .capture_action(cx.listener(|this,_:&gpui_component::input::Escape,window,cx|{if api::navigate(this,"escape",window,cx){cx.stop_propagation();}else{cx.propagate();}}))
-        .child(div().text_lg().child("Object Script Editor"))
+        .child(div().flex().gap(px(12.)).items_center().child(div().text_lg().child("Object Script Editor"))
+            .child(Button::new("script/api-version").small().label(if editor.api_version==2 {"API v2 · parameters"} else {"API v1 · legacy instance"})
+                .on_click(cx.listener(|this,_,_,cx| {if let Some(e)=this.scripts.editor.as_mut(){e.api_version=if e.api_version==1 {2}else{1};} evaluate_draft(this,cx);cx.notify();}))))
         .child(div().text_sm().child("Define onCreate and onAnimationFrame here, along with your own helpers. Hover API symbols for help · Ctrl+Space: API help/completion. Preview: right-drag orbit · Shift+right / middle pan · wheel zoom."))
         .child(div().flex().flex_1().min_h(px(0.)).gap(px(12.)).child(code).child(preview))
         .when_some(editor.error.clone(), |e, error| e.child(div().text_color(rgb(0xff9999)).child(error)))

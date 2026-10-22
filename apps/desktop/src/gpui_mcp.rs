@@ -295,6 +295,37 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
                 json!({"entries":crate::script_api::catalog().into_iter().filter(|e|q.is_empty()||format!("{} {} {}",e.name,e.signature,e.help).to_lowercase().contains(&q)).collect::<Vec<_>>(),"scope":"Same SDK as scripted objects. model is immutable; this/instance owns its JSON properties. See meshcraft://guide and meshcraft://scripting/sdk."}),
             )
         }
+        "meshcraft_parameters" => match args["action"].as_str() {
+            Some("get") => Ok(json!({"parameters":shell.session.native_script_parameters()})),
+            Some("set") => {
+                let definition = meshcraft_core::document::DefinitionId(
+                    args["definition_id"]
+                        .as_u64()
+                        .ok_or("definition_id required")?,
+                );
+                let id = args["id"].as_str().ok_or("id required")?;
+                let value = args.get("value").cloned().ok_or("value required")?;
+                let paths: Vec<Vec<u64>> =
+                    serde_json::from_value(args.get("paths").cloned().unwrap_or(json!([])))
+                        .map_err(|e| e.to_string())?;
+                let paths = paths
+                    .into_iter()
+                    .map(|p| meshcraft_core::document::OccurrenceRef {
+                        path: p
+                            .into_iter()
+                            .map(meshcraft_core::document::LayoutEntryId)
+                            .collect(),
+                    })
+                    .collect();
+                shell
+                    .session
+                    .set_native_script_parameter(definition, paths, id, value)?;
+                Ok(
+                    json!({"parameters":shell.session.native_script_parameters(),"revision":shell.session.document_revision()}),
+                )
+            }
+            _ => Err("action must be get or set".into()),
+        },
         "meshcraft_object_script" => shell.session.mcp_script(args),
         "meshcraft_run_script" => shell.session.mcp_run_script(args),
         "meshcraft_cancel_script" => shell.session.cancel_mcp_script(),

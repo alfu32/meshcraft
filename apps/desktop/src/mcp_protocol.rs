@@ -96,10 +96,19 @@ pub fn tools() -> Vec<Value> {
             true,
         ),
         tool(
-            "meshcraft_object_script",
-            "Create a scripted object, read its full source, or replace a prototype's script in one undoable edit. create needs source and returns prototype/occurrence IDs; get/set need definition_id. Unified source defines onCreate(instance,model) and onAnimationFrame(instance,model). Editing a prototype affects its instances.",
+            "meshcraft_parameters",
+            "Read Object Properties parameter forms for the current selection, or set an authored prototype/instance parameter in one undoable transaction. set requires definition_id,id,value; omit paths for shared prototype scope, or pass occurrence paths for instance scope. Values are strictly typed. Declare with $TEXT/$NUMBER/$CHECKBOX/$LIST/$HOTSPOT, using script api_version=2.",
             schema(
-                json!({"action":{"enum":["create","get","set"]},"definition_id":{"type":"integer","minimum":0},"source":{"type":"string"}}),
+                json!({"action":{"enum":["get","set"]},"definition_id":{"type":"integer","minimum":0},"paths":{"type":"array","items":{"type":"array","items":{"type":"integer","minimum":0}}},"id":{"type":"string"},"value":{}}),
+                &["action"],
+            ),
+            false,
+        ),
+        tool(
+            "meshcraft_object_script",
+            "Create a scripted object, read its full source, or replace a prototype's script in one undoable edit. create needs source and returns prototype/occurrence IDs; get/set need definition_id. Use api_version=2 for onAnimationFrame(params,model) and $ declarations. Legacy api_version=1 preserves the original instance argument. onCreate(instance,model) retains this as the instance. Editing a prototype affects its instances.",
+            schema(
+                json!({"action":{"enum":["create","get","set"]},"definition_id":{"type":"integer","minimum":0},"source":{"type":"string"},"api_version":{"type":"integer","enum":[1,2]}}),
                 &["action"],
             ),
             false,
@@ -108,7 +117,7 @@ pub fn tools() -> Vec<Value> {
             "meshcraft_run_script",
             "Run a ONE-SHOT script through the SAME JavaScript SDK as object scripts, off the UI thread. Default source_type=body accepts e.g. return cuboid(new Point(),new Point(3,2,1)); source_type=module defines onCreate/onAnimationFrame. this.geometry starts empty; model is an immutable live-scene snapshot, custom properties initialize this. Returns a job ID; poll meshcraft_get_job. commit=true (default) inserts one static object with emitted geometry/hotspots in ONE undo transaction, in the active editing context. Output coordinates are world model units plus optional position offset. commit=false evaluates without model changes. Rejects stale results after document/context changes; failures/cancel leave no geometry.",
             schema(
-                json!({"source":{"type":"string"},"source_type":{"enum":["body","module"]},"properties":{"type":"object"},"name":{"type":"string"},"position":{"type":"array","items":{"type":"number"}},"commit":{"type":"boolean"}}),
+                json!({"source":{"type":"string"},"source_type":{"enum":["body","module"]},"api_version":{"type":"integer","enum":[1,2]},"properties":{"type":"object"},"name":{"type":"string"},"position":{"type":"array","items":{"type":"number"}},"commit":{"type":"boolean"}}),
                 &["source"],
             ),
             false,

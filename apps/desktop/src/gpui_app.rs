@@ -32,6 +32,8 @@ mod layout;
 mod lighting;
 #[path = "gpui_materials.rs"]
 mod materials;
+#[path = "gpui_parameters.rs"]
+mod parameters;
 #[path = "gpui_placement.rs"]
 mod placement;
 #[path = "gpui_postprocess.rs"]
@@ -994,6 +996,7 @@ struct MeshcraftShell {
     materials: materials::MaterialsUi,
     focus: gpui::FocusHandle,
     settings: settings::Editors,
+    parameters: parameters::Ui,
     settings_scroll: gpui::ScrollHandle,
     open_settings_panel: Option<&'static str>,
     collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
@@ -1049,6 +1052,7 @@ impl MeshcraftShell {
             scripts: scripts::ScriptsUi::default(),
             focus: cx.focus_handle(),
             settings: settings::Editors::default(),
+            parameters: parameters::Ui::default(),
             settings_scroll: gpui::ScrollHandle::new(),
             open_settings_panel: Some("UI Settings"),
             collapsed_settings_panels: Default::default(),
@@ -2629,6 +2633,7 @@ impl Render for MeshcraftShell {
             }
         }
         settings::prepare(self, window, cx);
+        parameters::prepare(self, window, cx);
         annotations::prepare(self, window, cx);
         architecture::prepare(self, window, cx);
         automation::prepare(self, window, cx);

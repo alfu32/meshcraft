@@ -13,6 +13,8 @@ mod materials_workflow;
 mod mcp_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
+#[path = "parameter_workflow.rs"]
+pub(crate) mod parameter_workflow;
 #[path = "placement_preview.rs"]
 mod placement_preview;
 #[path = "script_workflow.rs"]
