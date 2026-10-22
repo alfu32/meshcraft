@@ -4,7 +4,8 @@
 use super::{MeshcraftShell, command_enabled, ribbon_command_for_key};
 
 pub(super) const LEFT_PANEL_WIDTH: f32 = 230.0;
-pub(super) const RIGHT_PANEL_WIDTH: f32 = 330.0;
+pub(super) const RIGHT_PANEL_WIDTH: f32 = 420.0;
+const SELECTION_COUNT_WIDTH: f32 = 68.0;
 pub(super) const TITLE_BAR_HEIGHT: f32 = 34.0;
 pub(super) const MENU_HEIGHT: f32 = 34.0;
 pub(super) const TAB_HEIGHT: f32 = 28.0;
@@ -623,8 +624,22 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             .text_xs()
             .text_color(rgb(0xc0c6cf))
             .child(div().flex_1().min_w(px(0.)).child("Type"))
-            .child(div().w(px(32.)).text_right().child("T"))
-            .child(div().w(px(32.)).text_right().child("S"));
+            .child(
+                div()
+                    .w(px(SELECTION_COUNT_WIDTH))
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_right()
+                    .child("T"),
+            )
+            .child(
+                div()
+                    .w(px(SELECTION_COUNT_WIDTH))
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_right()
+                    .child("S"),
+            );
         for (label, property) in [("V", "visible"), ("E", "editable"), ("W", "wireframe")] {
             header = header.child(
                 div()
@@ -659,8 +674,22 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .text_xs()
                 .text_color(rgb(0xc0c6cf))
                 .child(div().flex_1().min_w(px(0.)).child(label))
-                .child(div().w(px(32.)).text_right().child(total.to_string()))
-                .child(div().w(px(32.)).text_right().child(selected.to_string()));
+                .child(
+                    div()
+                        .w(px(SELECTION_COUNT_WIDTH))
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_right()
+                        .child(total.to_string()),
+                )
+                .child(
+                    div()
+                        .w(px(SELECTION_COUNT_WIDTH))
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .text_right()
+                        .child(selected.to_string()),
+                );
             for property in ["visible", "editable", "wireframe"] {
                 row = row.child(self.selection_checkbox(key, kinds, property));
             }

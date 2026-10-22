@@ -1147,7 +1147,7 @@ impl MeshcraftShell {
         {
             self.cached_edit_context = Some(edit_context);
             self.cached_document_generation = Some(self.session.document_generation());
-            self.cached_document = Arc::new(self.session.native_document_for_view());
+            self.cached_document = self.session.native_view_snapshot();
             self.cached_scene_counts = layout::SceneCounts::from_document(&self.cached_document);
             self.cached_annotations = Arc::new(self.cached_document.annotations());
             self.cached_document_revision = Some(revision);
@@ -3365,7 +3365,7 @@ mod tests {
                     assert_eq!(bounds.y, ((header + 34.) * scale).round() as i32);
                     assert_eq!(
                         bounds.width,
-                        ((1882. - margin - 330.) * scale).round() as u32
+                        ((1882. - margin - 420.) * scale).round() as u32
                     );
                     assert_eq!(
                         bounds.height,

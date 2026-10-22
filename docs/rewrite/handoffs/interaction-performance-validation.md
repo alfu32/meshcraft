@@ -80,3 +80,52 @@ T51/T60 and broad performance/platform acceptance remain in progress. Open GitHu
 Connected and coplanar face/line selection now uses a non-mutating spatial adjacency graph at `1e-2` model units. Separate vertex identities and sparse raw corner positions can connect by proximity. Adjacent buckets are checked by actual distance; connected expansion traverses indexed adjacency instead of repeatedly scanning the whole graph. Authoritative geometry and legacy topology insertion tolerances stay intact. A regression connects faces/lines across a 0.006-unit gap, excludes a separate fragment beyond tolerance, and verifies the document is unchanged.
 
 Middle and Shift+right panning use half the previous multiplier (`distance × 0.00125` rather than `distance × 0.0025`). **495 workspace tests pass** (228 core, 247 desktop, 15 IO, 5 CLI); build, strict Clippy, formatting and plan validation pass. The user confirmed that the connection tolerance is in model units.
+
+## Prototype edit picking and wider counts — 0.24.2
+
+Native snap, pick and cursor-axis calls previously constructed `prototype_edit_view` independently
+on every query. This cloned all authored geometry and dropped derived hotspot caches repeatedly.
+The session now caches one immutable `Arc<Document>` for the active occurrence, keyed by visual
+revision and cleared when generation/context changes. Rendering shares that same view. Display
+policy remains query-time state; selection alone neither rebuilds the view nor changes the document.
+
+The right panel grows from 330 to 420 logical pixels. Total/Selected cells are each 68 pixels,
+non-shrinking and non-wrapping, allowing seven digits. The existing viewport/DPI regression now
+expects the wider panel. [Native selection-panel capture](../references/prototype-picking/selection-panel.png).
+
+Reproduce the bounded CPU probe (generated regular 160 × 160-cell grid, 25,921 shared vertices,
+51,200 triangles; no input file required):
+
+```sh
+cargo test -p meshcraft-desktop --lib prototype_picking_latency_probe -- --ignored --nocapture
+```
+
+On Linux 6.17.0-41-generic / Intel Core i7-6700HQ, using the workspace's optimized development
+profile, the same probe measured:
+
+| CPU operation | Before | After |
+| --- | ---: | ---: |
+| Cold prototype spatial query | 593.75 ms | 403.54 ms |
+| 20 warmed snap/axis/pick/select/command-state cycles | 808.51 ms | 9.69 ms |
+
+The warmed probe excludes rendering and intentionally has no timing threshold. Each cycle runs
+native snapping, cursor alignment twice, face picking, single-click selection and all command-state
+queries. Cold index construction remains proportional to scene size; these measurements do not
+claim every editing operation or model is fast.
+
+A separate X11/software-GPU native app imported the same 51,200 triangles, entered prototype edit,
+and selected two different faces by actual mouse events, one at a time. Vertex editing was disabled
+to isolate face picking in this dense grid. Document revision remained unchanged. One warmed click
+was observed through MCP in 27.3 ms, including event dispatch and HTTP observation (not a rendered
+frame-time benchmark). The settled capture shows Faces total 51200 and selected 1. The user's app
+and files were not touched. Windows/macOS runtime checks remain unperformed for this change.
+
+`cargo test --workspace --quiet` passes **649 tests** (277 core, 326 desktop library, 5 CLI, 41 IO;
+three manual desktop probes ignored). The new regressions check view reuse, updated geometry,
+external snap references with selection isolation, context/generation invalidation and script-only
+visual updates. Existing deformed-instance/prototype picking tests also pass.
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo build -p meshcraft-desktop --bin meshcraft`, `cargo fmt --all -- --check`,
+`python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` scoped to this change pass.
+The desktop library also passes `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`
+with the same three existing warnings for unused native walkthrough/clipboard helpers.

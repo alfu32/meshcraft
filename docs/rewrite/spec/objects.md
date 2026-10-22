@@ -14,6 +14,10 @@ Double-clicking a prototype row activates insertion of that definition, even whe
 
 Within prototype editing, selection and modification are limited to the active subscene's own geometry and immediate nested instances. Outside geometry stays visible, optionally faded, and remains a snapping/constraint reference. It is not selectable or modifiable. A nested instance can be entered to edit its definition in turn. Construction writes directly into the active prototype.
 
+Pointer motion, snapping and individual picks must reuse the prepared prototype editing view,
+rather than cloning the scene for every query. Rendering and spatial queries share that immutable
+view until authored/evaluated geometry, document generation or the edit context changes.
+
 Escape exits the active object-edit context and cancels its current draft; a dedicated Close Object/Exit Editing button provides the same one-handed action. Outside object editing, retain the established staged Escape behavior. Exit clears edit-context selection and restores instance-level interaction. The inspector must clearly distinguish selected instance, edited prototype and root scene.
 
 ## Hotspot authoring and instance behavior

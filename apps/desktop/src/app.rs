@@ -2312,6 +2312,9 @@ pub struct MeshcraftApp {
     selection_click_tracker: SelectionClickTracker,
     #[cfg(not(target_arch = "wasm32"))]
     native_spatial_context: Option<(u64, EditContext)>,
+    // Generation/context live in native_spatial_context; the tuple tracks evaluated geometry too.
+    #[cfg(not(target_arch = "wasm32"))]
+    native_edit_view: Option<(u64, Arc<Document>)>,
     object_name_edit: Option<(DefinitionId, String)>,
     object_browser_selection: Option<DefinitionId>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -2564,6 +2567,16 @@ impl MeshcraftApp {
             EditContext::Occurrence(active) => self.document.prototype_edit_view(active),
             _ => self.document.clone(),
         }
+    }
+
+    /// Share the same prototype view between rendering and native spatial queries.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_view_snapshot(&mut self) -> Arc<Document> {
+        self.native_prepare_spatial_view();
+        self.native_edit_view.as_ref().map_or_else(
+            || Arc::new(self.document.clone()),
+            |(_, view)| Arc::clone(view),
+        )
     }
 
     pub fn document_revision(&self) -> u64 {
@@ -3106,18 +3119,31 @@ impl MeshcraftApp {
         let context = (self.document_generation, self.selection.context.clone());
         if self.native_spatial_context.as_ref() != Some(&context) {
             self.native_spatial_context = Some(context);
+            self.native_edit_view = None;
             self.viewport.invalidate_document_caches();
+        }
+        if let EditContext::Occurrence(active) = &self.selection.context {
+            let revision = self.document.visual_revision();
+            if self
+                .native_edit_view
+                .as_ref()
+                .is_none_or(|(cached, _)| *cached != revision)
+            {
+                self.native_edit_view = Some((
+                    revision,
+                    Arc::new(self.document.prototype_edit_view(active)),
+                ));
+            }
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn native_cursor_axes(&mut self, snap: SnapResult) -> Option<[Vec3; 3]> {
         self.native_prepare_spatial_view();
-        let edit_view = match &self.selection.context {
-            EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
-            _ => None,
-        };
-        let document = edit_view.as_ref().unwrap_or(&self.document);
+        let document = self
+            .native_edit_view
+            .as_ref()
+            .map_or(&self.document, |(_, view)| view.as_ref());
         let scope = match &self.selection.context {
             EditContext::Document => SnapScope::Document,
             EditContext::Definition(definition) => SnapScope::Definition(*definition),
@@ -3140,11 +3166,10 @@ impl MeshcraftApp {
         radius: f64,
     ) -> Option<SelectionTarget> {
         self.native_prepare_spatial_view();
-        let edit_view = match &self.selection.context {
-            EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
-            _ => None,
-        };
-        let document = edit_view.as_ref().unwrap_or(&self.document);
+        let document = self
+            .native_edit_view
+            .as_ref()
+            .map_or(&self.document, |(_, view)| view.as_ref());
         let scope = match &self.selection.context {
             EditContext::Document => SnapScope::Document,
             EditContext::Definition(definition) => SnapScope::Definition(*definition),
@@ -3202,11 +3227,10 @@ impl MeshcraftApp {
     ) -> Option<SnapResult> {
         // Editing isolates selection, not references: neighboring scene geometry still snaps.
         self.native_prepare_spatial_view();
-        let edit_view = match &self.selection.context {
-            EditContext::Occurrence(active) => Some(self.document.prototype_edit_view(active)),
-            _ => None,
-        };
-        let document = edit_view.as_ref().unwrap_or(&self.document);
+        let document = self
+            .native_edit_view
+            .as_ref()
+            .map_or(&self.document, |(_, view)| view.as_ref());
         let scope = SnapScope::Document;
         self.viewport.snap_geometry_on_ray(
             document,
@@ -3398,6 +3422,8 @@ impl MeshcraftApp {
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
             native_spatial_context: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_edit_view: None,
             object_name_edit: None,
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -12859,6 +12885,8 @@ mod tests {
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
             native_spatial_context: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_edit_view: None,
             object_name_edit: None,
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -13437,6 +13465,111 @@ mod tests {
             EditContext::Occurrence(occurrence),
             app.native_edit_context()
         );
+    }
+
+    #[test]
+    fn native_prototype_view_is_shared_until_geometry_context_or_document_changes() {
+        let mut app = test_app();
+        let path = app
+            .document
+            .add_cuboid("prototype", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        let external = app
+            .document
+            .add_cuboid("reference", Vec3::new(2., 2., 2.), Vec3::X * 5.)
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&path)
+            .unwrap()
+            .definition
+            .id;
+        app.selection
+            .set_context(EditContext::Occurrence(path.clone()));
+        let snapshot = app.native_view_snapshot();
+        let revision = app.document.revision();
+        let origin = Vec3::new(0.3, 10., 0.4);
+        let snap = app
+            .native_snap_point_on_ray(origin, -Vec3::Y, 0.01)
+            .unwrap();
+        app.native_cursor_axes(snap).unwrap();
+        let target = app.pick_native_target(origin, -Vec3::Y, 0.01).unwrap();
+        app.handle_native_selection_click(
+            Some(target),
+            Modifiers::default(),
+            1000,
+            meshcraft_core::geometry::Vec2::ZERO,
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &snapshot,
+            &app.native_view_snapshot()
+        ));
+        assert_eq!(revision, app.document.revision());
+        // External geometry remains a snapping reference but cannot be selected in this context.
+        let outside = Vec3::new(5.3, 10., 0.4);
+        assert!(
+            app.native_snap_point_on_ray(outside, -Vec3::Y, 0.01)
+                .is_some()
+        );
+        assert!(app.pick_native_target(outside, -Vec3::Y, 0.01).is_none());
+        app.document
+            .append_planar_rectangle_to_definition(
+                definition,
+                [
+                    Vec3::new(0., 4., 0.),
+                    Vec3::new(2., 4., 0.),
+                    Vec3::new(2., 4., 2.),
+                    Vec3::new(0., 4., 2.),
+                ],
+            )
+            .unwrap();
+        let snap = app
+            .native_snap_point_on_ray(origin, -Vec3::Y, 0.01)
+            .unwrap();
+        assert!((snap.point.y - 4.).abs() < 1e-9);
+        let changed = app.native_view_snapshot();
+        assert!(!std::sync::Arc::ptr_eq(&snapshot, &changed));
+        app.selection.set_context(EditContext::Occurrence(external));
+        assert!(!std::sync::Arc::ptr_eq(
+            &changed,
+            &app.native_view_snapshot()
+        ));
+        app.selection.set_context(EditContext::Document);
+        app.native_view_snapshot();
+        assert!(app.native_edit_view.is_none());
+        app.selection.set_context(EditContext::Occurrence(path));
+        let old = app.native_view_snapshot();
+        app.document_generation += 1;
+        let replaced = app.native_view_snapshot();
+        assert!(!std::sync::Arc::ptr_eq(&old, &replaced));
+    }
+
+    #[test]
+    fn native_prototype_view_invalidates_on_script_frames_without_authored_revision_change() {
+        use meshcraft_core::document::scripts::{ScriptFrame, ScriptState};
+        let mut app = test_app();
+        let path = app
+            .document
+            .add_cuboid("prototype", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        app.selection
+            .set_context(EditContext::Occurrence(path.clone()));
+        let old = app.native_view_snapshot();
+        let revision = app.document.revision();
+        app.document.install_script_frames(
+            [(
+                path.clone(),
+                ScriptFrame {
+                    geometry: app.document.effective_geometry(&path).unwrap().clone(),
+                    hotspots: vec![],
+                    state: ScriptState::default(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        assert_eq!(revision, app.document.revision());
+        assert!(!std::sync::Arc::ptr_eq(&old, &app.native_view_snapshot()));
     }
 
     #[test]
@@ -16567,6 +16700,88 @@ mod tests {
         let start = std::time::Instant::now();
         app.native_snap_point_on_ray(Vec3::new(30., 10., 30.), -Vec3::Y, 0.1);
         println!("post-commit spatial update: {:?}", start.elapsed());
+    }
+
+    #[test]
+    #[ignore = "manual prototype picking latency probe; no timing threshold"]
+    fn prototype_picking_latency_probe() {
+        use meshcraft_core::document::{RawGeometryTriangle, RawGeometryVertex, RawVertexRef};
+        let mut app = test_app();
+        let path = app
+            .document
+            .add_cuboid("dense prototype", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let definition = app
+            .document
+            .resolve_occurrence(&path)
+            .unwrap()
+            .definition
+            .id;
+        let side = 160;
+        let vertices = (0..=side)
+            .flat_map(|z| {
+                (0..=side).map(move |x| RawGeometryVertex {
+                    position: Vec3::new(x as f64, 0., z as f64),
+                    legacy_aliases: vec![],
+                })
+            })
+            .collect();
+        let mut triangles = vec![];
+        for z in 0..side {
+            for x in 0..side {
+                let a = (z * (side + 1) + x) as usize;
+                let b = a + 1;
+                let c = a + (side + 1) as usize;
+                for indices in [[a, c, b], [b, c, c + 1]] {
+                    triangles.push(RawGeometryTriangle {
+                        vertices: indices.map(|vertex| RawVertexRef {
+                            vertex,
+                            position_offset: Vec3::ZERO,
+                        }),
+                        color: Rgba8::WHITE,
+                        legacy_aliases: vec![],
+                        extensions: Default::default(),
+                    });
+                }
+            }
+        }
+        app.document
+            .replace_definition_geometry_raw(definition, vertices, vec![], triangles)
+            .unwrap();
+        app.selection.set_context(EditContext::Occurrence(path));
+        let origin = Vec3::new(30.25, 10., 30.4);
+        let start = std::time::Instant::now();
+        app.native_snap_point_on_ray(origin, -Vec3::Y, 0.01)
+            .unwrap();
+        println!(
+            "51,200-face prototype cold spatial query: {:?}",
+            start.elapsed()
+        );
+        let revision = app.document.revision();
+        let start = std::time::Instant::now();
+        for i in 0..20 {
+            let snap = app
+                .native_snap_point_on_ray(origin, -Vec3::Y, 0.01)
+                .unwrap();
+            app.native_cursor_axes(snap).unwrap();
+            let target = app.pick_native_target(origin, -Vec3::Y, 0.01).unwrap();
+            assert!(matches!(target.entity, SelectedEntity::Triangle(_)));
+            app.handle_native_selection_click(
+                Some(target),
+                Modifiers::default(),
+                1000 * (i + 1),
+                meshcraft_core::geometry::Vec2::ZERO,
+            );
+            app.native_cursor_axes(snap).unwrap();
+            for descriptor in MeshcraftApp::command_catalog() {
+                std::hint::black_box(app.query_command_state(descriptor.id.as_str()));
+            }
+        }
+        println!(
+            "20 warm snap/axes/pick/select/command-state cycles: {:?}",
+            start.elapsed()
+        );
+        assert_eq!(app.document.revision(), revision);
     }
 
     #[test]

@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.24.2 prototype picking and count layout:** the right panel is 420 px wide, with non-wrapping
+seven-digit count columns. Native snapping, cursor alignment, picking and rendering share a cached
+prototype edit view. A 51,200-face CPU probe's 20 warmed interaction cycles fell from 809 ms to
+9.7 ms; 649 tests and native face-click checks pass. See [performance evidence](docs/rewrite/handoffs/interaction-performance-validation.md#prototype-edit-picking-and-wider-counts--0242).
+
 **0.24.1 camera target:** the native viewport shows a colored 3D cross spanning 2 internal model
 units on each axis, centered on the camera target and visible through solids. Native perspective,
 translated-target and orthographic checks pass; see [T10 evidence](docs/rewrite/handoffs/T10.md#visible-native-camera-target--0241-2026-10-22).
