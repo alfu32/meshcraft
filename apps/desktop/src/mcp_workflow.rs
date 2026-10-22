@@ -73,6 +73,20 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
             "path" => "Absolute local file path. Supplying it avoids an interactive dialog.",
             "paths" =>
                 "Array of occurrence paths: each path is an array of numeric layout-entry IDs from meshcraft_scene.",
+            "unit"
+                if matches!(
+                    command.id.as_str(),
+                    "import.mesh" | "export.mesh" | "export.ifc_model"
+                ) =>
+                "Physical import/output unit override. Otherwise use embedded metadata or the filename suffix. glTF always uses meter coordinates. See interchange.formats.",
+            "scale"
+                if matches!(
+                    command.id.as_str(),
+                    "import.mesh" | "export.mesh" | "export.ifc_model"
+                ) =>
+                "Positive additional coordinate multiplier, applied once independently of physical unit conversion.",
+            "selection_only" =>
+                "Export only the selection; defaults to whether anything is selected. Set false for the full scene, including hidden geometry.",
             "definition_id" =>
                 "Numeric prototype ID from meshcraft_scene, distinct from occurrence/instance paths.",
             "clipboard" =>
@@ -105,6 +119,30 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
             spec["items"] = json!({"type":"number"});
             spec["minItems"] = json!(3);
             spec["maxItems"] = json!(3);
+        }
+        if name == "unit"
+            && matches!(
+                command.id.as_str(),
+                "import.mesh" | "export.mesh" | "export.ifc_model"
+            )
+        {
+            spec["enum"] = json!([
+                "micron",
+                "millimeter",
+                "centimeter",
+                "meter",
+                "inch",
+                "foot",
+                "unitless"
+            ]);
+        }
+        if name == "scale"
+            && matches!(
+                command.id.as_str(),
+                "import.mesh" | "export.mesh" | "export.ifc_model"
+            )
+        {
+            spec["exclusiveMinimum"] = json!(0);
         }
         if command.id.as_str() == "selection.update_display" {
             if name == "kind" {

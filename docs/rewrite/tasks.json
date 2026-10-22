@@ -1738,7 +1738,7 @@
       ],
       "targets": [
         "crates/meshcraft-io/src/mesh/",
-        "crates/meshcraft-ui/src/panels/interchange.rs"
+        "apps/desktop/src/interchange_workflow.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/export/MeshIo.kt",
@@ -1756,14 +1756,14 @@
       "slices": [
         "Record supported OBJ/STL/DXF parser/entity subsets and scene/selection export semantics; choose independent example fixtures.",
         "Implement OBJ geometry/normals, STL binary/ASCII/auto, DXF triangles/lines and physical-unit/coordinate scaling conversions.",
-        "Connect cancellable import/export commands/dialogs and diagnostics; compare legacy outputs and external fixtures, not only self round trips."
+        "Connect cancellable import/export commands/dialogs and diagnostics; compare legacy outputs and external fixtures, not only self round trips. Native worker-backed dialogs/commands, cancellation and unit/selection workflow implemented in 0.24.0 (2026-10-22); see handoff T36."
       ],
       "done": [
         "C27 common-format/unit matrix passes with supported-loss reporting.",
         "No double scaling or lost DXF line-only scenes."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T37",
@@ -1798,14 +1798,14 @@
         "Write exact FBX/glTF/GLB/DAE/3MF/AMF support ledger from current parser branches, example files and nested/unit transforms.",
         "Implement FBX ASCII output and supported FBX input, glTF/GLB buffers/accessors/geometry, DAE geometry/units with measured library adapters.",
         "Implement ZIP/XML 3MF components/build transforms/unit handling and indexed-mesh validation, plus AMF; retain source-supported errors.",
-        "Run external/legacy fixtures for all formats and document unsupported animation/material/texture/semantic data rather than claiming complete format support."
+        "Run external/legacy fixtures for all formats and document unsupported animation/material/texture/semantic data rather than claiming complete format support. Working bounded subsets and explicit loss diagnostics implemented in 0.24.0; broader third-party corpus qualification remains (handoff T37)."
       ],
       "done": [
         "C27 extended-format matrix passes with explicit subset ledger.",
         "3MF closure/edge diagnostics and component scaling are tested independently."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T38",
@@ -1824,7 +1824,8 @@
         "C27"
       ],
       "targets": [
-        "crates/meshcraft-io/src/ifc/"
+        "crates/meshcraft-io/src/mesh/cad.rs",
+        "apps/desktop/src/interchange_workflow.rs"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/export/IfcExporter.kt",
@@ -1841,14 +1842,14 @@
       "slices": [
         "Characterize actual IFC geometry import subset and IFC4 project/site/building/storey/proxy output.",
         "Implement world-resolved mesh/line/dimension chunks, names/spatial containment/units and source-equivalent representations.",
-        "Connect selection/model export paths and validate mixed-domain examples; document that semantic IfcWall/IfcSlab property modeling is future scope."
+        "Connect selection/model export paths and validate mixed-domain examples; document that semantic IfcWall/IfcSlab property modeling is future scope. Named IFC4 proxy geometry and shared native/MCP workflow implemented in 0.24.0; broader corpus/platform qualification remains (handoff T37)."
       ],
       "done": [
         "C27 IFC classes/geometry/units assertions pass.",
         "No inferred semantic BIM completeness is advertised."
       ],
       "tool_ids": [],
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "T39",

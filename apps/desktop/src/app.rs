@@ -4,6 +4,8 @@ mod annotation_workflow;
 mod architecture_workflow;
 #[path = "clipboard_workflow.rs"]
 mod clipboard_workflow;
+#[path = "interchange_workflow.rs"]
+mod interchange_workflow;
 #[path = "materials_workflow.rs"]
 mod materials_workflow;
 #[cfg(not(target_arch = "wasm32"))]
@@ -594,21 +596,21 @@ const LEGACY_COMMANDS: &[(&str, &str, &str, &str, Option<&str>)] = &[
     ),
     (
         "export.ifc_model",
-        "Export> IFC (Model)",
+        "Export> Export IFC (Model)",
         "Export",
         "export ifc model",
         Some("export"),
     ),
     (
         "import.mesh",
-        "Import> Mesh (OBJ/STL/FBX/glTF/DAE/DXF/3MF/AMF/IFC)",
+        "Import> Import Mesh…",
         "Import",
         "import mesh obj stl fbx gltf glb dae dxf 3mf amf ifc",
         Some("import"),
     ),
     (
         "export.mesh",
-        "Export> Mesh (OBJ/STL/FBX/glTF/DAE/DXF/3MF/AMF/IFC)",
+        "Export> Export Mesh…",
         "Export",
         "export mesh obj stl fbx gltf glb dae dxf 3mf amf ifc",
         Some("export"),
@@ -685,6 +687,7 @@ enum ShellAction {
     CancelHotspotPlacement,
     HotspotAction(&'static str),
     ObjectFileAction(&'static str),
+    InterchangeAction(&'static str),
     MaterialAction(&'static str),
     FocusToolDistance,
     FinishToolInput,
@@ -1492,10 +1495,15 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "view.camera.orbit" => ShellAction::SelectToolAlias("Orbit"),
                 "view.camera.walkthrough" => ShellAction::SetWalkthroughView,
                 "view.camera.orthographic" => ShellAction::SetOrthographicView(OrthoView::Top),
+                "import.mesh" => ShellAction::InterchangeAction("import"),
+                "export.mesh" => ShellAction::InterchangeAction("export"),
+                "export.ifc_model" => ShellAction::InterchangeAction("ifc"),
                 _ => ShellAction::Unsupported,
             };
             register_shell_command(&mut registry, id, name, category, keywords, *icon, action);
         }
+        register_shell_command(&mut registry, "interchange.cancel", "File> Cancel Import / Export", "File", "cancel stop mesh import export", Some("stop"), ShellAction::InterchangeAction("cancel"));
+        register_shell_command(&mut registry, "interchange.formats", "File> Supported Mesh Formats", "File", "mesh formats capabilities units limitations", Some("import.mesh"), ShellAction::InterchangeAction("formats"));
         register_shell_command(&mut registry, "view.camera.perspective", "View> Camera Perspective", "View", "camera perspective orbit", Some("view"), ShellAction::SetPerspectiveView);
         for (id, label, action) in [("edit.cut_selection", "Cut", "cut"), ("edit.paste", "Paste", "paste"), ("edit.paste_in_place", "Paste in Place", "paste_in_place"),
             ("edit.copy_as_script", "Copy as Script", "script"), ("edit.copy_selection", "Copy", "copy")] {
@@ -1606,7 +1614,9 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::Redo
         | ShellAction::NewDocument
         | ShellAction::FinishToolInput => CommandKind::DocumentMutation,
-        ShellAction::ObjectFileAction(_)
+        ShellAction::InterchangeAction("formats") => CommandKind::ReadOnly,
+        ShellAction::InterchangeAction(_)
+        | ShellAction::ObjectFileAction(_)
         | ShellAction::OpenProject
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
@@ -1742,6 +1752,12 @@ fn tools_menu_group(command_id: &str) -> Option<&'static str> {
 }
 
 fn command_menu_aliases(command_id: &str) -> Vec<Vec<String>> {
+    if matches!(
+        command_id,
+        "import.mesh" | "export.mesh" | "export.ifc_model"
+    ) {
+        return vec![vec!["File".to_owned()]];
+    }
     let in_tools_menu = matches!(
         command_id,
         "tool.select"
@@ -1832,6 +1848,7 @@ fn register_shell_command(
         | ShellAction::BeginHotspotPlacement
         | ShellAction::CancelHotspotPlacement
         | ShellAction::ObjectFileAction(_)
+        | ShellAction::InterchangeAction(_)
         | ShellAction::PlaceGuide(_)
         | ShellAction::RemoveGuide
         | ShellAction::SetProfile(_)
@@ -2019,6 +2036,18 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         "edit.paste_in_place" => &[
             ("clipboard", CommandValueType::String),
             ("offset", CommandValueType::Array),
+        ],
+        "import.mesh" => &[
+            ("path", CommandValueType::String),
+            ("unit", CommandValueType::String),
+            ("scale", CommandValueType::Number),
+            ("position", CommandValueType::Array),
+        ],
+        "export.mesh" | "export.ifc_model" => &[
+            ("path", CommandValueType::String),
+            ("unit", CommandValueType::String),
+            ("scale", CommandValueType::Number),
+            ("selection_only", CommandValueType::Boolean),
         ],
         "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
         _ => &[],
@@ -2287,6 +2316,8 @@ pub struct MeshcraftApp {
     object_browser_selection: Option<DefinitionId>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_object_import: Option<object_workflow::ObjectImportJob>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_interchange: Option<interchange_workflow::InterchangeJob>,
     hotspot_inspector: Option<(OccurrenceRef, String)>,
     hotspot_defaults: meshcraft_core::document::hotspots::Hotspot,
     hotspot_reference_pick: bool,
@@ -2550,6 +2581,7 @@ impl MeshcraftApp {
         self.poll_project_load();
         self.poll_project_save();
         self.poll_object_import();
+        self.poll_interchange();
         let _ = self.poll_autosave(Instant::now());
     }
 
@@ -3370,6 +3402,8 @@ impl MeshcraftApp {
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_object_import: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_interchange: None,
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,
@@ -6225,6 +6259,9 @@ impl MeshcraftApp {
                     .map(|_| CommandResult::completed())
                     .unwrap_or_else(CommandResult::failed);
             }
+            ShellAction::InterchangeAction(action) => {
+                return self.execute_interchange(action, payload);
+            }
             ShellAction::ObjectFileAction(action) => {
                 return self.execute_object_file_command(action, payload);
             }
@@ -7876,6 +7913,27 @@ impl MeshcraftApp {
                 || self.pending_project_load.is_some()
             {
                 return CommandState::disabled("another project operation is still running");
+            }
+        }
+        if matches!(id, "import.mesh" | "export.mesh" | "export.ifc_model") {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Mesh file interchange is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_interchange.is_some()
+                || self.pending_project_load.is_some()
+                || self.pending_replacement.is_some()
+            {
+                return CommandState::disabled(
+                    "another import/export or document replacement is still running",
+                );
+            }
+        }
+        if id == "interchange.cancel" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Mesh file interchange is available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_interchange.is_none() {
+                return CommandState::disabled("no import/export is running");
             }
         }
         if id == "file.cancel_open" {
@@ -11735,8 +11793,14 @@ impl MeshcraftApp {
         {
             self.poll_project_load();
             self.poll_project_save();
+            self.poll_object_import();
+            self.poll_interchange();
             let autosave_wait = self.poll_autosave(Instant::now());
-            if self.pending_project_load.is_some() || self.pending_project_save.is_some() {
+            if self.pending_project_load.is_some()
+                || self.pending_project_save.is_some()
+                || self.pending_interchange.is_some()
+                || self.pending_object_import.is_some()
+            {
                 ui.ctx().request_repaint_after(Duration::from_millis(100));
             } else if self.pending_replacement.is_none()
                 && let Some(wait) = autosave_wait
@@ -12799,6 +12863,8 @@ mod tests {
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_object_import: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_interchange: None,
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,

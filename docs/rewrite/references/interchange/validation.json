@@ -1,0 +1,348 @@
+{
+  "version": "0.24.0",
+  "platform": "Linux/X11, isolated Xvfb display, software Mesa",
+  "automated": {
+    "workspace_passed": 647,
+    "ignored_opt_in": 2,
+    "strict_clippy": true,
+    "desktop_build": true
+  },
+  "legacy_read_only": [
+    {
+      "elapsed_ms": 3,
+      "path": "../k3d/examples/export.obj",
+      "segments": 0,
+      "triangles": 731,
+      "warnings": [],
+      "sha256": "9efadbd9a41c3336cee634c5e9397e8be52f5a32a450d886d9bc30a18f4fbce3"
+    },
+    {
+      "elapsed_ms": 4,
+      "path": "../k3d/examples/export.stl",
+      "segments": 0,
+      "triangles": 731,
+      "warnings": [],
+      "sha256": "e47dd6cd9c6427f96d8f72efc2befcfdf9044be9ab6e410c6089e33eb35b2457"
+    },
+    {
+      "elapsed_ms": 0,
+      "path": "../k3d/examples/carcass_08_div_int.fbx",
+      "segments": 0,
+      "triangles": 22,
+      "warnings": [
+        "FBX imports static ASCII polygon arrays only; materials, hierarchy, animation and skinning are omitted."
+      ],
+      "sha256": "a242ddb18ebb70debe8569dd3d789b73dfad7a07a27e54645449e6b3cb4242a9"
+    },
+    {
+      "elapsed_ms": 5,
+      "path": "../k3d/examples/planetary_gear.dxf",
+      "segments": 1088,
+      "triangles": 0,
+      "warnings": [
+        "DXF circles and arcs are tessellated to segments."
+      ],
+      "sha256": "b34ebf19f4d1ccca2e18ceb80ba613ebd8b7fa37b14e595120a3cadfc206e844"
+    },
+    {
+      "elapsed_ms": 0,
+      "path": "../k3d/examples/carcass_01_right.3mf",
+      "segments": 0,
+      "triangles": 36,
+      "warnings": [],
+      "sha256": "c858cb0d621b9edce38236cf23cd56397cccd196981ac5a175188b3bfb35f040"
+    },
+    {
+      "elapsed_ms": 2,
+      "path": "../k3d/examples/carcass_stair.amf",
+      "segments": 0,
+      "triangles": 204,
+      "warnings": [
+        "AMF imports static triangles only; materials, curved faces and metadata are omitted."
+      ],
+      "sha256": "46e292a6e1f0af35707cb8772883672e984af30af5ffa3cb021556511e7d5259"
+    }
+  ],
+  "native_roundtrips": [
+    {
+      "version": "0.24.0",
+      "catalogDiscoverable": true
+    },
+    {
+      "export": "obj",
+      "bytes": 1344,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "export": "stl",
+      "bytes": 684,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "stla",
+      "bytes": 1253,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "stlb",
+      "bytes": 684,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "fbx",
+      "bytes": 804,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "gltf",
+      "bytes": 3835,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "export": "glb",
+      "bytes": 2404,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "export": "dae",
+      "bytes": 1433,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "export": "dxf",
+      "bytes": 1973,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "export": "3mf",
+      "bytes": 990,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "amf",
+      "bytes": 1295,
+      "triangles": 12,
+      "segments": 0,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them.",
+        "This format omits line segments."
+      ]
+    },
+    {
+      "export": "ifc",
+      "bytes": 3351,
+      "triangles": 12,
+      "segments": 12,
+      "warnings": [
+        "Interchange bakes the current geometry; prototypes, scripts, hotspots and editable architectural parameters are not preserved. Use .octd to retain them."
+      ]
+    },
+    {
+      "floatingWireframePlacement": true,
+      "prototypeAndPlacementUndo": true
+    },
+    {
+      "import": "obj",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "stl",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "stla",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "stlb",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "fbx",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "gltf",
+      "dimensionsInternal": [
+        2.0000000949949026,
+        3.000000026077032,
+        4.000000189989805
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "glb",
+      "dimensionsInternal": [
+        2.0000000949949026,
+        3.000000026077032,
+        4.000000189989805
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "dae",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "dxf",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "3mf",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "amf",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "import": "ifc",
+      "dimensionsInternal": [
+        2.0,
+        3.0,
+        4.0
+      ],
+      "minimumX": 10.0,
+      "selectionExportFaces": 12
+    },
+    {
+      "fileMenuNativeCapture": true
+    }
+  ],
+  "native_file_menu_followup": [
+    {
+      "command": "import.mesh",
+      "missingPathDoesNotOpenDialog": true
+    },
+    {
+      "command": "export.mesh",
+      "missingPathDoesNotOpenDialog": true
+    },
+    {
+      "command": "export.ifc_model",
+      "missingPathDoesNotOpenDialog": true
+    },
+    {
+      "finalNativeImportAndIfcExport": true,
+      "namedProxies": 2,
+      "triangles": 24
+    },
+    {
+      "gpuiFileMenuBindings": [
+        "import.mesh",
+        "export.mesh",
+        "export.ifc_model"
+      ],
+      "idleCancelDisabled": true
+    }
+  ],
+  "wasm_compile": {
+    "passed": true,
+    "existing_warnings": "Three dead-code warnings for native walkthrough/clipboard methods; no new interchange warnings."
+  },
+  "native_status_diagnostics": {
+    "readable_wrapped_hover_details": true,
+    "frame_indicator_remains_visible": true
+  }
+}

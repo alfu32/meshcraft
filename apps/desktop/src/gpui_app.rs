@@ -2482,7 +2482,9 @@ fn ribbon_command_for_key<'a>(
         "import-objects" => &["object.import_scene"],
         "reference-object" => &["object.reference_scene"],
         "refresh-object" => &["object.refresh_reference"],
-        "export" => &["export.mesh"],
+        "import-mesh" => &["import.mesh"],
+        "export" | "export-mesh" => &["export.mesh"],
+        "export-ifc" => &["export.ifc_model"],
         "model-settings" | "settings-panel" => &["view.model_settings"],
         "ui-settings" => &["view.panel.ui_settings.toggle"],
         "mcp-settings" => &["view.panel.mcp.toggle"],
@@ -2907,6 +2909,8 @@ impl Render for MeshcraftShell {
             })
             .child(viewport)
             .child(right_panel);
+        let status_text = self.session.status_text().to_owned();
+        let status_tooltip = status_text.clone();
         let status = div()
             .h(px(layout::STATUS_HEIGHT))
             .flex()
@@ -2916,12 +2920,32 @@ impl Render for MeshcraftShell {
             .bg(rgb(0x171b22))
             .text_xs()
             .text_color(rgb(0xb7c3d0))
-            .child(self.session.status_text().to_owned())
-            .child(div().flex_1())
-            .child(frame.map_or_else(
+            .child(
+                div()
+                    .id("status-message")
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .child(status_text)
+                    .tooltip(move |window, cx| {
+                        let details = status_tooltip.clone();
+                        gpui_component::tooltip::Tooltip::element(move |_, _| {
+                            div()
+                                .w(px(680.))
+                                .whitespace_normal()
+                                .text_sm()
+                                .text_color(rgb(0xd8e2ef))
+                                .child(details.clone())
+                        })
+                        .max_w(px(720.))
+                        .whitespace_normal()
+                        .build(window, cx)
+                    }),
+            )
+            .child(div().flex_shrink_0().child(frame.map_or_else(
                 || "Viewport starting".to_owned(),
                 |frame| format!("raylib frame {} · {:.1} ms", frame.sequence, frame.frame_ms),
-            ));
+            )));
 
         if self.open_menu != Some("File") {
             self.files = files::Ui::default();
@@ -3445,6 +3469,9 @@ mod tests {
             ("architecture-settings", "view.architecture_settings"),
             ("hvac-settings", "view.hvac_settings"),
             ("realtime-render", "render.raytrace"),
+            ("import-mesh", "import.mesh"),
+            ("export-mesh", "export.mesh"),
+            ("export-ifc", "export.ifc_model"),
         ] {
             let command = ribbon_command_for_key(key, &commands)
                 .unwrap_or_else(|| panic!("ribbon button {key} should be connected"));

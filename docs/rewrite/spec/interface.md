@@ -133,6 +133,8 @@ Preserve the actual proxy/tessellation representation, spatial containment, name
 
 Source: `K/export/IfcExporter.kt`, `MeshIo.parseIfc`, IFC selection/export callbacks in Main. Acceptance: C27.
 
+**Rust implementation (0.24.0, 2026-10-22).** Native/MCP mesh import/export now cover the documented supported subsets. Import creates a minimum-corner-anchored prototype and starts wireframe placement; an explicit automation position inserts it immediately. Export defaults to the current selection, otherwise the full scene, and resolves current script/instance/architecture geometry from a frozen snapshot. Named IFC occurrence chunks become geometry proxies. Workers parse/write; cancellation and stale-import checks precede UI publication, and failed exports preserve their previous destination. Embedded DAE/AMF/DXF/IFC units are now honored, a deliberate improvement over legacy branches that ignored them. See the [subset/units/workflow guide](../../interchange.md), [common-format handoff](../handoffs/T36.md) and [extended/IFC handoff](../handoffs/T37.md).
+
 ### A02 Structured HTTP and MCP automation
 
 **Observed + scoped change.** Legacy HTTP binds loopback, default 8765; exposes JSON-RPC at `/` and `/mcp`, status/contract, command discovery/execution and pointer routes. It declares six tools and five resources; routes/schemas are indexed. Calls marshal model work onto the application thread, with timeouts and logs. Pointer actions accept world or screen coordinates; use world coordinates for deterministic modeling tests.

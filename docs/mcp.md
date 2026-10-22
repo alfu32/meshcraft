@@ -237,3 +237,14 @@ one transaction, preserving each position, attachments and reference. Without a
 selected hotspot it retains the inspector/default workflow. Instance operation
 values still belong to individual instances and are operated through their
 hotspot target/drag commands.
+
+## Mesh interchange
+
+`interchange.formats` returns the complete format/subset and unit guide. `import.mesh`
+creates a prototype and starts placement; an optional `position:[x,y,z]` inserts an
+instance immediately in the active context. `export.mesh` and `export.ifc_model` accept
+`path`, optional physical `unit`, positive extra `scale`, and `selection_only`. Export
+defaults to the selection when nonempty; set `selection_only:false` for the whole model.
+Poll the job before treating the output as complete. `interchange.cancel` cancels work;
+failed/canceled exports retain the previous destination. Results include geometry counts
+and loss/unsupported-feature warnings. See [interchange guide](interchange.md).

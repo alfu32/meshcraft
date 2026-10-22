@@ -230,7 +230,13 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
             };
             if (matches!(
                 id,
-                "file.open" | "file.save_as" | "object.import_scene" | "object.reference_scene"
+                "file.open"
+                    | "file.save_as"
+                    | "object.import_scene"
+                    | "object.reference_scene"
+                    | "import.mesh"
+                    | "export.mesh"
+                    | "export.ifc_model"
             ) || id == "file.save" && shell.session.current_project_path().is_none())
                 && !payload.values.contains_key("path")
             {

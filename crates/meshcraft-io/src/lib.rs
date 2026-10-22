@@ -2,3 +2,5 @@
 
 pub mod legacy;
 pub mod project;
+
+pub mod mesh;
