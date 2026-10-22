@@ -17,7 +17,13 @@ Streamable HTTP at that URL. No cloud service, account or API key is required. T
    fail explicitly. `accepted` is distinct from completed: poll `meshcraft_get_job` for a
    pending job ID. Inspect the document generation/revision before retrying a lost response.
 
-Coordinates are in **model units**, Y is up, +Z faces the Front view. A prototype owns local
+Coordinates and numeric settings are in **internal model units**. Displayed
+lengths multiply the internal length by `unit_size` and append `unit_name`; a grid
+step measures `grid_size * unit_size`. For `unit_size=30`, `grid_size=0.5` and
+`unit_name="cm"`, one grid step displays `15 cm`. No stored geometry or numeric
+command parameter is rescaled. `snap_radius` is a screen-pixel radius.
+
+Y is up, +Z faces the Front view. A prototype owns local
 geometry, scripts, hotspots and nested instances. An occurrence is a placed instance with a
 numeric `path` of layout-entry IDs. An empty path `[]` addresses scene-root geometry.
 Imported scenes can have a wrapper occurrence with a nonempty path; `is_scene_root` identifies
@@ -145,7 +151,9 @@ blue draggable profile controls; `architecture.move_slab_vertex` is the equivale
 world-coordinate command. Slab profile points may have unequal heights. Native
 dragging moves these controls freely in 3D, identically with or without Shift;
 commands also accept the full 3D position without planar projection. Wall bases
-use the same free movement. Native dragging previews the owner's wireframe and
+use the same movement: real geometry/grid/guide snaps first, otherwise parallel
+to the active grid at the grabbed point's elevation. The dragged owner's solid
+cannot capture its own controls. Native dragging previews the owner's wireframe and
 commits the solid edit once on release. The profile normal is the extrusion axis; vertical sides and owned
 opening reveals follow it. Sloped planar roofs retain their normal thickness;
 at folds the underside preserves at least that thickness. Opening controls

@@ -174,12 +174,16 @@ impl NativeSpatialIndex {
         direction: Vec3,
         radius: f64,
     ) -> Vec<&NativeSpatialItem> {
-        if self.nodes.is_empty()
-            || !origin.is_finite()
-            || !direction.is_finite()
-            || !radius.is_finite()
-            || radius < 0.0
-        {
+        self.query_ray_with_margin(origin, direction, |_| radius)
+    }
+
+    pub(crate) fn query_ray_with_margin(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        margin: impl Fn(Aabb3) -> f64,
+    ) -> Vec<&NativeSpatialItem> {
+        if self.nodes.is_empty() || !origin.is_finite() || !direction.is_finite() {
             return Vec::new();
         }
         let Some(direction) = direction.try_normalized(1.0e-12) else {
@@ -190,7 +194,11 @@ impl NativeSpatialIndex {
         let mut candidate_ids = Vec::new();
         while let Some(node_id) = stack.pop() {
             let node = &self.nodes[node_id];
-            if ray_aabb_distance(origin, direction, node.bounds, radius).is_none() {
+            let radius = margin(node.bounds);
+            if !radius.is_finite()
+                || radius < 0.
+                || ray_aabb_distance(origin, direction, node.bounds, radius).is_none()
+            {
                 continue;
             }
             if let (Some(left), Some(right)) = (node.left, node.right) {
@@ -200,8 +208,13 @@ impl NativeSpatialIndex {
             }
             for order_index in node.start..node.end {
                 let item_id = self.item_order[order_index];
-                if ray_aabb_distance(origin, direction, self.items[item_id].bounds, radius)
-                    .is_some()
+                if ray_aabb_distance(
+                    origin,
+                    direction,
+                    self.items[item_id].bounds,
+                    margin(self.items[item_id].bounds),
+                )
+                .is_some()
                 {
                     candidate_ids.push(item_id);
                 }

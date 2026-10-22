@@ -30,8 +30,10 @@ sets defaults for new elements when nothing is selected.
 
 Select a slab to show its blue profile controls. Drag a control freely in 3D,
 with the same movement whether Shift is held or not. Geometry and guide snaps
-supply precise positions; without a snap, movement follows a view-facing plane
-through the grabbed control. An orange wireframe shows the future shape with
+supply precise positions, including the ground grid. Without a snap, movement
+follows a plane parallel to the active grid through the grabbed control, preserving
+its elevation. An edge-on grid uses a view-plane fallback so controls remain
+draggable. The dragged owner's own solid is excluded from snapping. An orange wireframe shows the future shape with
 relative-distance feedback. The solid model stays unchanged during dragging;
 releasing commits one undoable edit, and Escape discards the preview. Existing openings retain their plan positions
 and follow the roof’s height
@@ -58,7 +60,8 @@ parameters with their currently realized lines and triangles.
 Select one or several architectural elements to expose their controls:
 
 - **Blue wall bases:** the start is a square and the end is a circle. Both move
-  freely in 3D using geometry/guide snaps, with a view-facing fallback plane.
+  using 3D geometry/guide snaps and the ground grid. Without a snap they move
+  parallel to the active grid at their original elevation.
   Shift does not change the movement. Moving a base preserves that end's height,
   so its top moves with it. All four wall controls stay on the wall axis plane,
   independently of axis offset or inclination.
@@ -104,3 +107,12 @@ cargo run -- --open examples/architecture.octd
 ```
 
 Automation uses the same commands; see [the MCP guide](mcp.md#architecture).
+
+## Internal values and displayed measurements
+
+Numeric settings stay in internal units. Beside each architecture length input,
+the panel shows its converted measurement: internal length × Unit size, followed
+by Unit name. Inclination is in degrees and is not converted. This applies both
+to defaults and selected elements. For Unit name `cm`, Unit size `30` and Grid
+size `0.5`, one grid step measures `15 cm`; a wall thickness input of `0.5`
+also shows `15 cm`. Geometry, numeric tool entry and saved coordinates are unchanged.

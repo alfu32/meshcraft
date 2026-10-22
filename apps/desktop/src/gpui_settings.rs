@@ -151,6 +151,24 @@ const FIELDS: &[Field] = &[
     field!("Light azimuth", "light", "azimuth", 5., -180., 180.),
     field!("Light elevation", "light", "elevation", 5., 5., 85.),
 ];
+impl Field {
+    fn is_length(self) -> bool {
+        matches!(
+            self.key,
+            "wall_thickness"
+                | "wall_height"
+                | "wall_end_height"
+                | "wall_offset"
+                | "slab_thickness"
+                | "frame_depth"
+                | "frame_width"
+                | "grid_size"
+                | "arc_max_length"
+                | "double_line_size"
+                | "double_line_offset"
+        )
+    }
+}
 fn current(shell: &MeshcraftShell, field: Field) -> String {
     let payload = match field.group {
         "arch" => shell.session.native_architecture_payload(),
@@ -519,6 +537,9 @@ pub(super) fn render_field(
         "Antialiasing" => Some("antialiasing"),
         _ => None,
     };
+    let inline = FIELDS
+        .iter()
+        .any(|f| f.label == label && f.group == "arch" && f.key != "architecture_name");
     let body = if let Some(key) = key {
         Select::new(shell.settings.selects.get(key)?)
             .small()
@@ -533,14 +554,42 @@ pub(super) fn render_field(
             NumberInput::new(input).small().w_full().into_any_element()
         };
         let mut row = div().flex().items_center().gap(px(6.)).min_w(px(0.));
+        if inline {
+            row = row.child(div().flex_1().min_w(px(0.)).text_xs().child(label));
+        }
         if let Some(slider) = shell.settings.sliders.get(field.key) {
             row = row
                 .child(Slider::new(slider).w_full())
                 .child(div().w(px(84.)).flex_none().child(editor));
+        } else if inline {
+            row = row.child(div().w(px(112.)).flex_none().child(editor));
         } else {
-            row = row.child(editor);
+            row = row.child(div().flex_1().min_w(px(0.)).child(editor));
+        }
+        if field.is_length() {
+            row = row.child(div().text_xs().flex_none().child("units"));
+            if let Ok(value) = current(shell, *field).parse::<f64>() {
+                row = row.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0xa9c8e8))
+                        .flex_none()
+                        .child(shell.cached_document.model_settings().format_length(value)),
+                );
+            }
+        } else if field.key == "snap_radius" {
+            row = row.child(div().text_xs().flex_none().child("px"));
+        } else if matches!(field.key, "wall_inclination" | "azimuth" | "elevation") {
+            row = row.child(div().text_xs().flex_none().child("degrees"));
         }
         let mut body = div().child(row);
+        if field.key == "grid_size" {
+            let settings = shell.cached_document.model_settings();
+            body = body.child(div().text_xs().text_color(rgb(0xa5adb7)).child(format!(
+                "1 grid step = {}",
+                settings.format_length(settings.grid_size)
+            )));
+        }
         if let Some(error) = shell.settings.errors.get(field.key) {
             body = body.child(
                 div()
@@ -558,7 +607,9 @@ pub(super) fn render_field(
             .flex_1()
             .min_w(px(0.))
             .gap(px(3.))
-            .child(div().text_xs().text_color(rgb(0xc2c8d0)).child(label))
+            .when(!inline, |v| {
+                v.child(div().text_xs().text_color(rgb(0xc2c8d0)).child(label))
+            })
             .child(body)
             .into_any_element(),
     )

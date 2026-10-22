@@ -1,0 +1,148 @@
+{
+  "version": "0.23.1",
+  "date": "2026-10-22",
+  "environment": "Linux X11, isolated Xvfb :96, software Mesa, 1500x1000 window, separate project/config/cache, MCP port 8766",
+  "tests": {
+    "command": "cargo test --workspace",
+    "core": 277,
+    "desktop": 314,
+    "cli": 5,
+    "io": 15,
+    "passed": 611,
+    "ignored": 2
+  },
+  "checks": [
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo build -p meshcraft-desktop --bin meshcraft",
+    "cargo fmt --all -- --check",
+    "python3 docs/rewrite/scripts/verify_plan.py",
+    "scoped git diff --check"
+  ],
+  "native": [
+    {
+      "name": "Ground wall",
+      "control": {
+        "kind": "wall_base",
+        "end": true
+      },
+      "target": [
+        6,
+        0,
+        3
+      ],
+      "shift": false,
+      "privatePreview": true,
+      "undoRedo": true
+    },
+    {
+      "name": "Ground wall",
+      "control": {
+        "kind": "wall_base",
+        "end": true
+      },
+      "target": [
+        6,
+        0,
+        3
+      ],
+      "shift": true,
+      "privatePreview": true,
+      "undoRedo": true
+    },
+    {
+      "name": "Raised slab",
+      "control": {
+        "kind": "slab_vertex",
+        "index": 0
+      },
+      "target": [
+        -4,
+        0,
+        3
+      ],
+      "shift": false,
+      "privatePreview": true,
+      "undoRedo": true
+    },
+    {
+      "name": "Raised slab",
+      "control": {
+        "kind": "slab_vertex",
+        "index": 0
+      },
+      "target": [
+        -4,
+        2,
+        3
+      ],
+      "shift": false,
+      "privatePreview": true,
+      "undoRedo": true
+    },
+    {
+      "measurementExample": "0.5 internal units * 30 = 15 cm",
+      "internalDimensionRecord": {
+        "start": {
+          "x": -5.0,
+          "y": 0.0,
+          "z": 4.0
+        },
+        "end": {
+          "x": -4.5,
+          "y": 0.0,
+          "z": 4.0
+        },
+        "offset": {
+          "x": -5.0,
+          "y": 0.0,
+          "z": 5.0
+        },
+        "size": 0.25,
+        "text": ""
+      }
+    },
+    {
+      "zoom": 0.3,
+      "pixelOffset": 9,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": true
+    },
+    {
+      "zoom": 0.3,
+      "pixelOffset": 13,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": false
+    },
+    {
+      "zoom": 1,
+      "pixelOffset": 9,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": true
+    },
+    {
+      "zoom": 1,
+      "pixelOffset": 13,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": false
+    },
+    {
+      "zoom": 5,
+      "pixelOffset": 9,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": true
+    },
+    {
+      "zoom": 5,
+      "pixelOffset": 13,
+      "radiusPixels": 12,
+      "snappedAboveGroundEndpoint": false
+    },
+    {
+      "nativeArchitectureInputTyped": 1,
+      "displayedThickness": "30 cm",
+      "createdWallThicknessInternal": 1.0
+    }
+  ],
+  "scope": "Camera-dependent radius acceptance and actual pointer/architecture input checks; no new Windows/macOS live qualification.",
+  "additionalRegression": "Free control fallback preserves grid elevation; exactly edge-on grid views use a view plane so controls remain draggable."
+}

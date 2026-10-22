@@ -22,6 +22,16 @@ Use f64 model calculations and f32 GPU buffers. Centralize named distance, plana
 
 Source: `K/model/{ModelUnit,DraftLineStore,DraftFaceStore,HotspotStore}.kt`, `K/input/Snapper.kt`, `K/export/MeshIo.kt`. Acceptance: C01, C02, C11.
 
+**User-confirmed measurement and snapping correction (2026-10-22).** A displayed
+length is its internal value multiplied by unit size and suffixed by unit name.
+A single grid step is `grid_size * unit_size`: size 30 and grid 0.5 display 15 cm
+when the label is cm. Keep geometry and every numeric editing parameter in internal
+units; show converted results beside length inputs, including architecture defaults
+and selected elements, and in coordinates, relative distances and automatic dimensions.
+Angles and ratios are not converted. Pixel snap tolerance is projected at each
+candidate's depth, with constant projected tolerance in orthographic views; do not
+use a model/grid-size minimum or a cylinder fixed at camera-target distance.
+
 ### F03 Geometry stores and identities
 
 **Observed.** Segments have endpoints and stable string IDs. Faces are colored triangles with IDs, not authoritative boundary-loop polygons. Adjacency/regions can be derived using tolerance-aware coordinates. Overlapping/touching collinear edges are consolidated; segment insertion splits existing segments. Face cutters exist and are called by explicit mesh-intersection/object-cut/boolean paths. Current ordinary Line/Construction Line call `GroupNode.addSketchSegment`, which inserts/cleans lines without calling the face cutter. Automatic face creation from a line loop and automatic face cutting by ordinary drawing are documented intent, not established current wiring. Selected geometry and hotspot attachment references depend on both identities and legacy quantized endpoints.

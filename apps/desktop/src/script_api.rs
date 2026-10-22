@@ -479,7 +479,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "model.settings",
             "model.settings: readonly ModelSettings",
             "model.settings",
-            "Fields use snake_case: unit_name, unit_size, grid_size, circle_segments, snap_radius, arc_max_length, double_line_size and double_line_offset.",
+            "Fields use snake_case: unit_name, unit_size, grid_size, circle_segments, snap_radius, arc_max_length, double_line_size and double_line_offset. Coordinates and numeric parameters are internal units. Displayed lengths multiply by unit_size and use unit_name; a grid step displays grid_size * unit_size. snap_radius is in screen pixels.",
         ),
         entry(
             "model.time",

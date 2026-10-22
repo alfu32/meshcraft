@@ -27,8 +27,8 @@ use meshcraft_core::commands::{
     CommandState, CommandStateQuery, CommandValueType,
 };
 use meshcraft_core::document::{
-    DefinitionId, Document, LayoutEntryId, OccurrenceRef, Rgba8, TriangleId, TriangleReplacement,
-    VertexId,
+    DefinitionId, Document, LayoutEntryId, ModelSettings, OccurrenceRef, Rgba8, TriangleId,
+    TriangleReplacement, VertexId,
 };
 use meshcraft_core::geometry::{Affine3, GeometryTolerance, Vec3};
 use meshcraft_core::operations::copy as modeling_copy;
@@ -102,11 +102,12 @@ const MAX_RECENT_PROJECTS: usize = 10;
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 
-fn push_pull_feedback_text(displacement: Vec3, unit_name: &str) -> String {
-    let unit_name = if unit_name.trim().is_empty() {
+fn push_pull_feedback_text(displacement: Vec3, units: &ModelSettings) -> String {
+    let displacement = displacement * units.unit_size;
+    let unit_name = if units.unit_name.trim().is_empty() {
         "units"
     } else {
-        unit_name.trim()
+        units.unit_name.trim()
     };
     format!(
         "Push/Pull: {:.3} {unit_name} | ΔX {:+.3}, ΔY {:+.3}, ΔZ {:+.3} {unit_name}",
@@ -117,14 +118,18 @@ fn push_pull_feedback_text(displacement: Vec3, unit_name: &str) -> String {
     )
 }
 
-fn point_feedback_text(tool: &str, point: Vec3, unit_name: &str) -> String {
+fn point_feedback_text(tool: &str, point: Vec3, units: &ModelSettings) -> String {
+    let point = point * units.unit_size;
+    let unit_name = units.unit_name.trim();
     format!(
         "{tool}: X {:.3}, Y {:.3}, Z {:.3} {unit_name}",
         point.x, point.y, point.z
     )
 }
 
-fn vector_feedback_text(tool: &str, displacement: Vec3, unit_name: &str) -> String {
+fn vector_feedback_text(tool: &str, displacement: Vec3, units: &ModelSettings) -> String {
+    let displacement = displacement * units.unit_size;
+    let unit_name = units.unit_name.trim();
     format!(
         "{tool}: {:.3} {unit_name} | ΔX {:+.3}, ΔY {:+.3}, ΔZ {:+.3} {unit_name}",
         displacement.length(),
@@ -138,19 +143,19 @@ fn primitive_feedback_text(
     kind: PrimitiveKind,
     picks: &[Vec3],
     point: Vec3,
-    unit_name: &str,
+    units: &ModelSettings,
 ) -> String {
     if kind == PrimitiveKind::Sphere {
         return picks.first().map_or_else(
-            || point_feedback_text(kind.label(), point, unit_name),
-            |center| vector_feedback_text("Sphere radius", point - *center, unit_name),
+            || point_feedback_text(kind.label(), point, units),
+            |center| vector_feedback_text("Sphere radius", point - *center, units),
         );
     }
     let Some(base) = picks.first().copied() else {
-        return point_feedback_text(kind.label(), point, unit_name);
+        return point_feedback_text(kind.label(), point, units);
     };
     if picks.len() < 2 {
-        return vector_feedback_text("Radius point", point - base, unit_name);
+        return vector_feedback_text("Radius point", point - base, units);
     }
     let height = point - base;
     let radius_vector = picks[1] - base;
@@ -159,10 +164,11 @@ fn primitive_feedback_text(
         .map(|axis| (radius_vector - axis * radius_vector.dot(axis)).length());
     match radius.filter(|radius| radius.is_finite()) {
         Some(radius) => format!(
-            "{} | radius {radius:.2} {unit_name}",
-            vector_feedback_text(&format!("{} height", kind.label()), height, unit_name)
+            "{} | radius {}",
+            vector_feedback_text(&format!("{} height", kind.label()), height, units),
+            units.format_length(radius)
         ),
-        None => vector_feedback_text(&format!("{} height", kind.label()), height, unit_name),
+        None => vector_feedback_text(&format!("{} height", kind.label()), height, units),
     }
 }
 const ARCHITECTURE_PANEL_IDS: &[&str] = &[
@@ -3118,6 +3124,22 @@ impl MeshcraftApp {
         direction: Vec3,
         radius: f64,
     ) -> Option<SnapResult> {
+        self.native_snap_with_tolerance(
+            origin,
+            direction,
+            crate::native_snap::SnapTolerance::World(radius),
+            None,
+        )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_snap_with_tolerance(
+        &mut self,
+        origin: Vec3,
+        direction: Vec3,
+        tolerance: crate::native_snap::SnapTolerance,
+        excluded: Option<&SelectionTarget>,
+    ) -> Option<SnapResult> {
         // Editing isolates selection, not references: neighboring scene geometry still snaps.
         self.native_prepare_spatial_view();
         let edit_view = match &self.selection.context {
@@ -3126,13 +3148,14 @@ impl MeshcraftApp {
         };
         let document = edit_view.as_ref().unwrap_or(&self.document);
         let scope = SnapScope::Document;
-        self.viewport.snap_point_on_ray(
+        self.viewport.snap_geometry_on_ray(
             document,
             origin,
             direction,
-            radius,
+            tolerance,
             scope,
             &self.selection_display_policy,
+            excluded,
         )
     }
 
@@ -4252,13 +4275,11 @@ impl MeshcraftApp {
             }))
             .collect::<Vec<_>>();
         self.selection.apply(targets, SelectionMode::Replace);
-        let distance = displacement.length();
-        let unit_name = self.document.model_settings().unit_name.trim().to_owned();
-        let unit_name = if unit_name.is_empty() {
-            "units"
-        } else {
-            unit_name.as_str()
-        };
+        let distance = self
+            .document
+            .model_settings()
+            .display_length(displacement.length());
+        let unit_name = self.document.model_settings().unit_name.clone();
         self.clear_push_pull_transient();
         self.status = format!(
             "Push/Pull created {face_count} face(s) and {edge_count} edge(s) at {distance:.2} {unit_name}."
@@ -9940,12 +9961,7 @@ impl MeshcraftApp {
             return None;
         }
 
-        let unit_name = self.document.model_settings().unit_name.trim();
-        let unit_name = if unit_name.is_empty() {
-            "units"
-        } else {
-            unit_name
-        };
+        let units = self.document.model_settings();
         let point = snap.map(|snap| snap.point).or_else(|| {
             self.viewport
                 .screen_to_construction_plane(rect, screen_position)
@@ -9958,8 +9974,8 @@ impl MeshcraftApp {
         let mut measurement = point
             .map(|point| {
                 self.tool_reference_point().map_or_else(
-                    || point_feedback_text(feedback_label, point, unit_name),
-                    |reference| vector_feedback_text(feedback_label, point - reference, unit_name),
+                    || point_feedback_text(feedback_label, point, units),
+                    |reference| vector_feedback_text(feedback_label, point - reference, units),
                 )
             })
             .unwrap_or_default();
@@ -10000,7 +10016,7 @@ impl MeshcraftApp {
                 screen_position,
                 text: format!(
                     "Array preview: {copies} copies | {}",
-                    vector_feedback_text("Copy", *displacement, unit_name)
+                    vector_feedback_text("Copy", *displacement, units)
                 ),
             });
         }
@@ -10089,7 +10105,7 @@ impl MeshcraftApp {
                     kind,
                     self.primitive_tool_state.picks(),
                     point,
-                    unit_name,
+                    units,
                 ),
             });
         }
@@ -10107,8 +10123,8 @@ impl MeshcraftApp {
             _ => reference.map(|reference| point - reference),
         };
         let text = displacement.map_or_else(
-            || point_feedback_text(label, point, unit_name),
-            |delta| vector_feedback_text(label, delta, unit_name),
+            || point_feedback_text(label, point, units),
+            |delta| vector_feedback_text(label, delta, units),
         );
         Some(ToolFeedback {
             screen_position,
@@ -10921,8 +10937,7 @@ impl MeshcraftApp {
             && let Some(displacement) = self.push_pull_displacement()
         {
             let position = input.rect.left_top() + egui::vec2(18.0, 82.0);
-            let unit_name = &self.document.model_settings().unit_name;
-            let feedback = push_pull_feedback_text(displacement, unit_name);
+            let feedback = push_pull_feedback_text(displacement, self.document.model_settings());
             let numeric_hint = self.push_pull_distance_focused.then(|| {
                 if self.push_pull_numeric_input.is_empty() {
                     "Signed distance: type a value".to_owned()
@@ -12557,12 +12572,13 @@ mod tests {
     use super::{
         CommandPayload, CutTool, DrawingToolState, EditContext, LEGACY_TOOLBAR_COMMAND_IDS,
         LineOffsetToolState, MeshToolState, MeshcraftApp, OrthoView, PolylineToolState,
-        Preferences, PrimitiveToolState, ReplacementDecision, RevolveToolState, SelectedEntity,
-        SelectionClickTracker, SelectionDisplayPolicy, SelectionKind, SelectionMode,
-        SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState, ToolEvent,
-        TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
-        command_matches, load_preferences_file, point_feedback_text, push_pull_feedback_text,
-        registry_has_unique_ids, shell_commands, tool_command_id, vector_feedback_text,
+        Preferences, PrimitiveKind, PrimitiveToolState, ReplacementDecision, RevolveToolState,
+        SelectedEntity, SelectionClickTracker, SelectionDisplayPolicy, SelectionKind,
+        SelectionMode, SelectionSession, SelectionTarget, ShapeToolState, ToolCycleState,
+        ToolEvent, TransactionHistory, TransformPick, TransformTool, TransformToolState, UiProfile,
+        command_matches, load_preferences_file, point_feedback_text, primitive_feedback_text,
+        push_pull_feedback_text, registry_has_unique_ids, shell_commands, tool_command_id,
+        vector_feedback_text,
     };
     use crate::viewport::{
         ConstructionGuide, ConstructionGuideKind, CuboidPreview, GridNormalAxis, SelectionGesture,
@@ -12576,7 +12592,9 @@ mod tests {
     use meshcraft_core::commands::{
         CommandCapability, CommandCompletion, CommandKind, CommandValueType,
     };
-    use meshcraft_core::document::{DefinitionKind, Document, InstanceEdits, OccurrenceRef, Rgba8};
+    use meshcraft_core::document::{
+        DefinitionKind, Document, InstanceEdits, ModelSettings, OccurrenceRef, Rgba8,
+    };
     use meshcraft_core::geometry::{Affine3, Vec3};
     use meshcraft_core::transactions::{OpaqueLegacyHistory, OpaqueLegacyUndoEntry};
     use meshcraft_io::project::read_project;
@@ -15536,7 +15554,13 @@ mod tests {
         assert_eq!("Push/Pull", app.active_tool);
         assert_eq!(
             "Push/Pull: 3.742 meter | ΔX -1.000, ΔY +2.000, ΔZ +3.000 meter",
-            push_pull_feedback_text(Vec3::new(-1.0, 2.0, 3.0), "meter")
+            push_pull_feedback_text(
+                Vec3::new(-1.0, 2.0, 3.0),
+                &ModelSettings {
+                    unit_name: "meter".into(),
+                    ..Default::default()
+                }
+            )
         );
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
         app.handle_viewport_click(
@@ -15742,6 +15766,29 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    fn measurement_feedback_converts_coordinates_distances_and_radius_only_for_display() {
+        let settings = ModelSettings {
+            unit_name: "cm".into(),
+            unit_size: 30.,
+            grid_size: 0.5,
+            ..Default::default()
+        };
+        let displacement = Vec3::new(0.5, 0., 0.);
+        assert!(vector_feedback_text("Line", displacement, &settings).contains("15.000 cm"));
+        assert!(point_feedback_text("Point", displacement, &settings).contains("X 15.000"));
+        assert!(push_pull_feedback_text(displacement, &settings).contains("15.000 cm"));
+        let primitive = primitive_feedback_text(
+            PrimitiveKind::Cone,
+            &[Vec3::ZERO, Vec3::X * 0.5],
+            Vec3::Y * 2.,
+            &settings,
+        );
+        assert!(primitive.contains("radius 15 cm"), "{primitive}");
+        assert!(primitive.contains("60.000 cm"), "{primitive}");
+        assert_eq!(Vec3::new(0.5, 0., 0.), displacement);
+    }
+
+    #[test]
     fn squash_command_scales_only_its_reference_axis_with_one_undo() {
         let mut app = test_app();
         let path = app
@@ -15822,11 +15869,25 @@ mod tests {
     fn point_input_feedback_reports_coordinates_and_signed_vectors_to_three_decimals() {
         assert_eq!(
             "Line: 0.500 meter | ΔX +0.500, ΔY +0.000, ΔZ +0.000 meter",
-            vector_feedback_text("Line", Vec3::new(0.5, 0.0, 0.0), "meter")
+            vector_feedback_text(
+                "Line",
+                Vec3::new(0.5, 0.0, 0.0),
+                &ModelSettings {
+                    unit_name: "meter".into(),
+                    ..Default::default()
+                }
+            )
         );
         assert_eq!(
             "Circle: X 1.235, Y -2.000, Z 0.000 meter",
-            point_feedback_text("Circle", Vec3::new(1.23456, -2.0, 0.0), "meter")
+            point_feedback_text(
+                "Circle",
+                Vec3::new(1.23456, -2.0, 0.0),
+                &ModelSettings {
+                    unit_name: "meter".into(),
+                    ..Default::default()
+                }
+            )
         );
 
         let mut app = test_app();

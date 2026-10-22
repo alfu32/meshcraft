@@ -144,7 +144,11 @@ impl Document {
                             .filter(|s| !s.is_empty())
                             .map(str::to_owned)
                             .unwrap_or_else(|| {
-                                format!("{:.3} {}", a.distance(b), self.model_settings.unit_name)
+                                format!(
+                                    "{:.3} {}",
+                                    self.model_settings.display_length(a.distance(b)),
+                                    self.model_settings.unit_name
+                                )
                             });
                         ((c + d) * 0.5, label)
                     } else {

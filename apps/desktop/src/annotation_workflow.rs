@@ -274,6 +274,23 @@ impl MeshcraftApp {
 mod tests {
     use super::*;
     #[test]
+    fn dimension_label_converts_units_without_changing_its_definition() {
+        let mut app = super::super::tests::test_app();
+        let settings = meshcraft_core::document::ModelSettings {
+            unit_name: "cm".into(),
+            unit_size: 30.,
+            grid_size: 0.5,
+            ..Default::default()
+        };
+        app.document.update_model_settings(settings).unwrap();
+        app.run_command("tool.builtin.linear_dimension");
+        for p in [Vec3::ZERO, Vec3::X * 0.5, Vec3::Z] {
+            app.handle_native_world_pick(p, None, None);
+        }
+        assert_eq!("15.000 cm", app.document.annotations()[0].label);
+    }
+
+    #[test]
     fn annotation_tools_commit_preview_edit_copy_delete_and_undo() {
         let mut app = super::super::tests::test_app();
         app.run_command("tool.builtin.linear_dimension");

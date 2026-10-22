@@ -1,4 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
+use crate::native_snap::SnapTolerance;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::native_spatial::{NativeSpatialIndex, NativeSpatialPrimitive};
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use meshcraft_core::document::derived::DerivedIndexCache;
@@ -2827,8 +2829,8 @@ impl Viewport {
         })
     }
 
-    /// Snaps a native view ray to visible geometry, including locked entities.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// World-radius adapter retained for non-projected ray-query regression tests.
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub fn snap_point_on_ray(
         &mut self,
         document: &Document,
@@ -2838,194 +2840,135 @@ impl Viewport {
         scope: SnapScope<'_>,
         policy: &SelectionDisplayPolicy,
     ) -> Option<SnapResult> {
-        if !ray_origin.is_finite() || !radius.is_finite() || radius < 0.0 {
+        self.snap_geometry_on_ray(
+            document,
+            ray_origin,
+            ray_direction,
+            SnapTolerance::World(radius),
+            scope,
+            policy,
+            None,
+        )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn snap_geometry_on_ray(
+        &mut self,
+        document: &Document,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+        tolerance: SnapTolerance,
+        scope: SnapScope<'_>,
+        policy: &SelectionDisplayPolicy,
+        excluded: Option<&SelectionTarget>,
+    ) -> Option<SnapResult> {
+        if !ray_origin.is_finite() || !tolerance.radius().is_finite() || tolerance.radius() < 0. {
             return None;
         }
-        let direction = ray_direction.try_normalized(1.0e-12)?;
+        let direction = ray_direction.try_normalized(1e-12)?;
         if self
             .native_pick_index
             .as_ref()
-            .is_none_or(|index| index.revision() != document.visual_revision())
+            .is_none_or(|i| i.revision() != document.visual_revision())
         {
             self.native_pick_index = NativeSpatialIndex::build(document).ok();
         }
-        let index = self.native_pick_index.as_ref()?;
-        let candidates = index.query_ray(ray_origin, direction, radius);
-        let mut nearest_face_depth = None::<f64>;
-        let mut nearest = None::<(f64, u8, SnapResult)>;
-        for item in &candidates {
-            let NativeSpatialPrimitive::Triangle([a, b, c]) = item.primitive else {
-                continue;
-            };
-            if !scope.contains(document, &item.target.occurrence)
-                || !policy.can_draw_target(document, &item.target)
-                || (!policy.can_draw(SelectionKind::Face)
+        let candidates =
+            self.native_pick_index
+                .as_ref()?
+                .query_ray_with_margin(ray_origin, direction, |b| tolerance.margin(b));
+        let visible = |item: &&crate::native_spatial::NativeSpatialItem| {
+            excluded != Some(&item.target)
+                && scope.contains(document, &item.target.occurrence)
+                && policy.can_draw_target(document, &item.target)
+        };
+        let nearest_face_depth = candidates
+            .iter()
+            .copied()
+            .filter(visible)
+            .filter_map(|item| {
+                let NativeSpatialPrimitive::Triangle([a, b, c]) = item.primitive else {
+                    return None;
+                };
+                if (!policy.can_draw(SelectionKind::Face)
                     && item.target.entity.kind() == SelectionKind::Face)
-                || policy.target_wireframe(document, &item.target)
-            {
-                continue;
-            }
-            if let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) {
-                nearest_face_depth =
-                    Some(nearest_face_depth.map_or(depth, |current| current.min(depth)));
-            }
-        }
-
-        for item in candidates {
-            if !scope.contains(document, &item.target.occurrence)
-                || !policy.can_draw_target(document, &item.target)
-            {
-                continue;
-            }
-            match item.primitive {
-                NativeSpatialPrimitive::Vertex(point) if policy.can_draw(SelectionKind::Vertex) => {
-                    let depth = (point - ray_origin).dot(direction);
-                    if depth >= 0.0
-                        && !nearest_face_depth.is_some_and(|face| depth > face + radius)
-                        && (point - (ray_origin + direction * depth)).length() <= radius
-                    {
-                        consider_ray_snap(
-                            &mut nearest,
-                            depth,
-                            0,
-                            SnapResult {
-                                point,
-                                normal: Vec3::Y,
-                                kind: SnapKind::Endpoint,
-                                screen_distance: (point - (ray_origin + direction * depth)).length()
-                                    as f32,
-                            },
-                        );
-                    }
-                }
-                NativeSpatialPrimitive::Segment([start, end])
-                    if (policy.can_draw(SelectionKind::Edge)
-                        || item.target.entity.kind() != SelectionKind::Edge) =>
+                    || policy.target_wireframe(document, &item.target)
                 {
-                    for (point, kind) in [
-                        (start, SnapKind::Endpoint),
-                        (end, SnapKind::Endpoint),
-                        ((start + end) * 0.5, SnapKind::Midpoint),
-                    ] {
-                        let depth = (point - ray_origin).dot(direction);
-                        let miss = (point - ray_origin - direction * depth).length();
-                        if depth >= 0.
-                            && miss <= radius
-                            && !nearest_face_depth.is_some_and(|face| depth > face + radius)
-                        {
-                            consider_ray_snap(
-                                &mut nearest,
-                                depth,
-                                0,
-                                SnapResult {
-                                    point,
-                                    normal: Vec3::Y,
-                                    kind,
-                                    screen_distance: miss as f32,
-                                },
-                            );
-                        }
-                    }
-                    let Some((depth, miss_distance)) =
-                        ray_segment_distance(ray_origin, direction, start, end)
-                    else {
-                        continue;
-                    };
-                    if depth < 0.0
-                        || miss_distance > radius
-                        || nearest_face_depth.is_some_and(|face| depth > face + radius)
-                    {
-                        continue;
-                    }
-                    let ray_point = ray_origin + direction * depth;
-                    consider_ray_snap(
-                        &mut nearest,
-                        depth,
-                        1,
-                        SnapResult {
-                            point: closest_point_on_segment(ray_point, start, end),
-                            normal: Vec3::Y,
-                            kind: SnapKind::Line,
-                            screen_distance: 0.0,
-                        },
-                    );
+                    return None;
+                }
+                ray_triangle_distance(ray_origin, direction, a, b, c)
+            })
+            .min_by(f64::total_cmp);
+        let mut nearest = None;
+        let mut consider = |point: Vec3, normal: Vec3, kind: SnapKind, priority: u8| {
+            let depth = (point - ray_origin).dot(direction);
+            let Some(distance) = tolerance.distance(point, ray_origin, direction) else {
+                return;
+            };
+            if depth >= 0.
+                && distance <= tolerance.radius()
+                && !nearest_face_depth
+                    .is_some_and(|face| depth > face + tolerance.world_radius(point))
+            {
+                consider_ray_snap(
+                    &mut nearest,
+                    depth,
+                    priority,
+                    SnapResult {
+                        point,
+                        normal,
+                        kind,
+                        screen_distance: distance as f32,
+                    },
+                );
+            }
+        };
+        for item in candidates.iter().copied().filter(visible) {
+            let mut segment = |start: Vec3, end: Vec3, normal: Vec3| {
+                for (point, kind) in [
+                    (start, SnapKind::Endpoint),
+                    (end, SnapKind::Endpoint),
+                    ((start + end) * 0.5, SnapKind::Midpoint),
+                ] {
+                    consider(point, normal, kind, 0);
+                }
+                let point = tolerance.segment_point(start, end).or_else(|| {
+                    ray_segment_distance(ray_origin, direction, start, end).map(|(d, _)| {
+                        closest_point_on_segment(ray_origin + direction * d, start, end)
+                    })
+                });
+                if let Some(p) = point {
+                    consider(p, normal, SnapKind::Line, 1);
+                }
+            };
+            match item.primitive {
+                NativeSpatialPrimitive::Vertex(p) if policy.can_draw(SelectionKind::Vertex) => {
+                    consider(p, Vec3::Y, SnapKind::Endpoint, 0)
+                }
+                NativeSpatialPrimitive::Segment([a, b])
+                    if policy.can_draw(SelectionKind::Edge)
+                        || item.target.entity.kind() != SelectionKind::Edge =>
+                {
+                    segment(a, b, Vec3::Y)
                 }
                 NativeSpatialPrimitive::Triangle([a, b, c])
-                    if (policy.can_draw(SelectionKind::Face)
-                        || item.target.entity.kind() != SelectionKind::Face) =>
+                    if policy.can_draw(SelectionKind::Face)
+                        || item.target.entity.kind() != SelectionKind::Face =>
                 {
                     let Some(normal) = (b - a).cross(c - a).try_normalized(1e-12) else {
                         continue;
                     };
                     for [start, end] in [[a, b], [b, c], [c, a]] {
-                        for (point, kind) in [
-                            (start, SnapKind::Endpoint),
-                            ((start + end) * 0.5, SnapKind::Midpoint),
-                        ] {
-                            let depth = (point - ray_origin).dot(direction);
-                            let miss = (point - ray_origin - direction * depth).length();
-                            if depth >= 0.
-                                && miss <= radius
-                                && !nearest_face_depth.is_some_and(|face| depth > face + radius)
-                            {
-                                consider_ray_snap(
-                                    &mut nearest,
-                                    depth,
-                                    0,
-                                    SnapResult {
-                                        point,
-                                        normal,
-                                        kind,
-                                        screen_distance: miss as f32,
-                                    },
-                                );
-                            }
-                        }
-                        if let Some((depth, miss)) =
-                            ray_segment_distance(ray_origin, direction, start, end)
-                            && depth >= 0.
-                            && miss <= radius
-                            && !nearest_face_depth.is_some_and(|face| depth > face + radius)
-                        {
-                            consider_ray_snap(
-                                &mut nearest,
-                                depth,
-                                1,
-                                SnapResult {
-                                    point: closest_point_on_segment(
-                                        ray_origin + direction * depth,
-                                        start,
-                                        end,
-                                    ),
-                                    normal,
-                                    kind: SnapKind::Line,
-                                    screen_distance: miss as f32,
-                                },
-                            );
-                        }
+                        segment(start, end, normal);
                     }
-                    if policy.target_wireframe(document, &item.target) {
-                        continue;
+                    if !policy.target_wireframe(document, &item.target)
+                        && let Some(d) = ray_triangle_distance(ray_origin, direction, a, b, c)
+                    {
+                        consider(ray_origin + direction * d, normal, SnapKind::Face, 2);
                     }
-                    let Some(depth) = ray_triangle_distance(ray_origin, direction, a, b, c) else {
-                        continue;
-                    };
-                    consider_ray_snap(
-                        &mut nearest,
-                        depth,
-                        2,
-                        SnapResult {
-                            point: ray_origin + direction * depth,
-                            normal,
-                            kind: SnapKind::Face,
-                            screen_distance: 0.0,
-                        },
-                    );
                 }
-                NativeSpatialPrimitive::Vertex(_)
-                | NativeSpatialPrimitive::Segment(_)
-                | NativeSpatialPrimitive::Triangle(_)
-                | NativeSpatialPrimitive::Occurrence => {}
+                _ => {}
             }
         }
         nearest.map(|(_, _, snap)| snap)
@@ -7653,5 +7596,62 @@ mod native_midpoint_tests {
             .unwrap();
         assert_eq!(SnapKind::Midpoint, snap.kind);
         assert!(snap.point.distance(Vec3::new(-1., 0., 1.5)) < 1e-12);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_snap_radius_is_in_pixels_at_every_depth_zoom_and_projection() {
+        use crate::native_snap::{SnapTolerance, SnapView};
+        for ortho in [None, Some(0.01), Some(1.), Some(100.)] {
+            for fov in [30., 90.] {
+                for depth in [1., 10., 100.] {
+                    for off_center in [false, true] {
+                        let eye = Vec3::ZERO;
+                        let view =
+                            SnapView::new(eye, -Vec3::Z, Vec3::Y, fov, 1000., ortho).unwrap();
+                        let focal = 1000. / (2. * (fov.to_radians() * 0.5).tan());
+                        let (origin, direction, base_x) = if ortho.is_some() {
+                            let x = if off_center { 0.5 } else { 0. };
+                            (Vec3::X * x, -Vec3::Z, x)
+                        } else {
+                            let x = if off_center { 0.5 } else { 0. };
+                            (
+                                eye,
+                                Vec3::new(x, 0., -1.).try_normalized(1e-12).unwrap(),
+                                x * depth,
+                            )
+                        };
+                        for pixel_offset in [9., 13.] {
+                            let p = Vec3::new(
+                                base_x + pixel_offset * ortho.unwrap_or(depth) / focal,
+                                0.,
+                                -depth,
+                            );
+                            let mut doc = Document::new();
+                            doc.append_line_segment_to_scene_root(
+                                p,
+                                p + Vec3::Y * ortho.unwrap_or(depth),
+                            )
+                            .unwrap();
+                            let snap = Viewport::default().snap_geometry_on_ray(
+                                &doc,
+                                origin,
+                                direction,
+                                SnapTolerance::pixels(view, origin, direction, 12.).unwrap(),
+                                SnapScope::Document,
+                                &SelectionDisplayPolicy::default(),
+                                None,
+                            );
+                            if pixel_offset < 12. {
+                                let snap = snap.expect("9px candidate must snap at any depth/zoom");
+                                assert_eq!(SnapKind::Endpoint, snap.kind);
+                                assert!((snap.screen_distance - 9.).abs() < 1e-4);
+                            } else {
+                                assert!(snap.is_none(), "13px candidate exceeded 12px: {snap:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

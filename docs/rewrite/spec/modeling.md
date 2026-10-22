@@ -251,8 +251,10 @@ with Alt taking precedence.
 **Confirmed control interaction correction (2026-10-22).**
 
 Wall base and slab profile controls move freely in 3D. Shift does not choose a
-different constraint. Use geometry/guide snaps, otherwise a view-facing plane through
-the grabbed point. Wall top heights remain axial; opening/frame resizing remains on
+different constraint. Use geometry/grid/guide snaps, excluding the dragged owner's
+solid. The ground grid must remain available. Otherwise preserve elevation on a
+plane parallel to the active grid through the grabbed point (revised 2026-10-22).
+If that plane is exactly parallel to the pointer ray, use a view-plane fallback. Wall top heights remain axial; opening/frame resizing remains on
 its definition plane. Wall start bases are squares, end bases circles, and both top
 height controls triangles. Keep their locations on the canonical wall axis plane.
 

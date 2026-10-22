@@ -1194,7 +1194,8 @@ impl MeshcraftShell {
             if result.is_ok() {
                 self.cached_document = Arc::new(preview_document);
             }
-            let delta = drag.target - drag.start_target;
+            let delta =
+                (drag.target - drag.start_target) * self.cached_document.model_settings().unit_size;
             self.feedback = Some(ToolFeedback {
                 screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
                 text: format!(
@@ -1273,14 +1274,34 @@ impl MeshcraftShell {
             return;
         };
         let settings = self.cached_document.model_settings().clone();
-        let world_per_pixel = (self.camera.distance as f64
-            * (self.camera.field_of_view.to_radians() * 0.5).tan() as f64
-            * 2.0)
-            / f64::from(self.layout.height.max(1));
-        let radius = (world_per_pixel * settings.snap_radius).max(settings.grid_size * 0.015);
-        let geometry_snap = self
-            .session
-            .native_snap_point_on_ray(origin, direction, radius);
+        let Some(view) = crate::native_snap::SnapView::new(
+            self.camera.position(),
+            self.camera.target,
+            self.camera.up,
+            f64::from(self.camera.field_of_view),
+            f64::from(self.layout.height),
+            self.camera
+                .orthographic
+                .then_some(f64::from(self.camera.distance)),
+        ) else {
+            return;
+        };
+        let Some(tolerance) = crate::native_snap::SnapTolerance::pixels(
+            view,
+            origin,
+            direction,
+            settings.snap_radius,
+        ) else {
+            return;
+        };
+        let excluded = self.architecture_drag_excluded_target().cloned();
+        let geometry_snap = self.session.native_snap_with_tolerance(
+            origin,
+            direction,
+            tolerance,
+            excluded.as_ref(),
+        );
+        let radius = tolerance.world_radius(geometry_snap.map_or(self.camera.target, |s| s.point));
         let geometry_snap =
             self.session
                 .native_architecture_plane_snap(origin, direction, geometry_snap);
@@ -1302,6 +1323,7 @@ impl MeshcraftShell {
             },
             geometry_snap,
         );
+        let snap = self.architecture_drag_fallback(origin, direction, snap);
         let point = snap.map(|snap| snap.point);
         self.cursor_snap = snap;
         self.last_pick = point.zip(snap).map(|(point, snap)| PointerPick {

@@ -428,6 +428,22 @@ impl Default for ModelSettings {
 }
 
 impl ModelSettings {
+    /// Presentation only: coordinates and numeric editing remain in internal units.
+    /// A grid step therefore displays grid_size * unit_size of unit_name.
+    pub fn display_length(&self, internal_length: f64) -> f64 {
+        internal_length * self.unit_size
+    }
+
+    pub fn format_length(&self, internal_length: f64) -> String {
+        let value = format!("{:.3}", self.display_length(internal_length));
+        let value = value.trim_end_matches('0').trim_end_matches('.');
+        format!(
+            "{} {}",
+            if value == "-0" { "0" } else { value },
+            self.unit_name.trim()
+        )
+    }
+
     pub fn unit_scale(&self) -> Option<ModelUnitScale> {
         ModelUnitScale::new(self.unit_size)
     }
@@ -3693,6 +3709,22 @@ mod tests {
         settings.grid_size = 0.0;
         assert!(document.update_model_settings(settings).is_err());
         assert_eq!("meter", document.model_settings.unit_name);
+    }
+
+    #[test]
+    fn displayed_grid_step_uses_unit_size_without_changing_internal_lengths() {
+        let mut settings = ModelSettings {
+            unit_name: "cm".into(),
+            unit_size: 30.,
+            grid_size: 0.5,
+            ..Default::default()
+        };
+        assert_eq!("15 cm", settings.format_length(settings.grid_size));
+        assert_eq!("-15 cm", settings.format_length(-0.5));
+        assert_eq!(0.5, settings.grid_size);
+        settings.grid_size = 2.;
+        assert_eq!("60 cm", settings.format_length(settings.grid_size));
+        assert_eq!("15 cm", settings.format_length(0.5));
     }
 
     #[test]

@@ -129,6 +129,10 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     } else {
         body = body.child("Defaults for new architecture");
     }
+    body =
+        body.child(div().text_xs().text_color(rgb(0xa5adb7)).child(
+            "Numeric inputs use internal units; blue measurements show the configured unit.",
+        ));
     let wall = selected
         .as_ref()
         .is_none_or(|e| matches!(e.element, Element::Wall(_)));
@@ -424,6 +428,33 @@ pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
         })
         .collect()
 }
+// A grid seen exactly edge-on cannot define free pointer movement; use the
+// view plane only in that case, after real grid/geometry/guide snapping.
+fn free_control_fallback(
+    origin: Vec3,
+    direction: Vec3,
+    original: Vec3,
+    grid_normal: Vec3,
+    view_normal: Vec3,
+) -> Option<SnapResult> {
+    let normal = if direction.dot(grid_normal).abs() < 1e-8 {
+        view_normal.try_normalized(1e-12)?
+    } else {
+        grid_normal
+    };
+    let denominator = direction.dot(normal);
+    if denominator.abs() < 1e-10 {
+        return None;
+    }
+    let t = (original - origin).dot(normal) / denominator;
+    (t >= 0. && t.is_finite()).then_some(SnapResult {
+        point: origin + direction * t,
+        normal,
+        kind: SnapKind::Free,
+        screen_distance: 0.,
+    })
+}
+
 impl MeshcraftShell {
     pub(super) fn begin_architecture_drag(
         &mut self,
@@ -452,9 +483,10 @@ impl MeshcraftShell {
             Control::WallBase { .. } | Control::SlabVertex { .. }
         );
         let normal = if free {
-            (self.camera.position() - self.camera.target)
-                .try_normalized(1e-9)
-                .unwrap_or(p.normal)
+            self.session
+                .native_ui_preferences()
+                .grid_normal_axis
+                .vector()
         } else {
             p.normal
         };
@@ -479,6 +511,36 @@ impl MeshcraftShell {
         });
         true
     }
+    pub(super) fn architecture_drag_excluded_target(&self) -> Option<&SelectionTarget> {
+        self.architecture
+            .drag
+            .as_ref()
+            .filter(|d| d.free)
+            .map(|d| &d.target)
+    }
+    pub(super) fn architecture_drag_fallback(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        snap: Option<SnapResult>,
+    ) -> Option<SnapResult> {
+        let Some(drag) = self.architecture.drag.as_ref().filter(|d| d.free) else {
+            return snap;
+        };
+        if snap.is_some_and(|s| s.kind != SnapKind::Free) {
+            return snap;
+        }
+        // No reference was captured: preserve elevation on a plane parallel to
+        // the active grid. Actual ground-grid/guide snaps can change elevation.
+        free_control_fallback(
+            origin,
+            direction,
+            drag.original,
+            drag.normal,
+            self.camera.target - self.camera.position(),
+        )
+        .or(snap)
+    }
     pub(super) fn architecture_drag_snap(
         &mut self,
         origin: Vec3,
@@ -488,18 +550,10 @@ impl MeshcraftShell {
         let Some(drag) = &self.architecture.drag else {
             return snap;
         };
-        if drag.free
-            && let Some(s) = snap
-        {
-            let own_face = s.kind == SnapKind::Face
-                && self
-                    .session
-                    .pick_native_target(origin, direction, 1e-6)
-                    .as_ref()
-                    == Some(&drag.target);
-            if !own_face {
-                return Some(s);
-            }
+        // Free controls use the real geometry/grid/guide candidates first. Do not
+        // turn a drag fallback plane into a surface lattice for helper snapping.
+        if drag.free {
+            return snap;
         }
         if let Some(s) = snap
             && !drag.free
@@ -577,7 +631,7 @@ impl MeshcraftShell {
                 }
             });
         }
-        let delta = drag.point - drag.original;
+        let delta = (drag.point - drag.original) * self.cached_document.model_settings().unit_size;
         self.feedback = Some(ToolFeedback {
             screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
             text: format!(
@@ -612,5 +666,26 @@ impl MeshcraftShell {
         }
         self.refresh_scene();
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn free_controls_preserve_grid_elevation_and_remain_draggable_in_edge_on_views() {
+        let hit =
+            free_control_fallback(Vec3::new(3., 10., 5.), -Vec3::Y, Vec3::Y, Vec3::Y, -Vec3::Z)
+                .unwrap();
+        assert_eq!(Vec3::new(3., 1., 5.), hit.point);
+        let front = free_control_fallback(
+            Vec3::new(3., 2., 10.),
+            -Vec3::Z,
+            Vec3::ZERO,
+            Vec3::Y,
+            -Vec3::Z,
+        )
+        .unwrap();
+        assert_eq!(Vec3::new(3., 2., 0.), front.point);
     }
 }
