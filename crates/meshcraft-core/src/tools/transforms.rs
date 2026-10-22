@@ -8,6 +8,7 @@ pub enum TransformTool {
     Rotate,
     Rotate2,
     Scale,
+    Squash,
     Stretch,
     StretchScale,
     RotateStretch,
@@ -20,6 +21,7 @@ impl TransformTool {
             "Rotate" => Some(Self::Rotate),
             "Rotate 2" => Some(Self::Rotate2),
             "Scale" => Some(Self::Scale),
+            "Squash" => Some(Self::Squash),
             "Stretch" => Some(Self::Stretch),
             "Stretch Scale" => Some(Self::StretchScale),
             "Rotate Stretch" => Some(Self::RotateStretch),
@@ -33,6 +35,7 @@ impl TransformTool {
             Self::Rotate => "Rotate",
             Self::Rotate2 => "Rotate 2",
             Self::Scale => "Scale",
+            Self::Squash => "Squash",
             Self::Stretch => "Stretch",
             Self::StretchScale => "Stretch Scale",
             Self::RotateStretch => "Rotate Stretch",
@@ -43,7 +46,7 @@ impl TransformTool {
         match self {
             Self::Move | Self::Stretch => 2,
             Self::Rotate2 => 3,
-            Self::Scale | Self::StretchScale => 3,
+            Self::Scale | Self::Squash | Self::StretchScale => 3,
             Self::Rotate | Self::RotateStretch => 4,
         }
     }
@@ -63,10 +66,34 @@ impl TransformTool {
             (Self::Rotate2, 0) => "Pick the rotation center (C).",
             (Self::Rotate2, 1) => "Pick the first reference point (A).",
             (Self::Rotate2, _) => "Pick the end angle point (B).",
+            (Self::Squash, 0) => "Pick the squash center.",
+            (Self::Squash, 1) => "Pick the reference point defining the squash axis.",
+            (Self::Squash, _) => "Pick the final axis distance (or enter a signed scale factor).",
             (Self::Scale | Self::StretchScale, 0) => "Pick the scale center.",
             (Self::Scale | Self::StretchScale, 1) => "Pick the reference point.",
             (Self::Scale | Self::StretchScale, _) => "Pick the final point.",
         }
+    }
+}
+
+/// Center-relative construction rays and the projected rotation angle.
+#[derive(Clone, Debug)]
+pub struct RotationFeedback {
+    pub center: Vec3,
+    pub vectors: Vec<Vec3>,
+    pub arc: Vec<[Vec3; 2]>,
+    pub angle_degrees: Option<f64>,
+    pub pair_angles: Vec<(usize, usize, f64)>,
+}
+impl RotationFeedback {
+    pub fn edges(&self) -> Vec<[Vec3; 2]> {
+        let mut edges = vec![[self.center, self.center]];
+        for v in &self.vectors {
+            let p = self.center + *v;
+            edges.extend([[self.center, p], [p, p]]);
+        }
+        edges.extend(self.arc.iter().copied());
+        edges
     }
 }
 
@@ -218,6 +245,80 @@ impl TransformToolState {
         build_transform(tool, &self.points, Some(pointer), &self.numeric_input).ok()
     }
 
+    pub fn rotation_feedback(&self, pointer: Vec3) -> Option<RotationFeedback> {
+        let tool = self.active?;
+        if !matches!(
+            tool,
+            TransformTool::Rotate | TransformTool::Rotate2 | TransformTool::RotateStretch
+        ) {
+            return None;
+        }
+        let center = *self.points.first()?;
+        let mut vectors = self
+            .points
+            .iter()
+            .skip(1)
+            .map(|p| *p - center)
+            .collect::<Vec<_>>();
+        vectors.push(pointer - center);
+        let mut pair_angles = vec![];
+        for i in 0..vectors.len() {
+            for j in i + 1..vectors.len() {
+                if let (Some(a), Some(b)) = (
+                    vectors[i].try_normalized(1e-12),
+                    vectors[j].try_normalized(1e-12),
+                ) {
+                    pair_angles.push((i + 1, j + 1, a.dot(b).clamp(-1., 1.).acos().to_degrees()));
+                }
+            }
+        }
+        let rotation = if tool == TransformTool::Rotate2 && vectors.len() == 2 {
+            vectors[0]
+                .cross(vectors[1])
+                .try_normalized(1e-12)
+                .map(|axis| (axis, vectors[0], vectors[1]))
+        } else if vectors.len() == 3 {
+            vectors[0]
+                .try_normalized(1e-12)
+                .map(|axis| (axis, vectors[1], vectors[2]))
+        } else {
+            None
+        };
+        let mut arc = vec![];
+        let mut angle_degrees = None;
+        if let Some((axis, a, b)) = rotation {
+            let a = a - axis * a.dot(axis);
+            let b = b - axis * b.dot(axis);
+            if let Some(unit) = a.try_normalized(1e-12)
+                && b.length() > 1e-12
+            {
+                let measured = axis.dot(a.cross(b)).atan2(a.dot(b));
+                let angle = self
+                    .numeric_input
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite())
+                    .map(f64::to_radians)
+                    .unwrap_or(measured);
+                angle_degrees = Some(angle.to_degrees());
+                let radius = a.length().min(b.length()) * 0.6;
+                let segments = (angle.to_degrees().abs() / 5.).ceil().clamp(1., 72.) as usize;
+                let point = |i: usize| {
+                    let t = angle * i as f64 / segments as f64;
+                    center + (unit * t.cos() + axis.cross(unit) * t.sin()) * radius
+                };
+                arc.extend((0..segments).map(|i| [point(i), point(i + 1)]));
+            }
+        }
+        Some(RotationFeedback {
+            center,
+            vectors,
+            arc,
+            angle_degrees,
+            pair_angles,
+        })
+    }
+
     fn clear_picks(&mut self) {
         self.points.clear();
         self.pointer = None;
@@ -282,6 +383,28 @@ fn build_transform(
                 target = center + reference_vector * factor;
             }
             scale_from_points(center, reference, target)
+        }
+        TransformTool::Squash => {
+            let center = picks[0];
+            let reference = picks[1] - center;
+            let axis = reference
+                .try_normalized(GeometryTolerance::default().absolute)
+                .ok_or("Squash reference must differ from its center.")?;
+            let factor = numeric.unwrap_or((picks[2] - center).dot(axis) / reference.length());
+            if !factor.is_finite() || factor.abs() <= 1e-9 {
+                return Err("Squash factor must be finite and nonzero.".into());
+            }
+            let u = [axis.x, axis.y, axis.z];
+            let linear = std::array::from_fn(|i| {
+                std::array::from_fn(|j| {
+                    (if i == j { 1. } else { 0. }) + (factor - 1.) * u[i] * u[j]
+                })
+            });
+            let transform = Affine3::from_linear_translation(linear, Vec3::ZERO);
+            Ok(Affine3::from_linear_translation(
+                linear,
+                center - transform.transform_vector(center),
+            ))
         }
         TransformTool::Rotate2 => {
             let center = picks[0];
@@ -504,7 +627,7 @@ fn rotation_about(center: Vec3, axis: Vec3, angle: f64) -> Result<Affine3, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{TransformPick, TransformTool, TransformToolState};
+    use super::{TransformPick, TransformTool, TransformToolState, build_transform};
     use crate::geometry::Vec3;
 
     #[test]
@@ -607,5 +730,74 @@ mod tests {
         assert!(state.points().is_empty());
         state.activate(Some(TransformTool::Rotate));
         assert!(!state.copy_mode());
+    }
+    #[test]
+    fn squash_uses_an_arbitrary_axis_and_preserves_perpendicular_components() {
+        let center = Vec3::new(3., 4., 5.);
+        let axis = Vec3::new(1., 1., 0.).try_normalized(1e-12).unwrap();
+        let sideways = Vec3::new(1., -1., 2.);
+        let t = build_transform(
+            TransformTool::Squash,
+            &[center, center + axis * 4., center + axis * 2. + sideways],
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(t.transform_point(center).distance(center) < 1e-12);
+        assert!(t.transform_vector(sideways).distance(sideways) < 1e-12);
+        assert!(
+            t.transform_point(center + axis * 4. + sideways)
+                .distance(center + axis * 2. + sideways)
+                < 1e-12
+        );
+        let mirrored = build_transform(
+            TransformTool::Squash,
+            &[center, center + axis],
+            Some(center + axis),
+            "-2",
+        )
+        .unwrap();
+        assert!(mirrored.transform_vector(axis).distance(axis * -2.) < 1e-12);
+        assert!(
+            build_transform(
+                TransformTool::Squash,
+                &[center, center + axis, center],
+                None,
+                ""
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn rotation_feedback_keeps_all_rays_on_the_center_and_measures_projected_angle() {
+        let center = Vec3::new(7., 8., 9.);
+        let mut state = TransformToolState::default();
+        state.activate(Some(TransformTool::Rotate));
+        for p in [center, center + Vec3::Y * 2., center + Vec3::X + Vec3::Y] {
+            state.pick(p);
+        }
+        let feedback = state
+            .rotation_feedback(center + Vec3::Z + Vec3::Y * 3.)
+            .unwrap();
+        assert_eq!(feedback.center, center);
+        assert_eq!(feedback.vectors.len(), 3);
+        assert!((feedback.angle_degrees.unwrap() + 90.).abs() < 1e-9);
+        for p in state
+            .points()
+            .iter()
+            .skip(1)
+            .copied()
+            .chain([center + Vec3::Z + Vec3::Y * 3.])
+        {
+            assert!(feedback.edges().contains(&[center, p]));
+        }
+        assert!(!feedback.arc.is_empty());
+        assert!(
+            feedback
+                .arc
+                .iter()
+                .flatten()
+                .all(|p| (p.y - center.y).abs() < 1e-12)
+        );
     }
 }

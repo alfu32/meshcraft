@@ -2352,4 +2352,36 @@ mod tests {
         assert_eq!(loaded.value(), e.value());
         closed(&loaded.mesh().unwrap());
     }
+    #[test]
+    fn owner_only_control_preview_is_wireframe_ready_and_does_not_modify_the_document() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    auto_join: false,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let target = target(SelectionKind::Wall, id);
+        let before = d.clone();
+        let element = d.architecture_element(&target).unwrap().element;
+        let changed = element
+            .with_control_at(&Control::WallBase { end: true }, Vec3::new(6., 1., 3.))
+            .unwrap();
+        let ghost = changed.mesh().unwrap();
+        assert!(!ghost.edges.is_empty());
+        assert_eq!(d, before);
+        d.move_architecture_control(
+            &target,
+            &Control::WallBase { end: true },
+            Vec3::new(6., 1., 3.),
+        )
+        .unwrap();
+        assert_eq!(d.architecture_element(&target).unwrap().element, changed);
+    }
 }

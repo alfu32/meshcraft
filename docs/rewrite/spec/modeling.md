@@ -66,6 +66,19 @@ Source: `K/tools/{MoveTool,RotateTool,ScaleTool,PaintTool}.kt`, scene transform 
 
 **User-confirmed correction (2026-10-20).** Move/Rotate/Scale of selected edges or faces detach boundary vertex identities shared with unselected primitives. Unselected neighboring geometry must retain its coordinates, including meshes produced by extrusion. Keep sharing inside the selected fragment, preserve per-corner offsets, and transform each selected vertex once. Explicit vertex editing retains connected-node behavior. Move Copy and Rotate Copy explicitly enable duplication, work on mesh fragments as well as instances, retain all source geometry, select the new entities and undo as one operation. Preview only the affected fragment.
 
+**User-confirmed additions (2026-10-22).** Squash is a separate command (`tool.squash`):
+select supported geometry, pick center, an axis reference and a destination distance,
+or enter a signed factor. Only the axial component scales; perpendicular components
+are preserved. Reject a collapsed reference, nonfinite input and zero factor without
+changing geometry. Use the ordinary transaction, preview, Escape and undo contracts.
+It is an added command, not an additional legacy ToolId.
+
+Rotational input measures each reference relative to the first center, rather than
+the preceding pick. Retain chosen center rays throughout point input and report the
+angles between nonzero vectors; four-point rotation distinguishes its axis, reference
+and final vectors. Show the projected applied rotation angle and an arc when defined.
+Rotational arrays and revolve also retain their center-relative reference rays.
+
 ### T02 Stretch variants
 
 **Observed.** `STRETCH`, `STRETCH_SCALE`, `ROTATE_STRETCH`. These deform selected regions around picked references, differing from rigid whole-instance transforms. Preserve actual scale constraints and reference-plane handling, selected/unselected boundary behavior, and hotspot/voxel special cases. Use immutable source geometry for the draft; successive pointer moves must not accumulate numerical drift. Stretch variants deliberately retain connected boundary vertices, unlike ordinary fragment transforms; their previews include affected neighboring geometry.
@@ -207,7 +220,8 @@ remain separate; deleting or disabling a neighbor restores the remaining end.
 Wall start/end positions are independent lower endpoints. The start and end
 heights are independent positive distances along the wall up direction, so both
 the bottom and the top may slope. Four controls edit the two bases and two tops;
-base dragging adjusts elevation/length and Shift-drag adjusts plan position.
+base dragging moves freely in 3D, identically with or without Shift (revised
+2026-10-22).
 Top controls alter their own end height only. Openings expose two opposite-corner
 controls on their owner's definition plane. Frames expose opposite bounds controls
 that resize their entire planar contour. Windows take their initial definition
@@ -221,8 +235,8 @@ min/max; import maps those to the canonical top profile without flipping opening
 UVs that already use the normalized normal/axisU basis.
 
 **Confirmed roof and presentation extension (2026-10-21).** Slab control points
-retain independent 3D heights. Plan dragging edits the footprint; Shift-drag
-changes elevation along the extrusion axis. A constrained triangulation through
+retain independent 3D heights. Controls move freely in 3D with or without Shift
+(revised 2026-10-22). A constrained triangulation through
 the height-bearing profile defines the roof, retaining collinear plan controls
 with distinct heights. Sides and opening reveals stay parallel to the extrusion
 axis. Sloped planar surfaces retain the specified normal thickness. At folds,
@@ -232,6 +246,21 @@ crossing roof folds produce closed, oriented solids. Wall wireframes expose
 boundary/reveal geometry rather than internal triangulation or a nine-cell grid.
 Wheel zoom rates are normal, Ctrl ×0.1 and Alt ×0.05 (revised 2026-10-21),
 with Alt taking precedence.
+
+
+**Confirmed control interaction correction (2026-10-22).**
+
+Wall base and slab profile controls move freely in 3D. Shift does not choose a
+different constraint. Use geometry/guide snaps, otherwise a view-facing plane through
+the grabbed point. Wall top heights remain axial; opening/frame resizing remains on
+its definition plane. Wall start bases are squares, end bases circles, and both top
+height controls triangles. Keep their locations on the canonical wall axis plane.
+
+During a control drag, show only the owner's candidate boundary/reveal wireframe over
+the unchanged solid scene. Do not clone the full document or regenerate neighbor
+walls on pointer motion. Cache unchanged candidate positions. Release validates and
+commits once, including joined walls; Escape leaves both geometry and history intact.
+Invalid candidates report feedback and must not partially change the document.
 
 ### P03 Stairs, window frames, and door frames
 

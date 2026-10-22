@@ -123,6 +123,7 @@ impl ToolCycleState {
                 "Rotate",
                 "Rotate 2",
                 "Scale",
+                "Squash",
                 "Stretch",
                 "Stretch Scale",
                 "Rotate Stretch",

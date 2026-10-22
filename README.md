@@ -15,7 +15,7 @@ See the [MCP guide](docs/mcp.md).
 
 - **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
 - **Shape meshes:** extrusion and Push/Pull, sweeps, ribbons, revolve, offsets and outlines.
-- **Transform and repeat:** move, rotate, scale, stretch, move a copy, rotate a copy and arrays; reverse face normals and segment direction with Flip.
+- **Transform and repeat:** move, rotate, scale, squash along a picked axis, stretch, move a copy, rotate a copy and arrays; reverse face normals and segment direction with Flip.
 - **Work precisely:** geometry and grid snapping, construction guides, workplanes, live geometry previews, and relative distance and coordinate feedback.
 - **Control selection and display:** select individual elements, connected geometry or regions; inspect totals and selection counts; set visibility, editability and wireframe display by entity type.
 - **Inspect your model:** perspective and orthographic views, orbit, pan, zoom and walkthrough navigation in a shaded viewport with configurable lighting, shadows, antialiasing and model line widths.

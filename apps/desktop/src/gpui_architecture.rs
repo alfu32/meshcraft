@@ -188,7 +188,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     cx.notify();
                 })),
         );
-        body=body.child(div().text_xs().child("Blue base handles change length/elevation; Shift-drag moves in plan. Magenta top handles adjust each end's height."));
+        body=body.child(div().text_xs().child("Blue base handles move freely in 3D. Magenta triangle handles adjust each end's height."));
     }
     for &(key, label) in COLORS {
         let show = if key.starts_with("wall_") {
@@ -276,7 +276,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             );
         }
         if matches!(e.element, Element::Slab(_)) {
-            body=body.child(div().text_xs().child("Drag blue controls in plan; Shift-drag changes their height to shape a roof. Orange controls resize owned openings."));
+            body=body.child(div().text_xs().child("Drag blue profile controls freely in 3D; snap to geometry or guides. Wireframe previews commit on release. Orange controls resize openings."));
         }
     }
     if frame {
@@ -289,7 +289,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     body.child(div().text_xs().text_color(rgb(0xa5adb7)).child("Add Hole cuts only its picked wall or slab. Windows and doors are independent objects and never cut an opening automatically.")).into_any_element()
 }
 
-/// A drag previews a private snapshot and commits once, leaving Escape and undo atomic.
+/// A drag holds one owner and emits a wireframe; the document is committed once.
 pub(super) struct ProfileDrag {
     target: SelectionTarget,
     control: Control,
@@ -298,7 +298,12 @@ pub(super) struct ProfileDrag {
     original: Vec3,
     point: Vec3,
     normal: Vec3,
-    base: Arc<Document>,
+    element: Element,
+    transform: meshcraft_core::geometry::Affine3,
+    candidate: Option<Element>,
+    preview_point: Option<Vec3>,
+    ghost: Option<ToolPreview>,
+    free: bool,
     moved: bool,
 }
 struct Handle {
@@ -306,7 +311,6 @@ struct Handle {
     control: Control,
     point: Vec3,
     normal: Vec3,
-    alternate_normal: Option<Vec3>,
     axis: Option<Vec3>,
 }
 fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
@@ -340,6 +344,15 @@ fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
     }
     owners
         .into_values()
+        .map(|mut placed| {
+            if let Some(drag) = shell.architecture.drag.as_ref()
+                && drag.target == placed.target
+                && let Some(candidate) = &drag.candidate
+            {
+                placed.element = candidate.clone();
+            }
+            placed
+        })
         .flat_map(|placed| {
             placed
                 .element
@@ -355,12 +368,6 @@ fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
                             p.normal,
                             meshcraft_core::geometry::GeometryTolerance::default(),
                         )?,
-                        alternate_normal: p.alternate_normal.and_then(|n| {
-                            placed.transform.transform_normal(
-                                n,
-                                meshcraft_core::geometry::GeometryTolerance::default(),
-                            )
-                        }),
                         axis: p.axis.map(|a| placed.transform.transform_vector(a)),
                     })
                 })
@@ -388,9 +395,30 @@ pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
                     .left(px(x / shell.layout.scale - 5.))
                     .top(px(y / shell.layout.scale - 5.))
                     .size(px(10.))
-                    .bg(rgb(color))
-                    .border_1()
-                    .border_color(rgb(0x102d46))
+                    .when(matches!(p.control, Control::WallBase { end: true }), |v| {
+                        v.rounded_full()
+                    })
+                    .when(!matches!(p.control, Control::WallTop { .. }), |v| {
+                        v.bg(rgb(color)).border_1().border_color(rgb(0x102d46))
+                    })
+                    .when(matches!(p.control, Control::WallTop { .. }), |v| {
+                        v.child(
+                            canvas(
+                                |_, _, _| (),
+                                move |bounds, _, window, _| {
+                                    let mut path = gpui::PathBuilder::fill();
+                                    path.move_to(gpui::point(bounds.center().x, bounds.top()));
+                                    path.line_to(gpui::point(bounds.right(), bounds.bottom()));
+                                    path.line_to(gpui::point(bounds.left(), bounds.bottom()));
+                                    path.close();
+                                    if let Ok(path) = path.build() {
+                                        window.paint_path(path, rgb(color));
+                                    }
+                                },
+                            )
+                            .size_full(),
+                        )
+                    })
                     .into_any_element(),
             )
         })
@@ -401,7 +429,7 @@ impl MeshcraftShell {
         &mut self,
         x: f32,
         y: f32,
-        modifiers: gpui::Modifiers,
+        _modifiers: gpui::Modifiers,
     ) -> bool {
         let handle = handles(self)
             .into_iter()
@@ -419,38 +447,40 @@ impl MeshcraftShell {
         let Some(p) = handle else {
             return false;
         };
-        let vertical_slab = modifiers.shift && matches!(p.control, Control::SlabVertex { .. });
-        let normal = if vertical_slab {
-            // A view-facing vertical plane keeps height dragging usable at every azimuth.
-            let forward = self.camera.target - self.camera.position();
-            let up = p.normal;
-            (forward - up * forward.dot(up))
+        let free = matches!(
+            p.control,
+            Control::WallBase { .. } | Control::SlabVertex { .. }
+        );
+        let normal = if free {
+            (self.camera.position() - self.camera.target)
                 .try_normalized(1e-9)
-                .unwrap_or(p.alternate_normal.unwrap_or(Vec3::Z))
-        } else if modifiers.shift {
-            p.alternate_normal.unwrap_or(p.normal)
+                .unwrap_or(p.normal)
         } else {
             p.normal
+        };
+        let Some(placed) = self.cached_document.architecture_element(&p.target) else {
+            return false;
         };
         self.architecture.drag = Some(ProfileDrag {
             target: p.target,
             control: p.control,
-            axis: if vertical_slab {
-                Some(p.normal)
-            } else {
-                p.axis
-            },
+            axis: p.axis,
             start: (x, y),
             original: p.point,
             point: p.point,
             normal,
-            base: Arc::clone(&self.cached_document),
+            element: placed.element,
+            transform: placed.transform,
+            candidate: None,
+            preview_point: None,
+            ghost: None,
+            free,
             moved: false,
         });
         true
     }
     pub(super) fn architecture_drag_snap(
-        &self,
+        &mut self,
         origin: Vec3,
         direction: Vec3,
         snap: Option<SnapResult>,
@@ -458,7 +488,21 @@ impl MeshcraftShell {
         let Some(drag) = &self.architecture.drag else {
             return snap;
         };
+        if drag.free
+            && let Some(s) = snap
+        {
+            let own_face = s.kind == SnapKind::Face
+                && self
+                    .session
+                    .pick_native_target(origin, direction, 1e-6)
+                    .as_ref()
+                    == Some(&drag.target);
+            if !own_face {
+                return Some(s);
+            }
+        }
         if let Some(s) = snap
+            && !drag.free
             && (s.point - drag.original).dot(drag.normal).abs() < 1e-6
             && matches!(
                 s.kind,
@@ -489,7 +533,11 @@ impl MeshcraftShell {
         let Some(snap) = self.cursor_snap else {
             return;
         };
-        drag.point = snap.point - drag.normal * (snap.point - drag.original).dot(drag.normal);
+        drag.point = if drag.free {
+            snap.point
+        } else {
+            snap.point - drag.normal * (snap.point - drag.original).dot(drag.normal)
+        };
         if let Some(axis) = drag.axis {
             drag.point = drag.original
                 + axis * ((drag.point - drag.original).dot(axis) / axis.length_squared());
@@ -497,15 +545,38 @@ impl MeshcraftShell {
         drag.moved = true;
         self.refresh_scene();
     }
-    pub(super) fn preview_architecture_drag(&mut self) {
-        let Some(drag) = &self.architecture.drag else {
-            return;
-        };
-        if !drag.moved {
-            return;
+    pub(super) fn preview_architecture_drag(&mut self) -> Option<ToolPreview> {
+        let drag = self.architecture.drag.as_mut().filter(|d| d.moved)?;
+        if drag.preview_point != Some(drag.point) {
+            let result = drag
+                .transform
+                .inverse(meshcraft_core::geometry::GeometryTolerance::default())
+                .ok_or_else(|| "Architecture transform is singular.".to_owned())
+                .and_then(|inverse| {
+                    drag.element
+                        .with_control_at(&drag.control, inverse.transform_point(drag.point))
+                })
+                .and_then(|element| element.mesh().map(|mesh| (element, mesh)));
+            drag.preview_point = Some(drag.point);
+            drag.ghost = Some(match result {
+                Ok((element, mesh)) => {
+                    drag.candidate = Some(element);
+                    ToolPreview::Transform {
+                        edges: mesh
+                            .edges
+                            .iter()
+                            .map(|e| e.map(|i| drag.transform.transform_point(mesh.points[i])))
+                            .collect(),
+                    }
+                }
+                Err(_) => {
+                    drag.candidate = None;
+                    ToolPreview::Point {
+                        position: drag.point,
+                    }
+                }
+            });
         }
-        let mut preview = (*drag.base).clone();
-        let result = preview.move_architecture_control(&drag.target, &drag.control, drag.point);
         let delta = drag.point - drag.original;
         self.feedback = Some(ToolFeedback {
             screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
@@ -516,19 +587,15 @@ impl MeshcraftShell {
                 delta.y,
                 delta.z,
                 delta.length(),
-                preview.model_settings().unit_name,
-                if result.is_ok() {
+                self.cached_document.model_settings().unit_name,
+                if drag.candidate.is_some() {
                     ""
                 } else {
                     " · invalid geometry"
                 }
             ),
         });
-        self.cached_document = if result.is_ok() {
-            Arc::new(preview)
-        } else {
-            Arc::clone(&drag.base)
-        };
+        drag.ghost.clone()
     }
     pub(super) fn finish_architecture_drag(&mut self) -> bool {
         let Some(drag) = self.architecture.drag.take() else {
@@ -543,7 +610,6 @@ impl MeshcraftShell {
         {
             self.session.set_native_status(error);
         }
-        self.cached_document_revision = None;
         self.refresh_scene();
         true
     }

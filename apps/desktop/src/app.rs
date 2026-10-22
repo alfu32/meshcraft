@@ -1084,6 +1084,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 Some("distance"),
                 ShellAction::FocusToolDistance,
             ),
+            ("tool.squash", "Modify> Squash", "Modify", "squash axis compress stretch signed scale", Some("squash"), ShellAction::SelectToolAlias("Squash")),
             ("tool.move_copy", "Modify> Move Copy", "Modify", "copy move duplicate geometry", Some("copy"), ShellAction::BeginCopyTransform(false)),
             ("tool.rotate_copy", "Modify> Rotate Copy", "Modify", "copy rotate duplicate geometry", Some("rotate-copy"), ShellAction::BeginCopyTransform(true)),
             (
@@ -2965,6 +2966,31 @@ impl MeshcraftApp {
         let feedback =
             self.tool_feedback(rect, Some(screen_position), Some(snap), preview.as_ref());
         (preview, feedback)
+    }
+
+    fn rotational_reference_points(&self) -> &[Vec3] {
+        if self.rotational_array_tool_state.active() {
+            self.rotational_array_tool_state.points()
+        } else if self.revolve_tool_state.active() {
+            self.revolve_tool_state.axis_points()
+        } else {
+            &[]
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_rotational_reference_edges(&self, pointer: Vec3) -> Vec<[Vec3; 2]> {
+        let points = self.rotational_reference_points();
+        let Some(center) = points.first() else {
+            return vec![];
+        };
+        points
+            .iter()
+            .skip(1)
+            .copied()
+            .chain([pointer])
+            .flat_map(|p| [[*center, p], [p, p]])
+            .collect()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -5973,6 +5999,7 @@ impl MeshcraftApp {
                 "Rotate 2: pick a center (C), first reference (A), then the end angle point (B). Toggle copy mode to preserve the source.".to_owned()
             }
             "Scale" => "Scale: pick center, reference point, then final point.".to_owned(),
+            "Squash" => "Squash: pick center, reference axis, then target distance; enter a signed factor for numeric input.".to_owned(),
             "Stretch" => "Stretch: pick a reference point, then its destination.".to_owned(),
             "Stretch Scale" => {
                 "Stretch Scale: pick center, reference point, then final point.".to_owned()
@@ -9648,10 +9675,15 @@ impl MeshcraftApp {
             } else {
                 modeling_transforms::preview_selection_transform
             };
-            if let Some(transform) = self.transform_tool_state.preview(Some(point))
-                && let Ok(edges) = preview(&self.document, &self.selection, transform)
-                && !edges.is_empty()
-            {
+            let mut edges = self
+                .transform_tool_state
+                .preview(Some(point))
+                .and_then(|transform| preview(&self.document, &self.selection, transform).ok())
+                .unwrap_or_default();
+            if let Some(rotation) = self.transform_tool_state.rotation_feedback(point) {
+                edges.extend(rotation.edges());
+            }
+            if !edges.is_empty() {
                 return Some(ToolPreview::Transform { edges });
             }
             return point_preview();
@@ -9923,7 +9955,7 @@ impl MeshcraftApp {
         } else {
             self.active_tool.as_str()
         };
-        let measurement = point
+        let mut measurement = point
             .map(|point| {
                 self.tool_reference_point().map_or_else(
                     || point_feedback_text(feedback_label, point, unit_name),
@@ -9931,6 +9963,33 @@ impl MeshcraftApp {
                 )
             })
             .unwrap_or_default();
+        if let Some(point) = point
+            && let Some(center) = self.rotational_reference_points().first()
+        {
+            let vectors = self
+                .rotational_reference_points()
+                .iter()
+                .skip(1)
+                .copied()
+                .chain([point])
+                .map(|p| p - *center)
+                .collect::<Vec<_>>();
+            for i in 0..vectors.len() {
+                for j in i + 1..vectors.len() {
+                    if let (Some(a), Some(b)) = (
+                        vectors[i].try_normalized(1e-12),
+                        vectors[j].try_normalized(1e-12),
+                    ) {
+                        measurement.push_str(&format!(
+                            " · ∠v{}/v{} {:.1}°",
+                            i + 1,
+                            j + 1,
+                            a.dot(b).clamp(-1., 1.).acos().to_degrees()
+                        ));
+                    }
+                }
+            }
+        }
         if let Some(ToolPreview::Array {
             copies,
             displacement,
@@ -9987,6 +10046,38 @@ impl MeshcraftApp {
             });
         }
 
+        if self.transform_tool_state.active() == Some(TransformTool::Squash)
+            && let [center, reference] = self.transform_tool_state.points()
+            && let Some(point) = point
+        {
+            let v = *reference - *center;
+            if v.length_squared() > 1e-12 {
+                let factor = self
+                    .transform_tool_state
+                    .numeric_input()
+                    .parse::<f64>()
+                    .ok()
+                    .unwrap_or((point - *center).dot(v) / v.length_squared());
+                return Some(ToolFeedback {
+                    screen_position,
+                    text: format!("{measurement} · Axis factor {factor:.3}"),
+                });
+            }
+        }
+        if let Some(rotation) = point.and_then(|p| self.transform_tool_state.rotation_feedback(p)) {
+            let mut angles = rotation
+                .pair_angles
+                .iter()
+                .map(|(a, b, angle)| format!("∠v{a}/v{b} {angle:.1}°"))
+                .collect::<Vec<_>>();
+            if let Some(angle) = rotation.angle_degrees {
+                angles.insert(0, format!("Rotation {angle:.1}°"));
+            }
+            return Some(ToolFeedback {
+                screen_position,
+                text: format!("{measurement} · {}", angles.join(" · ")),
+            });
+        }
         let point = point?;
 
         if let Some(kind) = self.primitive_tool_state.active()
@@ -10070,10 +10161,19 @@ impl MeshcraftApp {
             return self.array_tool_state.points().last().copied();
         }
         if self.rotational_array_tool_state.active() {
-            return self.rotational_array_tool_state.points().last().copied();
+            return self.rotational_array_tool_state.points().first().copied();
         }
         if self.revolve_tool_state.active() {
-            return self.revolve_tool_state.axis_points().last().copied();
+            return self.revolve_tool_state.axis_points().first().copied();
+        }
+        if self.transform_tool_state.active() == Some(TransformTool::Squash) {
+            return self.transform_tool_state.points().first().copied();
+        }
+        if matches!(
+            self.transform_tool_state.active(),
+            Some(TransformTool::Rotate | TransformTool::Rotate2 | TransformTool::RotateStretch)
+        ) {
+            return self.transform_tool_state.points().first().copied();
         }
         match self.active_tool.as_str() {
             "Line" | "Construction Line" => self.drawing_tool.anchor(),
@@ -10088,7 +10188,7 @@ impl MeshcraftApp {
             }
             "Line Offset" => self.line_offset_tool_state.reference(),
             "Push/Pull" => self.push_pull_reference,
-            "Move" | "Rotate" | "Rotate 2" | "Scale" | "Stretch" | "Stretch Scale"
+            "Move" | "Rotate" | "Rotate 2" | "Scale" | "Squash" | "Stretch" | "Stretch Scale"
             | "Rotate Stretch" => self.transform_tool_state.points().last().copied(),
             "Cuboid" => self.cuboid_first,
             _ => None,
@@ -13755,7 +13855,8 @@ mod tests {
             ("Rotate", "Move"),
             ("Rotate 2", "Rotate"),
             ("Scale", "Rotate 2"),
-            ("Stretch", "Scale"),
+            ("Squash", "Scale"),
+            ("Stretch", "Squash"),
             ("Stretch Scale", "Stretch"),
             ("Rotate Stretch", "Stretch Scale"),
             ("Copy Multiple", "Rotate Stretch"),
@@ -15616,6 +15717,77 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rotation_feedback_uses_center_for_measurements_and_retains_chosen_rays() {
+        let mut app = test_app();
+        let center = Vec3::new(7., 8., 9.);
+        app.activate_tool("Rotate");
+        for p in [center, center + Vec3::Y * 2., center + Vec3::X + Vec3::Y] {
+            app.transform_tool_state.pick(p);
+        }
+        let target = center + Vec3::Z + Vec3::Y * 3.;
+        assert_eq!(app.tool_reference_point(), Some(center));
+        let (preview, feedback) = app.native_tool_feedback_at(target, Pos2::ZERO);
+        let Some(ToolPreview::Transform { edges }) = preview else {
+            panic!("rotation preview missing")
+        };
+        assert!(edges.contains(&[center, center + Vec3::Y * 2.]));
+        assert!(edges.contains(&[center, center + Vec3::X + Vec3::Y]));
+        assert!(edges.contains(&[center, target]));
+        let text = feedback.unwrap().text;
+        assert!(text.contains("Rotation -90.0°"), "{text}");
+        assert!(text.contains("∠v1/v2"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn squash_command_scales_only_its_reference_axis_with_one_undo() {
+        let mut app = test_app();
+        let path = app
+            .document
+            .add_cuboid("squash", Vec3::new(4., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        app.selection.apply(
+            [SelectionTarget {
+                occurrence: path.clone(),
+                entity: SelectedEntity::Occurrence,
+            }],
+            SelectionMode::Replace,
+        );
+        let before = app.document.clone();
+        app.run_command("tool.squash");
+        assert_eq!(app.active_tool, "Squash");
+        for p in [Vec3::ZERO, Vec3::X * 4., Vec3::X * 2.] {
+            app.handle_native_world_pick(p, None, None);
+        }
+        let world = app
+            .document
+            .resolve_occurrence(&path)
+            .unwrap()
+            .world_transform;
+        assert!(world.transform_vector(Vec3::X).distance(Vec3::X * 0.5) < 1e-9);
+        assert!(world.transform_vector(Vec3::Y).distance(Vec3::Y) < 1e-9);
+        app.run_command("edit.undo");
+        assert_eq!(
+            app.document
+                .resolve_occurrence(&path)
+                .unwrap()
+                .world_transform,
+            before.resolve_occurrence(&path).unwrap().world_transform
+        );
+        app.run_command("edit.redo");
+        assert!(
+            app.document
+                .resolve_occurrence(&path)
+                .unwrap()
+                .world_transform
+                .transform_vector(Vec3::X)
+                .distance(Vec3::X * 0.5)
+                < 1e-9
+        );
+    }
+
     #[test]
     fn push_pull_escape_cancels_without_changing_geometry_or_history() {
         let mut app = test_app();
@@ -15740,6 +15912,15 @@ mod tests {
                 } else if accepted == picks.len() {
                     assert!(
                         matches!(&preview, Some(ToolPreview::Transform { .. })),
+                        "{}",
+                        tool.label()
+                    );
+                } else if matches!(
+                    tool,
+                    TransformTool::Rotate | TransformTool::Rotate2 | TransformTool::RotateStretch
+                ) {
+                    assert!(
+                        matches!(&preview, Some(ToolPreview::Transform { edges }) if !edges.is_empty()),
                         "{}",
                         tool.label()
                     );

@@ -26,7 +26,7 @@ pub struct ControlPoint {
     pub control: Control,
     pub point: Vec3,
     pub normal: Vec3,
-    /// Shift selects the alternate plane (wall plan movement or slab elevation).
+    /// Optional alternate constraint for constrained controls. Free wall bases and slab vertices use neither plane.
     pub alternate_normal: Option<Vec3>,
     pub axis: Option<Vec3>,
 }
@@ -46,13 +46,7 @@ impl Element {
         match self {
             Self::Slab(s) => {
                 for (index, p) in s.profile.points.iter().enumerate() {
-                    add(
-                        Control::SlabVertex { index },
-                        *p,
-                        plane.normal,
-                        Some(plane.v),
-                        None,
-                    );
+                    add(Control::SlabVertex { index }, *p, plane.normal, None, None);
                 }
             }
             Self::Wall(w) => {
@@ -60,13 +54,7 @@ impl Element {
                 for end in [false, true] {
                     let base = if end { w.end } else { w.start };
                     let height = if end { w.end_height() } else { w.height };
-                    add(
-                        Control::WallBase { end },
-                        base,
-                        plane.normal,
-                        Some(plane.v),
-                        None,
-                    );
+                    add(Control::WallBase { end }, base, plane.normal, None, None);
                     add(
                         Control::WallTop { end },
                         base + top_axis * height,
@@ -140,33 +128,22 @@ fn frame_bounds(frame: &Frame, plane: Plane) -> (Vec2, Vec2) {
         },
     )
 }
-impl Document {
-    pub fn move_architecture_control(
-        &mut self,
-        target: &SelectionTarget,
-        control: &Control,
-        world: Vec3,
-    ) -> Result<(), String> {
-        if !world.is_finite() {
+impl Element {
+    /// Change only this owner's parameters. Geometry validation is performed by
+    /// mesh()/put_architecture, so a drag never clones the containing document.
+    pub fn with_control_at(&self, control: &Control, point: Vec3) -> Result<Self, String> {
+        if !point.is_finite() {
             return Err("Control position must be finite.".into());
         }
-        let mut owner = self
-            .architecture_element(target)
-            .ok_or("Architecture owner is missing.")?;
-        let plane = owner.element.plane()?;
-        let inverse = owner
-            .transform
-            .inverse(crate::geometry::GeometryTolerance::default())
-            .ok_or("Architecture transform is singular.")?;
-        let point = inverse.transform_point(world);
-        let original = owner
-            .element
+        let mut element = self.clone();
+        let plane = element.plane()?;
+        let original = element
             .controls()?
             .into_iter()
             .find(|p| &p.control == control)
             .ok_or("Architecture control no longer exists.")?
             .point;
-        match (control, &mut owner.element) {
+        match (control, &mut element) {
             (Control::SlabVertex { index }, Element::Slab(s)) => {
                 *s.profile
                     .points
@@ -236,6 +213,29 @@ impl Document {
             }
             _ => return Err("Control does not belong to this architecture type.".into()),
         }
+        Ok(element)
+    }
+}
+impl Document {
+    pub fn move_architecture_control(
+        &mut self,
+        target: &SelectionTarget,
+        control: &Control,
+        world: Vec3,
+    ) -> Result<(), String> {
+        if !world.is_finite() {
+            return Err("Control position must be finite.".into());
+        }
+        let mut owner = self
+            .architecture_element(target)
+            .ok_or("Architecture owner is missing.")?;
+        let inverse = owner
+            .transform
+            .inverse(crate::geometry::GeometryTolerance::default())
+            .ok_or("Architecture transform is singular.")?;
+        owner.element = owner
+            .element
+            .with_control_at(control, inverse.transform_point(world))?;
         let SelectedEntity::SemanticHandle { id, .. } = &target.entity else {
             return Err("Select an architecture owner.".into());
         };

@@ -100,6 +100,8 @@ def glyph(name):
         return path('M7 24A12 12 0 1 1 26 7M26 7V15H18',BLUE)+circle(16,16,3,ORANGE)+ (badge('plus') if 'copy' in n or n.endswith('-2') else '')
     if 'stretch' in n or 'skew' in n:
         return path('M5 25L8 8H21L27 25ZM8 8L18 18M5 25L18 18L27 25',BLUE)+arrow('M19 5H29M25 2L29 5L25 9',ORANGE)
+    if 'squash' in n:
+        return rect(10,7,12,18,BLUE)+arrow('M2 16H9M5 12L9 16L5 20',ORANGE)+arrow('M30 16H23M27 12L23 16L27 20',ORANGE)
     if 'scale' in n or 'resize' in n:
         return rect(4,15,13,13,WHITE)+rect(15,4,13,13,BLUE)+arrow('M11 21L25 7M18 7H25V14',ORANGE)
     if 'mirror' in n or 'flip' in n:

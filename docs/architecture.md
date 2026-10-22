@@ -28,11 +28,12 @@ sets defaults for new elements when nothing is selected.
   frame plane takes its normal from the cursor’s **blue up vector**, including
   endpoint/line snaps (which can have a different snap normal).
 
-Select a slab to show its blue profile controls. Drag a control in plan;
-**Shift-drag changes its height** along the slab’s
-extrusion axis (vertical for ground-plane slabs), with live geometry and
-relative-distance feedback. Releasing commits one undoable
-edit; Escape cancels the preview. Existing openings retain their plan positions
+Select a slab to show its blue profile controls. Drag a control freely in 3D,
+with the same movement whether Shift is held or not. Geometry and guide snaps
+supply precise positions; without a snap, movement follows a view-facing plane
+through the grabbed control. An orange wireframe shows the future shape with
+relative-distance feedback. The solid model stays unchanged during dragging;
+releasing commits one undoable edit, and Escape discards the preview. Existing openings retain their plan positions
 and follow the roof’s height
 while its outline changes. Invalid/self-intersecting plan outlines are rejected.
 Profile points can have different heights: the roof is triangulated through them.
@@ -56,12 +57,13 @@ parameters with their currently realized lines and triangles.
 
 Select one or several architectural elements to expose their controls:
 
-- **Blue wall bases:** drag on the wall's vertical plane to adjust length and
-  elevation. Shift-drag moves a base in plan. Moving a base preserves that end's
-  height, so its top moves with it. All four wall controls stay on the wall axis
-  plane, independently of axis offset or inclination.
-- **Magenta wall tops:** adjust each end's height independently of its base and
-  the opposite end. Both bottom and top edges can slope.
+- **Blue wall bases:** the start is a square and the end is a circle. Both move
+  freely in 3D using geometry/guide snaps, with a view-facing fallback plane.
+  Shift does not change the movement. Moving a base preserves that end's height,
+  so its top moves with it. All four wall controls stay on the wall axis plane,
+  independently of axis offset or inclination.
+- **Magenta wall top triangles:** adjust each end's height independently of its
+  base and the opposite end. Both bottom and top edges can slope.
 - **Orange opening corners:** resize each wall/slab hole using two opposite
   corners on the owner's definition plane.
 - **Purple frame corners:** resize the complete planar contour between opposite
@@ -77,8 +79,10 @@ Axis and grid guides keep the full cursor alignment when placed: red, green and
 blue become the guide’s U, V and W axes. This includes blue following a snapped
 segment. **G** places a grid guide and **T** an axis guide at the cursor.
 
-Every drag previews privately, shows relative feedback, commits once on release,
-and supports Escape, Undo and Redo. Visibility/editability and prototype context
+Every drag previews only the owner's future boundary/reveal wireframe, shows
+relative feedback, commits once on release, and supports Escape, Undo and Redo.
+Previewing does not clone the full document, regenerate neighboring walls or
+replace the solid scene. Wall joins are regenerated when the edit is committed. Visibility/editability and prototype context
 still apply.
 
 ![Independent wall tops](rewrite/references/architecture-controls/unequal-wall-tops.png)

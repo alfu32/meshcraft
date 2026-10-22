@@ -143,8 +143,10 @@ Enter finishes a wall chain or closes a freeform slab; A/C/L switch path modes.
 The slab tools both produce a closed polyline profile. Native selection exposes
 blue draggable profile controls; `architecture.move_slab_vertex` is the equivalent
 world-coordinate command. Slab profile points may have unequal heights. Native
-Shift-drag adjusts height; commands accept the full 3D position without planar
-projection. The profile normal is the extrusion axis; vertical sides and owned
+dragging moves these controls freely in 3D, identically with or without Shift;
+commands also accept the full 3D position without planar projection. Wall bases
+use the same free movement. Native dragging previews the owner's wireframe and
+commits the solid edit once on release. The profile normal is the extrusion axis; vertical sides and owned
 opening reveals follow it. Sloped planar roofs retain their normal thickness;
 at folds the underside preserves at least that thickness. Opening controls
 follow the interpolated roof surface while their stored UVs remain fixed.
@@ -197,3 +199,13 @@ The server binds IPv4 loopback only, checks Host/Origin and has bounded body siz
 queue and request timeouts. GET returns 405; standalone SSE subscriptions are not advertised.
 Local clients without an Origin header can connect; browser origins must exactly match the
 local endpoint. There is no network-wide listener or Groovy/REPL endpoint.
+
+### Squash and rotation input
+
+Discover `tool.squash` in the command catalog. Select geometry, activate the tool,
+then pick center, reference point defining an axis, and target axis distance.
+Alternatively enter a signed scale factor after the reference. Squash scales only
+the component along that axis and preserves perpendicular components; zero is
+rejected. It uses the regular tool pointer/numeric input, cancel and undo commands.
+Rotation tool measurements use the first center, retain the chosen center-relative
+rays, and report vector-pair angles plus the projected applied rotation angle.

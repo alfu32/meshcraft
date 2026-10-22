@@ -220,6 +220,7 @@ struct RenderScene {
     cursor: Option<SnapResult>,
     cursor_axes: Option<[Vec3; 3]>,
     preview: Option<ToolPreview>,
+    reference_edges: Vec<[Vec3; 2]>,
     selection_rect: Option<([f32; 4], bool)>,
     grid_spacing: f64,
     normal_line_width: f32,
@@ -244,6 +245,7 @@ impl Default for RenderScene {
             cursor: None,
             cursor_axes: None,
             preview: None,
+            reference_edges: vec![],
             selection_rect: None,
             grid_spacing: 1.0,
             normal_line_width: 1.0,
@@ -565,6 +567,19 @@ fn draw_offscreen_scene(
         if let (Some(cursor), Some(axes)) = (scene_data.cursor, scene_data.cursor_axes) {
             helpers::draw_point_field(&mut view, cursor.point, axes, scene_data.grid_spacing);
             draw_cursor(&mut view, cursor, axes);
+        }
+        if !scene_data.reference_edges.is_empty() {
+            draw_preview(
+                &mut view,
+                &ToolPreview::Transform {
+                    edges: scene_data.reference_edges.clone(),
+                },
+                scene_data
+                    .thick_line_width
+                    .max(scene_data.normal_line_width),
+                orbit,
+                target_height,
+            );
         }
         if let Some(preview) = scene_data.preview.as_ref() {
             draw_preview(
@@ -1136,7 +1151,7 @@ impl MeshcraftShell {
             self.cached_annotations = Arc::new(self.cached_document.annotations());
             self.cached_document_revision = Some(revision);
         }
-        let (preview, feedback, cursor_axes) = match (self.cursor_snap, self.cursor_local) {
+        let (mut preview, feedback, cursor_axes) = match (self.cursor_snap, self.cursor_local) {
             (Some(snap), Some((x, y))) => {
                 self.session.set_native_cursor_snap(Some(snap));
                 let axes = self.session.native_cursor_axes(snap);
@@ -1197,7 +1212,9 @@ impl MeshcraftShell {
                 ),
             });
         }
-        self.preview_architecture_drag();
+        if let Some(ghost) = self.preview_architecture_drag() {
+            preview = Some(ghost);
+        }
         let preferences = self.session.native_ui_preferences();
         let selection_rect =
             self.selection_gesture
@@ -1219,13 +1236,21 @@ impl MeshcraftShell {
             }
             .to_owned(),
             grid_extent: preferences.grid_extent as i32,
-            selection: self.session.native_selection_targets(),
+            selection: if self.architecture.drag.is_some() {
+                vec![]
+            } else {
+                self.session.native_selection_targets()
+            },
             display_policy: self.session.native_selection_display_policy(),
             edit_context: self.session.native_edit_context(),
             guides: self.session.native_construction_guides().to_vec(),
             guides_visible: self.session.native_guides_visible(),
             cursor: self.cursor_snap,
             cursor_axes,
+            reference_edges: self
+                .cursor_snap
+                .map(|s| self.session.native_rotational_reference_edges(s.point))
+                .unwrap_or_default(),
             preview,
             selection_rect,
             grid_spacing: self.cached_document.model_settings().grid_size,
@@ -1247,7 +1272,7 @@ impl MeshcraftShell {
             self.refresh_scene();
             return;
         };
-        let settings = self.cached_document.model_settings();
+        let settings = self.cached_document.model_settings().clone();
         let world_per_pixel = (self.camera.distance as f64
             * (self.camera.field_of_view.to_radians() * 0.5).tan() as f64
             * 2.0)
@@ -1769,9 +1794,10 @@ impl MeshcraftShell {
             self.camera_drag = None;
             self.selection_gesture = None;
             self.selection_cursor = None;
-            if self.architecture.drag.take().is_some() || self.hotspot_drag.take().is_some() {
+            let architecture_drag = self.architecture.drag.take().is_some();
+            if self.hotspot_drag.take().is_some() {
                 self.cached_document_revision = None;
-            } else {
+            } else if !architecture_drag {
                 self.session.handle_native_escape();
             }
             self.cursor_snap = None;
@@ -2349,6 +2375,7 @@ fn ribbon_command_for_key<'a>(
         "rotate-3d" => &["tool.builtin.rotate", "tool.builtin.rotate_2"],
         "rotate-copy-3d" | "rotate-copy" => &["tool.rotate_copy"],
         "scale" => &["tool.builtin.scale"],
+        "squash" => &["tool.squash"],
         "stretch" => &["tool.builtin.stretch"],
         "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
         "flip" => &["geometry.flip_selection"],
