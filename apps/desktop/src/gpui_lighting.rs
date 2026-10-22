@@ -128,6 +128,7 @@ impl SelectionIndex {
 }
 
 pub(super) struct Renderer {
+    pub(super) placement: placement::Renderer,
     depth: Shader,
     lit: Shader,
     map: RenderTexture2D,
@@ -158,6 +159,7 @@ impl Renderer {
             Some(include_str!("../../../assets/shaders/scene.fs")),
         );
         Self {
+            placement: placement::Renderer::new(rl, thread),
             depth,
             lit,
             map: rl
@@ -183,6 +185,7 @@ impl Renderer {
         thread: &raylib::RaylibThread,
         scene: &RenderScene,
     ) {
+        self.placement.prepare(thread, scene.preview.as_ref());
         let changed = self
             .document
             .as_ref()

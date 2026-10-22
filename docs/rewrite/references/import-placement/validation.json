@@ -1,0 +1,22 @@
+{
+  "faces": 51200,
+  "inputStreamMs": 434.59634701139294,
+  "statusAfterInputMs": 18.18433601874858,
+  "renderedFramesDuringMotion": 9,
+  "previewDoesNotCommit": true,
+  "actualMouseInsertion": true,
+  "placedBounds": {
+    "min": {
+      "x": 55.0,
+      "y": 0.0,
+      "z": 62.0
+    },
+    "max": {
+      "x": 215.0,
+      "y": 0.0,
+      "z": 222.0
+    }
+  },
+  "undo": true,
+  "escapeCancel": true
+}

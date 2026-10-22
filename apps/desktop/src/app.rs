@@ -13,6 +13,8 @@ mod materials_workflow;
 mod mcp_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
+#[path = "placement_preview.rs"]
+mod placement_preview;
 #[path = "script_workflow.rs"]
 mod script_workflow;
 use crate::assets::{self, IconRegion};
@@ -2344,6 +2346,7 @@ pub struct MeshcraftApp {
     shape_tool_state: ShapeToolState,
     transform_tool_state: TransformToolState,
     object_place_tool_state: ObjectPlaceToolState,
+    placement_preview: placement_preview::State,
     array_tool_state: ArrayToolState,
     rotational_array_tool_state: RotationalArrayToolState,
     current_paint_color: Rgba8,
@@ -3453,6 +3456,7 @@ impl MeshcraftApp {
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: ObjectPlaceToolState::default(),
+            placement_preview: Default::default(),
             array_tool_state: ArrayToolState::default(),
             rotational_array_tool_state: RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
@@ -6018,6 +6022,7 @@ impl MeshcraftApp {
         self.tool_cycle_state.cancel_hotspot_placement();
         self.hotspot_reference_pick = false;
         self.object_place_tool_state.cancel();
+        self.placement_preview = Default::default();
         self.array_tool_state
             .activate(ArrayToolKind::from_label(tool));
         self.rotational_array_tool_state
@@ -8256,6 +8261,7 @@ impl MeshcraftApp {
         match result {
             Ok(()) => {
                 self.object_place_tool_state = next_tool;
+                self.placement_preview = Default::default();
                 let occurrence = placed.expect("a successful placement returns an occurrence");
                 self.set_selection([occurrence.clone()]);
                 self.active_tool = "Select".to_owned();
@@ -8322,6 +8328,7 @@ impl MeshcraftApp {
         self.architecture = Default::default();
         self.tool_cycle_state.cancel_hotspot_placement();
         self.object_place_tool_state.cancel();
+        self.placement_preview = Default::default();
         self.array_tool_state.cancel();
         self.rotational_array_tool_state.cancel();
         self.array_preview = false;
@@ -9663,53 +9670,19 @@ impl MeshcraftApp {
                 _ => unreachable!("Revolve only accepts two axis points"),
             }
         }
-        let point_preview = || point.and_then(|position| self.feedback_preview(position));
         if let Some(definition) = self.object_place_tool_state.active_definition() {
             if let Some(point) = point {
-                let mut draft = self.document.clone();
-                if let Ok(placed) = modeling_objects::place_definition(
-                    &mut draft,
-                    &self.selection.context,
-                    definition,
-                    point,
-                    snap.filter(|s| s.kind == SnapKind::Face).map(|s| s.normal),
-                    self.object_place_tool_state.glue_to_surface(),
-                ) {
-                    let mut edges = Vec::new();
-                    for path in draft
-                        .scene_geometry_refs()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|path| path.path.starts_with(&placed.path))
-                    {
-                        let Some(r) = draft.resolve_occurrence(&path) else {
-                            continue;
-                        };
-                        let Some(g) = draft.effective_geometry(&path) else {
-                            continue;
-                        };
-                        let world = |v| {
-                            g.vertex_position(v)
-                                .map(|p| r.world_transform.transform_point(p))
-                        };
-                        for s in g.segments.values() {
-                            if let [Some(a), Some(b)] = s.endpoints.map(world) {
-                                edges.push([a, b]);
-                            }
-                        }
-                        for t in g.triangles.values() {
-                            if let [Some(a), Some(b), Some(c)] = t.vertices.map(world) {
-                                edges.extend([[a, b], [b, c], [c, a]]);
-                            }
-                        }
-                    }
-                    if !edges.is_empty() {
-                        return Some(ToolPreview::Transform { edges });
-                    }
+                let hit = PlacementHit {
+                    position: point,
+                    surface_normal: snap.filter(|s| s.kind == SnapKind::Face).map(|s| s.normal),
+                };
+                if let Ok(preview) = self.object_placement_preview(definition, hit) {
+                    return Some(preview);
                 }
             }
-            return point_preview();
+            return point.and_then(|position| self.feedback_preview(position));
         }
+        let point_preview = || point.and_then(|position| self.feedback_preview(position));
         if self.active_tool == "Paint" {
             let scope = match &self.selection.context {
                 EditContext::Document => SnapScope::Document,
@@ -12916,6 +12889,7 @@ mod tests {
             shape_tool_state: ShapeToolState::default(),
             transform_tool_state: TransformToolState::default(),
             object_place_tool_state: super::ObjectPlaceToolState::default(),
+            placement_preview: Default::default(),
             array_tool_state: super::ArrayToolState::default(),
             rotational_array_tool_state: super::RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
@@ -16702,9 +16676,7 @@ mod tests {
         println!("post-commit spatial update: {:?}", start.elapsed());
     }
 
-    #[test]
-    #[ignore = "manual prototype picking latency probe; no timing threshold"]
-    fn prototype_picking_latency_probe() {
+    fn dense_prototype_fixture() -> (MeshcraftApp, OccurrenceRef) {
         use meshcraft_core::document::{RawGeometryTriangle, RawGeometryVertex, RawVertexRef};
         let mut app = test_app();
         let path = app
@@ -16748,6 +16720,13 @@ mod tests {
         app.document
             .replace_definition_geometry_raw(definition, vertices, vec![], triangles)
             .unwrap();
+        (app, path)
+    }
+
+    #[test]
+    #[ignore = "manual prototype picking latency probe; no timing threshold"]
+    fn prototype_picking_latency_probe() {
+        let (mut app, path) = dense_prototype_fixture();
         app.selection.set_context(EditContext::Occurrence(path));
         let origin = Vec3::new(30.25, 10., 30.4);
         let start = std::time::Instant::now();
@@ -16782,6 +16761,35 @@ mod tests {
             start.elapsed()
         );
         assert_eq!(app.document.revision(), revision);
+    }
+
+    #[test]
+    #[ignore = "manual placement preview latency probe; no timing threshold"]
+    fn object_placement_preview_latency_probe() {
+        let (mut app, path) = dense_prototype_fixture();
+        let definition = app
+            .document
+            .resolve_occurrence(&path)
+            .unwrap()
+            .definition
+            .id;
+        app.begin_placing_definition(definition);
+        let revision = app.document.revision();
+        let start = std::time::Instant::now();
+        assert!(
+            app.native_tool_feedback_at(Vec3::new(200., 0., 0.), Pos2::ZERO)
+                .0
+                .is_some()
+        );
+        println!("51,200-face placement first preview: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        for i in 0..20 {
+            std::hint::black_box(
+                app.native_tool_feedback_at(Vec3::new(200. + f64::from(i), 0., 0.), Pos2::ZERO),
+            );
+        }
+        println!("20 warm placement preview moves: {:?}", start.elapsed());
+        assert_eq!(revision, app.document.revision());
     }
 
     #[test]

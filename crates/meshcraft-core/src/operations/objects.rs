@@ -1484,30 +1484,74 @@ pub fn duplicate_occurrence_with_remap(
     Ok((copy, Some(remap)))
 }
 
-/// Adds a definition to the active object graph at a world-space point. If a surface normal is
-/// supplied, the definition's local up axis is aligned to it before placement.
-pub fn place_definition(
-    document: &mut Document,
+/// Computes the exact placed definition frame without copying or mutating scene geometry.
+pub fn placement_world_transform(
+    document: &Document,
     context: &EditContext,
     definition_id: DefinitionId,
     world_position: Vec3,
     world_surface_normal: Option<Vec3>,
     glue_to_surface: bool,
-) -> Result<OccurrenceRef, String> {
+) -> Result<Affine3, String> {
+    placement_plan(
+        document,
+        context,
+        definition_id,
+        world_position,
+        world_surface_normal,
+        glue_to_surface,
+    )
+    .map(|plan| plan.world_transform)
+}
+
+/// Transform applied to a definition's already-framed geometry during placement.
+pub fn placement_anchor_transform(
+    document: &Document,
+    context: &EditContext,
+    definition_id: DefinitionId,
+    world_position: Vec3,
+    world_surface_normal: Option<Vec3>,
+    glue_to_surface: bool,
+) -> Result<Affine3, String> {
+    placement_plan(
+        document,
+        context,
+        definition_id,
+        world_position,
+        world_surface_normal,
+        glue_to_surface,
+    )
+    .map(|plan| plan.anchor_transform)
+}
+
+struct PlacementPlan {
+    parent_path: Vec<crate::document::LayoutEntryId>,
+    parent_definition: Option<DefinitionId>,
+    local_transform: Affine3,
+    world_transform: Affine3,
+    anchor_transform: Affine3,
+}
+
+fn placement_plan(
+    document: &Document,
+    context: &EditContext,
+    definition_id: DefinitionId,
+    world_position: Vec3,
+    world_surface_normal: Option<Vec3>,
+    glue_to_surface: bool,
+) -> Result<PlacementPlan, String> {
     if !world_position.is_finite() {
         return Err("object placement position must be finite".to_owned());
     }
-    let mut candidate = document.clone();
-    let definition = candidate
+    let definition = document
         .definitions
         .get(&definition_id)
-        .cloned()
         .ok_or_else(|| "the selected object definition does not exist".to_owned())?;
 
     let (parent_path, parent_world, parent_definition) = match context {
         EditContext::Document => {
-            if let Some(path) = candidate.scene_container_occurrence() {
-                let r = candidate
+            if let Some(path) = document.scene_container_occurrence() {
+                let r = document
                     .resolve_occurrence(&path)
                     .ok_or("scene container is missing")?;
                 (path.path.clone(), r.world_transform, Some(r.definition.id))
@@ -1516,7 +1560,7 @@ pub fn place_definition(
             }
         }
         EditContext::Occurrence(occurrence) => {
-            let resolved = candidate
+            let resolved = document
                 .resolve_occurrence(occurrence)
                 .ok_or_else(|| "the active object context no longer exists".to_owned())?;
             (
@@ -1529,18 +1573,16 @@ pub fn place_definition(
             if *id == Document::SCENE_ROOT_DEFINITION_ID {
                 (Vec::new(), Affine3::IDENTITY, None)
             } else {
-                let instance = candidate
+                let instance = document
                     .occurrence_refs()?
                     .into_iter()
                     .find(|occurrence| {
-                        candidate
+                        document
                             .resolve_occurrence(occurrence)
                             .is_some_and(|resolved| resolved.definition.id == *id)
                     })
                     .ok_or_else(|| "the active definition has no placed instance".to_owned())?;
-                let resolved = candidate
-                    .resolve_occurrence(&instance)
-                    .expect("found above");
+                let resolved = document.resolve_occurrence(&instance).expect("found above");
                 (instance.path, resolved.world_transform, Some(*id))
             }
         }
@@ -1564,6 +1606,41 @@ pub fn place_definition(
     placement_linear.translation =
         local_position - placement_linear.transform_vector(definition.frame.translation);
 
+    Ok(PlacementPlan {
+        parent_path,
+        parent_definition,
+        local_transform: placement_linear,
+        world_transform: parent_world
+            .compose(placement_linear)
+            .compose(definition.frame),
+        anchor_transform: parent_world.compose(placement_linear),
+    })
+}
+
+/// Adds a definition to the active object graph at a world-space point. If a surface normal is
+/// supplied, the definition's local up axis is aligned to it before placement.
+pub fn place_definition(
+    document: &mut Document,
+    context: &EditContext,
+    definition_id: DefinitionId,
+    world_position: Vec3,
+    world_surface_normal: Option<Vec3>,
+    glue_to_surface: bool,
+) -> Result<OccurrenceRef, String> {
+    let PlacementPlan {
+        parent_path,
+        parent_definition,
+        local_transform: placement_linear,
+        ..
+    } = placement_plan(
+        document,
+        context,
+        definition_id,
+        world_position,
+        world_surface_normal,
+        glue_to_surface,
+    )?;
+    let mut candidate = document.clone();
     let scene_layout = if matches!(context, EditContext::Document) {
         candidate
             .scene_container_occurrence()
@@ -2787,6 +2864,20 @@ mod tests {
         let world_position = Vec3::new(14.0, -2.0, 8.0);
         let world_normal = Vec3::new(1.0, 2.0, -1.0);
 
+        let before = document.clone();
+        let preview = super::placement_world_transform(
+            &document,
+            &EditContext::Occurrence(parent.clone()),
+            definition,
+            world_position,
+            Some(world_normal),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            document, before,
+            "preview must not allocate or alter the graph"
+        );
         let placed = place_definition(
             &mut document,
             &EditContext::Occurrence(parent.clone()),
@@ -2799,6 +2890,7 @@ mod tests {
 
         assert_eq!(parent.path.len() + 1, placed.path.len());
         let resolved = document.resolve_occurrence(&placed).unwrap();
+        assert_eq!(preview, resolved.world_transform);
         assert!(
             resolved
                 .world_transform

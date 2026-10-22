@@ -32,6 +32,8 @@ mod layout;
 mod lighting;
 #[path = "gpui_materials.rs"]
 mod materials;
+#[path = "gpui_placement.rs"]
+mod placement;
 #[path = "gpui_postprocess.rs"]
 mod postprocess;
 #[path = "gpui_scripts.rs"]
@@ -581,7 +583,16 @@ fn draw_offscreen_scene(
                 target_height,
             );
         }
-        if let Some(preview) = scene_data.preview.as_ref() {
+        if let Some(ToolPreview::Placement { transform, .. }) = scene_data.preview.as_ref() {
+            lighting.placement.draw(
+                &mut view,
+                *transform,
+                scene_data
+                    .thick_line_width
+                    .max(scene_data.normal_line_width),
+                (target_width, target_height),
+            );
+        } else if let Some(preview) = scene_data.preview.as_ref() {
             draw_preview(
                 &mut view,
                 preview,
@@ -769,6 +780,16 @@ fn draw_preview(
             outline, closed, ..
         }
         | ToolPreview::Polyline { outline, closed } => add_path_edges(&mut edges, outline, *closed),
+        ToolPreview::Placement {
+            edges: source,
+            transform,
+        } => {
+            edges.extend(
+                source
+                    .iter()
+                    .map(|edge| edge.map(|point| transform.transform_point(point))),
+            );
+        }
         ToolPreview::Transform { edges: source }
         | ToolPreview::LineOffset { edges: source, .. } => {
             for edge in source {

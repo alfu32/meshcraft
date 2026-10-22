@@ -10,6 +10,12 @@ The **Objects** browser lists prototypes, once each, with name, internal/externa
 
 Double-clicking a prototype row activates insertion of that definition, even when no existing instance is selected. The cursor shows the instance's wireframe placement feedback and uses ordinary point-input snapping and surface-glue rules. Accepted placement creates an instance in the active scene/subscene. Double-clicking a placed instance enters its shared prototype for editing in place.
 
+Import/prototype insertion prepares its wireframe once per source revision/context. Pointer
+motion only updates the placement transform; it must not clone, insert or validate a temporary
+scene on every move. The native renderer retains the uploaded wireframe between moves, including
+when surface alignment changes. Clicking commits the complete geometry once; Escape releases
+the preview without creating an instance.
+
 ## Editing isolation and navigation
 
 Within prototype editing, selection and modification are limited to the active subscene's own geometry and immediate nested instances. Outside geometry stays visible, optionally faded, and remains a snapping/constraint reference. It is not selectable or modifiable. A nested instance can be entered to edit its definition in turn. Construction writes directly into the active prototype.

@@ -377,6 +377,10 @@ pub enum ToolPreview {
     Transform {
         edges: Vec<[Vec3; 2]>,
     },
+    Placement {
+        edges: std::sync::Arc<Vec<[Vec3; 2]>>,
+        transform: Affine3,
+    },
     Array {
         edges: Vec<[Vec3; 2]>,
         copies: usize,
@@ -1015,6 +1019,13 @@ impl Viewport {
                 }
                 ToolPreview::Polyline { outline, closed } => {
                     self.draw_polyline_preview(&painter, rect, outline, *closed);
+                }
+                ToolPreview::Placement { edges, transform } => {
+                    let edges = edges
+                        .iter()
+                        .map(|edge| edge.map(|p| transform.transform_point(p)))
+                        .collect::<Vec<_>>();
+                    self.draw_transform_preview(&painter, rect, &edges);
                 }
                 ToolPreview::Transform { edges } => {
                     self.draw_transform_preview(&painter, rect, edges);

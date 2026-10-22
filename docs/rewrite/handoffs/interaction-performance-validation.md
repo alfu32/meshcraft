@@ -129,3 +129,58 @@ visual updates. Existing deformed-instance/prototype picking tests also pass.
 `python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` scoped to this change pass.
 The desktop library also passes `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`
 with the same three existing warnings for unused native walkthrough/clipboard helpers.
+
+## Import placement feedback — 0.24.3
+
+Placement feedback previously cloned the document, called transactional `place_definition`
+(which cloned again and validated the full model), then walked every placed triangle to rebuild
+world-space edges on each pointer update. The native draw path also projected and rebuilt thick
+line ribbons individually on every frame.
+
+Placement now caches an immutable, deduplicated wireframe, keyed by document generation, visual
+revision, source definition and edit context. Moves and surface glue update only a small affine
+transform. Shared read-only placement math matches the committed definition frame without copying
+geometry. The native renderer uploads six-vertex line quads once per prepared wireframe; a shader
+applies the placement/camera transform and pixel-width expansion. Near-plane clipping occurs before
+perspective division. This preserves the configured thick feedback strokes and all wireframe edges,
+without reducing or capping the inserted geometry. Cancel/commit releases the cached preview and GPU
+resources. The browser fallback also reuses source edges but still projects them on its CPU canvas.
+
+The reproducible CPU probe uses the same generated 51,200-face grid as the prototype-picking probe:
+
+```sh
+cargo test -p meshcraft-desktop --lib object_placement_preview_latency_probe -- --ignored --nocapture
+```
+
+| CPU operation | Before | After |
+| --- | ---: | ---: |
+| First placement preview | 144.70 ms | 147.61 ms |
+| 20 warmed placement preview moves | 1,460.43 ms | 0.067 ms |
+
+Environment remains Linux / Intel Core i7-6700HQ, workspace development optimization. These timings
+exclude rendering. Initial source preparation remains proportional to mesh size; the eliminated
+work is repeated preparation during pointer movement, not initial model loading.
+
+A separate software-GPU X11 app imported the 51,200-face OBJ without a supplied insertion point,
+then received 20 real mouse moves over 435 ms. Nine preview frames were produced across that stream
+and its following fresh capture; status responded in 18 ms after the input stream. A mouse click
+inserted the full grid at the displayed snapped point (55, 0, 62), preserving its 160 × 160 extent.
+Undo removed the instance; restarting placement and Escape left no instance behind. Preview motion
+kept document revision unchanged. [Native capture](../references/import-placement/preview.png) and
+[recorded results](../references/import-placement/validation.json). Dense triangle edges overlap at
+this zoom; the preview still contains the full wireframe. These are bounded interaction checks,
+not a general frame-rate guarantee. The user's running application and files were untouched.
+
+**651 regular tests pass**: 277 core, 328 desktop library, 5 CLI and 41 IO; five manual probes are
+ignored by default. Placement regressions cover immutable edge reuse, generation/geometry changes,
+release on cancel/commit, a nonidentity definition frame in a rotated/scaled parent, surface glue,
+preview/commit bounds and Undo. The explicit `placement_gpu_quads_follow_transforms_and_reuse_the_uploaded_mesh`
+OpenGL test passes, checking shader compilation, projected positions/stroke pixels in perspective
+and orthographic views, unchanged VAO identity across moves, and release on exit.
+
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo build -p meshcraft-desktop --bin meshcraft`, `cargo fmt --all -- --check`,
+`cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`,
+`python3 docs/rewrite/scripts/verify_plan.py` and `git diff --check` scoped to this change pass.
+The browser compile retains its three existing unused native-helper warnings. Windows/macOS
+runtime qualification was not performed for this change.

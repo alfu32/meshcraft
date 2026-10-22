@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.24.3 import placement:** insertion feedback no longer clones/places/validates the document and
+rebuilds its wireframe on each move. It shares prepared edges and an uploaded GPU mesh, changing
+only the placement transform. The 51,200-face probe's 20 warmed CPU preview moves fell from
+1.46 seconds to 0.07 ms. Full native mouse placement, Undo, cancellation and 651 tests pass.
+See [placement evidence](docs/rewrite/handoffs/interaction-performance-validation.md#import-placement-feedback--0243).
+
 **0.24.2 prototype picking and count layout:** the right panel is 420 px wide, with non-wrapping
 seven-digit count columns. Native snapping, cursor alignment, picking and rendering share a cached
 prototype edit view. A 51,200-face CPU probe's 20 warmed interaction cycles fell from 809 ms to

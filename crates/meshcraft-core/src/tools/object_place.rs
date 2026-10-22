@@ -74,19 +74,14 @@ impl ObjectPlaceToolState {
         let (Some(definition), Some(hit)) = (self.definition, self.pointer_hit) else {
             return Ok(None);
         };
-        let mut preview_document = document.clone();
-        let occurrence = place_definition(
-            &mut preview_document,
+        let world_transform = crate::operations::objects::placement_world_transform(
+            document,
             context,
             definition,
             hit.position,
             hit.surface_normal,
             self.glue_to_surface,
         )?;
-        let world_transform = preview_document
-            .resolve_occurrence(&occurrence)
-            .ok_or_else(|| "the object placement preview could not be resolved".to_owned())?
-            .world_transform;
         Ok(Some(PlacementPreview {
             hit,
             world_transform,
