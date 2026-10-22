@@ -524,6 +524,44 @@ pub(super) fn prepare(
         shell.settings.sliders.insert(key, slider);
     }
 }
+const ARCHITECTURE_VALUE_WIDTH: f32 = 76.;
+const ARCHITECTURE_MEASURE_WIDTH: f32 = 72.;
+pub(super) fn architecture_table_header() -> gpui::AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_xs()
+        .text_color(rgb(0xa5adb7))
+        .child(div().flex_1().min_w(px(0.)).child("Property"))
+        .child(
+            div()
+                .w(px(ARCHITECTURE_VALUE_WIDTH))
+                .flex_none()
+                .child("Value"),
+        )
+        .child(
+            div()
+                .w(px(ARCHITECTURE_MEASURE_WIDTH))
+                .flex_none()
+                .text_right()
+                .child("Measured"),
+        )
+        .into_any_element()
+}
+fn architecture_label(key: &str) -> &'static str {
+    match key {
+        "wall_thickness" | "slab_thickness" => "Thickness",
+        "wall_height" => "Start height",
+        "wall_end_height" => "End height",
+        "wall_offset" => "Axis offset",
+        "wall_inclination" => "Inclination",
+        "frame_depth" => "Depth",
+        "frame_width" => "Width",
+        _ => "",
+    }
+}
+
 pub(super) fn render_field(
     shell: &MeshcraftShell,
     label: &'static str,
@@ -548,26 +586,55 @@ pub(super) fn render_field(
     } else {
         let field = FIELDS.iter().find(|f| f.label == label)?;
         let input = shell.settings.inputs.get(field.key)?;
-        let editor = if matches!(field.key, "unit_name" | "architecture_name") {
+        let editor = if inline || matches!(field.key, "unit_name" | "architecture_name") {
             Input::new(input).small().w_full().into_any_element()
         } else {
             NumberInput::new(input).small().w_full().into_any_element()
         };
         let mut row = div().flex().items_center().gap(px(6.)).min_w(px(0.));
         if inline {
-            row = row.child(div().flex_1().min_w(px(0.)).text_xs().child(label));
+            row = row.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_xs()
+                    .child(architecture_label(field.key)),
+            );
         }
         if let Some(slider) = shell.settings.sliders.get(field.key) {
             row = row
                 .child(Slider::new(slider).w_full())
                 .child(div().w(px(84.)).flex_none().child(editor));
         } else if inline {
-            row = row.child(div().w(px(112.)).flex_none().child(editor));
+            row = row.child(
+                div()
+                    .w(px(ARCHITECTURE_VALUE_WIDTH))
+                    .flex_none()
+                    .child(editor),
+            );
         } else {
             row = row.child(div().flex_1().min_w(px(0.)).child(editor));
         }
-        if field.is_length() {
-            row = row.child(div().text_xs().flex_none().child("units"));
+        if inline {
+            let measured = if field.is_length() {
+                current(shell, *field)
+                    .parse::<f64>()
+                    .ok()
+                    .map(|value| shell.cached_document.model_settings().format_length(value))
+                    .unwrap_or_default()
+            } else {
+                "degrees".into()
+            };
+            row = row.child(
+                div()
+                    .w(px(ARCHITECTURE_MEASURE_WIDTH))
+                    .flex_none()
+                    .text_right()
+                    .text_xs()
+                    .text_color(rgb(0xa9c8e8))
+                    .child(measured),
+            );
+        } else if field.is_length() {
             if let Ok(value) = current(shell, *field).parse::<f64>() {
                 row = row.child(
                     div()
@@ -579,7 +646,7 @@ pub(super) fn render_field(
             }
         } else if field.key == "snap_radius" {
             row = row.child(div().text_xs().flex_none().child("px"));
-        } else if matches!(field.key, "wall_inclination" | "azimuth" | "elevation") {
+        } else if matches!(field.key, "azimuth" | "elevation") {
             row = row.child(div().text_xs().flex_none().child("degrees"));
         }
         let mut body = div().child(row);

@@ -1,0 +1,27 @@
+{
+  "version": "0.23.2",
+  "environment": "Isolated Xvfb :96, software Mesa, separate project/config/cache, MCP port 8766",
+  "defaults": {
+    "groups": [
+      "Walls",
+      "Slabs",
+      "Frames"
+    ],
+    "shortLabels": true,
+    "fixedValueAndMeasuredColumns": true,
+    "genericUnitsSuffix": false,
+    "stepperButtons": false,
+    "invalidInput": "abc",
+    "invalidInputPreservedDefaultThickness": 1,
+    "validInput": 1.5,
+    "createdThicknessInternal": 1.5,
+    "displayed": "45 cm"
+  },
+  "selected": {
+    "onlyApplicableGroup": true,
+    "editedThicknessInternal": 0.75,
+    "displayed": "22.5 cm",
+    "undoRestored": 1.5,
+    "autojoinToggleAndUndo": true
+  }
+}

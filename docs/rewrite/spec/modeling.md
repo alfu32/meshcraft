@@ -264,6 +264,14 @@ walls on pointer motion. Cache unchanged candidate positions. Release validates 
 commits once, including joined walls; Escape leaves both geometry and history intact.
 Invalid candidates report feedback and must not partially change the document.
 
+**Confirmed architecture presentation (2026-10-22).** Group the inspector into
+Walls, Slabs and Frames subsections, showing only the applicable one for a selected
+owner. Use aligned Property / Value / Measured columns, short labels without the
+repeated type prefix, and plain numeric text inputs without stepper buttons or a
+generic “units” suffix. Measured retains the configured units; inclination stays
+in degrees. Keep each type's colors, Autojoin and glazing with its subsection.
+Retain numeric validation and internal-value transactions on Enter or blur.
+
 ### P03 Stairs, window frames, and door frames
 
 **Observed.** `ARCH_STAIR`, `ARCH_WINDOW_FRAME`, `ARCH_DOOR_FRAME`. Stairs retain contour, walking path/start/end, height, step count, support thickness, left/right rail settings, tread/support colors. Frames retain corners or contour, normal, depth, frame width, window/door kind, color, glazing enabled/color. Current frames can be free-form contours; restricting them to rectangles loses later functionality.

@@ -21,8 +21,8 @@ const COLORS: &[(&str, &str)] = &[
     ("slab_top_color", "Top"),
     ("slab_bottom_color", "Bottom"),
     ("slab_side_color", "Sides"),
-    ("frame_color", "Frame"),
-    ("glazing_color", "Glazing"),
+    ("frame_color", "Color"),
+    ("glazing_color", "Glazing color"),
 ];
 fn inspected(
     shell: &MeshcraftShell,
@@ -129,22 +129,18 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     } else {
         body = body.child("Defaults for new architecture");
     }
-    body =
-        body.child(div().text_xs().text_color(rgb(0xa5adb7)).child(
-            "Numeric inputs use internal units; blue measurements show the configured unit.",
-        ));
-    let wall = selected
-        .as_ref()
-        .is_none_or(|e| matches!(e.element, Element::Wall(_)));
-    let slab = selected
-        .as_ref()
-        .is_none_or(|e| matches!(e.element, Element::Slab(_)));
-    let frame = selected
-        .as_ref()
-        .is_none_or(|e| matches!(e.element, Element::Frame(_)));
-    for (show, labels) in [
+    body = body
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(0xa5adb7))
+                .child("Values are internal; measurements use the configured scale."),
+        )
+        .child(settings::architecture_table_header());
+    for (title, prefix, labels) in [
         (
-            wall,
+            "Walls",
+            "wall_",
             &[
                 "Wall thickness",
                 "Wall start height",
@@ -153,94 +149,108 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                 "Wall inclination",
             ][..],
         ),
-        (slab, &["Slab thickness"][..]),
-        (frame, &["Frame depth", "Frame width"][..]),
+        ("Slabs", "slab_", &["Slab thickness"][..]),
+        ("Frames", "frame_", &["Frame depth", "Frame width"][..]),
     ] {
-        if show {
-            for label in labels {
-                if let Some(field) = settings::render_field(shell, label) {
-                    body = body.child(field);
-                }
+        let show = selected.as_ref().is_none_or(|e| {
+            matches!(
+                (&e.element, prefix),
+                (Element::Wall(_), "wall_")
+                    | (Element::Slab(_), "slab_")
+                    | (Element::Frame(_), "frame_")
+            )
+        });
+        if !show {
+            continue;
+        }
+        let mut section = div().flex().flex_col().gap(px(6.)).child(
+            div()
+                .mt(px(4.))
+                .pb(px(3.))
+                .border_b_1()
+                .border_color(rgb(0x48515c))
+                .text_sm()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .child(title),
+        );
+        for label in labels {
+            if let Some(field) = settings::render_field(shell, label) {
+                section = section.child(field);
             }
         }
-    }
-    if wall {
-        let enabled = shell
-            .session
-            .native_architecture_payload()
-            .values
-            .get("wall_auto_join")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        body = body.child(
-            Checkbox::new("architecture/auto-join")
-                .label("Autojoin walls")
-                .checked(enabled)
-                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                    let mut payload = CommandPayload::default();
-                    payload
-                        .values
-                        .insert("wall_auto_join".into(), json!(*enabled));
-                    this.dispatch_payload(
-                        if inspected(this).is_some() {
-                            "architecture.update"
-                        } else {
-                            "architecture.settings"
-                        },
-                        &payload,
-                    );
-                    cx.notify();
-                })),
-        );
-        body=body.child(div().text_xs().child("Blue base handles move freely in 3D. Magenta triangle handles adjust each end's height."));
-    }
-    for &(key, label) in COLORS {
-        let show = if key.starts_with("wall_") {
-            wall
-        } else if key.starts_with("slab_") {
-            slab
-        } else {
-            frame
-        };
-        if show && let Some(picker) = shell.architecture.colors.get(key) {
-            body = body.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(label)
-                    .child(ColorPicker::new(picker).small()),
+        if prefix == "wall_" {
+            let enabled = shell
+                .session
+                .native_architecture_payload()
+                .values
+                .get("wall_auto_join")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            section = section.child(
+                Checkbox::new("architecture/auto-join")
+                    .label("Autojoin")
+                    .checked(enabled)
+                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                        let mut payload = CommandPayload::default();
+                        payload
+                            .values
+                            .insert("wall_auto_join".into(), json!(*enabled));
+                        this.dispatch_payload(
+                            if inspected(this).is_some() {
+                                "architecture.update"
+                            } else {
+                                "architecture.settings"
+                            },
+                            &payload,
+                        );
+                        cx.notify();
+                    })),
             );
         }
-    }
-    if frame {
-        let enabled = shell
-            .session
-            .native_architecture_payload()
-            .values
-            .get("glazing_enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        body = body.child(
-            Checkbox::new("architecture/glazing")
-                .label("Glazing")
-                .checked(enabled)
-                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                    let mut payload = CommandPayload::default();
-                    payload
-                        .values
-                        .insert("glazing_enabled".into(), json!(*enabled));
-                    this.dispatch_payload(
-                        if inspected(this).is_some() {
-                            "architecture.update"
-                        } else {
-                            "architecture.settings"
-                        },
-                        &payload,
-                    );
-                    cx.notify();
-                })),
-        );
+        for &(key, label) in COLORS {
+            if (key.starts_with(prefix) || (prefix == "frame_" && key == "glazing_color"))
+                && let Some(picker) = shell.architecture.colors.get(key)
+            {
+                section = section.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(label)
+                        .child(ColorPicker::new(picker).small()),
+                );
+            }
+        }
+        if prefix == "frame_" {
+            let enabled = shell
+                .session
+                .native_architecture_payload()
+                .values
+                .get("glazing_enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            section = section.child(
+                Checkbox::new("architecture/glazing")
+                    .label("Glazing")
+                    .checked(enabled)
+                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                        let mut payload = CommandPayload::default();
+                        payload
+                            .values
+                            .insert("glazing_enabled".into(), json!(*enabled));
+                        this.dispatch_payload(
+                            if inspected(this).is_some() {
+                                "architecture.update"
+                            } else {
+                                "architecture.settings"
+                            },
+                            &payload,
+                        );
+                        cx.notify();
+                    })),
+            );
+        }
+        body = body.child(section);
     }
     body = body.child(
         Button::new("architecture/apply-colors")
@@ -283,12 +293,17 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             body=body.child(div().text_xs().child("Drag blue profile controls freely in 3D; snap to geometry or guides. Wireframe previews commit on release. Orange controls resize openings."));
         }
     }
-    if frame {
-        body = body.child(
-            div()
-                .text_xs()
-                .child("Drag the two purple frame corners on its definition plane to resize."),
-        );
+    if let Some(e) = &selected {
+        let hint = match e.element {
+            Element::Wall(_) => {
+                "Blue base controls move freely. Magenta triangles adjust each end's height."
+            }
+            Element::Frame(_) => "Drag the two purple corners on the definition plane to resize.",
+            Element::Slab(_) => "",
+        };
+        if !hint.is_empty() {
+            body = body.child(div().text_xs().child(hint));
+        }
     }
     body.child(div().text_xs().text_color(rgb(0xa5adb7)).child("Add Hole cuts only its picked wall or slab. Windows and doors are independent objects and never cut an opening automatically.")).into_any_element()
 }

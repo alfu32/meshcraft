@@ -116,3 +116,12 @@ by Unit name. Inclination is in degrees and is not converted. This applies both
 to defaults and selected elements. For Unit name `cm`, Unit size `30` and Grid
 size `0.5`, one grid step measures `15 cm`; a wall thickness input of `0.5`
 also shows `15 cm`. Geometry, numeric tool entry and saved coordinates are unchanged.
+
+The architecture inspector groups properties into **Walls**, **Slabs** and
+**Frames** subsections. Each uses aligned Property / Value / Measured columns;
+labels are shortened to Thickness, Start height, End height, Axis offset,
+Inclination, Depth and Width. Value fields are plain editable inputs, without
+increment/decrement buttons or a generic “units” suffix. Measured retains the
+configured unit label; inclination shows degrees. Colors, Autojoin and glazing
+stay with their corresponding subsection. Selected elements show only their
+own subsection. Enter or leaving a field commits through the existing validation.
