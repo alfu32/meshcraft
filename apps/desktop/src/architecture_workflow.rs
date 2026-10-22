@@ -86,33 +86,68 @@ impl MeshcraftApp {
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default()
     }
+    pub fn native_selected_architectures(&self) -> Vec<PlacedElement> {
+        let mut seen = BTreeSet::new();
+        let mut owners = Vec::new();
+        for selected in self.selection.selected() {
+            let targets = if selected.entity == SelectedEntity::Occurrence {
+                let Some(resolved) = self.document.resolve_occurrence(&selected.occurrence) else {
+                    continue;
+                };
+                [
+                    (arch::WALLS, SelectionKind::Wall),
+                    (arch::SLABS, SelectionKind::Slab),
+                    (arch::FRAMES, SelectionKind::Frame),
+                ]
+                .into_iter()
+                .flat_map(|(field, kind)| {
+                    resolved
+                        .definition
+                        .domain_entity_ids
+                        .get(field)
+                        .into_iter()
+                        .flatten()
+                        .map(move |id| SelectionTarget {
+                            occurrence: selected.occurrence.clone(),
+                            entity: SelectedEntity::SemanticHandle {
+                                kind,
+                                id: id.clone(),
+                            },
+                        })
+                })
+                .collect::<Vec<_>>()
+            } else {
+                vec![selected.clone()]
+            };
+            for target in targets {
+                if let Some(owner) = self.document.architecture_element(&target)
+                    && seen.insert((owner.definition, owner.target.entity.clone()))
+                {
+                    owners.push(owner);
+                }
+            }
+        }
+        owners
+    }
+
     pub fn native_selected_architecture(&self) -> Option<PlacedElement> {
-        self.selection.selected().iter().find_map(|t| {
-            self.document.architecture_element(t).or_else(|| {
-                (t.entity == SelectedEntity::Occurrence)
-                    .then(|| {
-                        self.document
-                            .architecture_elements()
-                            .into_iter()
-                            .find(|e| e.target.occurrence == t.occurrence)
-                    })
-                    .flatten()
-            })
-        })
+        self.native_selected_architectures().into_iter().next()
     }
     pub fn native_architecture_payload(&self) -> CommandPayload {
         let mut d = self.arch_defaults();
-        let selected = self
-            .native_selected_architecture()
-            .filter(|_| self.active_tool == "Select");
-        if let Some(selected) = &selected {
-            match &selected.element {
+        let selected = if self.active_tool == "Select" {
+            self.native_selected_architectures()
+        } else {
+            vec![]
+        };
+        for item in selected.iter().rev() {
+            match &item.element {
                 Element::Wall(w) => d.wall = w.clone(),
                 Element::Slab(s) => d.slab = s.clone(),
                 Element::Frame(f) => d.frame = f.clone(),
             }
         }
-        let value = json!({"name":selected.as_ref().map(|e|e.element.name()).unwrap_or(""),
+        let value = json!({"name":selected.first().map(|e|e.element.name()).unwrap_or(""),
             "wall_thickness":d.wall.thickness,"wall_height":d.wall.height,"wall_end_height":d.wall.end_height(),"wall_offset":d.wall.offset,"wall_auto_join":d.wall.auto_join,"wall_inclination":d.wall.inclination_deg,
             "wall_exterior_color":d.wall.exterior_color,"wall_interior_color":d.wall.interior_color,
             "slab_thickness":d.slab.thickness,"slab_top_color":d.slab.top_color,"slab_bottom_color":d.slab.bottom_color,"slab_side_color":d.slab.side_color,
@@ -835,29 +870,68 @@ impl MeshcraftApp {
                     Ok(json!({"updated":"defaults"}))
                 }
                 "update" => {
-                    let mut e = self.arch_payload_target(payload)?;
-                    if !self.arch_editable(&e) {
-                        return Err(
-                            "Open the prototype to edit its architecture, or unlock the type."
-                                .into(),
-                        );
-                    }
-                    if let Element::Wall(w) = &mut e.element
-                        && w.end_height.is_none()
-                        && payload.values.contains_key("wall_height")
-                        && !payload.values.contains_key("wall_end_height")
-                    {
-                        w.end_height = Some(w.height);
-                    }
-                    Self::arch_patch(&mut e.element, payload)?;
-                    let SelectedEntity::SemanticHandle { id, .. } = &e.target.entity else {
-                        return Err("Select an architecture element.".into());
+                    let explicit = payload.values.contains_key("id");
+                    let mut owners = if explicit {
+                        vec![self.arch_payload_target(payload)?]
+                    } else {
+                        self.native_selected_architectures()
                     };
-                    let id = id.clone();
-                    self.commit_document_edit("Architecture properties", |doc| {
-                        doc.put_architecture(e.definition, Some(&id), e.element)
-                    })?;
-                    Ok(json!({"id":id}))
+                    let first_kind = owners.first().map(|e| e.element.kind());
+                    owners.retain(|e| {
+                        payload.values.keys().any(|key| match &e.element {
+                            Element::Wall(_) => key.starts_with("wall_"),
+                            Element::Slab(_) => key.starts_with("slab_"),
+                            Element::Frame(_) => {
+                                key.starts_with("frame_") || key.starts_with("glazing_")
+                            }
+                        }) || payload.values.contains_key("name")
+                            || (payload.values.contains_key("record")
+                                && Some(e.element.kind()) == first_kind)
+                    });
+                    if owners.is_empty() {
+                        return Err("Select architecture matching the edited properties, or provide its id and occurrence.".into());
+                    }
+                    let first_id = owners.first().and_then(|e| match &e.target.entity {
+                        SelectedEntity::SemanticHandle { id, .. } => Some(id.clone()),
+                        _ => None,
+                    });
+                    let mut edits = Vec::new();
+                    for mut e in owners {
+                        let original = e.element.clone();
+                        if !self.arch_editable(&e) {
+                            return Err(
+                                "Open the prototype to edit its architecture, or unlock the type."
+                                    .into(),
+                            );
+                        }
+                        if let Element::Wall(w) = &mut e.element
+                            && w.end_height.is_none()
+                            && payload.values.contains_key("wall_height")
+                            && !payload.values.contains_key("wall_end_height")
+                        {
+                            w.end_height = Some(w.height);
+                        }
+                        Self::arch_patch(&mut e.element, payload)?;
+                        let SelectedEntity::SemanticHandle { id, .. } = &e.target.entity else {
+                            return Err("Select an architecture element.".into());
+                        };
+                        if e.element != original {
+                            edits.push((e.definition, id.clone(), e.element));
+                        }
+                    }
+                    let ids = edits
+                        .iter()
+                        .map(|(_, id, _)| id.clone())
+                        .collect::<Vec<_>>();
+                    if !edits.is_empty() {
+                        self.commit_document_edit("Architecture properties", |doc| {
+                            for (definition, id, element) in edits {
+                                doc.put_architecture(definition, Some(&id), element)?;
+                            }
+                            Ok(())
+                        })?;
+                    }
+                    Ok(json!({"id":first_id,"ids":ids,"updated":ids.len()}))
                 }
                 "add_hole" => {
                     let e = self.arch_payload_target(payload)?;
@@ -1054,6 +1128,165 @@ mod tests {
         );
         app.native_selected_architecture().unwrap().target
     }
+    #[test]
+    fn property_edits_apply_to_matching_selected_owners_in_one_transaction() {
+        let mut app = app();
+        for i in 0..2 {
+            command(
+                &mut app,
+                "architecture.create_wall",
+                json!({"start":[0,0,i*3],"end":[5,0,i*3],"wall_height":3+i,"wall_end_height":8+i,"name":format!("W{i}")}),
+            );
+            command(
+                &mut app,
+                "architecture.create_rectangular_slab",
+                json!({"start":[0,0,10+i*5],"end":[4,0,14+i*5],"slab_thickness":0.2,"name":format!("S{i}")}),
+            );
+            command(
+                &mut app,
+                "architecture.create_frame",
+                json!({"start":[0,1,20+i*5],"end":[4,4,20+i*5],"normal":[0,0,1],"name":format!("F{i}")}),
+            );
+        }
+        let original = app.document.architecture_elements();
+        command(
+            &mut app,
+            "geometry.add_cuboid",
+            json!({"dimensions":[1,1,1],"origin":[20,0,0]}),
+        );
+        let loose = app.selected_occurrences()[0].clone();
+        let targets = original
+            .iter()
+            .map(|e| e.target.clone())
+            .chain(
+                original
+                    .iter()
+                    .filter(|e| matches!(e.element, Element::Frame(_)))
+                    .map(|e| SelectionTarget {
+                        occurrence: e.target.occurrence.clone(),
+                        entity: SelectedEntity::Occurrence,
+                    }),
+            )
+            .chain([SelectionTarget {
+                occurrence: loose,
+                entity: SelectedEntity::Occurrence,
+            }]);
+        app.selection.apply(targets, SelectionMode::Replace);
+        assert_eq!(6, app.native_selected_architectures().len());
+        let cursor = app.history.cursor();
+        let result = command(&mut app, "architecture.update", json!({"wall_height":6}));
+        assert_eq!(2, result.outputs["architecture"]["updated"]);
+        assert_eq!(cursor + 1, app.history.cursor());
+        for old in &original {
+            let e = app.document.architecture_element(&old.target).unwrap();
+            match (&old.element, &e.element) {
+                (Element::Wall(a), Element::Wall(b)) => {
+                    assert_eq!(6., b.height);
+                    assert_eq!(a.end_height(), b.end_height());
+                }
+                _ => assert_eq!(old.element, e.element),
+            }
+        }
+        command(&mut app, "edit.undo", json!({}));
+        for old in &original {
+            assert_eq!(
+                old.element,
+                app.document
+                    .architecture_element(&old.target)
+                    .unwrap()
+                    .element
+            );
+        }
+        let r = command(&mut app, "architecture.update", json!({"wall_height":3}));
+        assert_eq!(1, r.outputs["architecture"]["updated"]);
+        let cursor = app.history.cursor();
+        let r = command(&mut app, "architecture.update", json!({"wall_height":3}));
+        assert_eq!(0, r.outputs["architecture"]["updated"]);
+        assert_eq!(cursor, app.history.cursor());
+        command(&mut app, "edit.undo", json!({}));
+        app.selection_display_policy
+            .set_unlocked(SelectionKind::Slab, false);
+        command(
+            &mut app,
+            "architecture.update",
+            json!({"wall_thickness":0.4}),
+        );
+        // A nonmatching locked type does not block a wall edit.
+        app.selection_display_policy
+            .set_unlocked(SelectionKind::Slab, true);
+        app.selection.apply(
+            original.iter().map(|e| e.target.clone()),
+            SelectionMode::Replace,
+        );
+        let r = command(
+            &mut app,
+            "architecture.update",
+            json!({"wall_thickness":0.5,"slab_thickness":0.6}),
+        );
+        assert_eq!(4, r.outputs["architecture"]["updated"]);
+        let wall = original
+            .iter()
+            .find(|e| matches!(e.element, Element::Wall(_)))
+            .unwrap();
+        let SelectedEntity::SemanticHandle { id, .. } = &wall.target.entity else {
+            panic!()
+        };
+        let r = command(
+            &mut app,
+            "architecture.update",
+            json!({"id":id,"occurrence":wall.target.occurrence,"wall_height":7}),
+        );
+        assert_eq!(1, r.outputs["architecture"]["updated"]);
+        app.selection_display_policy
+            .set_unlocked(SelectionKind::Wall, false);
+        let before = app.document.clone();
+        let cursor = app.history.cursor();
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.architecture_action(
+                "update",
+                &CommandPayload {
+                    values: BTreeMap::from([("wall_height".into(), json!(8))]),
+                    ..Default::default()
+                }
+            )
+            .completion
+        );
+        assert_eq!(before, app.document);
+        assert_eq!(cursor, app.history.cursor());
+    }
+
+    #[test]
+    fn invalid_later_owner_rolls_back_the_entire_parameter_batch() {
+        let mut app = app();
+        for (name, size) in [("Big", 4), ("Small", 1)] {
+            command(
+                &mut app,
+                "architecture.create_frame",
+                json!({"start":[0,0,0],"end":[size,size,0],"normal":[0,0,1],"name":name}),
+            );
+        }
+        app.selection.apply(
+            app.document
+                .architecture_elements()
+                .into_iter()
+                .map(|e| e.target),
+            SelectionMode::Replace,
+        );
+        let before = app.document.clone();
+        let cursor = app.history.cursor();
+        let result = app.architecture_action(
+            "update",
+            &CommandPayload {
+                values: BTreeMap::from([("frame_width".into(), json!(0.75))]),
+                ..Default::default()
+            },
+        );
+        assert_eq!(CommandCompletion::Failed, result.completion);
+        assert_eq!(before, app.document);
+        assert_eq!(cursor, app.history.cursor());
+    }
+
     #[test]
     fn wall_chain_has_solid_feedback_and_commits_each_span_once() {
         let mut app = app();

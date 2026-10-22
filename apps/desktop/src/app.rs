@@ -2908,12 +2908,40 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn rename_native_selected_object(&mut self, name: &str) -> Result<bool, String> {
-        let definition_id = self
-            .native_active_object()
-            .map(|(id, _, _)| id)
-            .ok_or("select an object instance or prototype before renaming it")?;
+        let paths = if matches!(self.selection.context, EditContext::Occurrence(_)) {
+            vec![]
+        } else {
+            self.selected_occurrences()
+        };
+        let mut definitions = BTreeSet::new();
+        for path in paths {
+            if !self.native_target_editable(&SelectionTarget {
+                occurrence: path.clone(),
+                entity: SelectedEntity::Occurrence,
+            }) {
+                return Err("A selected object is read-only.".into());
+            }
+            definitions.insert(
+                self.document
+                    .resolve_occurrence(&path)
+                    .ok_or("object no longer exists")?
+                    .definition
+                    .id,
+            );
+        }
+        if definitions.is_empty() {
+            definitions.insert(
+                self.native_active_object()
+                    .map(|(id, _, _)| id)
+                    .ok_or("select an object instance or prototype before renaming it")?,
+            );
+        }
         match self.commit_document_edit("Rename object", |document| {
-            document.rename_definition(definition_id, name)
+            let mut changed = false;
+            for definition_id in definitions {
+                changed |= document.rename_definition(definition_id, name)?;
+            }
+            Ok(changed)
         }) {
             Ok(changed) => {
                 if changed {
@@ -13236,6 +13264,46 @@ mod tests {
         assert!(app.selection.summary().faces >= 2);
         app.handle_native_escape();
         assert_eq!(EditContext::Document, app.selection.context);
+    }
+
+    #[test]
+    fn object_name_edit_renames_every_selected_prototype_in_one_undo() {
+        let mut app = test_app();
+        let a = app
+            .document
+            .add_cuboid("A", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let b = app
+            .document
+            .add_cuboid("B", Vec3::new(1., 1., 1.), Vec3::X * 3.)
+            .unwrap();
+        let c = app
+            .document
+            .add_cuboid("C", Vec3::new(1., 1., 1.), Vec3::X * 6.)
+            .unwrap();
+        app.set_selection([a.clone(), b.clone()]);
+        let cursor = app.history.cursor();
+        app.rename_native_selected_object("Renamed").unwrap();
+        assert_eq!(cursor + 1, app.history.cursor());
+        for p in [&a, &b] {
+            assert_eq!(
+                "Renamed",
+                app.document.resolve_occurrence(p).unwrap().definition.name
+            );
+        }
+        assert_eq!(
+            "C",
+            app.document.resolve_occurrence(&c).unwrap().definition.name
+        );
+        app.run_command("edit.undo");
+        assert_eq!(
+            "A",
+            app.document.resolve_occurrence(&a).unwrap().definition.name
+        );
+        assert_eq!(
+            "B",
+            app.document.resolve_occurrence(&b).unwrap().definition.name
+        );
     }
 
     #[test]

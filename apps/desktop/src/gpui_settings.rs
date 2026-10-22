@@ -252,7 +252,9 @@ fn commit(shell: &mut MeshcraftShell, field: Field, text: &str) {
         }
     };
     shell.settings.errors.remove(field.key);
-    if text == current(shell, field) {
+    let multiple_owners =
+        field.group == "arch" && shell.session.native_selected_architectures().len() > 1;
+    if text == current(shell, field) && !multiple_owners {
         return;
     }
     if field.group == "arch" {

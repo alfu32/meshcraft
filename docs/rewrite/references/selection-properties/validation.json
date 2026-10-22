@@ -1,0 +1,47 @@
+{
+  "version": "0.23.3",
+  "date": "2026-10-22",
+  "environment": "Isolated Linux X11, Xvfb :96, software Mesa, separate project/config/cache, MCP 8766",
+  "tests": {
+    "command": "cargo test --workspace",
+    "core": 277,
+    "desktop": 318,
+    "cli": 5,
+    "io": 15,
+    "passed": 615,
+    "ignored": 2
+  },
+  "checks": [
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo build -p meshcraft-desktop --bin meshcraft"
+  ],
+  "native": [
+    {
+      "activeFileLeavesLaterMenuLabelsPixelIdentical": true,
+      "comparisonRect": [
+        245,
+        87,
+        1150,
+        116
+      ]
+    },
+    {
+      "selectionTypes": [
+        "Wall",
+        "Slab"
+      ],
+      "sameAsFirstValueAppliedToBothWalls": 3.0,
+      "slabsUntouched": true,
+      "oneUndoRestoresBothWalls": true
+    },
+    {
+      "typedWallAndSlabBatch": 4,
+      "oneUndoRestoresAllFour": true
+    }
+  ],
+  "visualInspection": [
+    "Material swatches and names left-aligned in active and inactive rows",
+    "Menu spacing widened; File active state has unchanged height and label geometry",
+    "Mixed inspector exposes Walls and Slabs with representative type values"
+  ]
+}

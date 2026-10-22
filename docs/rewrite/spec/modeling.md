@@ -272,6 +272,15 @@ generic “units” suffix. Measured retains the configured units; inclination s
 in degrees. Keep each type's colors, Autojoin and glazing with its subsection.
 Retain numeric validation and internal-value transactions on Enter or blur.
 
+**Confirmed batch property edits (2026-10-22).** Apply typed architecture fields
+to every selected owner of their corresponding type, including mixed selections
+and selected frame instances. Do not stop at the first owner. Show the relevant
+subsections with a representative value for each type. Re-entering that value
+must update other owners with differing values. Deduplicate canonical definition/
+entity identities, preserve unrelated fields/colors, and validate/undo the batch
+atomically. Explicit owner IDs retain single-owner addressing. Unchanged batches
+do not add history. Keep editability and prototype-context restrictions.
+
 ### P03 Stairs, window frames, and door frames
 
 **Observed.** `ARCH_STAIR`, `ARCH_WINDOW_FRAME`, `ARCH_DOOR_FRAME`. Stairs retain contour, walking path/start/end, height, step count, support thickness, left/right rail settings, tread/support colors. Frames retain corners or contour, normal, depth, frame width, window/door kind, color, glazing enabled/color. Current frames can be free-form contours; restricting them to rectangles loses later functionality.

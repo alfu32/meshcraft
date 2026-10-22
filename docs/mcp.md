@@ -217,3 +217,23 @@ the component along that axis and preserves perpendicular components; zero is
 rejected. It uses the regular tool pointer/numeric input, cancel and undo commands.
 Rotation tool measurements use the first center, retain the chosen center-relative
 rays, and report vector-pair angles plus the projected applied rotation angle.
+
+### Applying properties to selections
+
+`architecture.update` without `id` applies the supplied typed parameters to all
+matching selected owners. `wall_*` fields affect walls, `slab_*` affect slabs,
+and `frame_*`/`glazing_*` affect frames. Mixed payloads can update multiple types;
+unrelated selected geometry is ignored. `name` is common to architectural owners;
+a generic `record` patch uses the representative architectural type. Supplying
+`id` (and `occurrence` where needed) keeps an explicitly addressed single-owner
+edit. The result includes representative `id`, changed `ids`, and `updated` count.
+An all-unchanged patch reports zero without adding history. A batch validates
+atomically and creates one Undo entry; visibility, editability and prototype
+context rules still apply. Specific control-point/opening commands remain addressed
+to their owner.
+
+`hotspot.update` applies supplied metadata fields to every selected hotspot in
+one transaction, preserving each position, attachments and reference. Without a
+selected hotspot it retains the inspector/default workflow. Instance operation
+values still belong to individual instances and are operated through their
+hotspot target/drag commands.

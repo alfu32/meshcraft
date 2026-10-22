@@ -139,7 +139,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     div().flex().flex_col().gap(px(5.))
         .children(materials.into_iter().map(|material| {
             let active = material.id == selected;
-            Button::new(SharedString::from(format!("material/{}",material.id))).ghost().w_full()
+            Button::new(SharedString::from(format!("material/{}",material.id))).ghost().w_full().justify_start()
                 .child(div().w_full().flex().items_center().gap(px(8.))
                     .child(div().size(px(23.)).border_1().border_color(rgb(0x8e9eae)).bg(gpui::rgba(u32::from_be_bytes([material.color.red,material.color.green,material.color.blue,material.color.alpha]))))
                     .child(material.name.clone()))

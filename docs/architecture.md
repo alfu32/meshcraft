@@ -123,5 +123,12 @@ labels are shortened to Thickness, Start height, End height, Axis offset,
 Inclination, Depth and Width. Value fields are plain editable inputs, without
 increment/decrement buttons or a generic “units” suffix. Measured retains the
 configured unit label; inclination shows degrees. Colors, Autojoin and glazing
-stay with their corresponding subsection. Selected elements show only their
-own subsection. Enter or leaving a field commits through the existing validation.
+stay with their corresponding subsection. A selection exposes the subsections for its architectural types. Enter or leaving a field commits through the existing validation.
+
+An edited parameter applies to every selected owner of the matching type. A wall
+height edit changes the selected walls; selected slabs and frames retain their
+parameters. Mixed selections expose each relevant subsection, with representative
+values drawn from that type. Entering the displayed first value also applies it
+to other selected owners with different values. A batch creates one Undo entry;
+invalid geometry rejects the whole batch. Color application sends only changed
+color fields, preserving other colors that differ between owners.

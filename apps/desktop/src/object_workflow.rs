@@ -275,8 +275,7 @@ impl MeshcraftApp {
         Ok(())
     }
 
-    pub fn update_native_hotspot_field(&mut self, field: &str, text: &str) -> Result<(), String> {
-        let (selected, mut h) = self.native_hotspot_inspector();
+    fn patch_hotspot_field(h: &mut Hotspot, field: &str, text: &str) -> Result<(), String> {
         match field {
             "name" => h.name = text.to_owned(),
             "operation" => {
@@ -307,7 +306,78 @@ impl MeshcraftApp {
             }
             _ => return Err("unknown hotspot property".into()),
         }
-        self.store_hotspot(selected, h)
+        Ok(())
+    }
+    pub fn update_native_hotspot_field(&mut self, field: &str, text: &str) -> Result<(), String> {
+        self.update_native_hotspot_fields(&[(field, text)])
+    }
+    fn update_native_hotspot_fields(&mut self, fields: &[(&str, &str)]) -> Result<(), String> {
+        if fields.is_empty() {
+            return Ok(());
+        }
+        let mut targets = self
+            .selection
+            .selected()
+            .iter()
+            .filter_map(|target| match &target.entity {
+                SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    id,
+                } => Some((target.occurrence.clone(), id.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if targets.is_empty()
+            && let Some(selected) = self.native_hotspot_inspector().0
+        {
+            targets.push(selected);
+        }
+        if targets.is_empty() {
+            let mut hotspot = self.hotspot_defaults.clone();
+            for &(field, text) in fields {
+                Self::patch_hotspot_field(&mut hotspot, field, text)?;
+            }
+            self.hotspot_defaults = hotspot;
+            return Ok(());
+        }
+        let mut edits = BTreeMap::new();
+        for (path, id) in targets {
+            let target = SelectionTarget {
+                occurrence: path.clone(),
+                entity: SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    id: id.clone(),
+                },
+            };
+            if !self.native_hotspot_authoring_allowed(&path)
+                || !self.native_target_editable(&target)
+            {
+                return Err("Open the prototype or unlock the selected hotspots before changing properties.".into());
+            }
+            let definition = self
+                .document
+                .resolve_occurrence(&path)
+                .ok_or("object no longer exists")?
+                .definition
+                .id;
+            let mut h = self
+                .document
+                .instance_hotspots(&path)?
+                .into_iter()
+                .find(|h| h.id == id)
+                .ok_or("hotspot no longer exists")?;
+            for &(field, text) in fields {
+                Self::patch_hotspot_field(&mut h, field, text)?;
+            }
+            edits.insert((definition, id), h);
+        }
+        self.commit_document_edit("Change hotspot properties", |d| {
+            for ((definition, _), hotspot) in edits {
+                d.put_hotspot(definition, hotspot)?;
+            }
+            Ok(())
+        })?;
+        Ok(())
     }
 
     pub(super) fn execute_hotspot_command(
@@ -342,16 +412,17 @@ impl MeshcraftApp {
         }
         let (selected, mut h) = self.native_hotspot_inspector();
         if action == "update" {
-            for field in ["name", "operation", "shape", "color"] {
-                if let Some(text) = payload
-                    .values
-                    .get(field)
-                    .and_then(serde_json::Value::as_str)
-                {
-                    self.update_native_hotspot_field(field, text)?;
-                }
-            }
-            return Ok(());
+            let fields = ["name", "operation", "shape", "color"]
+                .into_iter()
+                .filter_map(|field| {
+                    payload
+                        .values
+                        .get(field)
+                        .and_then(serde_json::Value::as_str)
+                        .map(|text| (field, text))
+                })
+                .collect::<Vec<_>>();
+            return self.update_native_hotspot_fields(&fields);
         }
         let (path, id) = selected.as_ref().ok_or("select a hotspot first")?;
         let resolved = self
@@ -717,6 +788,45 @@ impl MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hotspot_property_patch_updates_all_selected_hotspots_atomically() {
+        let mut app = super::super::tests::test_app();
+        let a = app.add_hotspot_at_world(Vec3::ZERO).unwrap();
+        let b = app.add_hotspot_at_world(Vec3::X * 3.).unwrap();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let before = app.document.hotspots(root).unwrap();
+        app.selection.apply(
+            [a, b].into_iter().map(|id| SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    id,
+                },
+            }),
+            SelectionMode::Replace,
+        );
+        let cursor = app.history.cursor();
+        app.update_native_hotspot_fields(&[("shape", "SQUARE"), ("color", "ff0000ff")])
+            .unwrap();
+        assert_eq!(cursor + 1, app.history.cursor());
+        for h in app.document.hotspots(root).unwrap() {
+            assert_eq!("SQUARE", h.shape.name());
+            assert_eq!(Rgba8::new(255, 0, 0, 255), h.color.rgba());
+            assert_eq!(
+                before.iter().find(|x| x.id == h.id).unwrap().position,
+                h.position
+            );
+        }
+        app.run_command("edit.undo");
+        assert_eq!(before, app.document.hotspots(root).unwrap());
+        assert!(
+            app.update_native_hotspot_fields(&[("shape", "SQUARE"), ("color", "invalid")])
+                .is_err()
+        );
+        assert_eq!(before, app.document.hotspots(root).unwrap());
+        assert_eq!(cursor, app.history.cursor());
+    }
+
     #[test]
     fn author_prototype_then_operate_closed_instances_copy_values_and_escape_isolates_editing() {
         let mut app = super::super::tests::test_app();

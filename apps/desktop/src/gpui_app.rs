@@ -49,7 +49,7 @@ use gpui::{
     Window, WindowBounds, WindowOptions, canvas, div, img, prelude::*, px, rgb, size,
 };
 use gpui_component::{
-    Disableable, Sizable, Theme, ThemeMode,
+    Disableable, Selectable, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
 };
@@ -2618,7 +2618,7 @@ impl Render for MeshcraftShell {
             .h(px(layout::MENU_HEIGHT))
             .flex()
             .items_center()
-            .gap(px(3.))
+            .gap(px(6.))
             .px(px(8.))
             .bg(rgb(0x171b22))
             .child(
@@ -2645,7 +2645,11 @@ impl Render for MeshcraftShell {
                         let button = Button::new(SharedString::from(format!("menu/{menu}")))
                             .label(menu)
                             .xsmall()
-                            .text()
+                            .ghost()
+                            .selected(active)
+                            .h(px(24.))
+                            .px(px(6.))
+                            .font_weight(gpui::FontWeight::NORMAL)
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| {
@@ -2654,21 +2658,18 @@ impl Render for MeshcraftShell {
                                 }),
                             );
                         let bounds_store = Arc::clone(&self.menu_bounds);
-                        div()
-                            .relative()
-                            .child(if active { button.primary() } else { button })
-                            .child(
-                                canvas(
-                                    move |bounds, _, _| {
-                                        if let Ok(mut menu_bounds) = bounds_store.lock() {
-                                            menu_bounds.insert(menu, bounds);
-                                        }
-                                    },
-                                    |_, _, _, _| {},
-                                )
-                                .absolute()
-                                .size_full(),
+                        div().relative().child(button).child(
+                            canvas(
+                                move |bounds, _, _| {
+                                    if let Ok(mut menu_bounds) = bounds_store.lock() {
+                                        menu_bounds.insert(menu, bounds);
+                                    }
+                                },
+                                |_, _, _, _| {},
                             )
+                            .absolute()
+                            .size_full(),
+                        )
                     }),
             )
             .child(div().flex_1())

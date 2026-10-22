@@ -6,12 +6,14 @@ use gpui_component::{
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
 };
 use meshcraft_core::document::architecture::{Color as SurfaceColor, Control, Element};
+use std::collections::BTreeSet;
 
 #[derive(Default)]
 pub(super) struct Ui {
     key: Option<(u64, String)>,
     colors: BTreeMap<&'static str, Entity<ColorPickerState>>,
     dirty: bool,
+    changed_colors: BTreeSet<&'static str>,
     subscriptions: Vec<gpui::Subscription>,
     pub drag: Option<ProfileDrag>,
 }
@@ -48,6 +50,7 @@ pub(super) fn prepare(
     if shell.architecture.key.as_ref() != Some(&key) {
         shell.architecture.key = Some(key);
         shell.architecture.dirty = false;
+        shell.architecture.changed_colors.clear();
     }
     let values = shell.session.native_architecture_payload();
     for &(field, _) in COLORS {
@@ -69,9 +72,10 @@ pub(super) fn prepare(
             let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(hsla));
             shell.architecture.subscriptions.push(cx.subscribe(
                 &picker,
-                |this, _, event: &ColorPickerEvent, cx| {
+                move |this, _, event: &ColorPickerEvent, cx| {
                     if matches!(event, ColorPickerEvent::Change(_)) {
                         this.architecture.dirty = true;
+                        this.architecture.changed_colors.insert(field);
                         cx.notify();
                     }
                 },
@@ -82,15 +86,9 @@ pub(super) fn prepare(
 }
 fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
     let selected = inspected(shell);
-    let prefix = selected.as_ref().map(|e| match e.element {
-        Element::Wall(_) => "wall_",
-        Element::Slab(_) => "slab_",
-        Element::Frame(_) => "frame_",
-    });
     let mut payload = CommandPayload::default();
     for &(key, _) in COLORS {
-        if prefix.is_some_and(|p| !key.starts_with(p) && !(p == "frame_" && key == "glazing_color"))
-        {
+        if !shell.architecture.changed_colors.contains(key) {
             continue;
         }
         if let Some(color) = shell
@@ -114,13 +112,26 @@ fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
         &payload,
     );
     shell.architecture.dirty = false;
+    shell.architecture.changed_colors.clear();
 }
 pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
     let selected = inspected(shell);
+    let owners = if selected.is_some() {
+        shell.session.native_selected_architectures()
+    } else {
+        vec![]
+    };
     let mut body = div().flex().flex_col().gap(px(7.));
     if let Some(e) = &selected {
-        body = body.child(format!("Selected {}", e.element.name()));
-        if !shell.session.native_architecture_editable(&e.target) {
+        body = body.child(if owners.len() > 1 {
+            format!("Selected {} architectural elements", owners.len())
+        } else {
+            format!("Selected {}", e.element.name())
+        });
+        if owners
+            .iter()
+            .all(|owner| !shell.session.native_architecture_editable(&owner.target))
+        {
             return body.child("Open the object's prototype to edit these properties, or unlock its type in Selection.").into_any_element();
         }
         if let Some(field) = settings::render_field(shell, "Architecture name") {
@@ -152,14 +163,15 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         ("Slabs", "slab_", &["Slab thickness"][..]),
         ("Frames", "frame_", &["Frame depth", "Frame width"][..]),
     ] {
-        let show = selected.as_ref().is_none_or(|e| {
-            matches!(
-                (&e.element, prefix),
-                (Element::Wall(_), "wall_")
-                    | (Element::Slab(_), "slab_")
-                    | (Element::Frame(_), "frame_")
-            )
-        });
+        let show = owners.is_empty()
+            || owners.iter().any(|e| {
+                matches!(
+                    (&e.element, prefix),
+                    (Element::Wall(_), "wall_")
+                        | (Element::Slab(_), "slab_")
+                        | (Element::Frame(_), "frame_")
+                )
+            });
         if !show {
             continue;
         }
@@ -173,6 +185,21 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .child(title),
         );
+        let readonly = owners.iter().any(|owner| {
+            let matching = matches!(
+                (&owner.element, prefix),
+                (Element::Wall(_), "wall_")
+                    | (Element::Slab(_), "slab_")
+                    | (Element::Frame(_), "frame_")
+            );
+            matching && !shell.session.native_architecture_editable(&owner.target)
+        });
+        if readonly {
+            body = body.child(section.child(div().text_xs().child(
+                "Unlock the selected type or open its prototype to edit these properties.",
+            )));
+            continue;
+        }
         for label in labels {
             if let Some(field) = settings::render_field(shell, label) {
                 section = section.child(field);

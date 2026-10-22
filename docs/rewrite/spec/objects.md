@@ -124,3 +124,17 @@ The following are live Meshcraft GPUI captures, separate from the user-provided 
 ![Saved and reopened independent shapes, after one-click Finish Editing](../references/objects/23-gpui-save-reopen-finish.png)
 
 Scripted configuration points augment this workflow; see [scripted objects](scripted-objects.md). Materials use the [project catalog](materials.md).
+
+### Batch inspector properties — 2026-10-22
+
+Hotspot metadata fields (name, operation, shape and color) apply to all selected
+hotspot definitions that can be authored in the active context. Preserve every
+hotspot's own position, attached geometry and reference point. Validate and undo
+multi-field/multi-hotspot edits as one transaction. This does not change the
+per-instance operator values or the rule that instance operations happen outside
+prototype editing.
+
+The object-name inspector renames each distinct selected object prototype once,
+in one undoable edit. While editing a prototype it continues to name the active
+prototype. Unselected prototypes retain their names; shared definitions retain
+shared naming semantics.
