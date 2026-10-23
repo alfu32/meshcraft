@@ -29,7 +29,7 @@ const prototypeValues=request.prototypeParameters||{},instanceValues=request.ins
 const apiVersion=request.source.apiVersion||1;
 const reserved=new Set(["__proto__","prototype","constructor"]);
 const validValue=(d,v)=>d.kind==='text'?typeof v==='string'&&v.length<=16384:d.kind==='number'?Number.isFinite(v):d.kind==='checkbox'?typeof v==='boolean':d.kind==='list'?typeof v==='string'&&Object.prototype.hasOwnProperty.call(d.options,v):v&&[v.x,v.y,v.z].every(Number.isFinite);
-function declare(kind,id,label,defaultValue,options={}) {
+function declare(kind,id,label,defaultValue,options={},hotspotStyle) {
  if(apiVersion!==2)throw Error('Model declarations require script API v2; switch the editor API selector.');
  if(phase==='frame')throw Error('Declare model inputs outside hooks or inside onCreate, not onAnimationFrame.');
  if(typeof id!=='string'||!id||id.length>128||reserved.has(id))throw Error('Parameter IDs must be nonempty, safe strings of at most 128 characters.');
@@ -38,6 +38,7 @@ function declare(kind,id,label,defaultValue,options={}) {
  if(label===undefined)label=id;
  if(typeof label!=='string'||label.length>4096)throw Error('Parameter label must be a string of at most 4096 characters.');
  const d={kind,id,label,scope:phase,defaultValue,options};
+ if(hotspotStyle)d.hotspotStyle=hotspotStyle;
  if(!validValue(d,defaultValue))throw Error('Invalid default for parameter '+id);
  declarations.push(d);
  const values=phase==='prototype'?prototypeValues:instanceValues;
@@ -50,9 +51,20 @@ function $LIST(id,values,label=id,value=Object.keys(values||{})[0]) {
  if(!values||Array.isArray(values)||typeof values!=='object'||Object.keys(values).length===0||Object.keys(values).length>256||Object.entries(values).some(([k,v])=>reserved.has(k)||typeof v!=='string'))throw Error('List choices must map nonempty keys to labels (at most 256).');
  return declare('list',id,label,value,values);
 }
-function $HOTSPOT(position,id,label=id) {
- if(phase!=='frame'&&apiVersion===2)declare('hotspot',id,label,point(position));
- return {kind:"hotspot",id:String(id),position:point(instance.hotspots[id]||position)};
+const $HOTSPOT_SHAPE_CIRCLE='CIRCLE', $HOTSPOT_SHAPE_RECTANGLE='SQUARE',
+ $HOTSPOT_SHAPE_TRIANGLE='TRIANGLE_UP', $HOTSPOT_SHAPE_DIAMOND='DIAMOND',
+ $HOTSPOT_SHAPE_TRIANGLE_DOWN='TRIANGLE_DOWN';
+// Also accept the HAPE spelling used in the initial API request.
+const $HOTSPOT_HAPE_CIRCLE=$HOTSPOT_SHAPE_CIRCLE, $HOTSPOT_HAPE_RECTANGLE=$HOTSPOT_SHAPE_RECTANGLE,
+ $HOTSPOT_HAPE_TRIANGLE=$HOTSPOT_SHAPE_TRIANGLE, $HOTSPOT_HAPE_DIAMOND=$HOTSPOT_SHAPE_DIAMOND,
+ $HOTSPOT_HAPE_TRIANGLE_DOWN=$HOTSPOT_SHAPE_TRIANGLE_DOWN;
+const defaultHotspotStyle={shape:$HOTSPOT_SHAPE_CIRCLE,color:new Color(0,255,255,255)};
+function $HOTSPOT(position,id,label=id,shape=$HOTSPOT_SHAPE_CIRCLE,color='#00ffffff') {
+ if(!['CIRCLE','SQUARE','TRIANGLE_UP','DIAMOND','TRIANGLE_DOWN'].includes(shape))throw Error('Invalid hotspot shape; use a $HOTSPOT_SHAPE_ constant.');
+ if(typeof color!=='string'||!/^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color))throw Error('Hotspot color must be #RRGGBB or #RRGGBBAA.');
+ const style={shape,color:toColor(color)};
+ if(phase!=='frame'&&apiVersion===2)declare('hotspot',id,label,point(position),{},style);
+ return {kind:"hotspot",id:String(id),position:point(instance.hotspots[id]||position),...style};
 }
 const flatten=items=> {const out=[]; const walk=(v,depth)=> {if(depth>32)throw Error("Geometry nesting exceeds 32 levels");if(Array.isArray(v))for(const child of v)walk(child,depth+1);else if(v!=null){if(out.length>=100000)throw Error("Geometry exceeds 100000 drawables");out.push(v);}};walk(items,0);return out;};
 const polyline=(points,id=automaticId("polyline"),material,closed=false)=>points.slice(1).map((p,i)=>line(points[i],p,id+":"+i,material)).concat(closed&&points.length>2?[line(points[points.length-1],points[0],id+":close",material)]:[]);
@@ -173,7 +185,7 @@ phase='instance';
 if(state.initializer!==initializer){hooks.onCreate.call(instance,instance,model);}
 else {
  for(const d of state.declarations||[])if(d.scope==='instance') {
-  declare(d.kind,d.id,d.label,d.defaultValue,d.options);
+  declare(d.kind,d.id,d.label,d.defaultValue,d.options,d.hotspotStyle);
  }
 }
 const parms=Object.create(null),declaredHotspots=[];
@@ -182,7 +194,7 @@ for(const d of declarations) {
  const value=Object.prototype.hasOwnProperty.call(values,d.id)&&validValue(d,values[d.id])?values[d.id]:d.scope==='instance'&&Object.prototype.hasOwnProperty.call(initialized,d.id)&&validValue(d,initialized[d.id])?initialized[d.id]:d.defaultValue;
  if(d.scope==='instance')parameterValues[d.id]=value;
  if(d.kind==='hotspot') {
-  const h={kind:'hotspot',id:d.id,position:point(instance.hotspots[d.id]||value)};
+  const h={kind:'hotspot',id:d.id,position:point(instance.hotspots[d.id]||value),...(d.hotspotStyle||defaultHotspotStyle)};
   parms[d.id]=h;declaredHotspots.push(h);
  } else parms[d.id]=value;
 }

@@ -107,9 +107,9 @@ pub(crate) fn catalog() -> Vec<Entry> {
         ),
         entry(
             "$HOTSPOT",
-            "$HOTSPOT(position, id, label=id) → Hotspot",
+            "$HOTSPOT(position, id, label=id, shape=$HOTSPOT_SHAPE_CIRCLE, color='#00ffffff') → Hotspot",
             "$HOTSPOT(new Point(3, 0, 0), 'width')",
-            "Declare a model hotspot outside hooks or in onCreate (API v2). It is emitted automatically; params[id].position is the current per-instance dragged position. In onAnimationFrame it can also return an explicit hotspot drawable, which must be included in returned geometry. All IDs must be stable and declared IDs are unique across inputs and hotspots.",
+            "Declare a model hotspot outside hooks or in onCreate (API v2). It is emitted automatically; params[id].position is the current per-instance dragged position. In onAnimationFrame it can also return an explicit hotspot drawable, which must be included in returned geometry. Shape uses a $HOTSPOT_SHAPE_ constant (CIRCLE, RECTANGLE, TRIANGLE, DIAMOND or TRIANGLE_DOWN); color is #RRGGBB or #RRGGBBAA, default cyan. All IDs must be stable and declared IDs are unique across inputs and hotspots.",
         ),
         entry(
             "polyline",
@@ -587,6 +587,40 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "Standard JavaScript constant π. Other ECMAScript Math functions are available.",
         ),
     ];
+    for (suffix, shape, description) in [
+        (
+            "CIRCLE",
+            "CIRCLE",
+            "Circular marker; the default hotspot shape.",
+        ),
+        (
+            "RECTANGLE",
+            "SQUARE",
+            "Rectangular marker, rendered as a screen-sized square.",
+        ),
+        ("TRIANGLE", "TRIANGLE_UP", "Upward triangular marker."),
+        ("DIAMOND", "DIAMOND", "Diamond marker."),
+        (
+            "TRIANGLE_DOWN",
+            "TRIANGLE_DOWN",
+            "Downward triangular marker.",
+        ),
+    ] {
+        let name = format!("$HOTSPOT_SHAPE_{suffix}");
+        entries.push(entry(
+            &name,
+            &format!("{name}: '{shape}'"),
+            &name,
+            description,
+        ));
+        let alias = format!("$HOTSPOT_HAPE_{suffix}");
+        entries.push(entry(
+            &alias,
+            &format!("{alias}: '{shape}'"),
+            &alias,
+            &format!("Alias of {name}, accepting the original HAPE spelling. {description}"),
+        ));
+    }
     prioritize(&mut entries);
     entries
 }

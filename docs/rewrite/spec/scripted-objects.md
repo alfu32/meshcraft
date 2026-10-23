@@ -187,3 +187,21 @@ example without moving the caret or changing the script. Member access tolerates
 whitespace; comments, strings and regular expressions do not trigger API help.
 This is syntax/name-based assistance, not full JavaScript scope/type analysis.
 No language server, subprocess or network request is needed for editor assistance.
+
+
+## Scripted hotspot appearance and drag stability (0.26.0)
+
+`$HOTSPOT(position, id, label=id, shape=$HOTSPOT_SHAPE_CIRCLE,
+color='#00ffffff')` accepts injected circle, rectangle, triangle, diamond and
+triangle-down shape constants, with the requested `HAPE` spelling accepted as an
+alias of `SHAPE`. Colors use six/eight-digit CSS hex, default cyan. Appearance is
+retained in declaration metadata, emitted frame geometry and instance frame
+parameters. Shape constants and helper signatures are discoverable through the
+same editor/MCP catalog. See the [parameter API](../../script-parameters.md#hotspot-appearance).
+
+Generated handle positions are evaluated output, not authored anchors. Applying a
+scripted hotspot target must retain its absolute override even when the newest
+frame already places its marker there. Repeated refreshes at a fixed drag target
+must keep both the handle and script-generated geometry stationary; release
+commits once, Escape restores the prior instance, and Undo restores the prior
+target. Ordinary authored hotspots retain their reset-to-anchor behavior.

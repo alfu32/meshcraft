@@ -392,16 +392,33 @@ impl Document {
         {
             return Err("this multiply hotspot needs a reference point".into());
         }
-        let mut candidate = self.clone();
-        let mut edits = candidate
+        let mut edits = self
             .occurrence_edits(occurrence)
             .cloned()
             .unwrap_or_default();
-        if target.distance(hotspot.position) < 1.0e-9 {
+        // A generated marker already contains its last evaluated drag target. It is
+        // not an authored anchor: clearing its override here makes the next script
+        // frame fall back to the declared position, then alternate on each refresh.
+        let generated = self
+            .resolve_occurrence(occurrence)
+            .is_some_and(|r| self.script(r.definition.id).is_some_and(|s| s.enabled))
+            && self
+                .script_frame(occurrence)
+                .is_some_and(|frame| frame.hotspots.iter().any(|hotspot| hotspot.id == id));
+        if !generated && target.distance(hotspot.position) < 1.0e-9 {
             edits.hotspot_positions.remove(id);
         } else {
             edits.hotspot_positions.insert(id.into(), target);
         }
+        if self
+            .occurrence_edits(occurrence)
+            .cloned()
+            .unwrap_or_default()
+            == edits
+        {
+            return Ok(());
+        }
+        let mut candidate = self.clone();
         if !candidate.set_occurrence_edits(occurrence.clone(), edits) {
             return Err("could not store hotspot target".into());
         }

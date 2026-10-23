@@ -113,6 +113,8 @@ pub enum Drawable {
     Hotspot {
         id: String,
         position: Vec3,
+        #[serde(flatten)]
+        style: parameters::HotspotStyle,
     },
 }
 fn stable_id(kind: &str, id: &str) -> u64 {
@@ -158,7 +160,11 @@ impl ScriptFrame {
                     result.geometry.segments.extend(authored.segments.clone());
                     result.geometry.triangles.extend(authored.triangles.clone());
                 }
-                Drawable::Hotspot { id, position } => {
+                Drawable::Hotspot {
+                    id,
+                    position,
+                    style,
+                } => {
                     if id.is_empty()
                         || !position.is_finite()
                         || !ids.insert(format!("hotspot:{id}"))
@@ -169,6 +175,8 @@ impl ScriptFrame {
                         name: id.clone(),
                         id,
                         position,
+                        shape: style.shape,
+                        color: hotspots::HotspotColor::from_rgba(style.color),
                         ..Default::default()
                     });
                 }

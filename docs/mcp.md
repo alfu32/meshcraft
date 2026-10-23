@@ -258,3 +258,9 @@ defaults to the selection when nonempty; set `selection_only:false` for the whol
 Poll the job before treating the output as complete. `interchange.cancel` cancels work;
 failed/canceled exports retain the previous destination. Results include geometry counts
 and loss/unsupported-feature warnings. See [interchange guide](interchange.md).
+
+
+Scripted hotspot appearance uses `$HOTSPOT(position, id, label, shape, color)`.
+`meshcraft_script_api` publishes the shape constants and full optional defaults;
+`meshcraft_geometry` returns the resulting marker shape and RGBA color. See the
+[appearance API](script-parameters.md#hotspot-appearance).

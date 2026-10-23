@@ -20,6 +20,20 @@ pub enum Kind {
     Hotspot,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HotspotStyle {
+    pub shape: hotspots::Shape,
+    pub color: Rgba8,
+}
+impl Default for HotspotStyle {
+    fn default() -> Self {
+        Self {
+            shape: hotspots::Shape::Circle,
+            color: Rgba8::new(0, 255, 255, 255),
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Declaration {
     pub id: String,
@@ -29,6 +43,8 @@ pub struct Declaration {
     pub default_value: Value,
     #[serde(default)]
     pub options: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotspot_style: Option<HotspotStyle>,
 }
 impl Declaration {
     pub fn validate(&self) -> Result<(), String> {
@@ -227,6 +243,7 @@ mod tests {
             kind,
             default_value: value,
             options: BTreeMap::new(),
+            hotspot_style: None,
         }
     }
     #[test]

@@ -37,7 +37,7 @@ function onAnimationFrame(params, model) {
 | `$NUMBER(id, label=id, defaultValue=0)` | Zero | Finite number in internal model units |
 | `$CHECKBOX(id, label=id, defaultValue=false)` | False | Boolean |
 | `$LIST(id, values, label=id, defaultValue=firstKey)` | First declared choice | Selected string key |
-| `$HOTSPOT(position, id, label=id)` | Supplied Point | Hotspot object with `id`, `kind`, `position` |
+| `$HOTSPOT(position, id, label=id, shape=$HOTSPOT_SHAPE_CIRCLE, color="#00ffffff")` | Supplied Point | Hotspot object with `id`, `kind`, `position` |
 
 `values` maps stable keys to display labels. The default must be a valid key. Pass `undefined`
 for an omitted label when supplying only an explicit default, e.g. `$NUMBER('width', undefined, 3)`.
@@ -79,3 +79,37 @@ Omit `paths` for shared prototype values. Use occurrence paths from `meshcraft_s
 values. Discover declarations/types/defaults from the current selection's returned forms before
 writing. Generated schema and authored values are stored separately from arbitrary script state;
 rendered property controls do not introduce another source of truth.
+
+
+## Hotspot appearance
+
+```javascript
+function onCreate() {
+  $HOTSPOT(new Point(3, 2, 0), 'size', 'Size',
+    $HOTSPOT_SHAPE_DIAMOND, '#ffccddee');
+}
+function onAnimationFrame(params) {
+  return cube(new Point(), params.size.position, 'body');
+}
+```
+
+| Injected constant | Marker |
+| --- | --- |
+| `$HOTSPOT_SHAPE_CIRCLE` | Circle (default) |
+| `$HOTSPOT_SHAPE_RECTANGLE` | Rectangle, rendered as a screen-sized square |
+| `$HOTSPOT_SHAPE_TRIANGLE` | Upward triangle |
+| `$HOTSPOT_SHAPE_DIAMOND` | Diamond |
+| `$HOTSPOT_SHAPE_TRIANGLE_DOWN` | Downward triangle |
+
+The originally requested `$HOTSPOT_HAPE_…` spelling is also accepted for every
+constant above. Completion, highlighting and hover help include both spellings.
+Omit shape/color for a cyan circle. Color accepts `#RRGGBB` or `#RRGGBBAA` (alpha
+last); the default is `#00ffffff`. Pass `undefined` for an omitted label or shape
+when supplying later arguments. Unknown shapes and invalid colors report a script
+error and retain the last good geometry.
+
+Appearance applies to top-level, `onCreate` and explicit frame hotspots. Declared
+appearance is retained across frames, copy and Save/Open, and is available on
+`params[id].shape` / `params[id].color`. Selection temporarily uses the normal
+selection color. Dragged positions remain absolute across generated frames, so a
+stationary drag does not alternate between the declared position and its target.

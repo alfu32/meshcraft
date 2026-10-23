@@ -647,6 +647,130 @@ function onAnimationFrame(params,model){
         );
     }
     #[test]
+    fn generated_drag_targets_stay_absolute_across_repeated_preview_frames() {
+        use meshcraft_core::{
+            document::{
+                Document,
+                scripts::{ScriptDefinition, ScriptFrame, ScriptState},
+            },
+            geometry::Vec3,
+        };
+        let engine = unsafe { Engine::load() }.unwrap();
+        let mut document = Document::new();
+        let path = document
+            .add_scripted_object(
+                "Drag",
+                ScriptDefinition {
+                    source: SOURCE.into(),
+                    api_version: 2,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let mut state = json!({});
+        let target = Vec3::new(7., 1., 0.);
+        for step in 0..16 {
+            let overrides = document
+                .occurrence_edits(&path)
+                .map(|e| json!(e.hotspot_positions))
+                .unwrap_or(json!({}));
+            let output = evaluate(&engine, SOURCE, state, json!({}), json!({}), overrides).unwrap();
+            state = output["state"].clone();
+            let frame = ScriptFrame::build(
+                &Default::default(),
+                serde_json::from_value(output["items"].clone()).unwrap(),
+                serde_json::from_value::<ScriptState>(state.clone()).unwrap(),
+            )
+            .unwrap();
+            if step > 0 {
+                assert_eq!(
+                    frame.hotspots[0].position, target,
+                    "frame {step} must not revert to the declaration"
+                );
+                assert_eq!(state["properties"]["seen"]["x"], 7);
+            }
+            document
+                .install_script_frames(std::collections::BTreeMap::from([(path.clone(), frame)]));
+            document
+                .set_hotspot_target(&path, "handle", target)
+                .unwrap();
+            assert_eq!(
+                document.occurrence_edits(&path).unwrap().hotspot_positions["handle"],
+                target
+            );
+            let revision = document.revision();
+            document
+                .set_hotspot_target(&path, "handle", target)
+                .unwrap();
+            assert_eq!(
+                document.revision(),
+                revision,
+                "stationary refresh is a no-op"
+            );
+        }
+        document.persist_script_states();
+        let copy = document.copy_root_occurrence(&path, Vec3::X * 10.).unwrap();
+        assert_eq!(
+            document.occurrence_edits(&copy).unwrap().hotspot_positions["handle"],
+            target
+        );
+    }
+    #[test]
+    fn hotspot_styles_survive_initializer_reuse_and_reach_rendered_markers() {
+        use meshcraft_core::document::hotspots::Shape;
+        use meshcraft_core::document::scripts::{ScriptFrame, ScriptState};
+        let engine = unsafe { Engine::load() }.unwrap();
+        let source = r#"
+$HOTSPOT(new Point(),'default');
+function onCreate(){
+ $HOTSPOT(new Point(2,1,0),'styled','Styled',$HOTSPOT_SHAPE_DIAMOND,'#ffccddee');
+ $HOTSPOT(new Point(),'rectangle',undefined,$HOTSPOT_HAPE_RECTANGLE,'#123456');
+ $HOTSPOT(new Point(),'triangle',undefined,$HOTSPOT_SHAPE_TRIANGLE);
+ $HOTSPOT(new Point(),'down',undefined,$HOTSPOT_SHAPE_TRIANGLE_DOWN);
+}
+function onAnimationFrame(params){this.styled=params.styled;return [$HOTSPOT(new Point(),'dynamic','Dynamic',$HOTSPOT_SHAPE_RECTANGLE,'#aabbcc00')];}
+"#;
+        let first = evaluate(&engine, source, json!({}), json!({}), json!({}), json!({})).unwrap();
+        let second = evaluate(
+            &engine,
+            source,
+            first["state"].clone(),
+            json!({}),
+            json!({}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(first["items"], second["items"]);
+        assert_eq!(
+            second["state"]["properties"]["styled"]["color"]["alpha"],
+            238
+        );
+        let frame = ScriptFrame::build(
+            &Default::default(),
+            serde_json::from_value(second["items"].clone()).unwrap(),
+            serde_json::from_value::<ScriptState>(second["state"].clone()).unwrap(),
+        )
+        .unwrap();
+        for (id, shape, rgba) in [
+            ("default", Shape::Circle, [0, 255, 255, 255]),
+            ("styled", Shape::Diamond, [255, 204, 221, 238]),
+            ("rectangle", Shape::Square, [18, 52, 86, 255]),
+            ("triangle", Shape::TriangleUp, [0, 255, 255, 255]),
+            ("down", Shape::TriangleDown, [0, 255, 255, 255]),
+            ("dynamic", Shape::Square, [170, 187, 204, 0]),
+        ] {
+            let h = frame.hotspots.iter().find(|h| h.id == id).unwrap();
+            assert_eq!(h.shape, shape);
+            assert_eq!(
+                h.color.rgba(),
+                meshcraft_core::document::Rgba8::new(rgba[0], rgba[1], rgba[2], rgba[3])
+            );
+        }
+        let restored: ScriptState =
+            serde_json::from_str(&serde_json::to_string(&frame.state).unwrap()).unwrap();
+        assert_eq!(restored, frame.state);
+    }
+    #[test]
     fn declarations_reject_duplicates_invalid_types_frame_registration_and_removed_alias() {
         let engine = unsafe { Engine::load() }.unwrap();
         for source in [
@@ -655,6 +779,8 @@ function onAnimationFrame(params,model){
             "$LIST('x',{}); function onAnimationFrame(){return [];}",
             "$CHECKBOX('__proto__'); function onAnimationFrame(){return [];}",
             "function onAnimationFrame(){$TEXT('late');return [];}",
+            "function onCreate(){$HOTSPOT(new Point(),'h',undefined,'UNKNOWN');} function onAnimationFrame(){return [];}",
+            "function onAnimationFrame(){return [$HOTSPOT(new Point(),'h',undefined,undefined,'oops')];}",
             "function onAnimationFrame(){return [hotspot(new Point(),'old')];}",
         ] {
             assert!(

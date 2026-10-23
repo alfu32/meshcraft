@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.26.0 scripted handles:** generated hotspot targets stay absolute across asynchronous frames,
+preventing drag previews from alternating with their declared positions. `$HOTSPOT` accepts
+shape constants and CSS hex color, defaulting to a cyan circle; metadata survives frame reuse,
+copy and Save/Open. See the [appearance API](docs/script-parameters.md#hotspot-appearance) and
+[T62 evidence](docs/rewrite/handoffs/T62.md#0260--stable-scripted-handle-drags-and-appearance).
+
 **0.25.0 script model parameters:** `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and `$HOTSPOT`
 register prototype or instance parameters according to execution context. Object Properties renders
 typed controls, with selection-wide instance edits, shared prototype values, Undo and persistence.

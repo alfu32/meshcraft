@@ -140,6 +140,7 @@ mod tests {
             kind: Kind::Number,
             default_value: json!(3),
             options: Default::default(),
+            hotspot_style: None,
         };
         app.document
             .set_script_parameter_declarations(id, vec![d])
