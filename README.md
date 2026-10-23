@@ -1,6 +1,10 @@
 # Meshcraft
-
+[![Release](https://github.com/alfu32/meshcraft/actions/workflows/distribution.yaml/badge.svg)](https://github.com/alfu32/meshcraft/actions/workflows/distribution.yaml)
 Meshcraft is a **direct mesh modeler** for building and editing 3D geometry. Draw edges and faces, shape them with modeling tools, and assemble reusable objects whose instances can adapt independently through interactive hotspots.
+
+
+[![Get it from the Snap Store](https://snapcraft.io/en/dark/install.svg)](https://snapcraft.io/meshcraft)
+
 
 ![img.png](docs/img.png)
 
