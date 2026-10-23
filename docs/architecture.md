@@ -53,7 +53,13 @@ Move, copy, arrays and clipboard placement retain their profiles and owned holes
 Windows/doors retain ordinary object placement/prototype editing behavior.
 Explode materializes an object's current architecture geometry as ordinary mesh.
 It also works directly on selected walls or slabs, replacing their canonical
-parameters with their currently realized lines and triangles.
+parameters with their currently realized lines and triangles. Mixed selections of
+walls, slabs, windows and doors work with Copy, Paste in Place, floating Paste and
+Explode. Picking a standalone window/door through a frame surface still operates
+on its instance outside prototype editing; other instances retain their geometry.
+Copy as Script captures the selected elements' currently realized geometry,
+including openings and material colors. Each paste/explode is one Undo step.
+Exploding inside a frame prototype edits its geometry while retaining its placements.
 
 ## Wall, opening and frame controls
 

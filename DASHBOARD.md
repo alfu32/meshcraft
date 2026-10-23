@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.30.1 architecture clipboard:** architectural frame picks use their independent
+window/door instance for Copy, Paste and Explode. Mixed walls/slabs/frames retain
+owned openings and material bindings; Copy as Script includes realized wall/slab
+geometry. Explode respects editability and preserves sibling instances.
+
 **0.30.0 drawing materials:** new drawings include 16 named ANSI colors plus
 smoke-white, smoke-grey, side-grey and transparent glass. Default lines use
 ansi-black and faces ansi-grey. The scrollable Materials manager deletes unused

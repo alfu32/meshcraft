@@ -225,6 +225,8 @@ fn clipboard_snapshot(text: &str) -> Result<ClipboardSelection, String> {
 }
 
 fn selection_script(document: &Document, selection: &SelectionSession) -> Result<String, String> {
+    let normalized = modeling_objects::selection_with_architecture_instances(document, selection);
+    let selection = &normalized;
     let mut items = Vec::new();
     for occurrence in document.scene_geometry_refs()? {
         let whole = selection.selected().iter().any(|t| {
@@ -241,7 +243,34 @@ fn selection_script(document: &Document, selection: &SelectionSession) -> Result
         let material_colors = document.material_colors();
         for mut drawable in meshcraft_core::document::scripts::geometry_drawables(geometry) {
             let id = drawable["id"].as_str().unwrap_or_default();
+            let extensions = id
+                .strip_prefix("authored:segment:")
+                .and_then(|id| id.parse::<u64>().ok())
+                .and_then(|id| {
+                    geometry
+                        .segments
+                        .get(&meshcraft_core::document::SegmentId(id))
+                })
+                .map(|s| &s.extensions)
+                .or_else(|| {
+                    id.strip_prefix("authored:face:")
+                        .and_then(|id| id.parse::<u64>().ok())
+                        .and_then(|id| {
+                            geometry
+                                .triangles
+                                .get(&meshcraft_core::document::TriangleId(id))
+                        })
+                        .map(|f| &f.extensions)
+                });
+            let owner =
+                extensions.and_then(meshcraft_core::document::architecture::semantic_entity);
             let selected = whole
+                || owner.is_some_and(|entity| {
+                    selection.selected().contains(&SelectionTarget {
+                        occurrence: occurrence.clone(),
+                        entity,
+                    })
+                })
                 || selection.selected().iter().any(|t| {
                     t.occurrence == occurrence
                         && match t.entity {
@@ -263,27 +292,7 @@ fn selection_script(document: &Document, selection: &SelectionSession) -> Result
                     *point = json!({"x": position.x, "y": position.y, "z": position.z, "id": pid});
                 }
             }
-            let material = if let Some(id) = drawable["id"]
-                .as_str()
-                .and_then(|s| s.strip_prefix("authored:segment:"))
-                .and_then(|s| s.parse::<u64>().ok())
-            {
-                geometry
-                    .segments
-                    .get(&meshcraft_core::document::SegmentId(id))
-                    .and_then(|s| meshcraft_core::document::materials::material_id(&s.extensions))
-            } else {
-                drawable["id"]
-                    .as_str()
-                    .and_then(|s| s.strip_prefix("authored:face:"))
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .and_then(|id| {
-                        geometry
-                            .triangles
-                            .get(&meshcraft_core::document::TriangleId(id))
-                    })
-                    .and_then(|f| meshcraft_core::document::materials::material_id(&f.extensions))
-            };
+            let material = extensions.and_then(meshcraft_core::document::materials::material_id);
             if let Some(color) = material.and_then(|id| material_colors.get(id)) {
                 drawable["color"] = json!(color);
             }
@@ -311,6 +320,292 @@ mod tests {
             panic!("Paste must show wireframe before the first pointer move");
         };
         meshcraft_core::geometry::Aabb3::from_points(edges.into_iter().flatten()).unwrap()
+    }
+
+    fn architecture_app(reopened: bool) -> (MeshcraftApp, Vec<SelectionTarget>) {
+        use meshcraft_core::document::{
+            DefinitionKind,
+            architecture::{Element, Frame, FrameKind, Hole, Slab, Wall},
+        };
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        d.put_architecture(
+            root,
+            None,
+            Element::Wall(Wall {
+                name: "Wall".into(),
+                end: Vec3::X * 5.,
+                holes: vec![Hole {
+                    u0: 1.,
+                    u1: 2.,
+                    v0: 1.,
+                    v1: 2.,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        d.put_architecture(
+            root,
+            None,
+            Element::Slab(Slab {
+                name: "Slab".into(),
+                profile: PolylinePath {
+                    points: vec![
+                        Vec3::new(0., 3., 0.),
+                        Vec3::new(4., 3., 0.),
+                        Vec3::new(4., 3., 4.),
+                        Vec3::new(0., 3., 4.),
+                    ],
+                    closed: true,
+                },
+                holes: vec![Hole {
+                    u0: 1.,
+                    u1: 2.,
+                    v0: 1.,
+                    v1: 2.,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        for (name, kind, x) in [
+            ("Window", FrameKind::Window, 8.),
+            ("Door", FrameKind::Door, 16.),
+        ] {
+            let definition = d.add_definition(name, DefinitionKind::Architecture);
+            d.put_architecture(
+                definition,
+                None,
+                Element::Frame(Frame {
+                    name: name.into(),
+                    kind,
+                    glazing_enabled: kind == FrameKind::Window,
+                    contour: vec![
+                        Vec3::ZERO,
+                        Vec3::X * 2.,
+                        Vec3::new(2., 3., 0.),
+                        Vec3::Y * 3.,
+                    ],
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+            for x in if kind == FrameKind::Window {
+                vec![x, 12.]
+            } else {
+                vec![x]
+            } {
+                modeling_objects::place_definition(
+                    &mut d,
+                    &EditContext::Document,
+                    definition,
+                    Vec3::X * x,
+                    None,
+                    false,
+                )
+                .unwrap();
+            }
+        }
+        if reopened {
+            d = meshcraft_core::legacy::import_current_value(
+                &meshcraft_core::legacy::export_current_value(&d).unwrap(),
+            )
+            .unwrap();
+        }
+        let selected = d
+            .architecture_elements()
+            .into_iter()
+            .filter(|e| (e.transform.translation.x - 12.).abs() > 1e-6)
+            .map(|e| e.target)
+            .collect::<Vec<_>>();
+        assert_eq!(4, selected.len());
+        (
+            MeshcraftApp::new_native_session(d, "Ready".into(), None),
+            selected,
+        )
+    }
+
+    fn complete(app: &mut MeshcraftApp, id: &str) -> CommandResult {
+        let r = app.dispatch_command(id, &CommandPayload::default()).result;
+        assert_eq!(
+            CommandCompletion::Completed,
+            r.completion,
+            "{id}: {:?}",
+            r.diagnostics
+        );
+        r
+    }
+
+    #[test]
+    fn architecture_copy_paste_and_script_capture_preserve_owners_in_new_and_reopened_drawings() {
+        for reopened in [false, true] {
+            let (mut app, targets) = architecture_app(reopened);
+            app.selection.apply(targets.clone(), SelectionMode::Replace);
+            let original = app.document.architecture_elements();
+            complete(&mut app, "edit.copy_selection");
+            let snapshot = clipboard_snapshot(&app.clipboard.text).unwrap();
+            assert!(!snapshot.placement_wireframe().is_empty());
+            complete(&mut app, "edit.paste_in_place");
+            let pasted = app.native_selected_architectures();
+            assert_eq!(4, pasted.len());
+            assert_eq!(9, app.document.architecture_elements().len());
+            for copy in &pasted {
+                let source = original
+                    .iter()
+                    .find(|e| e.element.name() == copy.element.name())
+                    .unwrap();
+                assert_eq!(source.element.holes(), copy.element.holes());
+                assert_eq!(
+                    source.element.surface_materials(),
+                    copy.element.surface_materials()
+                );
+                assert!(!targets.contains(&copy.target));
+            }
+            complete(&mut app, "edit.undo");
+            assert_eq!(5, app.document.architecture_elements().len());
+            app.selection.apply(targets.clone(), SelectionMode::Replace);
+            complete(&mut app, "edit.paste");
+            let insertion = Vec3::new(30., 4., -12.);
+            app.paste_preview_at(Some(insertion));
+            let expected = preview_bounds(&app);
+            app.handle_native_world_pick(insertion, None, None);
+            assert_eq!("Select", app.active_tool);
+            assert_eq!(9, app.document.architecture_elements().len());
+            let pasted = ClipboardSelection::capture(&app.document, &app.selection).unwrap();
+            let actual = meshcraft_core::geometry::Aabb3::from_points(
+                pasted.placement_wireframe().into_iter().flatten(),
+            )
+            .unwrap();
+            assert!(
+                expected.min.distance(actual.min) < 1e-8
+                    && expected.max.distance(actual.max) < 1e-8
+            );
+            complete(&mut app, "edit.undo");
+            app.selection.apply(targets, SelectionMode::Replace);
+            complete(&mut app, "edit.copy_as_script");
+            let scripted = clipboard_snapshot(&app.clipboard.text).unwrap();
+            let bounds = meshcraft_core::geometry::Aabb3::from_points(
+                scripted.placement_wireframe().into_iter().flatten(),
+            )
+            .unwrap();
+            let original_bounds = meshcraft_core::geometry::Aabb3::from_points(
+                snapshot.placement_wireframe().into_iter().flatten(),
+            )
+            .unwrap();
+            assert_eq!(original_bounds, bounds);
+            assert_eq!(5, app.document.architecture_elements().len());
+            app.document.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn mixed_architecture_explode_preserves_sibling_instances_materials_and_undo() {
+        for reopened in [false, true] {
+            let (mut app, targets) = architecture_app(reopened);
+            let sibling = app
+                .document
+                .architecture_elements()
+                .into_iter()
+                .find(|e| (e.transform.translation.x - 12.).abs() < 1e-6)
+                .unwrap();
+            app.selection.apply(targets.clone(), SelectionMode::Replace);
+            let before = app.document.clone();
+            let r = complete(&mut app, "object.explode_selection");
+            assert_eq!(4, r.outputs["exploded_count"]);
+            assert!(
+                r.outputs["edge_count"].as_u64().unwrap() > 0
+                    && r.outputs["face_count"].as_u64().unwrap() > 0
+            );
+            let remaining = app.document.architecture_elements();
+            assert_eq!(1, remaining.len());
+            assert_eq!(sibling.element, remaining[0].element);
+            assert_eq!(sibling.transform, remaining[0].transform);
+            assert_eq!(sibling.definition, remaining[0].definition);
+            assert!(app.selection.selected().iter().all(|t| matches!(
+                t.entity,
+                SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+            )));
+            let colors = app.document.material_colors();
+            for t in app.selection.selected() {
+                if let SelectedEntity::Triangle(id) = t.entity {
+                    let g = app.document.effective_geometry(&t.occurrence).unwrap();
+                    let face = &g.triangles[&id];
+                    let id =
+                        meshcraft_core::document::materials::material_id(&face.extensions).unwrap();
+                    assert_eq!(face.color, colors[id]);
+                    assert!(!meshcraft_core::document::architecture::generated(
+                        &face.extensions
+                    ));
+                }
+            }
+            let reopened = meshcraft_core::legacy::import_current_value(
+                &meshcraft_core::legacy::export_current_value(&app.document).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(1, reopened.architecture_elements().len());
+            complete(&mut app, "edit.undo");
+            assert_eq!(
+                meshcraft_core::legacy::export_current_value(&before).unwrap(),
+                meshcraft_core::legacy::export_current_value(&app.document).unwrap()
+            );
+            let before_rejection = app.document.clone();
+            app.selection.apply(targets, SelectionMode::Replace);
+            app.selection_display_policy
+                .set_unlocked(SelectionKind::Frame, false);
+            let r = app.explode_selection();
+            assert_eq!(CommandCompletion::Failed, r.completion);
+            assert_eq!(before_rejection, app.document);
+        }
+    }
+
+    #[test]
+    fn exploding_a_frame_inside_its_prototype_keeps_the_instance_placements() {
+        let (mut app, targets) = architecture_app(true);
+        let frame = targets
+            .into_iter()
+            .find(|t| {
+                matches!(
+                    t.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Frame,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let original = app
+            .document
+            .resolve_occurrence(&frame.occurrence)
+            .unwrap()
+            .definition
+            .id;
+        app.selection
+            .set_context(EditContext::Occurrence(frame.occurrence.clone()));
+        app.selection.select(frame.clone());
+        complete(&mut app, "object.explode_selection");
+        assert_eq!(
+            original,
+            app.document
+                .resolve_occurrence(&frame.occurrence)
+                .unwrap()
+                .definition
+                .id
+        );
+        assert!(app.document.architecture_element(&frame).is_none());
+        assert!(
+            !app.document
+                .effective_geometry(&frame.occurrence)
+                .unwrap()
+                .triangles
+                .is_empty()
+        );
+        assert_eq!(
+            EditContext::Occurrence(frame.occurrence),
+            app.selection.context
+        );
     }
 
     #[test]

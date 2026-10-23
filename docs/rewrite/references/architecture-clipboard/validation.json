@@ -1,0 +1,69 @@
+{
+  "version": "0.30.1",
+  "sourceArchitectureCount": 36,
+  "cases": [
+    {
+      "target": {
+        "path": [
+          1272
+        ],
+        "kind": "semantic_handle",
+        "semantic_kind": "wall",
+        "id": "meshcraft:domain:2:architectureWalls:0"
+      },
+      "nativeCopyPasteInPlace": true,
+      "floatingPaste": true,
+      "copyAsScript": true,
+      "explode": true,
+      "undo": true
+    },
+    {
+      "target": {
+        "path": [
+          1272
+        ],
+        "kind": "semantic_handle",
+        "semantic_kind": "slab",
+        "id": "meshcraft:domain:2:architectureSlabs:0"
+      },
+      "nativeCopyPasteInPlace": true,
+      "floatingPaste": true,
+      "copyAsScript": true,
+      "explode": true,
+      "undo": true
+    },
+    {
+      "target": {
+        "path": [
+          1272,
+          1245
+        ],
+        "kind": "semantic_handle",
+        "semantic_kind": "frame",
+        "id": "meshcraft:domain:5:architectureFrames:0"
+      },
+      "nativeCopyPasteInPlace": true,
+      "floatingPaste": true,
+      "copyAsScript": true,
+      "explode": true,
+      "undo": true
+    },
+    {
+      "target": {
+        "path": [
+          1272,
+          1248
+        ],
+        "kind": "semantic_handle",
+        "semantic_kind": "frame",
+        "id": "meshcraft:domain:14:architectureFrames:0"
+      },
+      "nativeCopyPasteInPlace": true,
+      "floatingPaste": true,
+      "copyAsScript": true,
+      "explode": true,
+      "undo": true
+    }
+  ],
+  "mixedSelectionCopyPasteExplodeUndo": true
+}

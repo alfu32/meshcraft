@@ -8223,7 +8223,27 @@ impl MeshcraftApp {
     }
 
     fn explode_selection(&mut self) -> CommandResult {
-        let selection = self.selection.clone();
+        let selection = modeling_objects::selection_with_architecture_instances(
+            &self.document,
+            &self.selection,
+        );
+        if self
+            .selection
+            .selected()
+            .iter()
+            .chain(selection.selected())
+            .any(|target| {
+                !self.native_target_editable(target)
+                    || self
+                        .document
+                        .architecture_element(target)
+                        .is_some_and(|e| !self.arch_editable(&e))
+            })
+        {
+            return CommandResult::failed(
+                "Explode requires editable objects or architecture in the active context.",
+            );
+        }
         let report = match self.commit_document_edit("Explode selection", |document| {
             modeling_objects::explode_selection(
                 document,

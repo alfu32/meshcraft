@@ -1696,12 +1696,58 @@ pub fn place_definition(
     Ok(placed)
 }
 
+/// A standalone window/door can be picked through its generated frame facets.
+/// Commands operate on that placement outside prototype editing, so sibling
+/// instances retain their own state and the shared prototype stays intact.
+pub fn selection_with_architecture_instances(
+    document: &Document,
+    selection: &SelectionSession,
+) -> SelectionSession {
+    let mut normalized = selection.clone();
+    normalized.clear();
+    for target in selection.selected() {
+        let mut target = target.clone();
+        if matches!(
+            target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Frame,
+                ..
+            }
+        ) && !target.occurrence.is_scene_root()
+            && let Some(resolved) = document.resolve_occurrence(&target.occurrence)
+            && resolved.definition.kind == DefinitionKind::Architecture
+            && document.architecture_element(&target).is_some()
+        {
+            let parent = OccurrenceRef {
+                path: target.occurrence.path[..target.occurrence.path.len() - 1].to_vec(),
+            };
+            let in_parent = match &selection.context {
+                EditContext::Document => {
+                    parent.is_scene_root()
+                        || document.scene_container_occurrence().as_ref() == Some(&parent)
+                }
+                EditContext::Occurrence(active) => *active == parent,
+                EditContext::Definition(id) => document
+                    .resolve_occurrence(&parent)
+                    .is_some_and(|r| r.definition.id == *id),
+            };
+            if in_parent {
+                target.entity = SelectedEntity::Occurrence;
+            }
+        }
+        normalized.select(target);
+    }
+    normalized
+}
+
 /// Explodes selected instances into ordinary mesh geometry in their parent graph.
 pub fn explode_selection(
     document: &mut Document,
     selection: &SelectionSession,
     adapter: &impl ObjectExplodeAdapter,
 ) -> Result<ExplodeReport, String> {
+    let normalized = selection_with_architecture_instances(document, selection);
+    let selection = &normalized;
     if selection.selected().is_empty() {
         return Err("select one or more objects to explode".to_owned());
     }

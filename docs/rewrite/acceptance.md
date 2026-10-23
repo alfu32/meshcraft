@@ -32,6 +32,13 @@ One completed operation→one undo; preview/cancel→none; redo truncates after 
 
 Group a known mesh, place two instances, edit the prototype, and verify both update. Move/scale one instance, nest it, exit/re-enter edit context, glue-place on a tilted face and explode. Verify local-space geometry, reusable definition count, expected selected result and independent transforms. Drawing through a closed group from outside cannot cut it.
 
+Copy architectural surface picks for standalone windows/doors alongside walls and
+slabs. Exercise Paste in Place and floating Paste with an insertion pick, then
+Explode and Undo. Repeat after save/reopen and inside a frame prototype. Preserve
+owned holes, material references, independent instance state, sibling placements
+and active edit context. Copy as Script includes realized walls/slabs/frames.
+Reject read-only explode without mutation.
+
 ## C08 — Mixed payloads and lifecycle
 
 Group/copy/explode selected edges/faces/dimensions/text and supported domain content; verify no double transform at shared vertices. Delete a prototype in use according to defined policy. Preserve color and override data through cloning and document reload. Invalid operations leave the prior state intact.

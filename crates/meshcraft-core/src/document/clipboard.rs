@@ -15,6 +15,8 @@ pub struct ClipboardSelection {
 
 impl ClipboardSelection {
     pub fn capture(document: &Document, selection: &SelectionSession) -> Result<Self, String> {
+        let normalized = objects::selection_with_architecture_instances(document, selection);
+        let selection = &normalized;
         if selection.selected().is_empty() {
             return Err("select elements to copy".into());
         }
