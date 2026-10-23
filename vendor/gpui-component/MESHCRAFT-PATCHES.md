@@ -23,3 +23,11 @@ selection preserves opacity and stays open for refinement. Invalid channels do
 not replace the current value. State synchronization does not emit selection
 changes. The extension lives in `src/color_picker_channels.rs` and uses the
 existing component slider/input subscriptions without a network service.
+
+
+Input refresh fixes: `input/element.rs` schedules deferred focus cleanup only for
+the input that lost focus, and rechecks current focus before clearing it. Painting
+an unfocused input no longer continually queues another frame. `input/blink_cursor.rs`
+tracks whether blinking is enabled by focus; programmatic text replacement cannot
+start an unfocused cursor timer. Blur cancels pending blink/pause work. These fixes
+prevent synchronized property panels from leaving dozens of recurring UI timers.

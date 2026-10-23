@@ -15,6 +15,7 @@ pub(super) const CURSOR_WIDTH: Pixels = px(1.5);
 pub(crate) struct BlinkCursor {
     visible: bool,
     paused: bool,
+    running: bool,
     epoch: usize,
 
     _task: Task<()>,
@@ -25,6 +26,7 @@ impl BlinkCursor {
         Self {
             visible: false,
             paused: false,
+            running: false,
             epoch: 0,
             _task: Task::ready(()),
         }
@@ -32,11 +34,17 @@ impl BlinkCursor {
 
     /// Start the blinking
     pub fn start(&mut self, cx: &mut Context<Self>) {
+        self.running = true;
+        self.paused = false;
         self.blink(self.epoch, cx);
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
-        self.epoch = 0;
+        self.running = false;
+        self.paused = false;
+        self.visible = false;
+        self.next_epoch();
+        self._task = Task::ready(());
         cx.notify();
     }
 
@@ -46,7 +54,10 @@ impl BlinkCursor {
     }
 
     fn blink(&mut self, epoch: usize, cx: &mut Context<Self>) {
-        if self.paused || epoch != self.epoch {
+        if !self.running || epoch != self.epoch {
+            return;
+        }
+        if self.paused {
             self.visible = true;
             return;
         }
@@ -71,6 +82,11 @@ impl BlinkCursor {
 
     /// Pause the blinking, and delay 500ms to resume the blinking.
     pub fn pause(&mut self, cx: &mut Context<Self>) {
+        // Programmatic value synchronization also replaces text in unfocused
+        // fields. It must not start a cursor timer for each such field.
+        if !self.running {
+            return;
+        }
         self.paused = true;
         self.visible = true;
         cx.notify();

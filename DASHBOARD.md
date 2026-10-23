@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.33.5 selection refresh:** unfocused property inputs no longer start repeating
+cursor timers or queue frames on every paint. Architecture properties/material
+selectors and world-space controls are cached; control symbols use the batched
+viewport overlay. In the local 600-edge/796-face fixture, settled selected idle CPU
+fell from about 57% to 1.5%, with no new viewport frames. Native slab/wall dragging,
+Escape, Undo/Redo and numeric input focus/commit were checked.
+
 **0.33.3 object handle feedback:** instance hotspot dragging keeps the filled drawing
 fixed and evaluates only an object phantom wireframe in the background. Rapid
 targets coalesce; the final value commits once on release and Escape cancels.

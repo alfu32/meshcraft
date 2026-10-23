@@ -16,8 +16,16 @@ pub(super) struct Ui {
     changed_colors: BTreeSet<&'static str>,
     subscriptions: Vec<gpui::Subscription>,
     pub drag: Option<ProfileDrag>,
+    sync_key: Option<CacheKey>,
+    catalog: Vec<MaterialChoice>,
+    owners: Vec<meshcraft_core::document::architecture::PlacedElement>,
+    any_editable: bool,
+    pub(super) payload: CommandPayload,
+    handles_key: Option<CacheKey>,
+    handles: Arc<Vec<Handle>>,
+    draft_handles: Option<(SelectionTarget, Vec3, Arc<Vec<Handle>>)>,
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct MaterialChoice {
     id: String,
     label: String,
@@ -40,20 +48,50 @@ const COLORS: &[(&str, &str)] = &[
     ("frame_material", "Material"),
     ("glazing_material", "Glazing"),
 ];
+#[derive(Clone, PartialEq)]
+struct CacheKey {
+    generation: u64,
+    revision: u64,
+    selection: u64,
+    context: EditContext,
+    policy: meshcraft_core::selection::SelectionDisplayPolicy,
+    tool: String,
+    pointer_tool: bool,
+}
+impl CacheKey {
+    fn new(shell: &MeshcraftShell) -> Self {
+        Self {
+            generation: shell.session.document_generation(),
+            revision: shell.session.document_revision(),
+            selection: shell.session.native_selection_revision(),
+            context: shell.session.native_edit_context(),
+            policy: shell.session.native_selection_display_policy(),
+            tool: shell.session.active_tool_label().into(),
+            pointer_tool: shell.session.native_pointer_tool_active(),
+        }
+    }
+}
 fn inspected(
     shell: &MeshcraftShell,
-) -> Option<meshcraft_core::document::architecture::PlacedElement> {
-    shell
-        .session
-        .native_selected_architecture()
-        .filter(|_| shell.session.active_tool_label() == "Select")
+) -> Option<&meshcraft_core::document::architecture::PlacedElement> {
+    shell.architecture.owners.first()
 }
 pub(super) fn prepare(
     shell: &mut MeshcraftShell,
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
-    let selected = inspected(shell);
+    let sync_key = CacheKey::new(shell);
+    if shell.architecture.sync_key.as_ref() == Some(&sync_key) {
+        return;
+    }
+    shell.architecture.sync_key = Some(sync_key);
+    let owners = if shell.session.active_tool_label() == "Select" {
+        shell.session.native_selected_architectures()
+    } else {
+        vec![]
+    };
+    let selected = owners.first();
     let key = (
         shell.session.document_generation(),
         selected
@@ -67,24 +105,37 @@ pub(super) fn prepare(
         shell.architecture.changed_colors.clear();
     }
     let values = shell.session.native_architecture_payload();
-    let catalog = shell.cached_document.materials();
+    shell.architecture.any_editable = owners
+        .iter()
+        .any(|owner| shell.session.native_architecture_editable(&owner.target));
+    shell.architecture.owners = owners;
+    shell.architecture.payload = values.clone();
+    let catalog = shell
+        .cached_document
+        .materials()
+        .into_iter()
+        .map(|m| MaterialChoice {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+    let catalog_changed = shell.architecture.catalog != catalog;
+    shell.architecture.catalog = catalog.clone();
     for &(field, _) in COLORS {
         let selected = values
             .values
             .get(field)
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let choices = catalog
-            .iter()
-            .map(|m| MaterialChoice {
-                id: m.id.clone(),
-                label: m.name.clone(),
-            })
-            .collect::<Vec<_>>();
+        let choices = catalog.clone();
         if let Some(select) = shell.architecture.colors.get(field).cloned() {
             select.update(cx, |s, cx| {
-                s.set_items(choices, window, cx);
-                if !shell.architecture.dirty {
+                if catalog_changed {
+                    s.set_items(choices, window, cx);
+                }
+                if !shell.architecture.dirty
+                    && (catalog_changed || s.selected_value() != selected.as_ref())
+                {
                     s.set_selected_value(&selected.clone().unwrap_or_default(), window, cx);
                 }
             });
@@ -134,11 +185,7 @@ fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
 
 pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
     let selected = inspected(shell);
-    let owners = if selected.is_some() {
-        shell.session.native_selected_architectures()
-    } else {
-        vec![]
-    };
+    let owners = &shell.architecture.owners;
     let mut body = div().flex().flex_col().gap(px(7.));
     if let Some(e) = &selected {
         body = body.child(if owners.len() > 1 {
@@ -146,10 +193,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         } else {
             format!("Selected {}", e.element.name())
         });
-        if owners
-            .iter()
-            .all(|owner| !shell.session.native_architecture_editable(&owner.target))
-        {
+        if !shell.architecture.any_editable {
             return body.child("Open the object's prototype to edit these properties, or unlock its type in Selection.").into_any_element();
         }
         if let Some(field) = settings::render_field(shell, "Architecture name") {
@@ -370,53 +414,47 @@ pub(super) struct ProfileDrag {
     free: bool,
     moved: bool,
 }
-struct Handle {
+#[derive(Clone)]
+pub(super) struct Handle {
     target: SelectionTarget,
     control: Control,
     point: Vec3,
     normal: Vec3,
     axis: Option<Vec3>,
 }
-fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
-    if shell.session.native_pointer_tool_active() {
-        return vec![];
-    }
-    let selected = shell.session.native_selection_targets();
+fn build_handles(
+    document: &Document,
+    selected: &[SelectionTarget],
+    editable: impl Fn(&SelectionTarget) -> bool,
+) -> Vec<Handle> {
     let mut owners = BTreeMap::new();
     for target in selected {
-        let placed = shell
-            .cached_document
-            .architecture_element(&target)
-            .or_else(|| {
-                if target.entity != SelectedEntity::Occurrence {
-                    return None;
-                }
-                shell
-                    .cached_document
-                    .architecture_elements()
-                    .into_iter()
-                    .find(|p| {
-                        p.target.occurrence == target.occurrence
-                            && matches!(p.element, Element::Frame(_))
-                    })
-            });
+        let placed = document.architecture_element(target).or_else(|| {
+            if target.entity != SelectedEntity::Occurrence {
+                return None;
+            }
+            let r = document.resolve_occurrence(&target.occurrence)?;
+            let id = r
+                .definition
+                .domain_entity_ids
+                .get(meshcraft_core::document::architecture::FRAMES)?
+                .first()?;
+            document.architecture_element(&SelectionTarget {
+                occurrence: target.occurrence.clone(),
+                entity: SelectedEntity::SemanticHandle {
+                    kind: meshcraft_core::selection::SelectionKind::Frame,
+                    id: id.clone(),
+                },
+            })
+        });
         if let Some(p) = placed
-            && shell.session.native_architecture_editable(&p.target)
+            && editable(&p.target)
         {
             owners.insert(p.target.clone(), p);
         }
     }
     owners
         .into_values()
-        .map(|mut placed| {
-            if let Some(drag) = shell.architecture.drag.as_ref()
-                && drag.target == placed.target
-                && let Some(candidate) = &drag.candidate
-            {
-                placed.element = candidate.clone();
-            }
-            placed
-        })
         .flat_map(|placed| {
             placed
                 .element
@@ -438,55 +476,129 @@ fn handles(shell: &MeshcraftShell) -> Vec<Handle> {
         })
         .collect()
 }
-pub(super) fn controls(shell: &MeshcraftShell) -> Vec<gpui::AnyElement> {
-    handles(shell)
-        .into_iter()
-        .filter_map(|p| {
-            let (x, y) = project_point(
-                shell.camera,
-                (shell.layout.width as f32, shell.layout.height as f32),
-                p.point,
-            )?;
-            let color = match p.control {
-                Control::WallTop { .. } => 0xe256d7,
-                Control::HoleCorner { .. } => 0xffa13a,
-                Control::FrameCorner { .. } => 0xb68aff,
-                _ => 0x39a8ff,
-            };
-            Some(
-                div()
-                    .absolute()
-                    .left(px(x / shell.layout.scale - 5.))
-                    .top(px(y / shell.layout.scale - 5.))
-                    .size(px(10.))
-                    .when(matches!(p.control, Control::WallBase { end: true }), |v| {
-                        v.rounded_full()
+fn update_handles(
+    ui: &mut Ui,
+    key: CacheKey,
+    document: &Document,
+    selected: &[SelectionTarget],
+    editable: impl Fn(&SelectionTarget) -> bool,
+) {
+    if ui.handles_key.as_ref() != Some(&key) {
+        ui.handles = Arc::new(if key.pointer_tool {
+            vec![]
+        } else {
+            build_handles(document, selected, editable)
+        });
+        ui.handles_key = Some(key);
+        ui.draft_handles = None;
+    }
+}
+/// Cache world-space controls independently of camera, pointer and UI redraws.
+pub(super) fn handles(shell: &mut MeshcraftShell) -> Arc<Vec<Handle>> {
+    let key = CacheKey::new(shell);
+    let selected = shell.session.native_selection_targets();
+    let session = &shell.session;
+    update_handles(
+        &mut shell.architecture,
+        key,
+        &shell.cached_document,
+        &selected,
+        |t| session.native_architecture_editable(t),
+    );
+    if let Some(drag) = shell.architecture.drag.as_ref()
+        && let Some(candidate) = &drag.candidate
+    {
+        if let Some((target, point, handles)) = &shell.architecture.draft_handles
+            && target == &drag.target
+            && *point == drag.point
+        {
+            return handles.clone();
+        }
+        let mut handles = shell
+            .architecture
+            .handles
+            .iter()
+            .filter(|h| h.target != drag.target)
+            .cloned()
+            .collect::<Vec<_>>();
+        handles.extend(
+            candidate
+                .controls()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| {
+                    Some(Handle {
+                        target: drag.target.clone(),
+                        control: p.control,
+                        point: drag.transform.transform_point(p.point),
+                        normal: drag.transform.transform_normal(
+                            p.normal,
+                            meshcraft_core::geometry::GeometryTolerance::default(),
+                        )?,
+                        axis: p.axis.map(|a| drag.transform.transform_vector(a)),
                     })
-                    .when(!matches!(p.control, Control::WallTop { .. }), |v| {
-                        v.bg(rgb(color)).border_1().border_color(rgb(0x102d46))
-                    })
-                    .when(matches!(p.control, Control::WallTop { .. }), |v| {
-                        v.child(
-                            canvas(
-                                |_, _, _| (),
-                                move |bounds, _, window, _| {
-                                    let mut path = gpui::PathBuilder::fill();
-                                    path.move_to(gpui::point(bounds.center().x, bounds.top()));
-                                    path.line_to(gpui::point(bounds.right(), bounds.bottom()));
-                                    path.line_to(gpui::point(bounds.left(), bounds.bottom()));
-                                    path.close();
-                                    if let Ok(path) = path.build() {
-                                        window.paint_path(path, rgb(color));
-                                    }
-                                },
-                            )
-                            .size_full(),
-                        )
-                    })
-                    .into_any_element(),
-            )
-        })
-        .collect()
+                }),
+        );
+        let handles = Arc::new(handles);
+        shell.architecture.draft_handles = Some((drag.target.clone(), drag.point, handles.clone()));
+        return handles;
+    }
+    shell.architecture.draft_handles = None;
+    shell.architecture.handles.clone()
+}
+
+/// Batched canvas markers: no per-handle GPUI elements, paths or layout work.
+pub(super) fn draw(
+    drawing: &mut impl RaylibDraw,
+    handles: &[Handle],
+    camera: OrbitCamera,
+    size: (f32, f32),
+    scale: f32,
+) {
+    let radius = 5. * scale;
+    for handle in handles {
+        let Some((x, y)) = project_point(camera, size, handle.point) else {
+            continue;
+        };
+        if x < -radius || y < -radius || x > size.0 + radius || y > size.1 + radius {
+            continue;
+        }
+        let color = match handle.control {
+            Control::WallTop { .. } => Color::new(226, 86, 215, 255),
+            Control::HoleCorner { .. } => Color::new(255, 161, 58, 255),
+            Control::FrameCorner { .. } => Color::new(182, 138, 255, 255),
+            _ => Color::new(57, 168, 255, 255),
+        };
+        let border = Color::new(16, 45, 70, 255);
+        match handle.control {
+            Control::WallBase { end: true } => {
+                drawing.draw_circle(x as i32, y as i32, radius, color);
+                drawing.draw_circle_lines(x as i32, y as i32, radius, border);
+            }
+            Control::WallTop { .. } => drawing.draw_triangle(
+                raylib::prelude::Vector2::new(x, y - radius),
+                raylib::prelude::Vector2::new(x - radius, y + radius),
+                raylib::prelude::Vector2::new(x + radius, y + radius),
+                color,
+            ),
+            _ => {
+                drawing.draw_rectangle(
+                    (x - radius) as i32,
+                    (y - radius) as i32,
+                    (2. * radius) as i32,
+                    (2. * radius) as i32,
+                    color,
+                );
+                drawing.draw_rectangle_lines(
+                    (x - radius) as i32,
+                    (y - radius) as i32,
+                    (2. * radius) as i32,
+                    (2. * radius) as i32,
+                    border,
+                );
+            }
+        }
+    }
 }
 // A grid seen exactly edge-on cannot define free pointer movement; use the
 // view plane only in that case, after real grid/geometry/guide snapping.
@@ -523,7 +635,8 @@ impl MeshcraftShell {
         _modifiers: gpui::Modifiers,
     ) -> bool {
         let handle = handles(self)
-            .into_iter()
+            .iter()
+            .cloned()
             .filter_map(|p| {
                 let (hx, hy) = project_point(
                     self.camera,
@@ -747,5 +860,100 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Vec3::new(3., 2., 0.), front.point);
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use meshcraft_core::{
+        document::architecture::Wall,
+        selection::{SelectionDisplayPolicy, SelectionKind},
+    };
+    fn key(d: &Document) -> CacheKey {
+        CacheKey {
+            generation: 0,
+            revision: d.revision(),
+            selection: 1,
+            context: EditContext::Document,
+            policy: SelectionDisplayPolicy::default(),
+            tool: "Select".into(),
+            pointer_tool: false,
+        }
+    }
+    #[test]
+    fn controls_are_reused_until_geometry_selection_policy_or_tool_changes() {
+        let mut d = Document::new();
+        let definition = d.ensure_scene_root();
+        let mut wall = Wall {
+            start: Vec3::ZERO,
+            end: Vec3::X * 5.,
+            height: 3.,
+            ..Default::default()
+        };
+        let id = d
+            .put_architecture(definition, None, Element::Wall(wall.clone()))
+            .unwrap();
+        let target = SelectionTarget {
+            occurrence: meshcraft_core::document::OccurrenceRef::scene_root(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Wall,
+                id: id.clone(),
+            },
+        };
+        let mut ui = Ui::default();
+        let calls = std::cell::Cell::new(0);
+        let first_key = key(&d);
+        update_handles(
+            &mut ui,
+            first_key.clone(),
+            &d,
+            std::slice::from_ref(&target),
+            |_| {
+                calls.set(calls.get() + 1);
+                true
+            },
+        );
+        let first = ui.handles.clone();
+        assert_eq!(first.len(), 4);
+        assert_eq!(calls.get(), 1);
+        for _ in 0..100 {
+            update_handles(
+                &mut ui,
+                first_key.clone(),
+                &d,
+                std::slice::from_ref(&target),
+                |_| panic!("unchanged render must not rebuild controls"),
+            );
+            assert!(Arc::ptr_eq(&first, &ui.handles));
+        }
+        wall.height = 7.;
+        d.put_architecture(definition, Some(&id), Element::Wall(wall))
+            .unwrap();
+        let changed = key(&d);
+        update_handles(
+            &mut ui,
+            changed.clone(),
+            &d,
+            std::slice::from_ref(&target),
+            |_| true,
+        );
+        assert!(!Arc::ptr_eq(&first, &ui.handles));
+        assert_eq!(ui.handles.iter().map(|h| h.point.y).fold(0., f64::max), 7.);
+        let mut locked = changed.clone();
+        locked.policy.set_unlocked(SelectionKind::Wall, false);
+        update_handles(&mut ui, locked, &d, std::slice::from_ref(&target), |_| {
+            false
+        });
+        assert!(ui.handles.is_empty());
+        let mut active = changed.clone();
+        active.pointer_tool = true;
+        active.tool = "Wall".into();
+        update_handles(&mut ui, active, &d, std::slice::from_ref(&target), |_| true);
+        assert!(ui.handles.is_empty());
+        let mut cleared = changed;
+        cleared.selection += 1;
+        update_handles(&mut ui, cleared, &d, &[], |_| true);
+        assert!(ui.handles.is_empty());
     }
 }

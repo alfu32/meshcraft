@@ -236,6 +236,16 @@ T00 records fixed test hardware, fixture sizes, cold/warm load, picking percenti
 
 Source: `K/model/{AsyncSpatialIndexing,SpatialHash3D}.kt`, `K/perf/PerfStats.kt`, render/chunk paths and May 4 history. Acceptance: C26, C31.
 
+**Selection refresh follow-up (0.33.5).** An unchanged selection must settle without
+continuous UI or viewport redraw. Synchronize architecture fields/material selectors
+only when their binding changes; reuse decoded properties and world-space controls
+across camera, pointer and unrelated UI updates. Draw architecture control symbols
+in the batched viewport overlay rather than allocating a UI element for each handle.
+Keep wall end circles, height triangles and profile/hole/frame controls pickable at
+consistent screen sizes, including DPI changes and phantom previews. Programmatic
+updates to unfocused property fields must not start blinking-cursor timers; focus
+cleanup must not schedule a new frame from every input paint.
+
 ### A07 Versioned plugin application context
 
 **New: explicitly requested.** JavaScriptCore plugins receive a negotiated, plugin-scoped `ctx` providing targeted immutable document/effective-content queries, occurrence-aware selection, registered commands/tools/declarative panels/interchange adapters, typed transactional edits, events, state and diagnostics. Its public values use stable IDs, occurrence references and explicit document revisions; no mutable Rust stores, raw pointers, legacy GroupNode wrappers or full-model copies on every update.

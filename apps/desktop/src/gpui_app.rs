@@ -240,6 +240,8 @@ struct RenderScene {
     reference_edges: Vec<[Vec3; 2]>,
     selection_rect: Option<([f32; 4], bool)>,
     hotspot_drag: Option<(meshcraft_core::document::OccurrenceRef, String, Vec3)>,
+    architecture_handles: Arc<Vec<architecture::Handle>>,
+    control_scale: f32,
     grid_spacing: f64,
     normal_line_width: f32,
     black_model_lines: bool,
@@ -278,6 +280,8 @@ impl RenderScene {
             && self.reference_edges == other.reference_edges
             && self.selection_rect == other.selection_rect
             && self.hotspot_drag == other.hotspot_drag
+            && Arc::ptr_eq(&self.architecture_handles, &other.architecture_handles)
+            && self.control_scale == other.control_scale
             && self.grid_spacing == other.grid_spacing
             && self.black_model_lines == other.black_model_lines
             && self.normal_line_width == other.normal_line_width
@@ -306,6 +310,8 @@ impl Default for RenderScene {
             reference_edges: vec![],
             selection_rect: None,
             hotspot_drag: None,
+            architecture_handles: Arc::default(),
+            control_scale: 1.,
             grid_spacing: 1.0,
             normal_line_width: 1.0,
             black_model_lines: true,
@@ -680,6 +686,13 @@ fn draw_offscreen_scene(
         (target_width, target_height),
         &lighting.handles,
         &lighting.selection,
+    );
+    architecture::draw(
+        &mut drawing,
+        &scene_data.architecture_handles,
+        orbit,
+        (target_width, target_height),
+        scene_data.control_scale,
     );
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
@@ -1278,7 +1291,10 @@ impl MeshcraftShell {
                         cursor.0 < gesture.start.0,
                     )
                 });
+        let architecture_handles = architecture::handles(self);
         self.bridge.publish_scene(RenderScene {
+            architecture_handles,
+            control_scale: self.layout.scale,
             annotations: Arc::clone(&self.cached_annotations),
             document: Arc::clone(&self.cached_document),
             grid_visible: preferences.show_permanent_grid,
@@ -2671,7 +2687,11 @@ impl Render for MeshcraftShell {
             self.bridge.publish_camera(self.camera);
         }
         let preferences = self.session.native_ui_preferences();
+        let old_scale = self.layout.scale;
         self.layout = publish_layout(&self.bridge, window, &preferences);
+        if self.layout.scale != old_scale {
+            self.refresh_scene();
+        }
         if self.open_menu.is_some_and(|menu| {
             !preferences.menu_bar_visible
                 || !preferences
@@ -2714,10 +2734,10 @@ impl Render for MeshcraftShell {
             }
         }
         thumbnails::prepare(self, window, cx);
+        architecture::prepare(self, window, cx);
         settings::prepare(self, window, cx);
         parameters::prepare(self, window, cx);
         annotations::prepare(self, window, cx);
-        architecture::prepare(self, window, cx);
         automation::prepare(self, window, cx);
         self.prepare_palette(window, cx);
         let frame = self.bridge.latest_frame();
@@ -2953,9 +2973,7 @@ impl Render for MeshcraftShell {
                     )),
             );
 
-        let viewport = viewport
-            .children(annotations::labels(self))
-            .children(architecture::controls(self));
+        let viewport = viewport.children(annotations::labels(self));
         let viewport = viewport.when(!self.scripts.errors.is_empty(), |view| {
             view.child(
                 div()

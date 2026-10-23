@@ -171,7 +171,7 @@ impl Field {
 }
 fn current(shell: &MeshcraftShell, field: Field) -> String {
     let payload = match field.group {
-        "arch" => shell.session.native_architecture_payload(),
+        "arch" => shell.architecture.payload.clone(),
         "model" => model_settings_payload(shell.cached_document.model_settings()),
         "ui" => shell.session.native_ui_preferences_payload(),
         _ => {

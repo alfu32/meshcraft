@@ -1,0 +1,56 @@
+[
+  {
+    "control": {
+      "kind": "slab_vertex",
+      "index": 0
+    },
+    "startPixel": [
+      852,
+      692
+    ],
+    "endPixel": [
+      874,
+      701
+    ],
+    "privatePreview": true,
+    "undoRedo": true,
+    "shiftPlan": false,
+    "escapeCancel": true
+  },
+  {
+    "control": {
+      "kind": "wall_base",
+      "end": true
+    },
+    "startPixel": [
+      810,
+      694
+    ],
+    "endPixel": [
+      829,
+      702
+    ],
+    "privatePreview": true,
+    "undoRedo": true,
+    "shiftPlan": false,
+    "escapeCancel": false
+  },
+  {
+    "control": {
+      "kind": "wall_top",
+      "end": true
+    },
+    "startPixel": [
+      816,
+      637
+    ],
+    "endPixel": [
+      818,
+      617
+    ],
+    "privatePreview": true,
+    "undoRedo": true,
+    "shiftPlan": false,
+    "escapeCancel": false
+  }
+]

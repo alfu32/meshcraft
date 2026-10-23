@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-24",
+  "baselineVersion": "0.33.4",
+  "fixedVersion": "0.33.5",
+  "host": {
+    "cpu": "Intel Core i7-6700HQ @ 2.60GHz",
+    "logicalCpus": 8,
+    "architecture": "x86_64",
+    "display": "private Xvfb :96, 1600x1100, application 1500x1000",
+    "gpu": "software rendering: Mesa lavapipe/llvmpipe",
+    "build": "cargo dev, opt-level=1; dependency opt-level=3",
+    "mcpPort": 18766
+  },
+  "fixtureSha256": "73020069338347bfd47ba39f21772c04665da43495ff7f0192dfb83daa7f2b87",
+  "counts": {
+    "vertices": 400,
+    "edges": 600,
+    "faces": 796
+  },
+  "method": {
+    "idleCpu": "100 * delta process user+system CPU seconds / elapsed wall seconds; wait five seconds after capture, sample two seconds; one core = 100%",
+    "capture": "viewport frameSequence before/after idle sample and six status requests",
+    "status": "six synchronous MCP status request round trips; these include UI request handling, not direct pointer latency",
+    "motion": "30 xdotool right-drag move events; elapsed time is event dispatch time, not frame rate",
+    "camera": {
+      "position": [
+        16,
+        16,
+        20
+      ],
+      "target": [
+        0,
+        1,
+        0
+      ]
+    },
+    "limitations": [
+      "Local Linux/X11 software-GPU checks; not a cross-platform or 60 FPS benchmark.",
+      "MCP round-trip latency still includes rebuilding surrounding command/property UI.",
+      "The fixture matches reported entity counts but is not the original user drawing."
+    ]
+  },
+  "assertions": {
+    "unchangedGpuSequence": true,
+    "cachedControlsReusedFor100Refreshes": true,
+    "geometrySelectionPolicyAndToolInvalidateControls": true,
+    "nativeSlabAndWallControls": true,
+    "phantomDoesNotMutateDocument": true,
+    "escapeCancels": true,
+    "singleUndoRedo": true,
+    "nativeNumericInputCommits": true,
+    "unfocusedInputsReturnToIdle": true
+  }
+}

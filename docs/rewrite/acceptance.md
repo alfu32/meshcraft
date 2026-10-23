@@ -282,3 +282,17 @@ Release commits the final target once; one Undo restores it. Escape/click/stale
 context cancel without mutation; release/cancel never wait for an in-flight script.
 A stalled or invalid preview must keep pointer/selection/camera interaction responsive
 and must not publish late geometry after the drag ends.
+
+
+### Selection refresh follow-up (0.33.5)
+
+Select architecture with roughly 600 edges and 800 faces. After transient UI effects
+settle, an unchanged selection must not drive recurring UI/GPU redraw or control
+reconstruction. Record idle process CPU and viewport frame sequence against the
+previous build on the same fixture/backend. Camera/pointer changes must reuse
+world-space controls; document, selection, context, tool and display-policy changes
+must invalidate them. Verify marker symbols/scale and real slab/wall handle dragging,
+phantom preview isolation, Escape and one-step Undo/Redo. Selectors and numeric fields
+must still follow edits and selection changes. Focus/type/blur an input: the caret
+blinks while focused and stops on blur. Programmatically updating an unfocused field
+must not start its caret timer or a permanent window repaint loop.

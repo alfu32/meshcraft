@@ -1,0 +1,46 @@
+{
+  "wall": {
+    "id": "meshcraft:architecture:2",
+    "materials": {
+      "exterior": "smoke-white",
+      "interior": "smoke-grey"
+    },
+    "name": "Focus wall",
+    "start": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "end": {
+      "x": 6.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "thickness": 1.0,
+    "height": 4.0,
+    "endHeight": 3.0,
+    "offset": 0.5,
+    "autoJoin": true,
+    "up": {
+      "x": 0.0,
+      "y": 1.0,
+      "z": 0.0
+    },
+    "inclinationDeg": 0.0,
+    "exteriorColor": {
+      "r": 0.9294117647058824,
+      "g": 0.9294117647058824,
+      "b": 0.9294117647058824,
+      "a": 1.0
+    },
+    "interiorColor": {
+      "r": 0.8392156862745098,
+      "g": 0.8392156862745098,
+      "b": 0.8392156862745098,
+      "a": 1.0
+    },
+    "holes": []
+  },
+  "idleCpuAfterBlur": 1.9996556043050422,
+  "nativeInputCommit": true
+}

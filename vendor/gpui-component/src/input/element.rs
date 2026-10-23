@@ -1273,18 +1273,24 @@ impl Element for TextElement {
             }
         }
 
-        // And reset focused_input when next_frame start
-        window.on_next_frame({
-            let state = self.state.clone();
-            move |window, cx| {
-                if !focused && Root::read(window, cx).focused_input.as_ref() == Some(&state) {
-                    Root::update(window, cx, |root, _, cx| {
-                        root.focused_input = None;
-                        cx.notify();
-                    });
+        // Only schedule cleanup for the input that just lost focus. Scheduling a
+        // frame from every input paint creates a permanent redraw loop, including
+        // when all inputs are unfocused.
+        if !focused && Root::read(window, cx).focused_input.as_ref() == Some(&self.state) {
+            window.on_next_frame({
+                let state = self.state.clone();
+                move |window, cx| {
+                    if Root::read(window, cx).focused_input.as_ref() == Some(&state)
+                        && !state.read(cx).focus_handle.is_focused(window)
+                    {
+                        Root::update(window, cx, |root, _, cx| {
+                            root.focused_input = None;
+                            cx.notify();
+                        });
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Paint multi line text
         let line_height = window.line_height();
