@@ -69,6 +69,10 @@ Orbit/pan/zoom, all six orthographic views and walkthrough movement/support/jump
 
 Exercise endpoints/midpoints/segments/faces/grid/grid lines/guide planes/guide axes with configured pixel radius, transformed groups, hidden geometry and perspective/ortho cameras. Test ties near corners and no-hit virtual plane. While a text field/menu owns input, wheel/keys/clicks cannot also act on the camera/tool. A world pointer request and equivalent GUI hit must resolve consistently.
 
+Verify that a grid point within the pixel radius wins over a closer segment;
+outside the radius the segment remains available. Check enlarged auto-grid crosses
+in perspective and orthographic views.
+
 ## C11 — Selection semantics
 
 Click/add/remove, double-click coplanar face, triple-click connected geometry, double-click group editing; timed clicks use an injected clock. Test left→right window, right→left crossing, Alt-forced window, and two-corner world volume separately. Validate per-type visibility/lock rules and counts for mixed entities and transformed instances.
@@ -76,6 +80,12 @@ Click/add/remove, double-click coplanar face, triple-click connected geometry, d
 ## C12 — Semantic handles and display policy
 
 Pick/drag wall endpoints, wall/slab hole corner/edge/center handles, HVAC controls, voxels and hotspot markers with occluding geometry and wireframe settings. Verify hidden/locked entity policy is consistent across click/window/volume and snapping. Deleting a hole edits semantic parameters, not an arbitrary generated triangle.
+
+Closed-object hotspots are visible/hittable for exactly one selected instance,
+hidden for zero/multiple instances, and remain available while its hotspot is
+dragged. Authored root/active prototype handles remain visible. Selection retains
+face fill colors, highlights lines only, displays a blue bounding box and does not
+advance the GPU frame counter during idle or identical scene publications.
 
 ## C13 — Core modeling slice
 
@@ -115,6 +125,14 @@ Reference solids for primitives, multi-face push/pull, all three hole/cutout IDs
 ## C20 — Boolean restrictions and operands
 
 Two overlapping sibling mesh instances: cut-all, union, intersection, A−B and B−A with distinct colors. Check selected loose result in parent and source removal only on successful commit. Add disjoint/tangent/coincident/open/inconsistent-normal cases, wrong parent count and voxel rejection. Characterize legacy outcomes first; improvements require recorded divergences.
+
+Exercise the Solids menu with overlapping, contained, disjoint and identical closed
+operands. Verify result volume, outward winding, material references, unchanged
+unselected objects and one-step Undo/Redo. Section a selected solid by two picked
+points, including coplanar/tangent cases; previews cannot advance the revision.
+Mirror a fragment/instance about an oblique plane, then Undo. Fill unordered directed
+lines with crossings, holes, gaps and open tails; reversed/disjoint rings retain
+their own surface directions and open-only input rejects without mutation.
 
 ## C21 — Randomized operations/remesh
 

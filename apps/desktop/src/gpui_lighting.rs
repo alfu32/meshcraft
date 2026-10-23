@@ -111,6 +111,9 @@ impl SelectionIndex {
                 .collect(),
         }
     }
+    pub(super) fn exactly_contains(&self, target: &SelectionTarget) -> bool {
+        self.exact.contains(target)
+    }
     pub(super) fn contains(&self, target: &SelectionTarget) -> bool {
         if self.exact.contains(target) {
             return true;
@@ -125,6 +128,32 @@ impl SelectionIndex {
             }
         }
     }
+}
+
+fn selection_box(points: &[Vec3]) -> Vec<[Vec3; 2]> {
+    let Some(first) = points.first().copied() else {
+        return vec![];
+    };
+    let (mut lo, mut hi) = (first, first);
+    for p in points {
+        lo = Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    let corners: [Vec3; 8] = std::array::from_fn(|i| {
+        Vec3::new(
+            if i & 1 == 0 { lo.x } else { hi.x },
+            if i & 2 == 0 { lo.y } else { hi.y },
+            if i & 4 == 0 { lo.z } else { hi.z },
+        )
+    });
+    (0..8)
+        .flat_map(|i| {
+            [1, 2, 4]
+                .into_iter()
+                .filter(move |bit| i & bit == 0)
+                .map(move |bit| [corners[i], corners[i | bit]])
+        })
+        .collect()
 }
 
 pub(super) struct Renderer {
@@ -144,6 +173,8 @@ pub(super) struct Renderer {
     last_selection: Vec<SelectionTarget>,
     pub(super) selection: SelectionIndex,
     outlines: Vec<([Vec3; 2], bool)>,
+    selection_box: Vec<[Vec3; 2]>,
+    handle_context: Option<EditContext>,
 }
 impl Renderer {
     pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
@@ -177,6 +208,8 @@ impl Renderer {
             last_selection: Vec::new(),
             selection: SelectionIndex::default(),
             outlines: Vec::new(),
+            selection_box: Vec::new(),
+            handle_context: None,
         }
     }
     pub fn prepare(
@@ -195,8 +228,26 @@ impl Renderer {
             self.rebuild(&scene.document, &scene.display_policy);
             self.last_light = None;
         }
-        if changed || self.last_selection != scene.selection {
+        if changed
+            || self.last_selection != scene.selection
+            || self.handle_context.as_ref() != Some(&scene.edit_context)
+        {
             self.update_selection(&scene.selection);
+            self.handles =
+                hotspots::handles(&scene.document, &scene.edit_context, &scene.selection);
+            self.handles.retain(|h| {
+                scene.display_policy.can_draw_target(
+                    &scene.document,
+                    &SelectionTarget {
+                        occurrence: h.occurrence.clone(),
+                        entity: SelectedEntity::SemanticHandle {
+                            kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                            id: h.hotspot.id.clone(),
+                        },
+                    },
+                )
+            });
+            self.handle_context = Some(scene.edit_context.clone());
         }
         let direction = scene.lighting.direction();
         let light = (scene.lighting.azimuth, scene.lighting.elevation);
@@ -255,7 +306,6 @@ impl Renderer {
         policy: &meshcraft_core::selection::SelectionDisplayPolicy,
     ) {
         self.policy = policy.clone();
-        self.handles = hotspots::handles(document);
         self.faces.clear();
         self.edges.clear();
         self.vertices.clear();
@@ -283,7 +333,11 @@ impl Renderer {
             for face in geometry.triangles.values() {
                 if let [Some(a), Some(b), Some(c)] = face.vertices.map(world) {
                     self.faces.push(Face {
-                        points: [a, b, c],
+                        points: if resolved.world_transform.determinant() < 0. {
+                            [a, c, b]
+                        } else {
+                            [a, b, c]
+                        },
                         color: material_color(&face.extensions, face.color),
                         wireframe: false,
                         selected: false,
@@ -369,10 +423,27 @@ impl Renderer {
         for edge in &mut self.edges {
             edge.selected = self.selection.contains(&edge.target);
         }
+        let mut points = Vec::new();
+        points.extend(
+            self.faces
+                .iter()
+                .filter(|f| f.selected)
+                .flat_map(|f| f.points),
+        );
+        points.extend(
+            self.edges
+                .iter()
+                .filter(|e| e.selected)
+                .flat_map(|e| e.points),
+        );
         for vertex in &mut self.vertices {
             // A selected object must not create a sphere draw call at every mesh vertex.
             vertex.selected = self.selection.exact.contains(&vertex.target);
+            if vertex.selected {
+                points.push(vertex.point);
+            }
         }
+        self.selection_box = selection_box(&points);
     }
 
     pub fn draw(
@@ -433,14 +504,10 @@ impl Renderer {
                 if face.wireframe {
                     continue;
                 }
-                let color = if face.selected {
-                    Color::new(242, 151, 61, face.color.alpha)
+                let color = if external(&scene.edit_context, &scene.document, &face.target) {
+                    Color::new(188, 201, 212, 255)
                 } else {
-                    if external(&scene.edit_context, &scene.document, &face.target) {
-                        Color::new(188, 201, 212, 255)
-                    } else {
-                        ray_color(face.color)
-                    }
+                    ray_color(face.color)
                 };
                 triangle(&mut pass, face.points, color);
             }
@@ -500,6 +567,16 @@ impl Renderer {
         unsafe {
             raylib::ffi::rlDrawRenderBatchActive();
             raylib::ffi::rlDisableDepthTest();
+        }
+        for edge in &self.selection_box {
+            stroke(
+                view,
+                *edge,
+                Color::new(45, 128, 245, 255),
+                1.5,
+                camera,
+                height,
+            );
         }
         for edge in &self.edges {
             if matches!(edge.target.entity, SelectedEntity::Segment(_))

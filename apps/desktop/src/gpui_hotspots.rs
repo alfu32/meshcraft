@@ -23,9 +23,52 @@ pub(super) struct Drag {
     pub moved: bool,
 }
 
-pub(super) fn handles(document: &Document) -> Vec<Handle> {
+pub(super) fn handles(
+    document: &Document,
+    context: &EditContext,
+    selection: &[SelectionTarget],
+) -> Vec<Handle> {
+    let mut owners = std::collections::BTreeSet::new();
+    match context {
+        EditContext::Document => {
+            owners.insert(
+                document
+                    .scene_container_occurrence()
+                    .unwrap_or_else(OccurrenceRef::scene_root),
+            );
+        }
+        EditContext::Occurrence(active) => {
+            owners.insert(active.clone());
+        }
+        EditContext::Definition(id) => {
+            owners.extend(
+                document
+                    .scene_geometry_refs()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|p| {
+                        document
+                            .resolve_occurrence(p)
+                            .is_some_and(|r| r.definition.id == *id)
+                    }),
+            );
+        }
+    }
+    if let [target] = selection
+        && matches!(
+            target.entity,
+            SelectedEntity::Occurrence
+                | SelectedEntity::SemanticHandle {
+                    kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                    ..
+                }
+        )
+        && document.is_object_occurrence(&target.occurrence)
+    {
+        owners.insert(target.occurrence.clone());
+    }
     let mut result = Vec::new();
-    for occurrence in document.scene_geometry_refs().unwrap_or_default() {
+    for occurrence in owners {
         let Some(r) = document.resolve_occurrence(&occurrence) else {
             continue;
         };
@@ -51,28 +94,32 @@ pub(super) fn handles(document: &Document) -> Vec<Handle> {
 }
 
 pub(super) fn hit(shell: &MeshcraftShell, x: f32, y: f32) -> Option<Handle> {
-    handles(&shell.cached_document)
-        .into_iter()
-        .filter(|handle| {
-            shell.session.native_target_editable(&SelectionTarget {
-                occurrence: handle.occurrence.clone(),
-                entity: SelectedEntity::SemanticHandle {
-                    kind: meshcraft_core::selection::SelectionKind::Hotspot,
-                    id: handle.hotspot.id.clone(),
-                },
-            })
+    handles(
+        &shell.cached_document,
+        &shell.session.native_edit_context(),
+        &shell.session.native_selection_targets(),
+    )
+    .into_iter()
+    .filter(|handle| {
+        shell.session.native_target_editable(&SelectionTarget {
+            occurrence: handle.occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                id: handle.hotspot.id.clone(),
+            },
         })
-        .filter_map(|handle| {
-            let (hx, hy) = project_point(
-                shell.camera,
-                (shell.layout.width as f32, shell.layout.height as f32),
-                handle.world,
-            )?;
-            let distance = (hx - x).hypot(hy - y);
-            (distance <= 12.).then_some((distance, handle))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, handle)| handle)
+    })
+    .filter_map(|handle| {
+        let (hx, hy) = project_point(
+            shell.camera,
+            (shell.layout.width as f32, shell.layout.height as f32),
+            handle.world,
+        )?;
+        let distance = (hx - x).hypot(hy - y);
+        (distance <= 12.).then_some((distance, handle))
+    })
+    .min_by(|a, b| a.0.total_cmp(&b.0))
+    .map(|(_, handle)| handle)
 }
 
 pub(super) fn draw(
@@ -87,7 +134,7 @@ pub(super) fn draw(
         let Some((x, y)) = project_point(camera, size, handle.world) else {
             continue;
         };
-        let selected = selection.contains(&SelectionTarget {
+        let selected = selection.exactly_contains(&SelectionTarget {
             occurrence: handle.occurrence.clone(),
             entity: SelectedEntity::SemanticHandle {
                 kind: meshcraft_core::selection::SelectionKind::Hotspot,
@@ -243,5 +290,38 @@ impl MeshcraftShell {
         self.cached_document_revision = None;
         self.refresh_scene();
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn closed_object_handles_need_one_selected_owner_while_authoring_stays_visible() {
+        let mut d = Document::new();
+        let a = d
+            .add_cuboid("a", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let b = d.copy_root_occurrence(&a, Vec3::X * 3.).unwrap();
+        let id = d.resolve_occurrence(&a).unwrap().definition.id;
+        d.put_hotspot(
+            id,
+            Hotspot {
+                id: "size".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let target = |p: OccurrenceRef| SelectionTarget {
+            occurrence: p,
+            entity: SelectedEntity::Occurrence,
+        };
+        assert!(handles(&d, &EditContext::Document, &[]).is_empty());
+        assert_eq!(
+            handles(&d, &EditContext::Document, &[target(a.clone())]).len(),
+            1
+        );
+        assert!(handles(&d, &EditContext::Document, &[target(a.clone()), target(b)]).is_empty());
+        assert_eq!(handles(&d, &EditContext::Occurrence(a), &[]).len(), 1);
     }
 }

@@ -1422,7 +1422,7 @@ fn transform_geometry_bundle(
                 .ok_or_else(|| format!("selected triangle {} is missing", id.0))?
                 .clone();
             let new_id = TriangleId(document.allocate_id());
-            let copy = Triangle {
+            let mut copy = Triangle {
                 id: new_id,
                 vertices: source.vertices.map(|reference| VertexRef {
                     id: vertex_map[&reference.id],
@@ -1431,6 +1431,9 @@ fn transform_geometry_bundle(
                 legacy_aliases: Vec::new(),
                 ..source
             };
+            if transform.determinant() < 0. {
+                copy.vertices.swap(1, 2);
+            }
             geometry.triangles.insert(new_id, copy);
             result.copied_triangles += 1;
             result.targets.push(SelectedEntity::Triangle(new_id));
@@ -1500,7 +1503,10 @@ fn transform_geometry_bundle(
             }
         }
     }
-    for triangle in geometry.triangles.values_mut() {
+    for (id, triangle) in &mut geometry.triangles {
+        if transform.determinant() < 0. && selected.triangles.contains(id) {
+            triangle.vertices.swap(1, 2);
+        }
         for reference in &mut triangle.vertices {
             if vertex_ids.contains(&reference.id) {
                 reference.position_offset = transform.transform_vector(reference.position_offset);

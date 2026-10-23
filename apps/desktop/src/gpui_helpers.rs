@@ -66,23 +66,24 @@ pub(super) fn snap(
     guides: &[ConstructionGuide],
     geometry: Option<SnapResult>,
 ) -> Option<SnapResult> {
-    if geometry.is_some_and(|snap| {
-        matches!(
-            snap.kind,
-            SnapKind::Endpoint | SnapKind::Midpoint | SnapKind::Line
-        )
-    }) {
+    if geometry.is_some_and(|snap| matches!(snap.kind, SnapKind::Endpoint | SnapKind::Midpoint)) {
         return geometry;
     }
     if !spacing.is_finite() || spacing <= 0.0 {
         return geometry;
     }
+    let surface = geometry.filter(|s| s.kind == SnapKind::Face);
     let normal = geometry.map_or(normal_axis.vector(), |snap| snap.normal);
-    let hit = geometry
-        .map(|snap| snap.point)
-        .or_else(|| hit_plane(origin, ray, Vec3::ZERO, normal));
+    let hit = surface.map(|snap| snap.point).or_else(|| {
+        hit_plane(
+            origin,
+            ray,
+            geometry.map_or(Vec3::ZERO, |snap| snap.point),
+            normal,
+        )
+    });
     let mut best: Option<(u8, f32, SnapResult)> = None;
-    let face_depth = geometry.map(|snap| (snap.point - origin).dot(ray));
+    let face_depth = surface.map(|snap| (snap.point - origin).dot(ray));
     let mut consider = |point: Vec3, normal: Vec3, kind: SnapKind, priority: u8| {
         // Helpers behind the nearest solid surface must not capture point input.
         if face_depth.is_some_and(|depth| (point - origin).dot(ray) > depth + spacing * 0.02) {
@@ -177,7 +178,16 @@ pub(super) fn snap(
             consider(guide.origin + axis * along, normal, SnapKind::AxisGuide, 1);
         }
     }
-    best.map(|(_, _, snap)| snap).or(geometry).or_else(|| {
+    best.filter(|(_, _, s)| {
+        geometry.is_none_or(|g| g.kind != SnapKind::Line)
+            || matches!(
+                s.kind,
+                SnapKind::Grid | SnapKind::GridGuide | SnapKind::AxisGuide
+            )
+    })
+    .map(|(_, _, snap)| snap)
+    .or(geometry)
+    .or_else(|| {
         hit.map(|point| SnapResult {
             point,
             normal,
@@ -192,20 +202,33 @@ pub(super) fn draw_point_field(
     point: Vec3,
     axes: [Vec3; 3],
     spacing: f64,
+    camera: OrbitCamera,
+    height: f32,
 ) {
     let [u, v, n] = axes;
     let center = u * ((point.dot(u) / spacing).round() * spacing)
         + v * ((point.dot(v) / spacing).round() * spacing)
         + n * point.dot(n);
-    let radius = spacing * 0.025;
-    // Tiny crosses batch as lines, avoiding hundreds of per-point sphere meshes.
+    let forward = (camera.target - camera.position())
+        .try_normalized(1e-12)
+        .unwrap_or(-Vec3::Z);
+    let depth = if camera.orthographic {
+        f64::from(camera.distance)
+    } else {
+        (point - camera.position()).dot(forward).max(1e-6)
+    };
+    let radius = (depth * 2. * (f64::from(camera.field_of_view).to_radians() * 0.5).tan()
+        / f64::from(height.max(1.))
+        * 3.5)
+        .max(spacing * 0.06);
+    // Batched seven-pixel crosses remain legible as the camera zooms.
     for x in -6..=6 {
         for y in -6..=6 {
             let p = center
                 + u * (f64::from(x) * spacing)
                 + v * (f64::from(y) * spacing)
                 + n * (spacing * 0.002);
-            let color = Color::new(95, 119, 143, 150);
+            let color = Color::new(65, 99, 132, 205);
             scene.draw_line3D(ray_vec3(p - u * radius), ray_vec3(p + u * radius), color);
             scene.draw_line3D(ray_vec3(p - v * radius), ray_vec3(p + v * radius), color);
         }
@@ -253,6 +276,39 @@ pub(super) fn draw_guides(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn grid_points_win_over_line_attraction_but_endpoints_still_win() {
+        let line = SnapResult {
+            point: Vec3::new(0.04, 0., 0.),
+            normal: Vec3::Z,
+            kind: SnapKind::Line,
+            screen_distance: 0.,
+        };
+        let grid = snap_at(Vec3::new(0.04, 0., 0.), &[], Some(line));
+        assert_eq!(grid.kind, SnapKind::Grid);
+        assert!(grid.point.distance(Vec3::ZERO) < 1e-8);
+        let elevated = SnapResult {
+            point: Vec3::new(0.04, 2., 0.),
+            normal: Vec3::Y,
+            ..line
+        };
+        let upper = snap_at(elevated.point, &[], Some(elevated));
+        assert_eq!(upper.kind, SnapKind::Grid);
+        assert!(upper.point.distance(Vec3::Y * 2.) < 1e-8);
+        let endpoint = SnapResult {
+            kind: SnapKind::Endpoint,
+            ..line
+        };
+        assert_eq!(
+            snap_at(line.point, &[], Some(endpoint)).kind,
+            SnapKind::Endpoint
+        );
+        let far = SnapResult {
+            point: Vec3::new(0.45, 0., 0.45),
+            ..line
+        };
+        assert_eq!(snap_at(far.point, &[], Some(far)).kind, SnapKind::Line);
+    }
     fn snap_at(
         point: Vec3,
         guides: &[ConstructionGuide],

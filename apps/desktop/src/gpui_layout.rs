@@ -875,8 +875,24 @@ pub(super) fn menu_items(menu: &str) -> &'static [&'static str] {
             "Stretch",
             "Extrude",
             "Mirror",
+            "Flip Faces",
+            "Fill Loops",
             "Offset",
             "Sweep",
+        ],
+        "Solids" => &[
+            "Solid Union",
+            "Solid Intersection",
+            "Solid Difference",
+            "Planar Section",
+        ],
+        "Arrays" => &[
+            "Linear Array",
+            "Planar Array",
+            "Spatial Array",
+            "Rotational Array",
+            "Helical Array",
+            "Surface Array",
         ],
         "Object Prototypes" | "Objects" => &[
             "Make Object",
@@ -1060,8 +1076,17 @@ const MODIFY_GROUPS: &[RibbonGroup] = &[
             ("sweep", "Sweep"),
             ("fillet", "Fillet"),
             ("chamfer", "Chamfer"),
-            ("planar-regularize", "Regularize"),
-            ("surface-remesh", "Remesh"),
+            ("fill-loops", "Fill Loops"),
+        ],
+    },
+    RibbonGroup {
+        title: "Solids",
+        namespace: "ribbon/modify/solids",
+        commands: &[
+            ("solid-union", "Union"),
+            ("solid-intersection", "Intersection"),
+            ("solid-difference", "Difference"),
+            ("planar-section", "Planar Section"),
         ],
     },
 ];
@@ -1074,6 +1099,7 @@ const ARRAY_GROUPS: &[RibbonGroup] = &[
             ("linear-array", "Linear Spread"),
             ("planar-array", "Planar Spread"),
             ("spatial-array", "Spatial Spread"),
+            ("surface-array", "Surface Array"),
         ],
     },
     RibbonGroup {
@@ -1511,6 +1537,7 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
                 ("stretch", "Stretch"),
                 ("extrude", "Extrude"),
                 ("mirror", "Mirror"),
+                ("flip", "Flip Faces"),
                 ("offset", "Offset"),
                 ("sweep", "Sweep"),
                 ("fillet", "Fillet"),
@@ -1579,12 +1606,17 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
         .child(palette(
             "Modification 2",
             "toolbar/modification-2",
+            &[("fill-loops", "Fill Loops")],
+            bindings,
+        ))
+        .child(palette(
+            "Solids",
+            "toolbar/solids",
             &[
-                ("planar-regularize", "Regularize"),
-                ("surface-remesh", "Remesh"),
-                ("random-offset", "Fuzzy Offset"),
-                ("surface-array", "Surface Array"),
-                ("mesh-intersection", "Intersect"),
+                ("solid-union", "Union"),
+                ("solid-intersection", "Intersection"),
+                ("solid-difference", "Difference"),
+                ("planar-section", "Planar Section"),
             ],
             bindings,
         ))
@@ -1600,7 +1632,7 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
             bindings,
         ))
         .child(palette(
-            "Spatial Arrays",
+            "Arrays",
             "toolbar/arrays",
             &[
                 ("linear-array", "Linear"),
@@ -1608,6 +1640,7 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
                 ("spatial-array", "Spatial"),
                 ("rotational-array", "Rotate"),
                 ("helical-array", "Helical"),
+                ("surface-array", "Surface Array"),
             ],
             bindings,
         ))

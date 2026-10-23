@@ -57,7 +57,7 @@ Source: `K/ui/SketchUiOverlay.kt`, callback wiring `K/Main.kt:1038`, settings cl
 
 **GPUI layout visibility (2026-10-20).** UI Settings provides saved visibility
 controls for the entire menu bar, each dropdown (File, Edit, View, Insert, Format,
-Draw, Dimension, Modify, Objects, Tools, Render, Window, Help), the ribbon including
+Draw, Dimension, Modify, Arrays, Solids, Objects, Tools, Render, Window, Help), the ribbon including
 its tabs, and the left tool panel. All are visible by default, including when
 loading older preferences. Individual dropdown choices survive hiding/revealing
 the menu bar. Hiding a section removes its reserved layout space and updates
@@ -300,3 +300,20 @@ Copy Mode; divided factors interpolate from identity and repetitions compound.
 Use the shared transactional array operation and cap preview cost independently
 of the accepted count. MCP uses the same text/backspace/finish operations and
 reports pending text. See [syntax and examples](../../numeric-tool-input.md).
+
+### Selection and construction feedback refinement (2026-10-23)
+
+Auto-grid samples are visible crosses with a minimum seven-pixel span. Grid points
+and guide-grid points inside the configured screen snap radius outrank attraction
+to a segment; model endpoints/midpoints retain their explicit-point priority.
+Selection keeps the normal face materials and colors. Only edges/outlines change
+color, with one blue world-space bounding box around the selection. Selection
+bounds and line membership are cached until selection/content changes. Identical
+scene publications must not schedule another GPU frame: an idle selected scene
+remains still while mouse/camera/tool/script changes continue to invalidate it.
+
+Modify menus/toolbars include Flip Faces (also reversing selected segments), Mirror
+Selection, and Fill Loops. Modification 2 presents Fill Loops in place of the
+ambiguous Regularize/Remesh entries. Fuzzy Offset is a random tool; Surface Array
+belongs to Arrays. Solids contains Union, Intersection, Difference, mesh
+intersection curves, and Planar Section.

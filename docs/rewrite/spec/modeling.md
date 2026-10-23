@@ -394,3 +394,31 @@ Flip reverses selected segment endpoint order and triangle winding without movin
 changing primitive IDs/materials. One transaction flips all supported selected primitives. Applying
 Flip twice restores their orientation. Explicitly selected segments show a constant-pixel arrowhead
 following their endpoint order, making path orientation visible before sweep/extrusion.
+
+### Directed fills, mirror planes and Solids menu (2026-10-23)
+
+Fill Loops uses selected coplanar lines. It welds near endpoints, splits crossings,
+T junctions and overlaps, extracts bounded regions, preserves holes and ignores
+open tails. An entirely open chain is rejected without mutation. Face normals
+follow the source segment directions, including independently oriented disjoint
+loops; reversing the source reverses the generated surface. Source lines remain.
+The legacy Polyline Mesh action retains its historical open-chain closure behavior.
+
+Mirror Selection takes a plane origin and a second point defining its normal.
+Preview and commit share the same reflection, support mesh fragments and object
+instances, preserve independent source topology, and maintain outward winding.
+
+Solids groups Union, Intersection, Difference, mesh intersection curves and Planar
+Section. Boolean operands are two closed, consistently directed mesh instances
+sharing an editable parent. Difference subtracts the second (later placement ID)
+operand from the first. Resolve transforms/scripts and preserve surface materials;
+replace only the selected operands with ordinary parent-graph geometry in one
+transaction. Empty intersections/differences are valid. Invalid/open input and
+exhausted geometry/depth budgets fail atomically. Intersection curves preserve
+the source meshes; coplanar pairs do not define a unique curve.
+
+Planar Section acts on selected faces/objects using two picked points: plane
+origin, then normal direction from that origin. Show the plane/vector and section
+line preview without editing the document. Commit creates intersection lines in
+the active graph while retaining the sources. Coplanar faces contribute their
+boundary, excluding triangulation diagonals. Reject zero normals; Escape cancels.

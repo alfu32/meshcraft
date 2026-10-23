@@ -1,0 +1,25 @@
+{
+  "version": "0.33.0",
+  "idleSelectedFrameSequences": [
+    5,
+    5,
+    5
+  ],
+  "faceColorsRetained": true,
+  "unchangedFacePixelFraction": 0.9983242150919217,
+  "selectionBluePixels": 1336,
+  "mirrorTwoPointCommitUndo": true,
+  "scriptHotspotCyanPixelCounts": [
+    0,
+    115,
+    0
+  ],
+  "fillClosedLines": true,
+  "meshIntersectionPreservesSources": true,
+  "booleanOperationsUndo": [
+    "solid_union",
+    "solid_intersection",
+    "solid_subtraction"
+  ],
+  "sectionTwoPointPreviewCommit": true
+}

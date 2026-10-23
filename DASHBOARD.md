@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.33.0 selection, grid and mesh tools:** auto-grid crosses are larger and grid
+points outrank line attraction. Closed-object hotspots appear for one selected
+instance. Selection preserves face colors, highlights lines with a blue bounding
+box, and skips identical GPU redraws. Modify adds Mirror and Fill Loops; Arrays
+hosts Surface Array. Solids groups working Union/Intersection/Difference, mesh
+intersection curves and two-point Planar Section with wireframe feedback.
+
 **0.32.0 prototype management:** Delete Prototype is available for used and unused
 prototypes. Used definitions require a warning confirmation that removes all their
 instances, including placements inside other prototypes; Cancel is non-mutating.

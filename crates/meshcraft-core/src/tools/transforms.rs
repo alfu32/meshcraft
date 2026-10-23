@@ -9,6 +9,7 @@ pub enum TransformTool {
     Rotate2,
     Scale,
     Squash,
+    Mirror,
     Stretch,
     StretchScale,
     RotateStretch,
@@ -22,6 +23,7 @@ impl TransformTool {
             "Rotate 2" => Some(Self::Rotate2),
             "Scale" => Some(Self::Scale),
             "Squash" => Some(Self::Squash),
+            "Mirror" => Some(Self::Mirror),
             "Stretch" => Some(Self::Stretch),
             "Stretch Scale" => Some(Self::StretchScale),
             "Rotate Stretch" => Some(Self::RotateStretch),
@@ -36,6 +38,7 @@ impl TransformTool {
             Self::Rotate2 => "Rotate 2",
             Self::Scale => "Scale",
             Self::Squash => "Squash",
+            Self::Mirror => "Mirror",
             Self::Stretch => "Stretch",
             Self::StretchScale => "Stretch Scale",
             Self::RotateStretch => "Rotate Stretch",
@@ -44,7 +47,7 @@ impl TransformTool {
 
     pub fn required_picks(self) -> usize {
         match self {
-            Self::Move | Self::Stretch => 2,
+            Self::Move | Self::Stretch | Self::Mirror => 2,
             Self::Rotate2 => 3,
             Self::Scale | Self::Squash | Self::StretchScale => 3,
             Self::Rotate | Self::RotateStretch => 4,
@@ -60,6 +63,8 @@ impl TransformTool {
 
     pub fn next_pick_prompt(self, placed: usize) -> &'static str {
         match (self, placed) {
+            (Self::Mirror, 0) => "Pick the mirror plane origin.",
+            (Self::Mirror, _) => "Pick a point defining its normal direction.",
             (Self::Move | Self::Stretch, 0) => "Pick the reference point.",
             (Self::Move | Self::Stretch, _) => "Pick the destination point.",
             (Self::Rotate | Self::RotateStretch, 0) => "Pick the rotation center.",
@@ -376,6 +381,21 @@ fn build_transform_fraction(
     };
 
     match tool {
+        TransformTool::Mirror => {
+            let origin = picks[0];
+            let axis = (picks[1] - origin)
+                .try_normalized(1e-9)
+                .ok_or("Mirror normal point must differ from the origin.")?;
+            let n = [axis.x, axis.y, axis.z];
+            let linear = std::array::from_fn(|i| {
+                std::array::from_fn(|j| (if i == j { 1. } else { 0. }) - 2. * n[i] * n[j])
+            });
+            let m = Affine3::from_linear_translation(linear, Vec3::ZERO);
+            Ok(Affine3::from_linear_translation(
+                linear,
+                origin - m.transform_point(origin),
+            ))
+        }
         TransformTool::Move | TransformTool::Stretch => {
             let start = picks[0];
             let mut end = picks[1];

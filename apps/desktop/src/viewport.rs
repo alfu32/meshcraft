@@ -349,13 +349,13 @@ impl WalkthroughCamera {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CuboidPreview {
     pub origin: Vec3,
     pub dimensions: Vec3,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ToolPreview {
     Point {
         position: Vec3,
@@ -4071,15 +4071,7 @@ impl Viewport {
                         .iter()
                         .map(|point| self.world_to_screen(rect, *point))
                         .collect::<Vec<_>>();
-                    let selected_face = selection.iter().any(|target| {
-                        target.occurrence == occurrence
-                            && target.entity == SelectedEntity::Triangle(triangle.id)
-                    });
-                    let base_color = if selected_face {
-                        Color32::from_rgba_unmultiplied(255, 163, 62, 116)
-                    } else {
-                        color32(triangle.color)
-                    };
+                    let base_color = color32(triangle.color);
                     let center = (world_points[0] + world_points[1] + world_points[2]) / 3.0;
                     let shadow = shadow_map
                         .map_or(0.0, |shadow_map| shadow_map.shadow_coverage(center, normal));

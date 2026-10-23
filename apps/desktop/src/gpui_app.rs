@@ -237,6 +237,31 @@ struct RenderScene {
     lighting: lighting::Lighting,
 }
 
+impl RenderScene {
+    fn same_frame(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.document, &other.document)
+            && Arc::ptr_eq(&self.annotations, &other.annotations)
+            && self.selection == other.selection
+            && self.display_policy == other.display_policy
+            && self.edit_context == other.edit_context
+            && self.grid_visible == other.grid_visible
+            && self.grid_normal_axis == other.grid_normal_axis
+            && self.grid_extent == other.grid_extent
+            && self.guides == other.guides
+            && self.guides_visible == other.guides_visible
+            && self.cursor == other.cursor
+            && self.cursor_axes == other.cursor_axes
+            && self.preview == other.preview
+            && self.reference_edges == other.reference_edges
+            && self.selection_rect == other.selection_rect
+            && self.grid_spacing == other.grid_spacing
+            && self.normal_line_width == other.normal_line_width
+            && self.thick_line_width == other.thick_line_width
+            && self.antialiasing == other.antialiasing
+            && self.lighting == other.lighting
+    }
+}
+
 impl Default for RenderScene {
     fn default() -> Self {
         Self {
@@ -316,6 +341,9 @@ impl ViewportBridge {
 
     fn publish_scene(&self, scene: RenderScene) {
         if let Ok(mut current) = self.scene.write() {
+            if current.same_frame(&scene) {
+                return;
+            }
             *current = Arc::new(scene);
         }
         self.request_redraw();
@@ -573,7 +601,14 @@ fn draw_offscreen_scene(
             draw_guides(&mut view, &scene_data.guides, scene_data.grid_spacing);
         }
         if let (Some(cursor), Some(axes)) = (scene_data.cursor, scene_data.cursor_axes) {
-            helpers::draw_point_field(&mut view, cursor.point, axes, scene_data.grid_spacing);
+            helpers::draw_point_field(
+                &mut view,
+                cursor.point,
+                axes,
+                scene_data.grid_spacing,
+                orbit,
+                target_height,
+            );
             draw_cursor(&mut view, cursor, axes);
         }
         if !scene_data.reference_edges.is_empty() {
@@ -2200,7 +2235,7 @@ fn selection_region_in_context(
         }
         points.clear();
     }
-    for handle in hotspots::handles(document) {
+    for handle in hotspots::handles(document, context, &[]) {
         let authored = match context {
             EditContext::Document => {
                 handle.occurrence.is_scene_root()
@@ -2455,8 +2490,13 @@ fn ribbon_command_for_key<'a>(
         "squash" => &["tool.squash"],
         "stretch" => &["tool.builtin.stretch"],
         "extrude" => &["tool.builtin.push_pull", "tool.builtin.extrude_swipe"],
-        "flip" => &["geometry.flip_selection"],
-        "mirror" => &["tool.builtin.mirror"],
+        "flip-faces" | "flip" => &["geometry.flip_selection"],
+        "mirror" => &["tool.mirror"],
+        "fill-loops" => &["geometry.fill_loops"],
+        "solid-union" => &["tool.builtin.solid_union"],
+        "solid-difference" => &["tool.builtin.solid_subtraction"],
+        "solid-intersection" => &["tool.builtin.solid_intersection"],
+        "planar-section" => &["tool.builtin.plane_section"],
         "make-object" | "create-object" => &["object.create_from_selection"],
         "edit-object" | "edit-definition" => &["selection.edit_object"],
         "exit-object" => &["selection.exit_context"],
@@ -3403,6 +3443,25 @@ fn wheel_zoom_steps(steps: f32, modifiers: gpui::Modifiers) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unchanged_selected_scene_does_not_schedule_another_gpu_frame() {
+        use super::*;
+        let bridge = ViewportBridge::new();
+        let mut scene = RenderScene::default();
+        scene.selection.push(SelectionTarget {
+            occurrence: meshcraft_core::document::OccurrenceRef::scene_root(),
+            entity: SelectedEntity::Occurrence,
+        });
+        bridge.publish_scene(scene.clone());
+        let revision = *bridge.redraw.0.lock().unwrap();
+        for _ in 0..30 {
+            bridge.publish_scene(scene.clone());
+        }
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), revision);
+        scene.selection.clear();
+        bridge.publish_scene(scene);
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), revision + 1);
+    }
     use super::layout::ribbon_groups;
     use super::{
         OrbitCamera, ViewportBridge, ViewportLayout, ribbon_command_for_key, viewport_physical_rect,

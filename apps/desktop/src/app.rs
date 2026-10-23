@@ -13,6 +13,8 @@ mod materials_workflow;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "mcp_workflow.rs"]
 mod mcp_workflow;
+#[path = "mesh_workflow.rs"]
+mod mesh_workflow;
 #[path = "numeric_workflow.rs"]
 mod numeric_workflow;
 #[path = "object_workflow.rs"]
@@ -300,6 +302,10 @@ const LEGACY_TOOLBARS: &[(&str, &str)] = &[
     ("builtin_toolbar_architecture", "Architecture"),
     ("builtin_toolbar_camera", "Camera"),
     ("builtin_toolbar_modification_2", "Modification 2"),
+    ("builtin_toolbar_solids", "Solids"),
+    ("builtin_toolbar_arrays", "Arrays"),
+    ("builtin_toolbar_random", "Random Tools"),
+    ("builtin_toolbar_advanced_mesh", "Advanced Mesh"),
     ("builtin_toolbar_mech", "Mech"),
     ("builtin_toolbar_primitives", "Primitives"),
     ("builtin_toolbar_voxel", "Voxel"),
@@ -322,9 +328,6 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
             "face_outline",
             "polyline_mesh",
             "object_cut",
-            "solid_union",
-            "solid_intersection",
-            "solid_subtraction",
             "mesh",
             "quad",
             "circle",
@@ -341,12 +344,8 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
             "push_pull",
             "extrude_swipe",
             "extrude_swipe_3d",
-            "plane_section",
-            "mesh_intersection",
             "cut_with_plane",
             "revolve",
-            "mesh_regularize",
-            "surface_remesh",
         ],
     ),
     (
@@ -358,27 +357,38 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
             "scale",
             "stretch",
             "stretch_scale",
-            "random_offset",
-            "random_surface_array",
             "rotate_stretch",
+            "paint",
+        ],
+    ),
+    ("modification_2", &["rotate_2"]),
+    (
+        "solids",
+        &[
+            "solid_union",
+            "solid_intersection",
+            "solid_subtraction",
+            "plane_section",
+            "mesh_intersection",
+        ],
+    ),
+    (
+        "arrays",
+        &[
             "copy_multiple",
             "planar_translate_multiple",
             "volumetric_translate_multiple",
             "planar_rotate_multiple",
             "helicoidal_rotate_multiple",
-            "paint",
-        ],
-    ),
-    (
-        "modification_2",
-        &[
-            "rotate_2",
             "rotational_array",
             "helical_array",
             "rotational_array_equalized",
             "helical_array_equalized",
+            "random_surface_array",
         ],
     ),
+    ("random", &["random_offset"]),
+    ("advanced_mesh", &["mesh_regularize", "surface_remesh"]),
     ("voxel", &["voxel", "voxel_volume", "voxel_frame"]),
     (
         "architecture",
@@ -412,6 +422,8 @@ const LEGACY_TOOLBAR_TOOL_IDS: &[(&str, &[&str])] = &[
     ),
 ];
 const LEGACY_TOOLBAR_COMMAND_IDS: &[(&str, &[&str])] = &[
+    ("modification", &["tool.mirror", "geometry.flip_selection"]),
+    ("modification_2", &["geometry.fill_loops"]),
     ("construction_points", &["hotspot.begin_placement"]),
     ("in_tool_operators", &["tool.select", "tool.distance"]),
     (
@@ -705,6 +717,10 @@ enum ShellAction {
     PaintSelection,
     FaceOutline,
     PolylineMesh,
+    FillLoops,
+    MeshIntersection,
+    SolidBoolean(meshcraft_core::operations::solids::Boolean),
+    BeginSection,
     CutSelectedFaces(CutTool),
     SetPaintColor,
     CancelActiveTool,
@@ -1430,6 +1446,11 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 .find(|(id, _)| id == tool_id)
                 .map_or(*tool_id, |(_, icon)| *icon);
             let action = match *tool_id {
+                "solid_union" => ShellAction::SolidBoolean(meshcraft_core::operations::solids::Boolean::Union),
+                "solid_subtraction" => ShellAction::SolidBoolean(meshcraft_core::operations::solids::Boolean::Difference),
+                "solid_intersection" => ShellAction::SolidBoolean(meshcraft_core::operations::solids::Boolean::Intersection),
+                "plane_section" => ShellAction::BeginSection,
+                "mesh_intersection" => ShellAction::MeshIntersection,
                 "arch_wall" => ShellAction::SelectToolAlias("Wall"),
                 "arch_slab" => ShellAction::SelectToolAlias("Rectangular Slab"),
                 "arch_add_hole" => ShellAction::SelectToolAlias("Add Hole"),
@@ -1526,6 +1547,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("edit.copy_as_script", "Copy as Script", "script"), ("edit.copy_selection", "Copy", "copy")] {
             register_shell_command(&mut registry, id, &format!("Edit> {label}"), "Edit", "clipboard cut copy paste script", Some(if action.starts_with("paste") { "paste" } else { "copy" }), ShellAction::ClipboardAction(action));
         }
+        register_shell_command(&mut registry,"tool.mirror","Modify> Mirror Selection","Modify","reflect selection plane origin normal",Some("mirror"),ShellAction::SelectToolAlias("Mirror"));
+        register_shell_command(&mut registry,"geometry.fill_loops","Modify> Fill Selected Loops","Modify","surface faces directed segments closed loops regularize",Some("polyline_mesh"),ShellAction::FillLoops);
         register_shell_command(&mut registry, "geometry.flip_selection", "Modify> Flip Direction / Normals", "Modify", "reverse face normal segment direction winding", Some("mirror"), ShellAction::FlipSelection);
         register_shell_command(&mut registry, "tool.leader", "Dimension> Leader", "Dimension", "annotation leader arrow label", Some("leader"), ShellAction::SelectToolAlias("Leader"));
         register_shell_command(&mut registry, "annotation.update", "Dimension> Apply Annotation Properties", "Dimension", "label text size dimension leader", Some("text"), ShellAction::AnnotationSettings);
@@ -1608,6 +1631,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::BeginCopyTransform(_)
         | ShellAction::CycleTool(_)
         | ShellAction::BeginObjectPlacement
+        | ShellAction::BeginSection
         | ShellAction::RemoveGuide => CommandKind::ToolActivation,
         ShellAction::HotspotAction(_)
         | ShellAction::MaterialAction(_)
@@ -1620,6 +1644,9 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::DeleteSelection
         | ShellAction::FaceOutline
         | ShellAction::PolylineMesh
+        | ShellAction::FillLoops
+        | ShellAction::MeshIntersection
+        | ShellAction::SolidBoolean(_)
         | ShellAction::CutSelectedFaces(_)
         | ShellAction::PaintSelection
         | ShellAction::ResetSceneForCapture
@@ -1688,7 +1715,11 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
             CommandStateQuery::SelectionAvailable
         }
         ShellAction::FaceOutline => CommandStateQuery::SelectionAvailable,
-        ShellAction::PolylineMesh => CommandStateQuery::SelectionAvailable,
+        ShellAction::PolylineMesh
+        | ShellAction::FillLoops
+        | ShellAction::SolidBoolean(_)
+        | ShellAction::MeshIntersection
+        | ShellAction::BeginSection => CommandStateQuery::SelectionAvailable,
         ShellAction::CutSelectedFaces(_) => CommandStateQuery::SelectionAvailable,
         ShellAction::DeleteSelection => CommandStateQuery::DeleteSelectionAvailable,
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
@@ -1735,6 +1766,12 @@ const TOOLS_MENU_GROUP_ORDER: &[&str] = &[
 ];
 
 fn legacy_tool_menu_group(tool_id: &str) -> Option<&'static str> {
+    if matches!(tool_id, "mesh_regularize" | "surface_remesh") {
+        return Some("Advanced Mesh");
+    }
+    if tool_id == "random_offset" {
+        return Some("Random Tools");
+    }
     LEGACY_TOOLBAR_TOOL_IDS
         .iter()
         .find(|(_, tool_ids)| tool_ids.contains(&tool_id))
@@ -1771,6 +1808,31 @@ fn tools_menu_group(command_id: &str) -> Option<&'static str> {
 }
 
 fn command_menu_aliases(command_id: &str) -> Vec<Vec<String>> {
+    if matches!(
+        command_id,
+        "tool.builtin.solid_union"
+            | "tool.builtin.solid_subtraction"
+            | "tool.builtin.solid_intersection"
+            | "tool.builtin.mesh_intersection"
+            | "tool.builtin.plane_section"
+    ) {
+        return vec![vec!["Solids".into()]];
+    }
+    if matches!(
+        command_id,
+        "tool.builtin.copy_multiple"
+            | "tool.builtin.planar_translate_multiple"
+            | "tool.builtin.volumetric_translate_multiple"
+            | "tool.builtin.planar_rotate_multiple"
+            | "tool.builtin.helicoidal_rotate_multiple"
+            | "tool.builtin.rotational_array"
+            | "tool.builtin.helical_array"
+            | "tool.builtin.rotational_array_equalized"
+            | "tool.builtin.helical_array_equalized"
+            | "tool.builtin.random_surface_array"
+    ) {
+        return vec![vec!["Arrays".into()]];
+    }
     if matches!(
         command_id,
         "import.mesh" | "export.mesh" | "export.ifc_model"
@@ -1863,6 +1925,7 @@ fn register_shell_command(
         | ShellAction::SelectToolAlias(_)
         | ShellAction::CycleTool(_)
         | ShellAction::BeginObjectPlacement
+        | ShellAction::BeginSection
         | ShellAction::ToggleObjectPlaceGlue
         | ShellAction::BeginHotspotPlacement
         | ShellAction::CancelHotspotPlacement
@@ -1906,7 +1969,30 @@ fn register_shell_command(
     };
     descriptor.presentation = CommandPresentation {
         palette_path: name.to_owned(),
-        menu_path: if category == "Tools" {
+        menu_path: if matches!(
+            id,
+            "tool.builtin.solid_union"
+                | "tool.builtin.solid_intersection"
+                | "tool.builtin.solid_subtraction"
+                | "tool.builtin.plane_section"
+                | "tool.builtin.mesh_intersection"
+        ) {
+            vec!["Solids".into()]
+        } else if matches!(
+            id,
+            "tool.builtin.copy_multiple"
+                | "tool.builtin.planar_translate_multiple"
+                | "tool.builtin.volumetric_translate_multiple"
+                | "tool.builtin.planar_rotate_multiple"
+                | "tool.builtin.helicoidal_rotate_multiple"
+                | "tool.builtin.rotational_array"
+                | "tool.builtin.helical_array"
+                | "tool.builtin.rotational_array_equalized"
+                | "tool.builtin.helical_array_equalized"
+                | "tool.builtin.random_surface_array"
+        ) {
+            vec!["Arrays".into()]
+        } else if category == "Tools" {
             if matches!(id, "tool.select" | "tool.line" | "tool.rectangle") {
                 Vec::new()
             } else {
@@ -2155,6 +2241,8 @@ pub(crate) const DROPDOWN_MENU_NAMES: &[&str] = &[
     "Draw",
     "Dimension",
     "Modify",
+    "Arrays",
+    "Solids",
     "Objects",
     "Tools",
     "Render",
@@ -2311,6 +2399,7 @@ pub struct MeshcraftApp {
     document_generation: u64,
     annotations: annotation_workflow::AnnotationState,
     architecture: architecture_workflow::State,
+    section: mesh_workflow::SectionState,
     clipboard: clipboard_workflow::ClipboardState,
     #[cfg(not(target_arch = "wasm32"))]
     mcp_jobs: mcp_workflow::Jobs,
@@ -3420,6 +3509,7 @@ impl MeshcraftApp {
             document_generation: 0,
             annotations: Default::default(),
             architecture: Default::default(),
+            section: Default::default(),
             clipboard: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             mcp_jobs: Default::default(),
@@ -6090,6 +6180,7 @@ impl MeshcraftApp {
         self.clipboard.placement = None;
         self.annotations.points.clear();
         self.architecture = Default::default();
+        self.section = Default::default();
         if matches!(tool, "Linear Dimension" | "Text" | "Leader") {
             self.panel_focus = Some("annotations".into());
         }
@@ -6312,6 +6403,13 @@ impl MeshcraftApp {
     }
 
     pub fn native_point_input_hint(&self) -> &'static str {
+        if self.active_tool == "Planar Section" {
+            return if self.section.origin.is_some() {
+                "Pick a point defining the section plane normal"
+            } else {
+                "Pick the section plane origin"
+            };
+        }
         if architecture_workflow::active(&self.active_tool) {
             return self.arch_hint();
         }
@@ -6614,6 +6712,10 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::FaceOutline => return self.outline_selected_faces(),
+            ShellAction::MeshIntersection => return self.intersect_mesh_selection(),
+            ShellAction::FillLoops => return self.fill_selected_loops(),
+            ShellAction::SolidBoolean(operation) => return self.solid_boolean(operation),
+            ShellAction::BeginSection => return self.begin_section(),
             ShellAction::PolylineMesh => return self.mesh_selected_polylines(),
             ShellAction::CutSelectedFaces(tool) => return self.cut_selected_faces(tool),
             ShellAction::SetPaintColor => {
@@ -7829,6 +7931,20 @@ impl MeshcraftApp {
         if matches!(id, "edit.paste" | "edit.paste_in_place") {
             return CommandState::default();
         }
+        if matches!(id, "geometry.fill_loops" | "tool.mirror")
+            && self.selection.selected().is_empty()
+        {
+            return CommandState::disabled("Select geometry first.");
+        }
+        if id == "geometry.fill_loops"
+            && !self
+                .selection
+                .selected()
+                .iter()
+                .any(|t| matches!(t.entity, SelectedEntity::Segment(_)))
+        {
+            return CommandState::disabled("Select lines forming closed loops.");
+        }
         if id == "geometry.flip_selection" {
             return if self.selection.selected().iter().any(|t| {
                 matches!(
@@ -8712,6 +8828,12 @@ impl MeshcraftApp {
         if architecture_workflow::active(&self.active_tool) {
             if let Some(point) = construction_point {
                 self.arch_click(point, snap, None);
+            }
+            return;
+        }
+        if self.active_tool == "Planar Section" {
+            if let Some(point) = construction_point {
+                self.section_pick(point);
             }
             return;
         }
@@ -9685,6 +9807,9 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        if self.active_tool == "Planar Section" {
+            return snap.map(|s| self.section_preview(s.point));
+        }
         let raw_point = snap
             .map(|s| s.point)
             .or_else(|| pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p)));
@@ -10406,6 +10531,9 @@ impl MeshcraftApp {
     }
 
     fn tool_reference_point(&self) -> Option<Vec3> {
+        if self.active_tool == "Planar Section" {
+            return self.section.origin;
+        }
         if architecture_workflow::active(&self.active_tool) {
             return self
                 .architecture
@@ -10839,11 +10967,12 @@ impl MeshcraftApp {
             });
 
             for menu in [
-                "Draw", "Modify", "Objects", "Tools", "Render", "Import", "Export",
+                "Draw", "Modify", "Arrays", "Solids", "Objects", "Tools", "Render", "Import",
+                "Export",
             ] {
                 ui.menu_button(menu, |ui| {
-                    if menu == "Tools" {
-                        self.show_command_menu_branch(ui, &["Tools".to_owned()]);
+                    if matches!(menu, "Tools" | "Arrays" | "Solids") {
+                        self.show_command_menu_branch(ui, &[menu.to_owned()]);
                     } else {
                         let commands = shell_commands()
                             .entries()
@@ -12931,6 +13060,7 @@ mod tests {
             document_generation: 0,
             annotations: Default::default(),
             architecture: Default::default(),
+            section: Default::default(),
             clipboard: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             mcp_jobs: Default::default(),
@@ -13650,7 +13780,7 @@ mod tests {
     #[test]
     fn native_toolbar_catalog_matches_legacy_groups_and_command_states() {
         let groups = MeshcraftApp::native_toolbar_catalog();
-        assert_eq!(13, groups.len());
+        assert_eq!(17, groups.len());
         let command_ids = |group: &str| {
             groups
                 .iter()
@@ -13668,6 +13798,12 @@ mod tests {
         assert!(command_ids("Rendering").contains(&"render.raytrace"));
         assert!(command_ids("Architecture").contains(&"tool.builtin.arch_wall"));
         assert!(command_ids("HVAC").contains(&"tool.builtin.hvac_plumbing"));
+        assert!(command_ids("Solids").contains(&"tool.builtin.plane_section"));
+        assert!(command_ids("Solids").contains(&"tool.builtin.solid_union"));
+        assert!(command_ids("Arrays").contains(&"tool.builtin.random_surface_array"));
+        assert!(!command_ids("Modification").contains(&"tool.builtin.random_surface_array"));
+        assert!(command_ids("Modification 2").contains(&"geometry.fill_loops"));
+        assert!(!command_ids("Modification 2").contains(&"tool.builtin.mesh_regularize"));
 
         let mut session =
             MeshcraftApp::new_native_session(Document::new(), "Ready".to_owned(), None);
@@ -13684,7 +13820,7 @@ mod tests {
         );
 
         let visibility = session.native_toolbar_visibility();
-        assert_eq!(13, visibility.len());
+        assert_eq!(17, visibility.len());
         assert!(visibility.iter().all(|shown| *shown));
         session.run_command("view.toolbar.actions.hide");
         assert!(!session.native_toolbar_visibility()[1]);
@@ -13819,7 +13955,7 @@ mod tests {
                 .count()
         );
         assert_eq!(
-            26,
+            34,
             entries
                 .iter()
                 .filter(|command| command.descriptor.id.as_str().starts_with("view.toolbar."))
@@ -14396,10 +14532,22 @@ mod tests {
             let id = format!("tool.builtin.{tool_id}");
             let command = shell_commands().get(&id).unwrap();
             let expected_group = super::legacy_tool_menu_group(tool_id).unwrap_or("Other Tools");
-            assert_eq!(
-                vec!["Tools".to_owned(), expected_group.to_owned()],
-                command.descriptor.presentation.menu_path
-            );
+            let expected = match *tool_id {
+                "solid_union" | "solid_intersection" | "solid_subtraction" | "plane_section"
+                | "mesh_intersection" => vec!["Solids".to_owned()],
+                "copy_multiple"
+                | "planar_translate_multiple"
+                | "volumetric_translate_multiple"
+                | "planar_rotate_multiple"
+                | "helicoidal_rotate_multiple"
+                | "rotational_array"
+                | "helical_array"
+                | "rotational_array_equalized"
+                | "helical_array_equalized"
+                | "random_surface_array" => vec!["Arrays".to_owned()],
+                _ => vec!["Tools".to_owned(), expected_group.to_owned()],
+            };
+            assert_eq!(expected, command.descriptor.presentation.menu_path);
         }
 
         for id in [

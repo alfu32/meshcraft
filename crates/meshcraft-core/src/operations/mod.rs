@@ -8,3 +8,6 @@ pub mod revolve;
 pub mod sweep;
 pub mod transforms;
 pub(crate) mod vector_text;
+
+pub mod fill;
+pub mod solids;
