@@ -2082,6 +2082,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("auto_collapse_toolbars", CommandValueType::Boolean),
             ("accordion_settings_panels", CommandValueType::Boolean),
             ("antialiasing_quality", CommandValueType::Integer),
+            ("black_model_lines", CommandValueType::Boolean),
             ("toolbar_icon_size", CommandValueType::Integer),
             ("show_permanent_grid", CommandValueType::Boolean),
             ("show_construction_guides", CommandValueType::Boolean),
@@ -2264,6 +2265,7 @@ struct Preferences {
     auto_collapse_toolbars: bool,
     accordion_settings_panels: bool,
     antialiasing_quality: u32,
+    black_model_lines: bool,
     ui_text_scale: f32,
     toolbar_icon_size: u32,
     show_permanent_grid: bool,
@@ -2295,6 +2297,7 @@ pub(crate) struct NativeUiPreferences {
     pub auto_collapse_toolbars: bool,
     pub accordion_settings_panels: bool,
     pub antialiasing_quality: u32,
+    pub black_model_lines: bool,
     pub toolbar_icon_size: u32,
     pub show_permanent_grid: bool,
     pub show_construction_guides: bool,
@@ -2339,6 +2342,7 @@ impl Default for Preferences {
             auto_collapse_toolbars: false,
             accordion_settings_panels: false,
             antialiasing_quality: 2,
+            black_model_lines: true,
             ui_text_scale: 1.0,
             toolbar_icon_size: 32,
             show_permanent_grid: true,
@@ -2529,6 +2533,7 @@ impl MeshcraftApp {
             auto_collapse_toolbars: self.preferences.auto_collapse_toolbars,
             accordion_settings_panels: self.preferences.accordion_settings_panels,
             antialiasing_quality: self.preferences.antialiasing_quality,
+            black_model_lines: self.preferences.black_model_lines,
             toolbar_icon_size: self.preferences.toolbar_icon_size,
             show_permanent_grid: self.preferences.show_permanent_grid,
             show_construction_guides: self.preferences.show_construction_guides,
@@ -2560,6 +2565,10 @@ impl MeshcraftApp {
             ),
             ("menu_visibility".into(), json!(preferences.menu_visibility)),
             ("ribbon_visible".into(), json!(preferences.ribbon_visible)),
+            (
+                "black_model_lines".into(),
+                json!(preferences.black_model_lines),
+            ),
             (
                 "left_panel_visible".into(),
                 json!(preferences.left_panel_visible),
@@ -7570,6 +7579,7 @@ impl MeshcraftApp {
                 &mut preferences.accordion_settings_panels,
             ),
             ("show_permanent_grid", &mut preferences.show_permanent_grid),
+            ("black_model_lines", &mut preferences.black_model_lines),
             (
                 "show_construction_guides",
                 &mut preferences.show_construction_guides,
@@ -11238,6 +11248,8 @@ impl MeshcraftApp {
             EditContext::Definition(definition) => SnapScope::Definition(*definition),
             EditContext::Occurrence(occurrence) => SnapScope::Occurrence(occurrence),
         };
+        self.viewport
+            .set_black_model_lines(self.preferences.black_model_lines);
         let input = self.viewport.show(
             ui,
             &ViewportScene {
@@ -11807,6 +11819,8 @@ impl MeshcraftApp {
 
     fn show_ui_settings(&mut self, ui: &mut egui::Ui) {
         let mut preferences = self.preferences.clone();
+        ui.checkbox(&mut preferences.black_model_lines, "Black model lines");
+        ui.weak("Turn off to display lines in their material colors.");
         ui.label("UI text size");
         egui::ComboBox::from_id_salt("ui-text-scale")
             .selected_text(format!("{}x", preferences.ui_text_scale))
@@ -11893,6 +11907,10 @@ impl MeshcraftApp {
 
     fn dispatch_ui_preferences(&mut self, preferences: &Preferences) {
         let mut payload = CommandPayload::default();
+        payload.values.insert(
+            "black_model_lines".into(),
+            json!(preferences.black_model_lines),
+        );
         payload.values.insert(
             "ui_text_scale".to_owned(),
             serde_json::json!(preferences.ui_text_scale),
@@ -20173,12 +20191,16 @@ mod tests {
     #[test]
     fn ui_settings_command_applies_preferences_without_document_history() {
         let mut app = test_app();
+        assert!(app.preferences.black_model_lines);
         let initial_revision = app.document.revision();
         app.run_command("ui.update_preferences");
         assert!(app.preferences.panels_visible);
         assert_eq!(Some(&true), app.preferences.panel_open.get("ui_settings"));
 
         let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("black_model_lines".into(), json!(false));
         payload
             .values
             .insert("ui_text_scale".to_owned(), json!(1.25));
@@ -20228,6 +20250,7 @@ mod tests {
             result.result.completion
         );
         assert_eq!(1.25, app.preferences.ui_text_scale);
+        assert!(!app.preferences.black_model_lines);
         assert!(app.preferences.auto_collapse_toolbars);
         assert_eq!(40, app.preferences.toolbar_icon_size);
         assert!(!app.preferences.show_permanent_grid);
@@ -20294,7 +20317,12 @@ mod tests {
         let mut expected = load_preferences_file(&path);
         assert_eq!(40, expected.toolbar_icon_size);
         assert_eq!(Preferences::default().grid_extent, expected.grid_extent);
+        assert!(
+            expected.black_model_lines,
+            "older preferences default to black lines"
+        );
 
+        expected.black_model_lines = false;
         expected.ui_text_scale = 1.5;
         expected.show_permanent_grid = false;
         expected.grid_extent = 48;

@@ -1,0 +1,22 @@
+{
+  "version": "0.33.2",
+  "defaultBlack": true,
+  "oldPreferencesMigrateToBlack": true,
+  "materialColorRedPixels": [
+    243,
+    1759
+  ],
+  "changedPixels": 1516,
+  "pixelCount": 663850,
+  "restoredBlackIdentical": true,
+  "authoredGeometryUnchanged": true,
+  "documentRevisionUnchanged": true,
+  "preferenceSaved": true,
+  "uiCheckboxClickChangesRendering": true,
+  "frameSequences": [
+    16,
+    17,
+    18,
+    18
+  ]
+}

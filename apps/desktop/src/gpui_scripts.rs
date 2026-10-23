@@ -64,7 +64,11 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
                     editor.valid = !response.pending;
                     editor.error = None;
                     if visual {
-                        publish_preview(editor, shell.lighting);
+                        publish_preview(
+                            editor,
+                            shell.lighting,
+                            shell.session.native_ui_preferences().black_model_lines,
+                        );
                     }
                 } else {
                     editor.error = Some(response.errors.join("\n"));
@@ -135,10 +139,11 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
     shell.scripts = state;
     changed
 }
-fn publish_preview(editor: &Editor, lighting: lighting::Lighting) {
+fn publish_preview(editor: &Editor, lighting: lighting::Lighting, black_model_lines: bool) {
     editor.bridge.publish_scene(RenderScene {
         document: editor.document.clone(),
         lighting,
+        black_model_lines,
         ..Default::default()
     });
     editor.bridge.publish_camera(editor.camera);
@@ -245,7 +250,11 @@ pub(super) fn edit(
         valid: false,
         error: None,
     };
-    publish_preview(&editor, shell.lighting);
+    publish_preview(
+        &editor,
+        shell.lighting,
+        shell.session.native_ui_preferences().black_model_lines,
+    );
     if let Ok(mut preview) = shell.bridge.preview.lock() {
         *preview = Some(bridge);
     }

@@ -320,3 +320,18 @@ Selection, and Fill Loops. Modification 2 presents Fill Loops in place of the
 ambiguous Regularize/Remesh entries. Fuzzy Offset is a random tool; Surface Array
 belongs to Arrays. Solids contains Union, Intersection, Difference, mesh
 intersection curves, and Planar Section.
+
+### Model line display preference (0.33.2)
+
+UI Settings provides **Black model lines**, enabled by default, including when
+loading preferences written before this option existed. Turning it off displays
+model segments and wireframe outlines using their material colors (including
+alpha). This application preference persists across drawings/restarts and takes
+effect immediately, including the script editor preview. Face fills, stored
+material assignments, exports and document Undo history are unchanged. Selection
+lines retain their highlight; grids, guides, cursor and hotspot feedback retain
+their own colors. In prototype editing, external context remains faded.
+
+Automation uses `ui.update_preferences` with boolean `black_model_lines`; its
+command schema documents the behavior. A changed line style invalidates the GPU
+frame without rebuilding model geometry or repeatedly scheduling identical frames.

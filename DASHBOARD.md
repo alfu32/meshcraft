@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.33.2 line display:** UI Settings defaults to black model lines, with an option
+to show line material colors. The preference persists independently of drawings;
+faces and authored materials retain their colors. Native/browser views and the
+script editor preview use the selected style.
+
 **0.33.1 Solids/camera fixes:** Intersection Curves has explicit menu, ribbon and
 left-toolbar entries. Difference respects picking order (first minus second),
 including ordered MCP selections. Shift-wheel translates eye and target together

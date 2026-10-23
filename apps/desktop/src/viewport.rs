@@ -802,6 +802,7 @@ pub struct Viewport {
     camera_drag: Option<egui::PointerButton>,
     selection_drag_origin: Option<Pos2>,
     frame_pending: bool,
+    black_model_lines: bool,
     adaptive_grid_cloud: Option<AdaptiveGridCloud>,
     derived: DerivedIndexCache,
     #[cfg(not(target_arch = "wasm32"))]
@@ -827,6 +828,7 @@ impl Default for Viewport {
             camera_drag: None,
             selection_drag_origin: None,
             frame_pending: false,
+            black_model_lines: true,
             adaptive_grid_cloud: None,
             derived: DerivedIndexCache::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -836,6 +838,10 @@ impl Default for Viewport {
 }
 
 impl Viewport {
+    pub(crate) fn set_black_model_lines(&mut self, black: bool) {
+        self.black_model_lines = black;
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn invalidate_document_caches(&mut self) {
         self.derived = DerivedIndexCache::default();
@@ -4190,8 +4196,8 @@ impl Viewport {
                 let depth = (self.view_depth(start) + self.view_depth(end)) * 0.5;
                 let edge_color = if selected || selected_edge {
                     Color32::from_rgb(244, 166, 77)
-                } else if segment.color == Rgba8::WHITE {
-                    Color32::from_rgb(62, 66, 72)
+                } else if self.black_model_lines {
+                    Color32::BLACK
                 } else {
                     color32(segment.color)
                 };

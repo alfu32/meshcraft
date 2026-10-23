@@ -89,6 +89,8 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
                 "Export only the selection; defaults to whether anything is selected. Set false for the full scene, including hidden geometry.",
             "definition_id" =>
                 "Numeric prototype ID from meshcraft_scene, distinct from occurrence/instance paths.",
+            "black_model_lines" =>
+                "Application display preference: true (default) renders model lines black; false uses their material colors. Does not modify authored materials or history.",
             "confirmed" =>
                 "For object.delete_definition, true explicitly confirms deleting the prototype and ALL its instances. Omit first to inspect reference counts and request confirmation.",
             "clipboard" =>

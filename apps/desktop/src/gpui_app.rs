@@ -241,6 +241,7 @@ struct RenderScene {
     selection_rect: Option<([f32; 4], bool)>,
     grid_spacing: f64,
     normal_line_width: f32,
+    black_model_lines: bool,
     thick_line_width: f32,
     antialiasing: postprocess::Antialiasing,
     lighting: lighting::Lighting,
@@ -264,6 +265,7 @@ impl RenderScene {
             && self.reference_edges == other.reference_edges
             && self.selection_rect == other.selection_rect
             && self.grid_spacing == other.grid_spacing
+            && self.black_model_lines == other.black_model_lines
             && self.normal_line_width == other.normal_line_width
             && self.thick_line_width == other.thick_line_width
             && self.antialiasing == other.antialiasing
@@ -291,6 +293,7 @@ impl Default for RenderScene {
             selection_rect: None,
             grid_spacing: 1.0,
             normal_line_width: 1.0,
+            black_model_lines: true,
             thick_line_width: 3.0,
             antialiasing: postprocess::Antialiasing::default(),
             lighting: lighting::Lighting::default(),
@@ -1334,6 +1337,7 @@ impl MeshcraftShell {
             selection_rect,
             grid_spacing: self.cached_document.model_settings().grid_size,
             normal_line_width: preferences.normal_grid_width,
+            black_model_lines: preferences.black_model_lines,
             thick_line_width: preferences.thick_grid_width,
             lighting: self.lighting,
             antialiasing: postprocess::Antialiasing::from_level(preferences.antialiasing_quality),
@@ -1588,6 +1592,7 @@ impl MeshcraftShell {
             "ribbon_visible" => preferences.ribbon_visible,
             "left_panel_visible" => preferences.left_panel_visible,
             "show_permanent_grid" => preferences.show_permanent_grid,
+            "black_model_lines" => preferences.black_model_lines,
             "show_construction_guides" => preferences.show_construction_guides,
             "auto_collapse_toolbars" => preferences.auto_collapse_toolbars,
             "accordion_settings_panels" => preferences.accordion_settings_panels,
@@ -3487,8 +3492,14 @@ mod tests {
         }
         assert_eq!(*bridge.redraw.0.lock().unwrap(), revision);
         scene.selection.clear();
-        bridge.publish_scene(scene);
+        bridge.publish_scene(scene.clone());
         assert_eq!(*bridge.redraw.0.lock().unwrap(), revision + 1);
+        assert!(scene.black_model_lines);
+        scene.black_model_lines = false;
+        bridge.publish_scene(scene.clone());
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), revision + 2);
+        bridge.publish_scene(scene);
+        assert_eq!(*bridge.redraw.0.lock().unwrap(), revision + 2);
     }
     use super::layout::ribbon_groups;
     use super::{

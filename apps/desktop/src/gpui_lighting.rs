@@ -45,8 +45,9 @@ struct Face {
     wireframe: bool,
     selected: bool,
 }
-fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool)> {
-    let mut outlines = BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool)>::new();
+fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool, Rgba8)> {
+    let mut outlines =
+        BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool, Rgba8)>::new();
     let key = |p: Vec3| [p.x, p.y, p.z].map(|v| if v == 0. { 0 } else { v.to_bits() });
     for face in faces {
         // Architecture publishes its boundary/reveal edges explicitly. Drawing
@@ -70,7 +71,9 @@ fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool)> {
         ] {
             let (ka, kb) = (key(a), key(b));
             let edge = if ka <= kb { (ka, kb) } else { (kb, ka) };
-            let entry = outlines.entry(edge).or_insert(([a, b], 0, false, false));
+            let entry = outlines
+                .entry(edge)
+                .or_insert(([a, b], 0, false, false, face.color));
             entry.1 += 1;
             entry.2 |= face.wireframe;
             entry.3 |= face.selected;
@@ -78,8 +81,8 @@ fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool)> {
     }
     outlines
         .into_values()
-        .filter(|(_, count, wire, _)| *wire || *count == 1)
-        .map(|(edge, _, _, selected)| (edge, selected))
+        .filter(|(_, count, wire, _, _)| *wire || *count == 1)
+        .map(|(edge, _, _, selected, color)| (edge, selected, color))
         .collect()
 }
 
@@ -172,7 +175,7 @@ pub(super) struct Renderer {
     last_light: Option<(f32, f32)>,
     last_selection: Vec<SelectionTarget>,
     pub(super) selection: SelectionIndex,
-    outlines: Vec<([Vec3; 2], bool)>,
+    outlines: Vec<([Vec3; 2], bool, Rgba8)>,
     selection_box: Vec<[Vec3; 2]>,
     handle_context: Option<EditContext>,
 }
@@ -354,7 +357,7 @@ impl Renderer {
             for edge in geometry.segments.values() {
                 if let [Some(a), Some(b)] = edge.endpoints.map(world) {
                     self.edges.push(Edge {
-                        color: material_color(&edge.extensions, Rgba8::new(0, 0, 0, 255)),
+                        color: material_color(&edge.extensions, edge.color),
                         points: [a, b],
                         selected: false,
                         target: SelectionTarget {
@@ -521,14 +524,16 @@ impl Renderer {
         unsafe {
             raylib::ffi::rlDisableBackfaceCulling();
         }
-        for (edge, selected) in &self.outlines {
+        for (edge, selected, color) in &self.outlines {
             stroke(
                 view,
                 *edge,
                 if *selected {
                     Color::new(240, 116, 43, 255)
-                } else {
+                } else if scene.black_model_lines {
                     Color::BLACK
+                } else {
+                    ray_color(*color)
                 },
                 if *selected {
                     scene.thick_line_width
@@ -551,6 +556,8 @@ impl Renderer {
                     Color::new(245, 128, 46, 255)
                 } else if external(&scene.edit_context, &scene.document, &edge.target) {
                     Color::new(130, 147, 161, 255)
+                } else if scene.black_model_lines {
+                    Color::BLACK
                 } else {
                     ray_color(edge.color)
                 },

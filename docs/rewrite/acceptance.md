@@ -259,3 +259,13 @@ their connecting line. Assert unchanged distance, view orientation, projection a
 field of view for perspective and orthographic cameras, and synchronization with
 the walkthrough controller. Ordinary wheel remains zoom; Ctrl/Alt fine rates remain
 1/10 and 1/20. Check real native wheel input in addition to camera arithmetic.
+
+### Model line display preference follow-up (0.33.2)
+
+Start with old/missing UI preferences and a model containing colored segments:
+lines render black. Uncheck Black model lines in UI Settings and verify material
+colors/alpha appear; recheck it and verify black lines return. Face colors and
+authored geometry/materials/revision/history stay unchanged. Check selected-line
+highlights, wireframes, script preview, preference persistence and frame invalidation
+on each toggle without continuous idle redraw. The browser renderer uses the same
+preference.

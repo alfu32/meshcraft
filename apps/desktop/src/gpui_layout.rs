@@ -470,6 +470,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
         let binding = match label {
             "Show menu bar" => Some(("menu_bar_visible", preferences.menu_bar_visible)),
             "Show ribbon" => Some(("ribbon_visible", preferences.ribbon_visible)),
+            "Black model lines" => Some(("black_model_lines", preferences.black_model_lines)),
             "Show left panel" => Some(("left_panel_visible", preferences.left_panel_visible)),
             "Accordion settings panels" => Some((
                 "accordion_settings_panels",
@@ -1818,6 +1819,13 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 .flex()
                 .flex_col()
                 .gap(px(7.))
+                .child(setting_check("Black model lines", true, bindings))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0xc2c8d0))
+                        .child("Off: use line material colors"),
+                )
                 .child(setting_check("Show menu bar", true, bindings))
                 .child(setting_check("Show ribbon", true, bindings))
                 .child(setting_check("Show left panel", true, bindings))
