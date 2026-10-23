@@ -96,6 +96,15 @@ pub fn tools() -> Vec<Value> {
             true,
         ),
         tool(
+            "meshcraft_ifc",
+            "Get IFC4X3_ADD2 properties for the selected prototype or instances; catalog searches all 3,988 official standard properties/quantities; set/delete edits a named property in one Undo transaction. Prototype properties are creation defaults copied into new instances. property has kind,dataType,value,unit,description. Omit paths for prototype defaults.",
+            schema(
+                json!({"action":{"enum":["get","catalog","set","delete"]},"prototype":{"type":"boolean"},"query":{"type":"string"},"definition_id":{"type":"integer"},"paths":{"type":"array","items":{"type":"array","items":{"type":"integer"}}},"set":{"type":"string"},"name":{"type":"string"},"property":{"type":"object"}}),
+                &["action"],
+            ),
+            false,
+        ),
+        tool(
             "meshcraft_parameters",
             "Read Object Properties parameter forms for the current selection, or set an authored prototype/instance parameter in one undoable transaction. set requires definition_id,id,value; omit paths for shared prototype scope, or pass occurrence paths for instance scope. Values are strictly typed. Declare with $TEXT/$NUMBER/$CHECKBOX/$LIST/$HOTSPOT, using script api_version=2.",
             schema(

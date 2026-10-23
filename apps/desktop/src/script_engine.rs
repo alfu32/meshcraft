@@ -724,7 +724,7 @@ function onAnimationFrame(params,model){
 $HOTSPOT(new Point(),'default');
 function onCreate(){
  $HOTSPOT(new Point(2,1,0),'styled','Styled',$HOTSPOT_SHAPE_DIAMOND,'#ffccddee');
- $HOTSPOT(new Point(),'rectangle',undefined,$HOTSPOT_HAPE_RECTANGLE,'#123456');
+ $HOTSPOT(new Point(),'rectangle',undefined,$HOTSPOT_SHAPE_RECTANGLE,'#123456');
  $HOTSPOT(new Point(),'triangle',undefined,$HOTSPOT_SHAPE_TRIANGLE);
  $HOTSPOT(new Point(),'down',undefined,$HOTSPOT_SHAPE_TRIANGLE_DOWN);
 }
@@ -769,6 +769,102 @@ function onAnimationFrame(params){this.styled=params.styled;return [$HOTSPOT(new
         let restored: ScriptState =
             serde_json::from_str(&serde_json::to_string(&frame.state).unwrap()).unwrap();
         assert_eq!(restored, frame.state);
+    }
+    #[test]
+    fn ifc_script_defaults_become_independent_instance_properties() {
+        use meshcraft_core::document::{
+            Document, ifc,
+            scripts::{ScriptDefinition, ScriptFrame, ScriptState},
+        };
+        let engine = unsafe { Engine::load() }.unwrap();
+        let source = r#"$IFC('Pset_WallCommon','FireRating','EI60');
+function onCreate(){ $IFC('Pset_Custom','SerialNumber','001'); this.initialFire=this.ifc.Pset_WallCommon.FireRating.value; }
+function onAnimationFrame(){this.rating=this.ifc.Pset_WallCommon.FireRating.value;return cuboid(new Point(),new Point(1,1,1));}"#;
+        let first = evaluate(&engine, source, json!({}), json!({}), json!({}), json!({})).unwrap();
+        assert_eq!(
+            first["state"]["instanceIfc"]["Pset_WallCommon"]["FireRating"]["value"],
+            "EI60"
+        );
+        assert_eq!(first["state"]["properties"]["initialFire"], "EI60");
+        let overridden = evaluate(
+            &engine,
+            &source.replace(
+                "$IFC('Pset_Custom'",
+                "$IFC('Pset_WallCommon','FireRating','EI90'); $IFC('Pset_Custom'",
+            ),
+            json!({}),
+            json!({}),
+            json!({}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(
+            overridden["state"]["prototypeIfc"]["Pset_WallCommon"]["FireRating"]["value"],
+            "EI60"
+        );
+        assert_eq!(
+            overridden["state"]["instanceIfc"]["Pset_WallCommon"]["FireRating"]["value"], "EI90",
+            "onCreate definitions override copied prototype defaults"
+        );
+        let mut state = first["state"].clone();
+        state["instanceIfc"]["Pset_WallCommon"]["FireRating"]["value"] = json!("EI90");
+        let second = evaluate(
+            &engine,
+            &source.replace("'EI60'", "'EI120'"),
+            state,
+            json!({}),
+            json!({}),
+            json!({}),
+        )
+        .unwrap();
+        assert_eq!(second["state"]["properties"]["rating"], "EI90");
+        let mut d = Document::new();
+        let path = d
+            .add_scripted_object(
+                "IFC",
+                ScriptDefinition {
+                    source: source.into(),
+                    api_version: 2,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let frame = ScriptFrame::build(
+            &Default::default(),
+            serde_json::from_value(first["items"].clone()).unwrap(),
+            serde_json::from_value::<ScriptState>(first["state"].clone()).unwrap(),
+        )
+        .unwrap();
+        d.install_script_frames(std::collections::BTreeMap::from([(
+            path.clone(),
+            frame.clone(),
+        )]));
+        let id = d.resolve_occurrence(&path).unwrap().definition.id;
+        assert_eq!(
+            d.prototype_ifc(id)["Pset_WallCommon"]["FireRating"].value,
+            "EI60"
+        );
+        assert_eq!(
+            d.instance_ifc(&path)["Pset_Custom"]["SerialNumber"].value,
+            "001"
+        );
+        d.set_prototype_ifc(id, ifc::Properties::new()).unwrap();
+        d.install_script_frames(std::collections::BTreeMap::from([(path.clone(), frame)]));
+        assert!(
+            d.prototype_ifc(id).is_empty(),
+            "stale frames must not recreate deleted defaults"
+        );
+        let suppressed = engine.evaluate(&json!({
+            "id":"ifc-omitted", "source":{"source":"$IFC('Pset_WallCommon','FireRating','EI60'); function onAnimationFrame(){return [];}", "apiVersion":2},
+            "state":{},"geometry":[],"hotspots":{},"model":{},
+            "prototypeIfcOmissions":d.prototype_ifc_omissions(id)
+        })).unwrap();
+        assert_eq!(json!({}), suppressed["state"]["prototypeIfc"]);
+        assert_eq!(json!({}), suppressed["state"]["instanceIfc"]);
+        assert_eq!(
+            d.instance_ifc(&path)["Pset_WallCommon"]["FireRating"].value,
+            "EI60"
+        );
     }
     #[test]
     fn declarations_reject_duplicates_invalid_types_frame_registration_and_removed_alias() {

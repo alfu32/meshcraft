@@ -590,3 +590,150 @@ fn concave_triangulation_is_independent_of_coordinate_scale_and_origin() {
         assert_eq!(m.triangles.len(), 3);
     }
 }
+#[test]
+fn ifc43_preserves_property_kinds_units_unicode_and_instance_ownership() {
+    use meshcraft_core::document::ifc::{Kind, Properties, Property};
+    let mut d = Document::new();
+    let path = d
+        .add_cuboid("IFC properties", Vec3::new(1., 1., 1.), Vec3::ZERO)
+        .unwrap();
+    let mut props = Properties::new();
+    for (name, kind, data_type, value, unit) in [
+        (
+            "Label",
+            Kind::Single,
+            "IfcLabel",
+            serde_json::json!("Café 'A'"),
+            None,
+        ),
+        (
+            "Number",
+            Kind::Single,
+            "IfcLengthMeasure",
+            serde_json::json!(2.5),
+            Some("mm"),
+        ),
+        (
+            "Flags",
+            Kind::Enumerated,
+            "IfcLabel",
+            serde_json::json!(["A", "B"]),
+            None,
+        ),
+        (
+            "Values",
+            Kind::List,
+            "IfcReal",
+            serde_json::json!([1., 2.]),
+            None,
+        ),
+        (
+            "Bounds",
+            Kind::Bounded,
+            "IfcReal",
+            serde_json::json!({"upper":2.,"lower":1.,"setPoint":1.5}),
+            None,
+        ),
+        (
+            "Table",
+            Kind::Table,
+            "IfcReal",
+            serde_json::json!({"defining":[1.,2.],"defined":[3.,4.]}),
+            None,
+        ),
+        (
+            "Link",
+            Kind::Reference,
+            "IfcLabel",
+            serde_json::json!({"location":"https://example.com/a","identification":"A","name":"Spec"}),
+            None,
+        ),
+        (
+            "Complex",
+            Kind::Complex,
+            "IfcLabel",
+            serde_json::json!({"Code":{"kind":"single","dataType":"IfcLabel","value":"A","unit":null,"description":""}}),
+            None,
+        ),
+    ] {
+        props.entry("Pset_Custom".into()).or_default().insert(
+            name.into(),
+            Property {
+                kind,
+                data_type: data_type.into(),
+                value,
+                unit: unit.map(str::to_owned),
+                ..Default::default()
+            },
+        );
+    }
+    props.entry("Qto_Custom".into()).or_default().insert(
+        "Length".into(),
+        Property {
+            kind: Kind::Quantity,
+            data_type: "Q_LENGTH".into(),
+            value: serde_json::json!(3.),
+            unit: Some("m".into()),
+            ..Default::default()
+        },
+    );
+    let table = props
+        .get_mut("Pset_Custom")
+        .unwrap()
+        .get_mut("Table")
+        .unwrap();
+    table.secondary_data_type = Some("IfcLabel".into());
+    table.value["defined"] = serde_json::json!(["first", "second"]);
+    table.expression = Some("lookup(t)".into());
+    table.interpolation = Some("LINEAR".into());
+    props
+        .get_mut("Pset_Custom")
+        .unwrap()
+        .get_mut("Flags")
+        .unwrap()
+        .enumeration = Some(vec![
+        serde_json::json!("A"),
+        serde_json::json!("B"),
+        serde_json::json!("C"),
+    ]);
+    props
+        .get_mut("Pset_Custom")
+        .unwrap()
+        .get_mut("Complex")
+        .unwrap()
+        .usage_name = Some("Nested specifications".into());
+    props.entry("Pset_Custom".into()).or_default().insert(
+        "TableUnits".into(),
+        Property {
+            kind: Kind::Table,
+            data_type: "IfcLengthMeasure".into(),
+            secondary_data_type: Some("IfcTimeMeasure".into()),
+            value: serde_json::json!({"defining":[1.,2.],"defined":[3.,4.]}),
+            unit: Some("m".into()),
+            secondary_unit: Some("s".into()),
+            ..Default::default()
+        },
+    );
+    d.set_instance_ifc(&path, props.clone()).unwrap();
+    let mesh = Mesh::from_document(&d, None, &cancel()).unwrap();
+    let (bytes, _) = encode(&mesh, Format::Ifc, &Options::default(), &cancel()).unwrap();
+    assert!(utf8(&bytes).unwrap().contains("IFC4X3_ADD2"));
+    let read = decode_raw(&bytes, Format::Ifc, &Options::default()).unwrap();
+    assert_eq!(read.parts[0].ifc, props);
+    assert_eq!(
+        read.triangles
+            .iter()
+            .flat_map(|(t, _)| t)
+            .map(|p| p.x)
+            .fold(f64::NEG_INFINITY, f64::max),
+        1.,
+        "A property-local millimeter unit must not rescale the meter geometry"
+    );
+    let doc = read.into_document().unwrap();
+    assert!(
+        doc.scene_geometry_refs()
+            .unwrap()
+            .iter()
+            .any(|p| doc.instance_ifc(p) == props)
+    );
+}

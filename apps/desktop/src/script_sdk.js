@@ -23,6 +23,20 @@ const line=(...args)=>new Segment(...args),face=(...args)=>new Face(...args);
 const state=request.state||{initializer:"",properties:{}};
 const instance=Object.assign({},state.properties,{id:request.id,geometry:request.geometry,hotspots:request.hotspots||{},time:request.time,deltaTime:request.deltaTime});
 let phase="prototype";
+const prototypeIfc=Object.create(null), instanceIfc=JSON.parse(JSON.stringify(request.instanceIfc||state.instanceIfc||{}));
+const mergeIfc=(target,source)=>{for(const [set,props] of Object.entries(source||{})){if(!Object.prototype.hasOwnProperty.call(target,set))Object.defineProperty(target,set,{value:Object.create(null),enumerable:true});for(const [name,p] of Object.entries(props)){if(!Object.prototype.hasOwnProperty.call(target[set],name))Object.defineProperty(target[set],name,{value:p,enumerable:true,writable:true,configurable:true});}}};
+function $IFC(set,name,value,dataType='IfcLabel',kind='single',options={}){
+ if(dataType&&typeof dataType==='object'){options=dataType;dataType=options.dataType||'IfcLabel';kind=options.kind||'single';}
+ if(phase==='frame')throw Error('Declare IFC properties outside hooks or inside onCreate.');
+ if(typeof set!=='string'||!set.trim()||typeof name!=='string'||!name.trim()||[set,name].some(v=>['__proto__','prototype','constructor'].includes(v)))throw Error('IFC set and property names must be safe nonempty strings.');
+ if(!['single','enumerated','list','bounded','table','reference','complex','quantity'].includes(kind))throw Error('Invalid IFC property kind');
+ if(phase==='prototype'&&(request.prototypeIfcOmissions||[]).some(([s,n])=>s===set&&n===name))return undefined;
+ const property={...options,kind,dataType,value,unit:options.unit||null,description:options.description||''};
+ const target=phase==='prototype'?prototypeIfc:instanceIfc;
+ if(phase==='prototype'||!state.ifcInitialized){mergeIfc(target,{[set]:{[name]:property}});Object.defineProperty(target[set],name,{value:property,enumerable:true,writable:true,configurable:true});}
+ return phase==='prototype' && Object.prototype.hasOwnProperty.call(request.prototypeIfc?.[set]||{},name)?request.prototypeIfc[set][name].value:target[set]?.[name]?.value;
+}
+
 const declarations=[];
 const initialized=state.parameters||{},parameterValues=Object.create(null);
 const prototypeValues=request.prototypeParameters||{},instanceValues=request.instanceParameters||{};
@@ -54,10 +68,6 @@ function $LIST(id,values,label=id,value=Object.keys(values||{})[0]) {
 const $HOTSPOT_SHAPE_CIRCLE='CIRCLE', $HOTSPOT_SHAPE_RECTANGLE='SQUARE',
  $HOTSPOT_SHAPE_TRIANGLE='TRIANGLE_UP', $HOTSPOT_SHAPE_DIAMOND='DIAMOND',
  $HOTSPOT_SHAPE_TRIANGLE_DOWN='TRIANGLE_DOWN';
-// Also accept the HAPE spelling used in the initial API request.
-const $HOTSPOT_HAPE_CIRCLE=$HOTSPOT_SHAPE_CIRCLE, $HOTSPOT_HAPE_RECTANGLE=$HOTSPOT_SHAPE_RECTANGLE,
- $HOTSPOT_HAPE_TRIANGLE=$HOTSPOT_SHAPE_TRIANGLE, $HOTSPOT_HAPE_DIAMOND=$HOTSPOT_SHAPE_DIAMOND,
- $HOTSPOT_HAPE_TRIANGLE_DOWN=$HOTSPOT_SHAPE_TRIANGLE_DOWN;
 const defaultHotspotStyle={shape:$HOTSPOT_SHAPE_CIRCLE,color:new Color(0,255,255,255)};
 function $HOTSPOT(position,id,label=id,shape=$HOTSPOT_SHAPE_CIRCLE,color='#00ffffff') {
  if(!['CIRCLE','SQUARE','TRIANGLE_UP','DIAMOND','TRIANGLE_DOWN'].includes(shape))throw Error('Invalid hotspot shape; use a $HOTSPOT_SHAPE_ constant.');
@@ -181,6 +191,8 @@ if(request.source.source && request.source.source.trim()) {
  if(!hooks.onAnimationFrame)throw Error("Define function onAnimationFrame(instance, model) in the script.");
 } else hooks={onCreate:compile(request.source.onCreate,"onCreate"),onAnimationFrame:compile(request.source.onAnimationFrame,"onAnimationFrame")};
 const initializer=hooks.onCreate.toString()+(apiVersion===2?"\n@api2":"");
+if(!state.ifcInitialized){mergeIfc(instanceIfc,request.prototypeIfc);mergeIfc(instanceIfc,prototypeIfc);}
+Object.defineProperty(instance,'ifc',{get:()=>freeze(JSON.parse(JSON.stringify(instanceIfc))),enumerable:false});
 phase='instance';
 if(state.initializer!==initializer){hooks.onCreate.call(instance,instance,model);}
 else {
@@ -203,7 +215,7 @@ phase='frame';
 const output=flatten(hooks.onAnimationFrame.call(instance,apiVersion===2?parms:instance,model));
 for(const h of declaredHotspots)if(!output.some(v=>v.kind==='hotspot'&&v.id===h.id))output.push(h);
 const properties={};for(const[k,v]of Object.entries(instance))if(!["id","geometry","hotspots","time","deltaTime"].includes(k))properties[k]=v;
-const result=JSON.stringify({items:output,state:{initializer,properties,declarations,parameters:parameterValues}});
+const result=JSON.stringify({items:output,state:{initializer,properties,declarations,parameters:parameterValues,ifcInitialized:true,prototypeIfc,instanceIfc}});
 if(result.length>16000000)throw Error("Script output exceeds 16 MB");
 return result;
 })

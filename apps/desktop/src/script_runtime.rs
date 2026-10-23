@@ -195,7 +195,7 @@ impl Sweep {
         let mut objects = query.scene_geometry_refs().unwrap_or_default().into_iter().filter_map(|path| {
             let resolved=query.resolve_occurrence(&path)?;
             let geometry=query.effective_geometry(&path)?;
-            Some(json!({"id":format!("{:?}",path.path),"name":resolved.definition.name,"definitionId":resolved.definition.id.0,"transform":resolved.world_transform,"geometry":meshcraft_core::document::scripts::geometry_drawables(geometry)}))
+            Some(json!({"id":format!("{:?}",path.path),"name":resolved.definition.name,"definitionId":resolved.definition.id.0,"transform":resolved.world_transform,"ifc":query.instance_ifc(&path),"geometry":meshcraft_core::document::scripts::geometry_drawables(geometry)}))
         }).collect::<Vec<_>>();
         // A draft preview uses the full source model for queries and adds its own
         // isolated occurrence once, rather than cloning the full model per instance.
@@ -274,6 +274,9 @@ impl Sweep {
             };
             let input = json!({"id":format!("{:?}",path.path),"source":source,"state":state,
                 "geometry":meshcraft_core::document::scripts::geometry_drawables(&authored),
+                "prototypeIfc":document.prototype_ifc(r.definition.id),
+                "prototypeIfcOmissions":document.prototype_ifc_omissions(r.definition.id),
+                "instanceIfc":document.instance_ifc(&path),
                 "prototypeParameters":document.script_parameter_values(r.definition.id,None),
                 "instanceParameters":document.script_parameter_values(r.definition.id,Some(&path)),
                 "hotspots":r.edits.map(|e|&e.hotspot_positions),"time":self.request.time,"deltaTime":self.request.delta});
@@ -363,6 +366,9 @@ impl Runtime {
             busy: false,
             query_model: None,
         }
+    }
+    pub fn set_query_model(&mut self, model: Arc<Document>) {
+        self.query_model = Some(model);
     }
     pub fn submit(&mut self, document: Arc<Document>, key: u64, time: f64, delta: f64) {
         if self.busy {

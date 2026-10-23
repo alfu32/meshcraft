@@ -142,6 +142,7 @@ pub struct Mesh {
 #[derive(Clone, Debug)]
 pub struct MeshPart {
     pub name: String,
+    pub ifc: meshcraft_core::document::ifc::Properties,
     pub triangles: std::ops::Range<usize>,
     pub segments: std::ops::Range<usize>,
 }
@@ -213,6 +214,32 @@ impl Mesh {
         self.validate()?;
         if self.triangles.is_empty() && self.segments.is_empty() {
             return Err("file contains no supported line or face geometry".into());
+        }
+        if self.parts.iter().any(|p| !p.ifc.is_empty()) {
+            let mut doc = Document::new();
+            doc.ensure_scene_root();
+            for part in &self.parts {
+                let piece = Mesh {
+                    triangles: self.triangles[part.triangles.clone()].to_vec(),
+                    segments: self.segments[part.segments.clone()].to_vec(),
+                    parts: vec![],
+                    warnings: vec![],
+                };
+                let piece = piece.into_document()?;
+                let prototype = doc.import_subscene(&piece, &part.name, None, None)?;
+                doc.set_prototype_ifc(prototype, part.ifc.clone())?;
+                let path = meshcraft_core::operations::objects::place_definition(
+                    &mut doc,
+                    &meshcraft_core::selection::EditContext::Document,
+                    prototype,
+                    Vec3::ZERO,
+                    None,
+                    false,
+                )?;
+                doc.set_instance_ifc(&path, part.ifc.clone())?;
+            }
+            doc.validate()?;
+            return Ok(doc);
         }
         // Exact-coordinate indexing avoids both quadratic welding and tolerance-dependent geometry loss.
         let mut points = Vec::new();
@@ -347,6 +374,7 @@ impl Mesh {
             if out.triangles.len() > start_triangles || out.segments.len() > start_segments {
                 out.parts.push(MeshPart {
                     name: r.definition.name.clone(),
+                    ifc: doc.instance_ifc(&path),
                     triangles: start_triangles..out.triangles.len(),
                     segments: start_segments..out.segments.len(),
                 });
@@ -361,6 +389,7 @@ impl Mesh {
                 if out.segments.len() > start {
                     out.parts.push(MeshPart {
                         name: a.label.clone(),
+                        ifc: Default::default(),
                         triangles: out.triangles.len()..out.triangles.len(),
                         segments: start..out.segments.len(),
                     });

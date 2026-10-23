@@ -19,7 +19,7 @@ pub(crate) fn entry(name: &str, signature: &str, insert: &str, help: &str) -> En
 pub(crate) fn is_declaration(name: &str) -> bool {
     matches!(
         name,
-        "$TEXT" | "$NUMBER" | "$CHECKBOX" | "$LIST" | "$HOTSPOT"
+        "$TEXT" | "$NUMBER" | "$CHECKBOX" | "$LIST" | "$HOTSPOT" | "$IFC"
     )
 }
 pub(crate) fn prioritize(entries: &mut [Entry]) {
@@ -500,7 +500,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "model.objects",
             "model.objects: readonly ObjectRecord[]",
             "model.objects",
-            "Each record has id, name, definitionId, transform and geometry. Geometry is local; transform places it in the scene.",
+            "Each record has id, name, definitionId, transform, geometry and ifc (instance-owned IFC property sets). Geometry is local; transform places it in the scene.",
         ),
         entry(
             "model.materials",
@@ -613,14 +613,9 @@ pub(crate) fn catalog() -> Vec<Entry> {
             &name,
             description,
         ));
-        let alias = format!("$HOTSPOT_HAPE_{suffix}");
-        entries.push(entry(
-            &alias,
-            &format!("{alias}: '{shape}'"),
-            &alias,
-            &format!("Alias of {name}, accepting the original HAPE spelling. {description}"),
-        ));
     }
+    entries.push(entry("$IFC", "$IFC(set, name, value, options? / dataType='IfcLabel', kind='single')", "$IFC('Pset_WallCommon', 'FireRating', 'EI60');", "Declare an IFC4X3_ADD2 property. Outside hooks sets prototype creation defaults; onCreate sets instance creation values. New instances receive independent copies. Existing instance edits are retained. Kinds: single, enumerated, list, bounded, table, reference, complex, quantity. The fourth argument can be {dataType,kind,unit,secondaryDataType,secondaryUnit,expression,interpolation,usageName,enumeration}. Read instance metadata through this.ifc[set][name].value; model query objects include ifc. Use meshcraft_ifc for the full offline standard catalog and editable properties."));
+    entries.push(entry("this.ifc", "this.ifc: readonly IFC property sets", "this.ifc", "Instance-owned IFC properties. Prototype defaults are copied at creation and never live-inherited. Each property has kind, dataType, value, unit and description."));
     prioritize(&mut entries);
     entries
 }
@@ -633,5 +628,6 @@ mod declaration_tests {
         assert!(entries[..5].iter().all(|e| super::is_declaration(&e.name)));
         assert!(entries.iter().any(|e| e.name == "$HOTSPOT"));
         assert!(!entries.iter().any(|e| e.name == "hotspot"));
+        assert!(!entries.iter().any(|e| e.name.contains("_HAPE_")));
     }
 }

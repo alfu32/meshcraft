@@ -32,11 +32,28 @@ pub(super) fn wall_mesh(wall: &Wall, neighbors: &[Wall]) -> Result<Mesh, String>
                 wall.interior_color,
                 wall.exterior_color,
             ],
+            ["exterior", "interior", "exterior"]
+                .map(|key| wall.materials.get(key).map(String::as_str)),
         )?;
     }
     let side = |p: Vec3| (p - plane.origin).dot(plane.normal) - wall.offset;
-    mesh.faces
-        .retain(|(t, _)| !t.iter().all(|i| side(mesh.points[*i]).abs() < EPS));
+    let keep = mesh
+        .faces
+        .iter()
+        .map(|(t, _)| !t.iter().all(|i| side(mesh.points[*i]).abs() < EPS))
+        .collect::<Vec<_>>();
+    let mut i = 0;
+    mesh.faces.retain(|_| {
+        let value = keep[i];
+        i += 1;
+        value
+    });
+    let mut i = 0;
+    mesh.face_materials.retain(|_| {
+        let value = keep[i];
+        i += 1;
+        value
+    });
     mesh.edges
         .retain(|e| !e.iter().all(|i| side(mesh.points[*i]).abs() < EPS));
     let shear = wall.inclination_deg.to_radians().tan();

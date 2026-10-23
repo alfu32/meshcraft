@@ -14,3 +14,12 @@ including single-chunk scripts and symbols after multiple rope chunks.
 Removed deprecated `std::usize` module imports in the highlighter and diagnostics.
 Existing `usize::MIN` / `usize::MAX` expressions now resolve to the primitive
 type associated constants, preserving their values without deprecation warnings.
+
+
+The color picker has local HSL (default), RGB and Swatches modes. HSL and RGB
+provide a two-dimensional swatch, normalized channel sliders and numeric values;
+all modes have a checkerboard-composited opacity bar and RGBA hex entry. Swatch
+selection preserves opacity and stays open for refinement. Invalid channels do
+not replace the current value. State synchronization does not emit selection
+changes. The extension lives in `src/color_picker_channels.rs` and uses the
+existing component slider/input subscriptions without a network service.

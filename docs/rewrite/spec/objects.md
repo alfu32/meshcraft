@@ -6,7 +6,7 @@ This is the user-confirmed object workflow, supplied with the 19 captures below 
 
 A prototype is a reusable subscene: it owns lines, faces, hotspots, semantic entities and a hierarchy of other object instances, using the same scene capabilities as the root. An instance references that prototype and owns its placement plus per-instance hotspot values/overrides. Copying an instance preserves its current hotspot values; it does not turn the copy into a separate prototype. All instances continue to share definition edits while retaining their independent parameter values.
 
-The **Objects** browser lists prototypes, once each, with name, internal/external status, occurrence count and identity. It must not list one row per instance. The separate **Object** inspector describes the selected instance or the prototype being edited in place. Screenshot 01 shows the current instance-list deficiency; screenshots 02–19 are legacy workflow evidence.
+The **Object Prototypes** browser lists prototypes, once each, with name, internal/external status, occurrence count and identity. It must not list one row per instance. The separate **Object Instance** inspector describes the selected instance or the prototype being edited in place. Screenshot 01 shows the current instance-list deficiency; screenshots 02–19 are legacy workflow evidence.
 
 Double-clicking a prototype row activates insertion of that definition, even when no existing instance is selected. The cursor shows the instance's wireframe placement feedback and uses ordinary point-input snapping and surface-glue rules. Accepted placement creates an instance in the active scene/subscene. Double-clicking a placed instance enters its shared prototype for editing in place.
 
@@ -15,6 +15,19 @@ motion only updates the placement transform; it must not clone, insert or valida
 scene on every move. The native renderer retains the uploaded wireframe between moves, including
 when surface alignment changes. Clicking commits the complete geometry once; Escape releases
 the preview without creating an instance.
+
+## Metadata and prototype browser
+
+The prototype browser uses left-aligned rows with a cached orthographic isometric
+thumbnail. Create/update, shared parameter and material changes refresh the image;
+camera movement and individual animation frames do not rebuild it. Scripted and
+unplaced prototypes are evaluated in an isolated preview context.
+
+Both panels manage complete IFC 4.3.2.0 property/quantity records: add, edit and
+delete, with the full offline standard catalog and custom names. Prototype values
+are creation defaults copied into each new instance, never live inherited fields.
+Instance edits and deletions survive prototype edits, copy and Save/Open. This
+applies to graphical and scripted prototypes. See [IFC properties](../../ifc-properties.md).
 
 ## Editing isolation and navigation
 

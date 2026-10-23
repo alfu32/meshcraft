@@ -132,3 +132,11 @@ values drawn from that type. Entering the displayed first value also applies it
 to other selected owners with different values. A batch creates one Undo entry;
 invalid geometry rejects the whole batch. Color application sends only changed
 color fields, preserving other colors that differ between owners.
+
+## Surface materials
+
+Wall exterior/interior, slab top/bottom/sides and frame/glazing controls select
+project materials. Material identity is retained independently of its current
+RGBA color, including across control-point rebuilding, copy and import. Editing a
+material refreshes its users. Legacy color-only surfaces are promoted to named
+materials when loaded or edited. Hotspots retain their intrinsic color property.

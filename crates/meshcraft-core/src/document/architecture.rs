@@ -18,6 +18,8 @@ const EPS: f64 = 1e-7;
 mod controls;
 #[path = "architecture_joins.rs"]
 mod joins;
+#[path = "architecture_materials.rs"]
+mod material_surfaces;
 #[path = "architecture_slabs.rs"]
 mod slabs;
 pub use controls::{Control, ControlPoint};
@@ -196,6 +198,7 @@ impl Hole {
 #[serde(default, rename_all = "camelCase")]
 pub struct Wall {
     pub id: String,
+    pub materials: BTreeMap<String, String>,
     pub name: String,
     pub start: Vec3,
     pub end: Vec3,
@@ -214,6 +217,7 @@ impl Default for Wall {
     fn default() -> Self {
         Self {
             id: String::new(),
+            materials: BTreeMap::new(),
             name: "Wall".into(),
             start: Vec3::ZERO,
             end: Vec3::X,
@@ -281,6 +285,7 @@ impl Wall {
 #[serde(default, rename_all = "camelCase")]
 pub struct Slab {
     pub id: String,
+    pub materials: BTreeMap<String, String>,
     pub name: String,
     pub profile: PolylinePath,
     pub normal: Vec3,
@@ -296,6 +301,7 @@ impl Default for Slab {
     fn default() -> Self {
         Self {
             id: String::new(),
+            materials: BTreeMap::new(),
             name: "Slab".into(),
             profile: PolylinePath {
                 points: vec![],
@@ -333,6 +339,7 @@ pub enum FrameKind {
 #[serde(default, rename_all = "camelCase")]
 pub struct Frame {
     pub id: String,
+    pub materials: BTreeMap<String, String>,
     pub name: String,
     pub contour: Vec<Vec3>,
     pub normal: Vec3,
@@ -347,6 +354,7 @@ impl Default for Frame {
     fn default() -> Self {
         Self {
             id: String::new(),
+            materials: BTreeMap::new(),
             name: "Window".into(),
             contour: vec![],
             normal: Vec3::Z,
@@ -391,6 +399,7 @@ pub struct Mesh {
     pub points: Vec<Vec3>,
     pub edges: Vec<[usize; 2]>,
     pub faces: Vec<([usize; 3], Rgba8)>,
+    pub face_materials: Vec<Option<String>>,
     index: BTreeMap<[i64; 3], usize>,
     edge_set: BTreeSet<[usize; 2]>,
 }
@@ -415,7 +424,7 @@ impl Mesh {
         self.index.insert(key, i);
         Ok(i)
     }
-    fn face(&mut self, p: [Vec3; 3], color: Color) -> Result<(), String> {
+    fn face(&mut self, p: [Vec3; 3], color: Color, material: Option<&str>) -> Result<(), String> {
         if (p[1] - p[0]).cross(p[2] - p[0]).length() <= EPS * EPS {
             return Ok(());
         }
@@ -424,6 +433,7 @@ impl Mesh {
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
         self.faces.push(([v[0], v[1], v[2]], color.rgba()));
+        self.face_materials.push(material.map(str::to_owned));
         Ok(())
     }
     fn edge(&mut self, a: Vec3, b: Vec3) -> Result<(), String> {
@@ -547,6 +557,7 @@ fn prism(
     low: Vec3,
     high: Vec3,
     colors: [Color; 3],
+    materials: [Option<&str>; 3],
 ) -> Result<(), String> {
     for c in colors {
         c.validate()?;
@@ -554,8 +565,16 @@ fn prism(
     let tri = shape.triangulate().map_err(|e| e.message.to_owned())?;
     for indices in tri.triangles {
         let p = indices.map(|i| plane.point(tri.points[i as usize]));
-        mesh.face([p[0] + high, p[1] + high, p[2] + high], colors[0])?;
-        mesh.face([p[2] + low, p[1] + low, p[0] + low], colors[1])?;
+        mesh.face(
+            [p[0] + high, p[1] + high, p[2] + high],
+            colors[0],
+            materials[0],
+        )?;
+        mesh.face(
+            [p[2] + low, p[1] + low, p[0] + low],
+            colors[1],
+            materials[1],
+        )?;
     }
     for shape in &shape.shapes {
         for (index, contour) in shape.contours.iter().enumerate() {
@@ -567,8 +586,8 @@ fn prism(
                 let a = plane.point(contour[i]);
                 let b = plane.point(contour[(i + 1) % contour.len()]);
                 let [a0, b0, a1, b1] = [a + low, b + low, a + high, b + high];
-                mesh.face([a0, b0, b1], colors[2])?;
-                mesh.face([a0, b1, a1], colors[2])?;
+                mesh.face([a0, b0, b1], colors[2], materials[2])?;
+                mesh.face([a0, b1, a1], colors[2], materials[2])?;
                 mesh.edge(a0, b0)?;
                 mesh.edge(a1, b1)?;
                 mesh.edge(a0, a1)?;
@@ -794,13 +813,18 @@ impl Element {
                     -plane.normal * f.depth * 0.5,
                     plane.normal * f.depth * 0.5,
                     [f.color; 3],
+                    [f.materials.get("frame").map(String::as_str); 3],
                 )?;
                 if f.glazing_enabled {
                     let glass = inside.triangulate().map_err(|e| e.message.to_owned())?;
                     f.glazing_color.validate()?;
                     for t in glass.triangles {
                         let p = t.map(|i| plane.point(glass.points[i as usize]));
-                        mesh.face(p, f.glazing_color)?;
+                        mesh.face(
+                            p,
+                            f.glazing_color,
+                            f.materials.get("glazing").map(String::as_str),
+                        )?;
                     }
                 }
             }
@@ -939,8 +963,9 @@ impl Document {
             s.origin = Some(plane.origin);
             s.axis_u = Some(plane.u);
         }
-        let mesh = element.mesh()?;
         let mut staged = self.clone();
+        staged.resolve_architecture_materials(&mut element)?;
+        let mesh = element.mesh()?;
         let id = identity
             .map(str::to_owned)
             .unwrap_or_else(|| format!("meshcraft:architecture:{}", staged.allocate_id()));
@@ -1123,11 +1148,18 @@ impl Document {
         let faces = mesh
             .faces
             .into_iter()
-            .map(|(v, color)| RawGeometryTriangle {
+            .zip(mesh.face_materials)
+            .map(|((v, color), material)| RawGeometryTriangle {
                 vertices: v.map(reference),
                 color,
                 legacy_aliases: vec![],
-                extensions: ext.clone(),
+                extensions: {
+                    let mut e = ext.clone();
+                    if let Some(id) = material {
+                        e.insert(materials::MATERIAL_KEY.into(), Value::String(id));
+                    }
+                    e
+                },
             })
             .collect();
         let bundle = self.build_geometry_bundle_raw(vertices, segments, faces)?;

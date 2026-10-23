@@ -1,5 +1,7 @@
 use super::*;
 use std::fmt::Write;
+#[path = "ifc_properties.rs"]
+mod properties;
 
 pub(super) fn read_dxf(s: &str, options: &Options, cancel: &AtomicBool) -> Result<Mesh, String> {
     if s.starts_with("AutoCAD Binary DXF") {
@@ -669,7 +671,7 @@ pub(super) fn read_ifc(s: &str, options: &Options, cancel: &AtomicBool) -> Resul
     let e = entities(&clean)?;
     let mut out = Mesh::default();
     let mut products = 0;
-    for (kind, a) in e.values() {
+    for (&product, (kind, a)) in &e {
         check(cancel)?;
         if let Some(Step::Ref(rep)) = a.get(6)
             && e.get(rep)
@@ -680,7 +682,24 @@ pub(super) fn read_ifc(s: &str, options: &Options, cancel: &AtomicBool) -> Resul
             } else {
                 Affine3::IDENTITY
             };
+            let triangles = out.triangles.len();
+            let segments = out.segments.len();
             ifc_geometry(&e, *rep, &mut out, t, 0, cancel)?;
+            out.parts.push(MeshPart {
+                name: a
+                    .get(2)
+                    .map(|v| {
+                        if let Step::Other(s) = v {
+                            s.trim_matches('\'').replace("''", "'")
+                        } else {
+                            "Object".into()
+                        }
+                    })
+                    .unwrap_or("Object".into()),
+                triangles: triangles..out.triangles.len(),
+                segments: segments..out.segments.len(),
+                ifc: properties::read(&e, product),
+            });
             products += 1;
             if kind != "IFCBUILDINGELEMENTPROXY" {
                 out.warn("IFC semantic products are imported as geometry only.");
@@ -702,7 +721,24 @@ pub(super) fn read_ifc(s: &str, options: &Options, cancel: &AtomicBool) -> Resul
             return Err("IFC conversion-based units require an explicit import unit".into());
         }
         let mut meters = 1.;
-        for (kind, a) in e.values() {
+        let units = e
+            .values()
+            .filter(|(k, _)| k == "IFCPROJECT")
+            .filter_map(|(_, a)| a.get(8))
+            .filter_map(|v| v.reference().ok())
+            .filter_map(|id| e.get(&id))
+            .filter(|(k, _)| k == "IFCUNITASSIGNMENT")
+            .filter_map(|(_, a)| a.first().and_then(|v| v.list().ok()))
+            .flatten()
+            .filter_map(|v| v.reference().ok())
+            .filter_map(|id| e.get(&id))
+            .collect::<Vec<_>>();
+        let units = if units.is_empty() {
+            e.values().collect::<Vec<_>>()
+        } else {
+            units
+        };
+        for (kind, a) in units {
             if kind == "IFCSIUNIT" && matches!(a.get(1),Some(Step::Other(s)) if s==".LENGTHUNIT.") {
                 meters = match a.get(2) {
                     Some(Step::Other(s)) if s == ".MILLI." => 0.001,
@@ -715,7 +751,7 @@ pub(super) fn read_ifc(s: &str, options: &Options, cancel: &AtomicBool) -> Resul
         }
         out.scale(meters / options.meters_per_model_unit);
     }
-    out.warn("IFC supports tessellated faces, faceted BREPs, polylines and local placements; styles and BIM semantics are omitted.");
+    out.warn("IFC supports tessellated faces, faceted BREPs, polylines, local placements and property sets; surface styles and other BIM relationships are omitted.");
     Ok(out)
 }
 
@@ -724,7 +760,7 @@ pub(super) fn write_ifc(m: &Mesh, unit: Unit, cancel: &AtomicBool) -> Result<Vec
     let mut m = m.clone();
     m.scale(unit.meters);
     let mut s = String::from(
-        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Meshcraft geometry proxy'),'2;1');\nFILE_NAME('meshcraft.ifc','',(''),(''),'Meshcraft','Meshcraft','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n",
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Meshcraft geometry proxy'),'2;1');\nFILE_NAME('meshcraft.ifc','',(''),(''),'Meshcraft','Meshcraft','');\nFILE_SCHEMA(('IFC4X3_ADD2'));\nENDSEC;\nDATA;\n",
     );
     s.push_str("#1=IFCCARTESIANPOINT((0.,0.,0.));\n#2=IFCAXIS2PLACEMENT3D(#1,$,$);\n#3=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-8,#2,$);\n#4=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#5=IFCUNITASSIGNMENT((#4));\n#6=IFCPROJECT('0MC0000000000000000001',$,'Meshcraft',$,$,$,$,(#3),#5);\n#7=IFCLOCALPLACEMENT($,#2);\n#8=IFCSITE('0MC0000000000000000002',$,'Site',$,$,#7,$,$,.ELEMENT.,$,$,$,$,$);\n#9=IFCBUILDING('0MC0000000000000000003',$,'Building',$,$,#7,$,$,.ELEMENT.,$,$,$);\n#10=IFCBUILDINGSTOREY('0MC0000000000000000004',$,'Storey',$,$,#7,$,$,.ELEMENT.,0.);\n#11=IFCRELAGGREGATES('0MC0000000000000000005',$,$,$,#6,(#8));\n#12=IFCRELAGGREGATES('0MC0000000000000000006',$,$,$,#8,(#9));\n#13=IFCRELAGGREGATES('0MC0000000000000000007',$,$,$,#9,(#10));\n");
     let parts = if m.parts.is_empty() {
@@ -732,6 +768,7 @@ pub(super) fn write_ifc(m: &Mesh, unit: Unit, cancel: &AtomicBool) -> Result<Vec
             name: "Meshcraft geometry".into(),
             triangles: 0..m.triangles.len(),
             segments: 0..m.segments.len(),
+            ifc: Default::default(),
         }]
     } else {
         m.parts.clone()
@@ -817,8 +854,10 @@ pub(super) fn write_ifc(m: &Mesh, unit: Unit, cancel: &AtomicBool) -> Result<Vec
             .join(",");
         let name = ifc_string(&part.name);
         writeln!(s,"#{id}=IFCPRODUCTDEFINITIONSHAPE($,$,({reps}));\n#{}=IFCBUILDINGELEMENTPROXY('{:022x}',$,'{name}',$,$,#7,#{id},$,.NOTDEFINED.);",id+1,i+8).unwrap();
-        products.push(id + 1);
+        let product = id + 1;
+        products.push(product);
         id += 2;
+        properties::write(&mut s, &mut id, product, &part.ifc)?;
     }
     let refs = products
         .iter()

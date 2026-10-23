@@ -516,6 +516,8 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
             || resolved.edits.is_some_and(|edits| {
                 edits.values.keys().any(|key| {
                     key != crate::document::scripts::STATE_KEY
+                        && key != crate::document::scripts::parameters::VALUES_KEY
+                        && key != crate::document::ifc::KEY
                         && !(key == "k3d.__raw_hotspot_positions"
                             && document.script_frame(occurrence).is_some())
                 }) || (!edits.hotspot_positions.is_empty()
@@ -565,6 +567,8 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                 resolved.edits.is_some_and(|edits| {
                     edits.values.keys().any(|key| {
                         key != crate::document::scripts::STATE_KEY
+                            && key != crate::document::scripts::parameters::VALUES_KEY
+                            && key != crate::document::ifc::KEY
                             && !(key == "k3d.__raw_hotspot_positions"
                                 && document.script_frame(occurrence).is_some())
                     }) || (!edits.hotspot_positions.is_empty()

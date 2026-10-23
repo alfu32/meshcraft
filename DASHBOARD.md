@@ -1,5 +1,13 @@
 # Dashboard
 
+**0.27.0 object metadata and materials:** Object Instance and Object Prototypes manage
+independent IFC properties using the offline IFC4X3_ADD2 catalog. Prototype creation
+defaults are copied into each instance; scripts use `$IFC` and immutable `this.ifc`.
+The prototype browser has left-aligned cached isometric thumbnails. Architecture
+surfaces and model painting select materials; the color picker provides HSL, RGB
+and Swatches with opacity. `$HOTSPOT_SHAPE_*` uses the corrected spelling only.
+See the [IFC guide](docs/ifc-properties.md) and [validation](docs/rewrite/handoffs/object-properties-validation.md).
+
 **0.26.0 scripted handles:** generated hotspot targets stay absolute across asynchronous frames,
 preventing drag previews from alternating with their declared positions. `$HOTSPOT` accepts
 shape constants and CSS hex color, defaulting to a cyan circle; metadata survives frame reuse,

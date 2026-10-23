@@ -1,0 +1,17 @@
+{
+  "hslDefault": true,
+  "hslOpacityCarriesToRgb": true,
+  "rgbChannelsSaved": {
+    "red": 255,
+    "green": 128,
+    "blue": 0,
+    "alpha": 64
+  },
+  "palettePreservesAlpha": true,
+  "paletteColorSaved": {
+    "red": 59,
+    "green": 130,
+    "blue": 246,
+    "alpha": 64
+  }
+}

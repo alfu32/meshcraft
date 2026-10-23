@@ -386,6 +386,10 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                         .copied()
                         .unwrap_or(0);
                     Button::new(SharedString::from(format!("objects/prototype/{}", id.0)))
+                        .justify_start()
+                        .when_some(super::thumbnails::image(self.shell, id), |button, image| {
+                            button.child(img(image).w(px(78.)).h(px(58.)).flex_none())
+                        })
                         .child(
                             div()
                                 .flex()
@@ -411,7 +415,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                                     ))),
                         )
                         .w_full()
-                        .h(px(46.))
+                        .h(px(64.))
                         .small()
                         .ghost()
                         .tooltip("Double-click to insert an instance of this prototype")
@@ -855,7 +859,7 @@ pub(super) fn menu_items(menu: &str) -> &'static [&'static str] {
             "Offset",
             "Sweep",
         ],
-        "Objects" => &[
+        "Object Prototypes" | "Objects" => &[
             "Make Object",
             "Edit Definition",
             "Place Instance",
@@ -1645,7 +1649,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             bindings,
         ))
         .child(setting_section(
-            "Object",
+            "Object Instance",
             div()
                 .flex()
                 .flex_col()
@@ -1658,6 +1662,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                 )
                 .child(setting_field("Object name", "", bindings))
                 .child(super::parameters::panel(bindings.shell, bindings.cx))
+                .child(super::ifc::panel(bindings.shell, false, bindings.cx))
                 .child(command_row(
                     "panel/object",
                     &[
@@ -1670,7 +1675,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             bindings,
         ))
         .child(setting_section(
-            "Objects",
+            "Object Prototypes",
             div()
                 .flex()
                 .flex_col()
@@ -1682,6 +1687,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_summary()),
                 )
                 .child(setting_field("Object list", "Empty scene", bindings))
+                .child(super::ifc::panel(bindings.shell, true, bindings.cx))
                 .child(command_row(
                     "panel/objects",
                     &[
@@ -2020,8 +2026,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
 pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
     Some(match id {
         "selection" => (0, "Selection"),
-        "object" => (1, "Object"),
-        "objects" => (2, "Objects"),
+        "object" => (1, "Object Instance"),
+        "objects" => (2, "Object Prototypes"),
         "materials" => (3, "Materials"),
         "annotations" => (4, "Annotations"),
         "model_settings" => (5, "Model Settings"),

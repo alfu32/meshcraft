@@ -152,6 +152,54 @@ impl MeshcraftApp {
             "wall_exterior_color":d.wall.exterior_color,"wall_interior_color":d.wall.interior_color,
             "slab_thickness":d.slab.thickness,"slab_top_color":d.slab.top_color,"slab_bottom_color":d.slab.bottom_color,"slab_side_color":d.slab.side_color,
             "frame_depth":d.frame.depth,"frame_width":d.frame.frame_width,"frame_color":d.frame.color,"glazing_enabled":d.frame.glazing_enabled,"glazing_color":d.frame.glazing_color});
+        let mut value = value;
+        for (key, id, color) in [
+            (
+                "wall_exterior_material",
+                d.wall.materials.get("exterior"),
+                d.wall.exterior_color,
+            ),
+            (
+                "wall_interior_material",
+                d.wall.materials.get("interior"),
+                d.wall.interior_color,
+            ),
+            (
+                "slab_top_material",
+                d.slab.materials.get("top"),
+                d.slab.top_color,
+            ),
+            (
+                "slab_bottom_material",
+                d.slab.materials.get("bottom"),
+                d.slab.bottom_color,
+            ),
+            (
+                "slab_side_material",
+                d.slab.materials.get("side"),
+                d.slab.side_color,
+            ),
+            (
+                "frame_material",
+                d.frame.materials.get("frame"),
+                d.frame.color,
+            ),
+            (
+                "glazing_material",
+                d.frame.materials.get("glazing"),
+                d.frame.glazing_color,
+            ),
+        ] {
+            if let Some(id) = id.cloned().or_else(|| {
+                self.document
+                    .materials()
+                    .into_iter()
+                    .find(|m| m.color == color.rgba())
+                    .map(|m| m.id)
+            }) {
+                value[key] = json!(id);
+            }
+        }
         CommandPayload {
             values: value
                 .as_object()
@@ -258,6 +306,7 @@ impl MeshcraftApp {
                     inclination_deg: scalar(payload, "wall_inclination", d.wall.inclination_deg)?,
                     exterior_color: color(payload, "wall_exterior_color", d.wall.exterior_color)?,
                     interior_color: color(payload, "wall_interior_color", d.wall.interior_color)?,
+                    materials: d.wall.materials.clone(),
                     ..Wall::default()
                 })
             }
@@ -272,6 +321,7 @@ impl MeshcraftApp {
                 top_color: color(payload, "slab_top_color", d.slab.top_color)?,
                 bottom_color: color(payload, "slab_bottom_color", d.slab.bottom_color)?,
                 side_color: color(payload, "slab_side_color", d.slab.side_color)?,
+                materials: d.slab.materials.clone(),
                 ..Slab::default()
             }),
             "Window" | "Door" => Element::Frame(Frame {
@@ -292,6 +342,7 @@ impl MeshcraftApp {
                     .and_then(Value::as_bool)
                     .unwrap_or(tool == "Window" && d.frame.glazing_enabled),
                 glazing_color: color(payload, "glazing_color", d.frame.glazing_color)?,
+                materials: d.frame.materials.clone(),
                 ..Frame::default()
             }),
             _ => return Err("Unknown architecture tool.".into()),
@@ -301,6 +352,7 @@ impl MeshcraftApp {
             value.as_object_mut().unwrap().extend(record.clone());
             element = Element::from_value(element.field(), value)?;
         }
+        Self::arch_patch(&mut element, payload)?;
         element.mesh()?;
         Ok(element)
     }
@@ -808,6 +860,41 @@ impl MeshcraftApp {
                 }
             }
         }
+        let prefix = match element {
+            Element::Wall(_) => "wall",
+            Element::Slab(_) => "slab",
+            Element::Frame(_) => "frame",
+        };
+        let slots = match element {
+            Element::Wall(_) => &["exterior", "interior"][..],
+            Element::Slab(_) => &["top", "bottom", "side"][..],
+            Element::Frame(_) => &["frame", "glazing"][..],
+        };
+        for slot in slots {
+            let key = if *slot == "frame" {
+                "frame_material".to_owned()
+            } else if *slot == "glazing" {
+                "glazing_material".to_owned()
+            } else {
+                format!("{prefix}_{slot}_material")
+            };
+            let color_key = if *slot == "frame" {
+                "frame_color".to_owned()
+            } else if *slot == "glazing" {
+                "glazing_color".to_owned()
+            } else {
+                format!("{prefix}_{slot}_color")
+            };
+            if payload.values.contains_key(&color_key) && !payload.values.contains_key(&key) {
+                element.surface_materials_mut().remove(*slot);
+            }
+            if let Some(id) = payload.values.get(&key) {
+                element.surface_materials_mut().insert(
+                    (*slot).into(),
+                    id.as_str().ok_or("Material ID must be text")?.into(),
+                );
+            }
+        }
         Ok(())
     }
     pub(super) fn architecture_action(
@@ -863,9 +950,21 @@ impl MeshcraftApp {
                         ..d.frame.clone()
                     });
                     frame.mesh()?;
-                    let value = serde_json::to_value(d).map_err(|e| e.to_string())?;
                     self.commit_document_edit("Architecture defaults", |doc| {
-                        doc.set_architecture_defaults(value)
+                        let mut w = Element::Wall(d.wall);
+                        let mut s = Element::Slab(d.slab);
+                        let mut f = Element::Frame(d.frame);
+                        doc.resolve_architecture_materials(&mut w)?;
+                        doc.resolve_architecture_materials(&mut s)?;
+                        doc.resolve_architecture_materials(&mut f)?;
+                        let (Element::Wall(wall), Element::Slab(slab), Element::Frame(frame)) =
+                            (w, s, f)
+                        else {
+                            unreachable!()
+                        };
+                        doc.set_architecture_defaults(
+                            json!({"wall":wall,"slab":slab,"frame":frame}),
+                        )
                     })?;
                     Ok(json!({"updated":"defaults"}))
                 }

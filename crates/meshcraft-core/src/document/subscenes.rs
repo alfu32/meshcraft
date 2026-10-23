@@ -206,6 +206,37 @@ impl Document {
             copy.id = ids.definitions[&definition.id];
             copy.geometry = remap_geometry(&definition.geometry, &ids, &mut draft);
             copy.default_child_layout = definition.default_child_layout.map(|id| ids.layouts[&id]);
+            fn remap_surfaces(value: &mut Value, ids: &BTreeMap<String, String>) {
+                if let Some(map) = value.as_object_mut() {
+                    if let Some(materials) = map.get_mut("materials").and_then(Value::as_object_mut)
+                    {
+                        for value in materials.values_mut() {
+                            if let Some(id) = value.as_str().and_then(|id| ids.get(id)) {
+                                *value = Value::String(id.clone());
+                            }
+                        }
+                    }
+                    for child in map.values_mut() {
+                        remap_surfaces(child, ids);
+                    }
+                } else if let Some(values) = value.as_array_mut() {
+                    for value in values {
+                        remap_surfaces(value, ids);
+                    }
+                }
+            }
+            for field in [
+                super::architecture::WALLS,
+                super::architecture::SLABS,
+                super::architecture::FRAMES,
+            ] {
+                if let Some(value) = copy.domain_data.get_mut(field) {
+                    remap_surfaces(value, &ids.materials);
+                }
+                if let Some(value) = copy.extensions.get_mut(&format!("k3d.{field}")) {
+                    remap_surfaces(value, &ids.materials);
+                }
+            }
             remap_hotspot_ids(&mut copy, &ids)?;
             draft.definitions.insert(copy.id, copy);
         }

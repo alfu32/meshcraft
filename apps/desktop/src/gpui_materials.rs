@@ -145,7 +145,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     .child(material.name.clone()))
                 .when(active,|button| button.bg(rgb(0x35516a)))
                 .on_click(cx.listener(move |this,event:&gpui::ClickEvent,window,cx| {
-                    this.materials.selected=Some(material.id.clone());
+                    this.materials.selected=Some(material.id.clone());let _=this.session.choose_native_material(&material.id);
                     if event.click_count()==2 { edit(this,material.clone(),window,cx); }
                     cx.notify();
                 }))
@@ -153,7 +153,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         .child(div().flex().flex_wrap().gap(px(4.))
             .child(Button::new("material/new").small().label("New Material").on_click(cx.listener(|this,_,window,cx| {let material=this.cached_document.next_material(); edit(this,material,window,cx);})))
             .child(Button::new("material/edit").small().label("Edit").on_click(cx.listener(move |this,_,window,cx| edit(this,selected_material.clone(),window,cx))))
-            .child(Button::new("material/apply").small().label("Apply to Selection").disabled(shell.session.native_selection_targets().is_empty()).on_click(cx.listener(move |this,_,_,cx| {
+            .child(Button::new("material/apply").small().label("Apply to Selection").disabled(!shell.session.native_selection_targets().iter().any(|t|matches!(&t.entity,SelectedEntity::Segment(_)|SelectedEntity::Triangle(_)|SelectedEntity::Occurrence|SelectedEntity::SemanticHandle{kind:meshcraft_core::selection::SelectionKind::Wall|meshcraft_core::selection::SelectionKind::Slab|meshcraft_core::selection::SelectionKind::Frame,..}))).on_click(cx.listener(move |this,_,_,cx| {
                 if let Err(error)=this.session.assign_native_material(&selected) {this.session.set_native_status(error);}
                 this.refresh_scene(); cx.notify();
             }))))
@@ -316,6 +316,7 @@ fn save(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> Result<(), 
     };
     let id = material.id.clone();
     shell.session.save_native_material(material)?;
+    shell.session.choose_native_material(&id)?;
     shell.materials.selected = Some(id);
     Ok(())
 }

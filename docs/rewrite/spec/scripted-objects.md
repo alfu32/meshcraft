@@ -205,3 +205,15 @@ frame already places its marker there. Repeated refreshes at a fixed drag target
 must keep both the handle and script-generated geometry stationary; release
 commits once, Escape restores the prior instance, and Undo restores the prior
 target. Ordinary authored hotspots retain their reset-to-anchor behavior.
+
+## IFC declarations (0.27.0)
+
+`$IFC(set, name, value, dataType='IfcLabel', kind='single', options={})` declares
+prototype creation defaults outside hooks, or instance defaults in `onCreate`.
+The fourth argument may also be the complete options object. Declarations are
+invalid in `onAnimationFrame`. `this.ifc` and model query objects expose immutable
+instance-owned property sets. Existing instance values remain independent of source
+edits; onCreate may override a copied prototype default for a new instance.
+The same metadata survives one-shot baking. See the [IFC guide](../../ifc-properties.md)
+for all property kinds, units and advanced options. Hotspot shape constants use
+only the corrected `$HOTSPOT_SHAPE_*` spelling.

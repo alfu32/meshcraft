@@ -1,30 +1,44 @@
 //! Native architecture properties and color drafts; profile controls are in the canvas.
 use super::*;
-use gpui_component::Colorize;
+
 use gpui_component::{
     checkbox::Checkbox,
-    color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
+    select::{Select, SelectEvent, SelectItem, SelectState},
 };
-use meshcraft_core::document::architecture::{Color as SurfaceColor, Control, Element};
+use meshcraft_core::document::architecture::{Control, Element};
 use std::collections::BTreeSet;
 
 #[derive(Default)]
 pub(super) struct Ui {
     key: Option<(u64, String)>,
-    colors: BTreeMap<&'static str, Entity<ColorPickerState>>,
+    colors: BTreeMap<&'static str, Entity<SelectState<Vec<MaterialChoice>>>>,
     dirty: bool,
     changed_colors: BTreeSet<&'static str>,
     subscriptions: Vec<gpui::Subscription>,
     pub drag: Option<ProfileDrag>,
 }
+#[derive(Clone)]
+struct MaterialChoice {
+    id: String,
+    label: String,
+}
+impl SelectItem for MaterialChoice {
+    type Value = String;
+    fn title(&self) -> SharedString {
+        self.label.clone().into()
+    }
+    fn value(&self) -> &String {
+        &self.id
+    }
+}
 const COLORS: &[(&str, &str)] = &[
-    ("wall_exterior_color", "Exterior"),
-    ("wall_interior_color", "Interior"),
-    ("slab_top_color", "Top"),
-    ("slab_bottom_color", "Bottom"),
-    ("slab_side_color", "Sides"),
-    ("frame_color", "Color"),
-    ("glazing_color", "Glazing color"),
+    ("wall_exterior_material", "Exterior"),
+    ("wall_interior_material", "Interior"),
+    ("slab_top_material", "Top"),
+    ("slab_bottom_material", "Bottom"),
+    ("slab_side_material", "Sides"),
+    ("frame_material", "Material"),
+    ("glazing_material", "Glazing"),
 ];
 fn inspected(
     shell: &MeshcraftShell,
@@ -53,58 +67,61 @@ pub(super) fn prepare(
         shell.architecture.changed_colors.clear();
     }
     let values = shell.session.native_architecture_payload();
+    let catalog = shell.cached_document.materials();
     for &(field, _) in COLORS {
-        let Some(color) = values
+        let selected = values
             .values
             .get(field)
-            .and_then(|v| serde_json::from_value::<SurfaceColor>(v.clone()).ok())
-        else {
-            continue;
-        };
-        let c = color.rgba();
-        let hex = format!("#{:02x}{:02x}{:02x}{:02x}", c.red, c.green, c.blue, c.alpha);
-        let hsla = gpui::Hsla::parse_hex(&hex).unwrap_or_default();
-        if let Some(picker) = shell.architecture.colors.get(field).cloned() {
-            if !shell.architecture.dirty && picker.read(cx).value() != Some(hsla) {
-                picker.update(cx, |p, cx| p.set_value(hsla, window, cx));
-            }
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let choices = catalog
+            .iter()
+            .map(|m| MaterialChoice {
+                id: m.id.clone(),
+                label: m.name.clone(),
+            })
+            .collect::<Vec<_>>();
+        if let Some(select) = shell.architecture.colors.get(field).cloned() {
+            select.update(cx, |s, cx| {
+                s.set_items(choices, window, cx);
+                if !shell.architecture.dirty {
+                    s.set_selected_value(&selected.clone().unwrap_or_default(), window, cx);
+                }
+            });
         } else {
-            let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(hsla));
+            let index = selected
+                .and_then(|id| catalog.iter().position(|m| m.id == id))
+                .map(|r| gpui_component::IndexPath::default().row(r));
+            let select = cx.new(|cx| SelectState::new(choices, index, window, cx));
             shell.architecture.subscriptions.push(cx.subscribe(
-                &picker,
-                move |this, _, event: &ColorPickerEvent, cx| {
-                    if matches!(event, ColorPickerEvent::Change(_)) {
+                &select,
+                move |this, _, event: &SelectEvent<Vec<MaterialChoice>>, cx| {
+                    if matches!(event, SelectEvent::Confirm(_)) {
                         this.architecture.dirty = true;
                         this.architecture.changed_colors.insert(field);
                         cx.notify();
                     }
                 },
             ));
-            shell.architecture.colors.insert(field, picker);
+            shell.architecture.colors.insert(field, select);
         }
     }
 }
 fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
-    let selected = inspected(shell);
     let mut payload = CommandPayload::default();
-    for &(key, _) in COLORS {
-        if !shell.architecture.changed_colors.contains(key) {
-            continue;
-        }
-        if let Some(color) = shell
+    for field in &shell.architecture.changed_colors {
+        if let Some(id) = shell
             .architecture
             .colors
-            .get(key)
-            .and_then(|p| p.read(cx).value())
+            .get(field)
+            .and_then(|s| s.read(cx).selected_value())
+            .cloned()
         {
-            let c: gpui::Rgba = color.into();
-            payload
-                .values
-                .insert(key.into(), json!({"r":c.r,"g":c.g,"b":c.b,"a":c.a}));
+            payload.values.insert((*field).into(), json!(id));
         }
     }
     shell.dispatch_payload(
-        if selected.is_some() {
+        if inspected(shell).is_some() {
             "architecture.update"
         } else {
             "architecture.settings"
@@ -114,6 +131,7 @@ fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
     shell.architecture.dirty = false;
     shell.architecture.changed_colors.clear();
 }
+
 pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
     let selected = inspected(shell);
     let owners = if selected.is_some() {
@@ -235,7 +253,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             );
         }
         for &(key, label) in COLORS {
-            if (key.starts_with(prefix) || (prefix == "frame_" && key == "glazing_color"))
+            if (key.starts_with(prefix) || (prefix == "frame_" && key == "glazing_material"))
                 && let Some(picker) = shell.architecture.colors.get(key)
             {
                 section = section.child(
@@ -244,7 +262,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                         .items_center()
                         .justify_between()
                         .child(label)
-                        .child(ColorPicker::new(picker).small()),
+                        .child(Select::new(picker).small().placeholder("Choose material")),
                 );
             }
         }
@@ -282,7 +300,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     body = body.child(
         Button::new("architecture/apply-colors")
             .small()
-            .label("Apply Colors")
+            .label("Apply Materials")
             .disabled(!shell.architecture.dirty)
             .on_click(cx.listener(|this, _, _, cx| {
                 apply_colors(this, cx);

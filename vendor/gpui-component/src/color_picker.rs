@@ -1,3 +1,6 @@
+#[path = "color_picker_channels.rs"]
+mod channels;
+use channels::Mode;
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Corner, Div, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Hsla, InteractiveElement as _, IntoElement, KeyBinding, MouseButton,
@@ -17,6 +20,17 @@ use crate::{
     tooltip::Tooltip,
     v_flex,
 };
+
+fn rgba_hex(value: Hsla) -> String {
+    let c: gpui::Rgba = value.into();
+    format!(
+        "#{:02x}{:02x}{:02x}{:02x}",
+        (c.r * 255.).round() as u8,
+        (c.g * 255.).round() as u8,
+        (c.b * 255.).round() as u8,
+        (c.a * 255.).round() as u8
+    )
+}
 
 const CONTEXT: &'static str = "ColorPicker";
 pub fn init(cx: &mut App) {
@@ -65,6 +79,12 @@ pub struct ColorPickerState {
     state: Entity<InputState>,
     open: bool,
     bounds: Bounds<Pixels>,
+    mode: Mode,
+    channels: [Entity<InputState>; 4],
+    sliders: [Entity<crate::slider::SliderState>; 4],
+    channel_error: Option<String>,
+    plane_bounds: Bounds<Pixels>,
+    plane_drag: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -73,7 +93,7 @@ impl ColorPickerState {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = cx.new(|cx| InputState::new(window, cx));
 
-        let _subscriptions = vec![cx.subscribe_in(
+        let mut _subscriptions = vec![cx.subscribe_in(
             &state,
             window,
             |this, state, ev: &InputEvent, window, cx| match ev {
@@ -94,7 +114,15 @@ impl ColorPickerState {
             },
         )];
 
+        let (channels, sliders, subscriptions) = channels::initialize(window, cx);
+        _subscriptions.extend(subscriptions);
         Self {
+            mode: Mode::Hsl,
+            channels,
+            sliders,
+            channel_error: None,
+            plane_bounds: Bounds::default(),
+            plane_drag: false,
             focus_handle: cx.focus_handle(),
             value: None,
             hovered_color: None,
@@ -132,24 +160,27 @@ impl ColorPickerState {
         }
 
         self.open = false;
+        self.plane_drag = false;
         if self.hovered_color != self.value {
             let color = self.value;
             self.hovered_color = color;
             if let Some(color) = color {
                 self.state.update(cx, |input, cx| {
-                    input.set_value(color.to_hex(), window, cx);
+                    input.set_value(rgba_hex(color), window, cx);
                 });
             }
         }
         cx.notify();
     }
 
-    fn on_confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_value(self.value, false, window, cx);
         self.open = !self.open;
         cx.notify();
     }
 
-    fn toggle_picker(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_picker(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_value(self.value, false, window, cx);
         self.open = !self.open;
         cx.notify();
     }
@@ -163,9 +194,10 @@ impl ColorPickerState {
     ) {
         self.value = value;
         self.hovered_color = value;
+        self.sync_channels(window, cx);
         self.state.update(cx, |view, cx| {
             if let Some(value) = value {
-                view.set_value(value.to_hex(), window, cx);
+                view.set_value(rgba_hex(value), window, cx);
             } else {
                 view.set_value("", window, cx);
             }
@@ -262,7 +294,7 @@ impl ColorPicker {
     ) -> Stateful<Div> {
         let state = self.state.clone();
         div()
-            .id(SharedString::from(format!("color-{}", color.to_hex())))
+            .id(SharedString::from(format!("color-{}", rgba_hex(color))))
             .h_5()
             .w_5()
             .bg(color)
@@ -276,17 +308,24 @@ impl ColorPicker {
                 })
                 .active(|this| this.border_color(color.darken(0.5)).bg(color.darken(0.2)))
                 .on_mouse_move(window.listener_for(&state, move |state, _, window, cx| {
+                    let color = Hsla {
+                        a: state.value.map_or(1., |v| v.a),
+                        ..color
+                    };
                     state.hovered_color = Some(color);
                     state.state.update(cx, |input, cx| {
-                        input.set_value(color.to_hex(), window, cx);
+                        input.set_value(rgba_hex(color), window, cx);
                     });
                     cx.notify();
                 }))
                 .on_click(window.listener_for(
                     &state,
                     move |state, _, window, cx| {
+                        let color = Hsla {
+                            a: state.value.map_or(1., |v| v.a),
+                            ..color
+                        };
                         state.update_value(Some(color), true, window, cx);
-                        state.open = false;
                         cx.notify();
                     },
                 ))
@@ -317,7 +356,7 @@ impl ColorPicker {
         {
             state.update(cx, |state, cx| {
                 state.state.update(cx, |input, cx| {
-                    input.set_value(value.to_hex(), window, cx);
+                    input.set_value(rgba_hex(value), window, cx);
                 });
             });
         }
@@ -397,7 +436,7 @@ impl RenderOnce for ColorPicker {
         let state = self.state.read(cx);
         let bounds = state.bounds;
         let display_title: SharedString = if let Some(value) = state.value {
-            value.to_hex()
+            rgba_hex(value)
         } else {
             "".to_string()
         }
@@ -480,11 +519,12 @@ impl RenderOnce for ColorPicker {
                             .child(
                                 div()
                                     .occlude()
+                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                     .map(|this| match self.anchor {
                                         Corner::TopLeft | Corner::TopRight => this.mt_1p5(),
                                         Corner::BottomLeft | Corner::BottomRight => this.mb_1p5(),
                                     })
-                                    .w_72()
+                                    .w(px(340.))
                                     .overflow_hidden()
                                     .rounded(cx.theme().radius)
                                     .p_3()
@@ -493,7 +533,14 @@ impl RenderOnce for ColorPicker {
                                     .shadow_lg()
                                     .bg(cx.theme().popover)
                                     .text_color(cx.theme().popover_foreground)
-                                    .child(self.render_colors(window, cx))
+                                    .child(self.mode_controls(window, cx))
+                                    .when(self.state.read(cx).mode == Mode::Palette, |v| {
+                                        v.child(self.render_colors(window, cx))
+                                    })
+                                    .child(self.channel_controls(window, cx))
+                                    .when(self.state.read(cx).mode != Mode::Palette, |v| {
+                                        v.child(Input::new(&self.state.read(cx).state).small())
+                                    })
                                     .on_mouse_up_out(
                                         MouseButton::Left,
                                         window.listener_for(&self.state, |state, _, window, cx| {

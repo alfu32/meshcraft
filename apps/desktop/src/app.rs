@@ -4,6 +4,8 @@ mod annotation_workflow;
 mod architecture_workflow;
 #[path = "clipboard_workflow.rs"]
 mod clipboard_workflow;
+#[path = "ifc_workflow.rs"]
+pub(crate) mod ifc_workflow;
 #[path = "interchange_workflow.rs"]
 mod interchange_workflow;
 #[path = "materials_workflow.rs"]
@@ -1110,7 +1112,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ),
             (
                 "paint.apply_selection",
-                "Paint> Apply Current Color to Selection",
+                "Paint> Apply Current Material to Selection",
                 "Paint",
                 "paint color rgba selection faces edges",
                 None,
@@ -1118,7 +1120,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ),
             (
                 "paint.set_color",
-                "Paint> Set Current Color",
+                "Paint> Choose Material",
                 "Paint",
                 "paint color rgba current picker",
                 None,
@@ -2352,6 +2354,7 @@ pub struct MeshcraftApp {
     array_tool_state: ArrayToolState,
     rotational_array_tool_state: RotationalArrayToolState,
     current_paint_color: Rgba8,
+    current_paint_material: Option<String>,
     array_count: usize,
     array_spacing: f64,
     array_preview: bool,
@@ -2860,8 +2863,9 @@ impl MeshcraftApp {
         target_selection.set_context(self.selection.context.clone());
         target_selection.select(target);
         let color = self.current_paint_color;
+        let material = self.current_paint_material.clone();
         match self.commit_document_edit("Paint entity", |document| {
-            modeling_transforms::paint_selection(document, &target_selection, color)
+            Self::paint_with_material(document, &target_selection, color, material.as_deref())
         }) {
             Ok(report) => {
                 self.status = format!(
@@ -3369,6 +3373,8 @@ impl MeshcraftApp {
         let legacy_active_index = legacy_history
             .as_ref()
             .and_then(OpaqueLegacyHistory::active_entry_index);
+        let mut document = document;
+        let _ = document.normalize_material_bindings();
         let saved_revision = document.revision();
         let mut viewport = Viewport::default();
         let restored_camera = meshcraft_core::legacy::legacy_camera_state(&document)
@@ -3462,6 +3468,7 @@ impl MeshcraftApp {
             array_tool_state: ArrayToolState::default(),
             rotational_array_tool_state: RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
+            current_paint_material: None,
             array_count: 12,
             array_spacing: 3.0,
             array_preview: false,
@@ -5023,10 +5030,14 @@ impl MeshcraftApp {
         let mut pending = self.history.begin(&self.document, label);
         let context = self.selection.context.clone();
         let result = pending
-            .stage(|draft| match &context {
-                EditContext::Occurrence(active) => draft.edit_prototype(active, operation),
-                EditContext::Document => draft.edit_scene(operation),
-                _ => operation(draft),
+            .stage(|draft| {
+                let result = match &context {
+                    EditContext::Occurrence(active) => draft.edit_prototype(active, operation),
+                    EditContext::Document => draft.edit_scene(operation),
+                    _ => operation(draft),
+                }?;
+                draft.normalize_material_bindings()?;
+                Ok(result)
             })
             .map_err(|error| error.to_string())?;
         self.history
@@ -5784,6 +5795,7 @@ impl MeshcraftApp {
     ) -> CommandResult {
         let recent_error = self.remember_recent_project(path).err();
         self.document = project.document;
+        let _ = self.document.normalize_material_bindings();
         self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.clipboard.placement = None;
@@ -6490,8 +6502,9 @@ impl MeshcraftApp {
             ShellAction::PaintSelection => {
                 let selection = self.selection.clone();
                 let color = self.current_paint_color;
+                let material = self.current_paint_material.clone();
                 match self.commit_document_edit("Paint selection", |document| {
-                    modeling_transforms::paint_selection(document, &selection, color)
+                    Self::paint_with_material(document, &selection, color, material.as_deref())
                 }) {
                     Ok(report) if report.changed() => {
                         self.status = format!(
@@ -6532,6 +6545,7 @@ impl MeshcraftApp {
                 };
                 self.current_paint_color =
                     Rgba8::new(red as u8, green as u8, blue as u8, alpha as u8);
+                self.current_paint_material = None;
                 self.status = format!(
                     "Current paint color set to #{red:02x}{green:02x}{blue:02x}{alpha:02x}."
                 );
@@ -9063,8 +9077,9 @@ impl MeshcraftApp {
             target_selection.set_context(self.selection.context.clone());
             target_selection.select(target);
             let color = self.current_paint_color;
+            let material = self.current_paint_material.clone();
             match self.commit_document_edit("Paint entity", |document| {
-                modeling_transforms::paint_selection(document, &target_selection, color)
+                Self::paint_with_material(document, &target_selection, color, material.as_deref())
             }) {
                 Ok(report) => {
                     self.status = format!(
@@ -12895,6 +12910,7 @@ mod tests {
             array_tool_state: super::ArrayToolState::default(),
             rotational_array_tool_state: super::RotationalArrayToolState::default(),
             current_paint_color: Rgba8::WHITE,
+            current_paint_material: None,
             array_count: 12,
             array_spacing: 3.0,
             array_preview: false,

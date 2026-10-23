@@ -800,6 +800,7 @@ fn baked_snapshot(
         })
         .collect();
     document.replace_definition_geometry_raw(definition, vertices, segments, triangles)?;
+    document.set_prototype_ifc(definition, frame.state.prototype_ifc.clone())?;
     for hotspot in &frame.hotspots {
         document.put_hotspot(definition, hotspot.clone())?;
     }
@@ -812,6 +813,7 @@ fn baked_snapshot(
         false,
     )?;
     let mut selection = SelectionSession::default();
+    document.set_instance_ifc(&path, frame.state.instance_ifc.clone())?;
     selection.select(SelectionTarget {
         occurrence: path,
         entity: SelectedEntity::Occurrence,
@@ -896,7 +898,12 @@ mod job_tests {
         let mut app = super::super::tests::test_app();
         let revision = app.document.revision();
         let entries = app.history.entries().len();
-        queued(&mut app, true).send(Ok(frame())).unwrap();
+        let mut output = frame();
+        let metadata =
+            serde_json::from_value(json!({"Pset_Custom":{"Code":{"value":"A"}}})).unwrap();
+        output.state.prototype_ifc = metadata;
+        output.state.instance_ifc = output.state.prototype_ifc.clone();
+        queued(&mut app, true).send(Ok(output)).unwrap();
         app.poll_mcp_script();
         let result = app.command_job_result("test-script").unwrap();
         assert_eq!(CommandCompletion::Completed, result.completion);
@@ -905,6 +912,14 @@ mod job_tests {
         assert_eq!(entries + 1, app.history.entries().len());
         let path = app.selected_occurrences()[0].clone();
         let r = app.document.resolve_occurrence(&path).unwrap();
+        assert_eq!(
+            "A",
+            app.document.instance_ifc(&path)["Pset_Custom"]["Code"].value
+        );
+        assert_eq!(
+            "A",
+            app.document.prototype_ifc(r.definition.id)["Pset_Custom"]["Code"].value
+        );
         assert!(app.document.script(r.definition.id).is_none());
         assert_eq!(1, app.document.hotspots(r.definition.id).unwrap().len());
         assert_eq!(2., r.world_transform.transform_point(Vec3::ZERO).x);

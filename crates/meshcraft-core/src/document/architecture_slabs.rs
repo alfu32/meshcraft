@@ -167,6 +167,7 @@ pub(super) fn mesh(s: &Slab) -> Result<Mesh, String> {
             -plane.normal * s.thickness,
             Vec3::ZERO,
             [s.top_color, s.bottom_color, s.side_color],
+            ["top", "bottom", "side"].map(|key| s.materials.get(key).map(String::as_str)),
         )?;
         return Ok(mesh);
     }
@@ -226,8 +227,12 @@ pub(super) fn mesh(s: &Slab) -> Result<Mesh, String> {
     for ids in triangles {
         let top = ids.map(|i| mesh.points[i]);
         let low = ids.map(|i| bottom[&i]);
-        mesh.face(top, s.top_color)?;
-        mesh.face([low[2], low[1], low[0]], s.bottom_color)?;
+        mesh.face(top, s.top_color, s.materials.get("top").map(String::as_str))?;
+        mesh.face(
+            [low[2], low[1], low[0]],
+            s.bottom_color,
+            s.materials.get("bottom").map(String::as_str),
+        )?;
         let normal = (top[1] - top[0])
             .cross(top[2] - top[0])
             .try_normalized(EPS * EPS)
@@ -245,8 +250,16 @@ pub(super) fn mesh(s: &Slab) -> Result<Mesh, String> {
         let (a0, b0) = (bottom[&a], bottom[&b]);
         let (a1, b1) = (mesh.points[a], mesh.points[b]);
         if adjacent.len() == 1 {
-            mesh.face([a0, b0, b1], s.side_color)?;
-            mesh.face([a0, b1, a1], s.side_color)?;
+            mesh.face(
+                [a0, b0, b1],
+                s.side_color,
+                s.materials.get("side").map(String::as_str),
+            )?;
+            mesh.face(
+                [a0, b1, a1],
+                s.side_color,
+                s.materials.get("side").map(String::as_str),
+            )?;
             mesh.edge(a0, b0)?;
             mesh.edge(a1, b1)?;
             mesh.edge(a0, a1)?;

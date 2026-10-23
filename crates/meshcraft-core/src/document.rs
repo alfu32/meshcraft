@@ -9,6 +9,7 @@ pub mod architecture;
 pub mod clipboard;
 pub mod derived;
 pub mod hotspots;
+pub mod ifc;
 pub mod materials;
 pub mod scripts;
 pub mod subscenes;
@@ -812,6 +813,7 @@ impl Document {
             return None;
         }
         let id = LayoutEntryId(self.allocate_id());
+        let default_edits = self.ifc_creation_edits(definition);
         self.child_layouts
             .get_mut(&layout)?
             .entries
@@ -819,7 +821,7 @@ impl Document {
                 id,
                 definition,
                 transform,
-                default_edits: InstanceEdits::default(),
+                default_edits,
                 legacy_aliases: Vec::new(),
             });
         self.bump_revision();

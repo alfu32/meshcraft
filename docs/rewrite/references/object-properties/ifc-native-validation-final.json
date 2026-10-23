@@ -1,0 +1,11 @@
+{
+  "snapshotAtCreation": true,
+  "existingInstancesIndependent": true,
+  "copyRetainsValues": true,
+  "saveOpen": true,
+  "deleteAfterReopenPersists": true,
+  "instances": 3,
+  "prototypeDeletionSurvivesScriptAndNewPlacement": true,
+  "thumbnailRefreshOnSharedParameterEdit": true,
+  "thumbnailIndependentOfCamera": true
+}

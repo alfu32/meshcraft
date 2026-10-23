@@ -26,6 +26,8 @@ mod files;
 mod helpers;
 #[path = "gpui_hotspots.rs"]
 mod hotspots;
+#[path = "gpui_ifc.rs"]
+mod ifc;
 #[path = "gpui_layout.rs"]
 mod layout;
 #[path = "gpui_lighting.rs"]
@@ -42,6 +44,8 @@ mod postprocess;
 mod scripts;
 #[path = "gpui_settings.rs"]
 mod settings;
+#[path = "gpui_thumbnails.rs"]
+mod thumbnails;
 
 use crate::MeshcraftApp;
 use crate::viewport::{
@@ -997,6 +1001,8 @@ struct MeshcraftShell {
     focus: gpui::FocusHandle,
     settings: settings::Editors,
     parameters: parameters::Ui,
+    ifc: ifc::Ui,
+    thumbnails: thumbnails::Ui,
     settings_scroll: gpui::ScrollHandle,
     open_settings_panel: Option<&'static str>,
     collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
@@ -1053,6 +1059,8 @@ impl MeshcraftShell {
             focus: cx.focus_handle(),
             settings: settings::Editors::default(),
             parameters: parameters::Ui::default(),
+            ifc: ifc::Ui::default(),
+            thumbnails: thumbnails::Ui::default(),
             settings_scroll: gpui::ScrollHandle::new(),
             open_settings_panel: Some("UI Settings"),
             collapsed_settings_panels: Default::default(),
@@ -1363,6 +1371,12 @@ impl MeshcraftShell {
     }
 
     fn dispatch(&mut self, id: &str) {
+        if id == "paint.set_color" {
+            self.session
+                .set_native_status("Choose a material in the Materials panel.".into());
+            self.dispatch("view.panel.materials.toggle");
+            return;
+        }
         let Some(command) = MeshcraftApp::command_catalog()
             .into_iter()
             .find(|command| command.id.as_str() == id)
@@ -2553,6 +2567,9 @@ impl Render for MeshcraftShell {
                             if automation::poll(this) {
                                 cx.notify();
                             }
+                            if thumbnails::tick(this) {
+                                cx.notify();
+                            }
                             if scripts::tick(this) {
                                 this.refresh_scene();
                                 cx.notify();
@@ -2632,6 +2649,7 @@ impl Render for MeshcraftShell {
                 self.settings_scroll.scroll_to_top_of_item(index);
             }
         }
+        thumbnails::prepare(self, window, cx);
         settings::prepare(self, window, cx);
         parameters::prepare(self, window, cx);
         annotations::prepare(self, window, cx);
@@ -3183,6 +3201,14 @@ impl Render for MeshcraftShell {
                     }
                     return;
                 }
+                if this.ifc.editor.is_some() {
+                    if event.keystroke.key == "escape" {
+                        this.ifc.editor = None;
+                        window.focus(&this.focus);
+                        cx.stop_propagation();
+                    }
+                    return;
+                }
                 if this.materials.editor.is_some() {
                     if event.keystroke.key == "escape" {
                         this.materials.editor = None;
@@ -3253,6 +3279,9 @@ impl Render for MeshcraftShell {
         }
         if let Some(editor) = scripts::overlay(self, cx) {
             root = root.child(editor);
+        }
+        if let Some(ifc_editor) = ifc::overlay(self, cx) {
+            root = root.child(ifc_editor);
         }
         if let Some(material_editor) = materials::overlay(self, cx) {
             root = root.child(material_editor);

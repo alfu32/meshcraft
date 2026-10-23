@@ -143,6 +143,51 @@ impl Document {
                 }
             }
         }
+        fn sync_record(value: &mut Value, id: &str, color: Rgba8) {
+            if let Some(map) = value.as_object_mut() {
+                if let Some(bindings) = map.get("materials").and_then(Value::as_object).cloned() {
+                    for (slot, field) in [
+                        ("exterior", "exteriorColor"),
+                        ("interior", "interiorColor"),
+                        ("top", "topColor"),
+                        ("bottom", "bottomColor"),
+                        ("side", "sideColor"),
+                        ("frame", "color"),
+                        ("glazing", "glazingColor"),
+                    ] {
+                        if bindings.get(slot).and_then(Value::as_str) == Some(id)
+                            && map.contains_key(field)
+                        {
+                            map.insert(field.into(),serde_json::json!({"r":color.red as f64/255.,"g":color.green as f64/255.,"b":color.blue as f64/255.,"a":color.alpha as f64/255.}));
+                        }
+                    }
+                }
+                for value in map.values_mut() {
+                    sync_record(value, id, color);
+                }
+            } else if let Some(values) = value.as_array_mut() {
+                for value in values {
+                    sync_record(value, id, color);
+                }
+            }
+        }
+        for d in self.definitions.values_mut() {
+            for field in [
+                architecture::WALLS,
+                architecture::SLABS,
+                architecture::FRAMES,
+            ] {
+                if let Some(value) = d.domain_data.get_mut(field) {
+                    sync_record(value, &id, color);
+                }
+                if let Some(value) = d.extensions.get_mut(&format!("k3d.{field}")) {
+                    sync_record(value, &id, color);
+                }
+            }
+        }
+        if let Some(value) = self.extensions.get_mut("k3d.meshcraftArchitectureDefaults") {
+            sync_record(value, &id, color);
+        }
         self.bump_revision();
         Ok(())
     }
@@ -168,6 +213,20 @@ impl Document {
         Ok(ids)
     }
 
+    pub fn material_for_color(&mut self, color: Rgba8) -> Result<String, String> {
+        if let Some(m) = self.materials().into_iter().find(|m| m.color == color) {
+            return Ok(m.id);
+        }
+        let mut material = self.next_material();
+        material.name = format!(
+            "Color #{:02x}{:02x}{:02x}{:02x}",
+            color.red, color.green, color.blue, color.alpha
+        );
+        material.color = color;
+        let id = material.id.clone();
+        self.put_material(material)?;
+        Ok(id)
+    }
     pub fn next_material(&self) -> Material {
         let materials = self.materials();
         let n = (1..)
@@ -186,6 +245,131 @@ impl Document {
             .into_iter()
             .map(|m| (m.id, m.color))
             .collect()
+    }
+}
+
+impl Document {
+    /// Promote legacy independent RGBA values to catalog references without changing appearance.
+    pub fn normalize_material_bindings(&mut self) -> Result<(), String> {
+        let mut colors = self.material_colors();
+        let mut needed = BTreeMap::<[u8; 4], Rgba8>::new();
+        let collect = |g: &GeometryBundle, needed: &mut BTreeMap<[u8; 4], Rgba8>| {
+            for (color, ext) in g
+                .segments
+                .values()
+                .map(|s| (s.color, &s.extensions))
+                .chain(g.triangles.values().map(|s| (s.color, &s.extensions)))
+            {
+                if material_id(ext).is_none_or(|id| !colors.contains_key(id)) {
+                    needed.insert([color.red, color.green, color.blue, color.alpha], color);
+                }
+            }
+        };
+        for d in self.definitions.values() {
+            collect(&d.geometry, &mut needed);
+        }
+        for e in self.occurrence_edits.values().chain(
+            self.child_layouts
+                .values()
+                .flat_map(|l| l.entries.iter().map(|e| &e.default_edits)),
+        ) {
+            if let Some(g) = &e.geometry_replacement {
+                collect(g, &mut needed);
+            }
+        }
+        let mut catalog = self.materials();
+        let mut by_color = catalog
+            .iter()
+            .map(|m| {
+                (
+                    [m.color.red, m.color.green, m.color.blue, m.color.alpha],
+                    m.id.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut used = catalog
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<BTreeSet<_>>();
+        let mut added = false;
+        let mut ids = BTreeMap::new();
+        for (key, color) in needed {
+            let id = if let Some(id) = by_color.get(&key) {
+                id.clone()
+            } else {
+                let base = format!(
+                    "rgba-{:02x}{:02x}{:02x}{:02x}",
+                    color.red, color.green, color.blue, color.alpha
+                );
+                let mut id = base.clone();
+                let mut n = 1;
+                while used.contains(&id) {
+                    id = format!("{base}-{n}");
+                    n += 1;
+                }
+                used.insert(id.clone());
+                catalog.push(Material {
+                    id: id.clone(),
+                    name: format!(
+                        "Color #{:02x}{:02x}{:02x}{:02x}",
+                        color.red, color.green, color.blue, color.alpha
+                    ),
+                    color,
+                    ..Default::default()
+                });
+                by_color.insert(key, id.clone());
+                added = true;
+                id
+            };
+            ids.insert(key, id);
+        }
+        if added {
+            self.extensions.insert(
+                CATALOG_KEY.into(),
+                serde_json::to_value(catalog).map_err(|e| e.to_string())?,
+            );
+        }
+        colors = self.material_colors();
+        let mut changed = added;
+        let mut sync = |g: &mut GeometryBundle| {
+            let mut item = |color: &mut Rgba8, ext: &mut BTreeMap<String, Value>| {
+                if let Some(value) = material_id(ext).and_then(|id| colors.get(id)) {
+                    if color != value {
+                        *color = *value;
+                        changed = true;
+                    }
+                } else if let Some(id) = ids.get(&[color.red, color.green, color.blue, color.alpha])
+                {
+                    ext.insert(MATERIAL_KEY.into(), Value::String(id.clone()));
+                    changed = true;
+                }
+            };
+            for e in g.segments.values_mut() {
+                item(&mut e.color, &mut e.extensions);
+            }
+            for e in g.triangles.values_mut() {
+                item(&mut e.color, &mut e.extensions);
+            }
+        };
+        for d in self.definitions.values_mut() {
+            sync(&mut d.geometry);
+        }
+        for e in self.occurrence_edits.values_mut() {
+            if let Some(g) = e.geometry_replacement.as_mut() {
+                sync(g);
+            }
+        }
+        for l in self.child_layouts.values_mut() {
+            for e in &mut l.entries {
+                if let Some(g) = e.default_edits.geometry_replacement.as_mut() {
+                    sync(g);
+                }
+            }
+        }
+        if changed {
+            self.bump_revision();
+        }
+        Ok(())
     }
 }
 

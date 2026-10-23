@@ -101,8 +101,7 @@ function onAnimationFrame(params) {
 | `$HOTSPOT_SHAPE_DIAMOND` | Diamond |
 | `$HOTSPOT_SHAPE_TRIANGLE_DOWN` | Downward triangle |
 
-The originally requested `$HOTSPOT_HAPE_…` spelling is also accepted for every
-constant above. Completion, highlighting and hover help include both spellings.
+Completion, highlighting and hover help include all shape constants.
 Omit shape/color for a cyan circle. Color accepts `#RRGGBB` or `#RRGGBBAA` (alpha
 last); the default is `#00ffffff`. Pass `undefined` for an omitted label or shape
 when supplying later arguments. Unknown shapes and invalid colors report a script
@@ -113,3 +112,9 @@ appearance is retained across frames, copy and Save/Open, and is available on
 `params[id].shape` / `params[id].color`. Selection temporarily uses the normal
 selection color. Dragged positions remain absolute across generated frames, so a
 stationary drag does not alternate between the declared position and its target.
+
+
+IFC creation metadata is declared with `$IFC` and read through `this.ifc`; unlike
+shared form parameters, prototype IFC defaults are copied into each new instance.
+See [IFC properties](ifc-properties.md). Only the corrected `$HOTSPOT_SHAPE_*`
+constant spelling is supported; the former misspelled aliases are removed.

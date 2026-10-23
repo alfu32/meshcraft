@@ -54,6 +54,7 @@ impl ScriptDefinition {
     }
 }
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScriptState {
     pub initializer: String,
     pub properties: BTreeMap<String, Value>,
@@ -61,6 +62,12 @@ pub struct ScriptState {
     pub declarations: Vec<parameters::Declaration>,
     #[serde(default)]
     pub parameters: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub ifc_initialized: bool,
+    #[serde(default)]
+    pub prototype_ifc: ifc::Properties,
+    #[serde(default)]
+    pub instance_ifc: ifc::Properties,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptFrame {
@@ -131,6 +138,8 @@ impl ScriptFrame {
         items: Vec<Drawable>,
         state: ScriptState,
     ) -> Result<Self, String> {
+        ifc::validate(&state.prototype_ifc)?;
+        ifc::validate(&state.instance_ifc)?;
         if state.declarations.len() > 256 {
             return Err("Script exceeds 256 model parameters".into());
         }
@@ -369,6 +378,40 @@ impl Document {
                         serde_json::to_value(values).unwrap(),
                     );
                 }
+            }
+        }
+        for (path, frame) in &frames {
+            if frame.state.ifc_initialized
+                && let Some(id) = self.resolve_occurrence(path).map(|r| r.definition.id)
+            {
+                let mut defaults = self.prototype_ifc(id);
+                let omissions = self.prototype_ifc_omissions(id);
+                for (set, props) in &frame.state.prototype_ifc {
+                    for (name, p) in props {
+                        if omissions.contains(&[set.clone(), name.clone()]) {
+                            continue;
+                        }
+                        defaults
+                            .entry(set.clone())
+                            .or_default()
+                            .entry(name.clone())
+                            .or_insert_with(|| p.clone());
+                    }
+                }
+                if !defaults.is_empty() {
+                    self.definitions
+                        .get_mut(&id)
+                        .unwrap()
+                        .extensions
+                        .insert(ifc::KEY.into(), serde_json::to_value(defaults).unwrap());
+                }
+                let mut edits = self.occurrence_edits(path).cloned().unwrap_or_default();
+                edits.extensions.remove(ifc::KEY);
+                edits.values.insert(
+                    ifc::KEY.into(),
+                    serde_json::to_value(&frame.state.instance_ifc).unwrap(),
+                );
+                self.occurrence_edits.insert(path.clone(), edits);
             }
         }
         let mut next = (*self.script_cache.frames).clone();

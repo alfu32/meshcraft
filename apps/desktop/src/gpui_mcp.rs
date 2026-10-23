@@ -295,6 +295,63 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
                 json!({"entries":crate::script_api::catalog().into_iter().filter(|e|q.is_empty()||format!("{} {} {}",e.name,e.signature,e.help).to_lowercase().contains(&q)).collect::<Vec<_>>(),"scope":"Same SDK as scripted objects. model is immutable; this/instance owns its JSON properties. See meshcraft://guide and meshcraft://scripting/sdk."}),
             )
         }
+        "meshcraft_ifc" => {
+            use meshcraft_core::document::{DefinitionId, LayoutEntryId, OccurrenceRef, ifc};
+            match args["action"].as_str() {
+                Some("catalog") => {
+                    let q = args["query"].as_str().unwrap_or("").to_lowercase();
+                    Ok(
+                        json!({"schema":ifc::SCHEMA,"types":ifc::catalog().types,"valueTypes":ifc::catalog().value_types,"properties":ifc::catalog().properties.iter().filter(|p|format!("{} {} {}",p.set,p.name,p.data_type).to_lowercase().contains(&q)).collect::<Vec<_>>()}),
+                    )
+                }
+                Some("get") => {
+                    let prototype = args["prototype"].as_bool().unwrap_or(false);
+                    let (id, paths, props) = shell
+                        .session
+                        .native_ifc_selection(prototype)
+                        .ok_or("Select an object instance or prototype")?;
+                    Ok(
+                        json!({"schema":ifc::SCHEMA,"definition_id":id,"paths":paths.iter().map(|p|&p.path).collect::<Vec<_>>(),"properties":props}),
+                    )
+                }
+                Some(action @ ("set" | "delete")) => {
+                    let id = DefinitionId(
+                        args["definition_id"]
+                            .as_u64()
+                            .ok_or("definition_id required")?,
+                    );
+                    let paths: Vec<Vec<u64>> =
+                        serde_json::from_value(args.get("paths").cloned().unwrap_or(json!([])))
+                            .map_err(|e| e.to_string())?;
+                    let paths = paths
+                        .into_iter()
+                        .map(|p| OccurrenceRef {
+                            path: p.into_iter().map(LayoutEntryId).collect(),
+                        })
+                        .collect();
+                    let set = args["set"].as_str().ok_or("set required")?.to_owned();
+                    let name = args["name"].as_str().ok_or("name required")?.to_owned();
+                    let property = if action == "set" {
+                        Some(
+                            serde_json::from_value(args["property"].clone())
+                                .map_err(|e| e.to_string())?,
+                        )
+                    } else {
+                        None
+                    };
+                    shell.session.edit_native_ifc(
+                        id,
+                        paths,
+                        Some((set.clone(), name.clone())),
+                        set,
+                        name,
+                        property,
+                    )?;
+                    Ok(json!({"revision":shell.session.document_revision()}))
+                }
+                _ => Err("action must be get, catalog, set or delete".into()),
+            }
+        }
         "meshcraft_parameters" => match args["action"].as_str() {
             Some("get") => Ok(json!({"parameters":shell.session.native_script_parameters()})),
             Some("set") => {

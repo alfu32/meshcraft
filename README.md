@@ -11,6 +11,13 @@ settings panel, then connect to `http://127.0.0.1:8765/mcp`. It publishes live c
 scene/selection data and the complete scripting API, and supports one-shot geometry scripts.
 See the [MCP guide](docs/mcp.md).
 
+Object Prototypes include cached isometric thumbnails and editable IFC4.3 creation
+defaults. Object Instance properties retain independent IFC values, including
+script-declared metadata. The complete offline standard property/quantity catalog
+is available in the editor and MCP; see [IFC properties](docs/ifc-properties.md).
+Model surfaces use catalog materials. Material and hotspot color pickers offer
+HSL, RGB and swatches, each with opacity controls.
+
 ## Modeling tools
 
 - **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
