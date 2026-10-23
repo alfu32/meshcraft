@@ -298,6 +298,28 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
         "meshcraft_ifc" => {
             use meshcraft_core::document::{DefinitionId, LayoutEntryId, OccurrenceRef, ifc};
             match args["action"].as_str() {
+                Some("presets") => Ok(json!({"schema":ifc::SCHEMA,"presets":ifc::presets::ALL})),
+                Some("preset") => {
+                    let definition = DefinitionId(
+                        args["definition_id"]
+                            .as_u64()
+                            .ok_or("definition_id required")?,
+                    );
+                    let paths: Vec<Vec<u64>> =
+                        serde_json::from_value(args.get("paths").cloned().unwrap_or(json!([])))
+                            .map_err(|e| e.to_string())?;
+                    let paths = paths
+                        .into_iter()
+                        .map(|path| OccurrenceRef {
+                            path: path.into_iter().map(LayoutEntryId).collect(),
+                        })
+                        .collect();
+                    let preset = args["preset"].as_str().ok_or("preset required")?;
+                    let added = shell
+                        .session
+                        .apply_native_ifc_preset(definition, paths, preset)?;
+                    Ok(json!({"added":added,"revision":shell.session.document_revision()}))
+                }
                 Some("catalog") => {
                     let q = args["query"].as_str().unwrap_or("").to_lowercase();
                     Ok(
@@ -349,7 +371,7 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
                     )?;
                     Ok(json!({"revision":shell.session.document_revision()}))
                 }
-                _ => Err("action must be get, catalog, set or delete".into()),
+                _ => Err("action must be get, catalog, presets, preset, set or delete".into()),
             }
         }
         "meshcraft_parameters" => match args["action"].as_str() {

@@ -1,0 +1,7 @@
+{
+  "prototypeWallButton": true,
+  "instanceWindowButton": true,
+  "instanceEditLeavesPrototypeUnchanged": true,
+  "uiUndoRestoresInstance": true,
+  "groupedSingleLineRows": true
+}

@@ -1,6 +1,8 @@
 //! Instance-owned IFC4X3_ADD2 property sets and prototype creation defaults.
 use super::*;
 use std::sync::LazyLock;
+#[path = "ifc_presets.rs"]
+pub mod presets;
 pub const KEY: &str = "k3d.ifcProperties";
 pub const SCHEMA: &str = "IFC4X3_ADD2";
 pub type Properties = BTreeMap<String, BTreeMap<String, Property>>;

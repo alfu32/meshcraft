@@ -1,0 +1,11 @@
+{
+  "nativePrototypeButton": true,
+  "existingValuePreserved": true,
+  "newFieldsUnset": true,
+  "existingInstanceUnchanged": true,
+  "newInstanceCopiesPreset": true,
+  "mcpDiscovery": true,
+  "instanceBatchAdded": 14,
+  "idempotentRevision": true,
+  "batchUndo": true
+}

@@ -14,7 +14,8 @@ See the [MCP guide](docs/mcp.md).
 Object Prototypes include cached isometric thumbnails and editable IFC4.3 creation
 defaults. Object Instance properties retain independent IFC values, including
 script-declared metadata. The complete offline standard property/quantity catalog
-is available in the editor and MCP; see [IFC properties](docs/ifc-properties.md).
+is available in the editor and MCP, with small opt-in Wall/Slab/Door/Window
+Common presets; see [IFC properties](docs/ifc-properties.md).
 Model surfaces use catalog materials. Material and hotspot color pickers offer
 HSL, RGB and swatches, each with opacity controls.
 

@@ -29,6 +29,12 @@ are creation defaults copied into each new instance, never live inherited fields
 Instance edits and deletions survive prototype edits, copy and Save/Open. This
 applies to graphical and scripted prototypes. See [IFC properties](../../ifc-properties.md).
 
+The panels also offer opt-in Wall/Slab/Door/Window Common starter subsets.
+Applying one adds only absent fields with unset values and preserves existing
+records. Instance batches are atomic and undoable. Prototype defaults still apply
+only at creation. A preset selects property names, not an IFC class or inferred
+performance values. Only assigned properties are shown in the panels.
+
 ## Editing isolation and navigation
 
 Within prototype editing, selection and modification are limited to the active subscene's own geometry and immediate nested instances. Outside geometry stays visible, optionally faded, and remains a snapping/constraint reference. It is not selectable or modifiable. A nested instance can be entered to edit its definition in turn. Construction writes directly into the active prototype.

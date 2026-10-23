@@ -64,3 +64,41 @@ explicit units and reference restrictions are documented in the
 were not run in this local pass. Unplaced/nested scripted thumbnail isolation is
 implemented through the existing preview pipeline; it was inspected in code, not
 separately exercised by the native thumbnail probe.
+
+## IFC starter presets — 0.28.0
+
+The opt-in starter subsets use the standard Common sets with 6 Wall, 6 Slab,
+9 Door and 7 Window fields. All new values are unset, and enum choices come from
+the pinned catalog. Existing property records are preserved exactly. The compact
+native list groups rows by set and keeps names and values on one line.
+
+Automated qualification:
+
+- `cargo test --workspace --quiet`: **666 passed** (282 core, 337 desktop, five CLI,
+  42 IO), five manual probes ignored. New checks cover every preset's catalog
+  membership and types, unset values, retained enum choices, authored values,
+  prototype snapshots, persistence after ID remapping, repeated application and
+  selection-wide Undo. The fixture uses a fresh history baseline after direct
+  setup edits; project round trips are compared independently of transient IDs.
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `cargo build -p meshcraft-desktop --bin meshcraft`: passed.
+- `cargo check -p meshcraft-desktop --lib --target wasm32-unknown-unknown`: passed,
+  with the same three existing native-only method warnings.
+- Formatting, the plan/local-link verifier and all eight release-helper tests pass.
+
+An isolated native run clicked Wall in Object Prototypes and Window in Object
+Instance. The existing EI60 value was preserved, new fields displayed Unset,
+instance changes left the prototype unchanged, and Undo restored the instance.
+New placement copied the prototype subset without changing the older instance.
+Live MCP discovery returned all four subsets; a two-instance Window application
+added 14 fields, repeated application added zero without changing revision, and
+one Undo removed that batch from both instances.
+
+Presets do not assign IFC entity classes, generate quantities or assert performance
+values. They are Meshcraft convenience subsets, not certified Archicad/Revit export
+profiles; the full catalog remains available for individual additions.
+
+Preset evidence: [prototype controls](../references/object-properties/ifc-presets-prototype.png),
+[instance controls](../references/object-properties/ifc-presets-instance.png),
+[live MCP results](../references/object-properties/ifc-presets-validation.json),
+[native control results](../references/object-properties/ifc-presets-ui-validation.json).

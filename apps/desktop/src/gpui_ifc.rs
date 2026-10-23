@@ -38,7 +38,7 @@ fn open(
     };
     let (set, name, p) = old.clone().unwrap_or_else(|| {
         (
-            "Pset_Custom".into(),
+            "Meshcraft_Custom".into(),
             "Reference".into(),
             Property::default(),
         )
@@ -133,12 +133,7 @@ fn open(
                     .to_owned();
                 e.kind
                     .update(cx, |s, cx| s.set_selected_value(&k, window, cx));
-                let value = if !template.choices.is_empty() {
-                    serde_json::to_string(&template.choices[..1]).unwrap()
-                } else {
-                    String::new()
-                };
-                e.value.update(cx, |i, cx| i.set_value(value, window, cx));
+                e.value.update(cx, |i, cx| i.set_value("", window, cx));
                 let mut options = serde_json::Map::new();
                 if let Some(t) = &template.secondary_data_type {
                     options.insert("secondaryDataType".into(), json!(t));
@@ -199,15 +194,20 @@ pub(super) fn panel(
             "IFC properties · instance"
         }));
     for (set, properties) in props {
+        list = list.child(div().mt(px(4.)).text_xs().child(set.clone()));
         for (name, property) in properties {
             let old = (set.clone(), name.clone(), property.clone());
             let delete = (set.clone(), name.clone());
             let paths = paths.clone();
-            let summary = property
-                .value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| property.value.to_string());
+            let summary = if property.value.is_null() {
+                "Unset".into()
+            } else {
+                property
+                    .value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| property.value.to_string())
+            };
             list = list.child(
                 div()
                     .flex()
@@ -218,18 +218,34 @@ pub(super) fn panel(
                             .ghost()
                             .small()
                             .justify_start()
+                            .tooltip(format!("{set}.{name}: {summary}"))
                             .flex_1()
                             .min_w(px(0.))
                             .child(
                                 div()
-                                    .w_full()
+                                    .w(px(layout::RIGHT_PANEL_WIDTH - 100.))
+                                    .max_w_full()
+                                    .min_w(px(0.))
                                     .flex()
-                                    .flex_col()
-                                    .items_start()
+                                    .items_center()
+                                    .gap(px(8.))
                                     .child(
-                                        div().text_xs().truncate().child(format!("{set} · {name}")),
+                                        div()
+                                            .flex_1()
+                                            .min_w(px(0.))
+                                            .text_xs()
+                                            .truncate()
+                                            .child(name.clone()),
                                     )
-                                    .child(div().text_xs().truncate().child(summary)),
+                                    .child(
+                                        div()
+                                            .w(px(100.))
+                                            .flex_shrink_0()
+                                            .text_xs()
+                                            .text_right()
+                                            .truncate()
+                                            .child(summary),
+                                    ),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 open(this, prototype, Some(old.clone()), window, cx)
@@ -263,7 +279,7 @@ pub(super) fn panel(
             );
         }
     }
-    list.child(
+    list = list.child(
         Button::new(if prototype {
             "ifc/add-prototype"
         } else {
@@ -272,7 +288,44 @@ pub(super) fn panel(
         .small()
         .label("Add IFC property")
         .on_click(cx.listener(move |this, _, window, cx| open(this, prototype, None, window, cx))),
+    );
+    let mut presets = div().flex().flex_wrap().gap(px(4.));
+    for preset in ifc::presets::ALL {
+        let paths = paths.clone();
+        presets = presets.child(
+            Button::new(SharedString::from(format!(
+                "ifc/preset/{prototype}/{}",
+                preset.id
+            )))
+            .small()
+            .label(format!("{} · {}", preset.label, preset.fields.len()))
+            .tooltip(format!(
+                "Add {} fields from {}. Existing properties are preserved.",
+                preset.fields.len(),
+                preset.set
+            ))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.session.document_generation() != generation {
+                    return;
+                }
+                if let Err(error) =
+                    this.session
+                        .apply_native_ifc_preset(definition, paths.clone(), preset.id)
+                {
+                    this.session.set_native_status(error);
+                }
+                this.refresh_scene();
+                cx.notify();
+            })),
+        );
+    }
+    list.child(
+        div()
+            .mt(px(4.))
+            .text_xs()
+            .child("Add common properties · values stay unset"),
     )
+    .child(presets)
     .into_any_element()
 }
 fn field(label: &'static str, input: &Entity<InputState>) -> gpui::AnyElement {

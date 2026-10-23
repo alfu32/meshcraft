@@ -97,9 +97,9 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "meshcraft_ifc",
-            "Get IFC4X3_ADD2 properties for the selected prototype or instances; catalog searches all 3,988 official standard properties/quantities; set/delete edits a named property in one Undo transaction. Prototype properties are creation defaults copied into new instances. property has kind,dataType,value,unit,description. Omit paths for prototype defaults.",
+            "Get IFC4X3_ADD2 properties for the selected prototype or instances; catalog searches all 3,988 official standard properties/quantities; presets lists compact architectural subsets; preset adds missing fields with null (unset) values, preserving all existing properties, in one Undo transaction. preset requires definition_id and preset=wall|slab|door|window. set/delete edits one named property. Prototype properties are creation defaults copied into new instances. property has kind,dataType,value,unit,description. Omit paths for prototype defaults; use paths for selected instances. Presets do not assign an IFC entity class or invent quantities/performance values.",
             schema(
-                json!({"action":{"enum":["get","catalog","set","delete"]},"prototype":{"type":"boolean"},"query":{"type":"string"},"definition_id":{"type":"integer"},"paths":{"type":"array","items":{"type":"array","items":{"type":"integer"}}},"set":{"type":"string"},"name":{"type":"string"},"property":{"type":"object"}}),
+                json!({"action":{"enum":["get","catalog","presets","preset","set","delete"]},"preset":{"enum":["wall","slab","door","window"]},"prototype":{"type":"boolean"},"query":{"type":"string"},"definition_id":{"type":"integer"},"paths":{"type":"array","items":{"type":"array","items":{"type":"integer"}}},"set":{"type":"string"},"name":{"type":"string"},"property":{"type":"object"}}),
                 &["action"],
             ),
             false,

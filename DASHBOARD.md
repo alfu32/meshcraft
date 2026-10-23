@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.28.0 IFC starter presets:** Object Instance and Object Prototypes offer compact
+Wall/Slab/Door/Window Common property subsets, also discoverable/applicable by MCP.
+Only missing fields are added, initially Unset; authored values are preserved,
+instance batches have one Undo step, and prototype defaults still copy at creation.
+See the [preset fields and API](docs/ifc-properties.md#small-architectural-presets).
+
 **0.27.0 object metadata and materials:** Object Instance and Object Prototypes manage
 independent IFC properties using the offline IFC4X3_ADD2 catalog. Prototype creation
 defaults are copied into each instance; scripts use `$IFC` and immutable `this.ifc`.

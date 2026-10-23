@@ -42,7 +42,7 @@ script API accepts the same options as its fourth argument (including `dataType`
 and `kind`) or its sixth argument. For example:
 
 ```javascript
-$IFC('Pset_Custom', 'Curve', {defining:[0,1], defined:[10,20]}, {
+$IFC('Meshcraft_Custom', 'Curve', {defining:[0,1], defined:[10,20]}, {
   kind:'table', dataType:'IfcTimeMeasure', secondaryDataType:'IfcLengthMeasure',
   unit:'s', secondaryUnit:'m', interpolation:'LINEAR'
 });
@@ -53,6 +53,31 @@ unit; the value itself is retained, not converted by model display units. The
 editor validates value structure and basic IFC scalar types; it is not a full
 IFC model-view certification or relationship validator.
 
+## Small architectural presets
+
+The Object Prototypes and Object Instance panels provide four opt-in buttons under
+“Add common properties”. They add only these starter fields:
+
+| Preset | Property set | Fields |
+| --- | --- | --- |
+| Wall · 6 | `Pset_WallCommon` | Status, IsExternal, LoadBearing, FireRating, AcousticRating, ThermalTransmittance |
+| Slab · 6 | `Pset_SlabCommon` | Status, IsExternal, LoadBearing, FireRating, AcousticRating, ThermalTransmittance |
+| Door · 9 | `Pset_DoorCommon` | Status, IsExternal, FireRating, AcousticRating, ThermalTransmittance, HandicapAccessible, FireExit, SelfClosing, SmokeStop |
+| Window · 7 | `Pset_WindowCommon` | Status, IsExternal, FireRating, AcousticRating, ThermalTransmittance, SecurityRating, GlazingAreaFraction |
+
+Values start **Unset**, including booleans and renovation status. Existing values,
+types, descriptions and units are preserved. Reapplying a preset adds only missing
+fields, with no history entry when everything is already present. An application
+to multiple selected instances is one Undo transaction. Prototype presets affect
+future placements; current instances retain their snapshots. Explicitly reapplying
+a preset restores a previously deleted field as unset.
+
+These are Meshcraft convenience subsets of the official catalog, rather than
+complete property sets or fixed Archicad/Revit export configurations. They do not
+assign an IFC entity class, calculate quantities or infer fire/thermal compliance.
+Use Add IFC Property for any other standard or custom field. Custom sets default
+to `Meshcraft_Custom`; `Pset_`/`Qto_` names are reserved for standard sets.
+
 ## Scripts
 
 ```javascript
@@ -62,7 +87,7 @@ $IFC('Pset_WallCommon', 'IsExternal', true, 'IfcBoolean');
 
 function onCreate() {
   // Additional instance creation properties.
-  $IFC('Pset_Custom', 'SerialNumber', '001');
+  $IFC('Meshcraft_Custom', 'SerialNumber', '001');
 }
 
 function onAnimationFrame(params, model) {
@@ -91,6 +116,17 @@ magenta highlighting, completion and hover help as the other model declarations.
 {"action":"set","definition_id":42,"paths":[[100],[101]],"set":"Pset_WallCommon","name":"FireRating","property":{"value":"EI90"}}
 {"action":"delete","definition_id":42,"paths":[[100]],"set":"Pset_WallCommon","name":"FireRating"}
 ```
+
+Discover/apply the same starter presets through MCP:
+
+```json
+{"action":"presets"}
+{"action":"preset","definition_id":42,"preset":"wall"}
+{"action":"preset","definition_id":42,"paths":[[100],[101]],"preset":"window"}
+```
+
+The apply response includes `added` and the document revision. Preset IDs are
+`wall`, `slab`, `door`, `window`; the discovery response lists their fields.
 
 Get reads the current object/prototype selection. Omit `paths` on writes for
 prototype defaults; occurrence paths address instance-owned properties.
@@ -131,9 +167,8 @@ Revit-specific sets, custom sets and base quantities have separate export option
 [Autodesk Common sets](https://autodesk.ifc-manual.com/revit/ifc-export-settings-dialog/property-sets/common-property-sets),
 [base quantity export](https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/How-to-export-model-from-Revit-to-IFC-export-with-quantities.html).
 
-Small element-specific presets (Wall Common, Slab Common, Door Common, Window
-Common) would be a useful Meshcraft convenience, with the full catalog available
-through Add Property. They are a proposal, not currently installed presets or an
-assertion that both applications export the same fixed fields. Identity,
+The small element-specific presets above provide a practical Meshcraft starting
+point, with the full catalog available through Add Property. They do not assert
+that both applications export the same fixed fields. Identity,
 classification, containment and material associations also require IFC attributes
 and relationships; adding similarly named custom properties does not replace them.
