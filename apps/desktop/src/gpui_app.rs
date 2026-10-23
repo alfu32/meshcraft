@@ -128,6 +128,15 @@ impl Default for OrbitCamera {
 }
 
 impl OrbitCamera {
+    /// Move eye and target together along the view axis without changing zoom or orientation.
+    fn travel_by_wheel(&mut self, steps: f32) {
+        let delta = (self.target - self.position()) * (f64::from(steps) * 0.12);
+        self.target += delta;
+        if let Some(eye) = &mut self.eye {
+            *eye += delta;
+        }
+    }
+
     fn orbit_by_drag(&mut self, dx: f32, dy: f32) {
         self.up = Vec3::Y;
         self.yaw -= dx * 0.005;
@@ -1867,6 +1876,21 @@ impl MeshcraftShell {
         self.bridge.publish_camera(self.camera);
     }
 
+    fn wheel_camera(&mut self, steps: f32, modifiers: gpui::Modifiers) {
+        let steps = wheel_zoom_steps(steps, modifiers);
+        if modifiers.shift {
+            let previous = self.camera.position();
+            self.camera.travel_by_wheel(steps);
+            if self.walking {
+                self.session
+                    .native_travel_walkthrough(self.camera.position() - previous);
+            }
+            self.bridge.publish_camera(self.camera);
+        } else {
+            self.zoom_camera(steps);
+        }
+    }
+
     fn shortcut(&mut self, event: &gpui::KeyDownEvent) {
         let key = event.keystroke.key.to_ascii_lowercase();
         let modifiers = event.keystroke.modifiers;
@@ -2854,11 +2878,15 @@ impl Render for MeshcraftShell {
             cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
                 let (x, y) = this.viewport_point(event.position, window);
                 if !this.viewport_input_blocked() && this.cursor_in_viewport(x, y) {
+                    // Some platforms send Shift-wheel as horizontal scrolling.
+                    let axis = |x: f32, y: f32| if event.modifiers.shift { x + y } else { y };
                     let steps = match event.delta {
-                        gpui::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 80.0,
-                        gpui::ScrollDelta::Lines(delta) => delta.y,
+                        gpui::ScrollDelta::Pixels(delta) => {
+                            axis(f32::from(delta.x), f32::from(delta.y)) / 80.0
+                        }
+                        gpui::ScrollDelta::Lines(delta) => axis(delta.x, delta.y),
                     };
-                    this.zoom_camera(wheel_zoom_steps(steps, event.modifiers));
+                    this.wheel_camera(steps, event.modifiers);
                     cx.notify();
                 }
             });
@@ -3698,6 +3726,7 @@ mod tests {
             ("move", "tool.builtin.move"),
             ("copy", "edit.copy_selection"),
             ("move-copy", "tool.move_copy"),
+            ("mesh-intersection", "tool.builtin.mesh_intersection"),
             ("rotate-copy-3d", "tool.rotate_copy"),
             ("make-object", "object.create_from_selection"),
             ("linear-array", "tool.builtin.copy_multiple"),
@@ -3740,6 +3769,48 @@ mod tests {
         assert!(
             (camera.position().distance(camera.target) - f64::from(camera.distance)).abs() < 1.0e-5
         );
+    }
+
+    #[test]
+    fn wheel_travel_translates_eye_and_target_without_changing_projection() {
+        use meshcraft_core::geometry::Vec3;
+        for orthographic in [false, true] {
+            for eye in [None, Some(Vec3::new(4., 5., 6.))] {
+                let mut camera = OrbitCamera {
+                    orthographic,
+                    eye,
+                    ..Default::default()
+                };
+                let before = camera;
+                let position = camera.position();
+                camera.travel_by_wheel(1.);
+                let movement = camera.target - before.target;
+                assert!(movement.length() > 0.);
+                assert!(movement.dot(before.target - position) > 0.);
+                assert!(movement.cross(before.target - position).length() < 1e-9);
+                assert!((camera.position() - position).distance(movement) < 1e-9);
+                assert_eq!(camera.distance, before.distance);
+                assert_eq!(
+                    (
+                        camera.yaw,
+                        camera.pitch,
+                        camera.up,
+                        camera.field_of_view,
+                        camera.orthographic
+                    ),
+                    (
+                        before.yaw,
+                        before.pitch,
+                        before.up,
+                        before.field_of_view,
+                        before.orthographic
+                    )
+                );
+                camera.travel_by_wheel(-1.);
+                assert!(camera.target.distance(before.target) < 1e-9);
+                assert!(camera.position().distance(position) < 1e-9);
+            }
+        }
     }
 
     #[test]

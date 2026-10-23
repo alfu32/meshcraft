@@ -244,3 +244,18 @@ slices must continue without a batch-timeout diagnostic or repeated initializati
 Keep instance state independent, send the scene snapshot once per sweep, and
 verify fresh globals and frozen scene queries with the shared VM. An interrupted
 instance must not stop healthy instances in later work slices or sweeps.
+
+### Solids picking order and camera travel follow-up (0.33.1)
+
+Intersection Curves must be directly reachable in the Solids dropdown, Modify
+ribbon and left Solids toolbar. For overlapping cubes A at x=0..2 and B at x=1..3,
+pick A then Shift-pick B: Difference leaves x=0..1. Undo, reverse the pick order,
+and verify x=2..3 instead. The later-created object may be the first operand.
+Explicit automation selections use target array order; Add preserves existing
+order and appends new targets, while Remove drops only the requested targets.
+
+Shift-wheel moves the camera position and target by the same vector parallel to
+their connecting line. Assert unchanged distance, view orientation, projection and
+field of view for perspective and orthographic cameras, and synchronization with
+the walkthrough controller. Ordinary wheel remains zoom; Ctrl/Alt fine rates remain
+1/10 and 1/20. Check real native wheel input in addition to camera arithmetic.

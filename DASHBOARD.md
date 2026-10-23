@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.33.1 Solids/camera fixes:** Intersection Curves has explicit menu, ribbon and
+left-toolbar entries. Difference respects picking order (first minus second),
+including ordered MCP selections. Shift-wheel translates eye and target together
+along the view axis, including walkthrough height synchronization.
+
 **0.33.0 selection, grid and mesh tools:** auto-grid crosses are larger and grid
 points outrank line attraction. Closed-object hotspots appear for one selected
 instance. Selection preserves face colors, highlights lines with a blue bounding

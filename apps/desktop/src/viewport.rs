@@ -882,14 +882,36 @@ impl Viewport {
             rect.contains(position) && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
         });
         if pointer_over_viewport {
-            let scroll = ui.input(|input| input.smooth_scroll_delta.y);
+            let modifiers = ui.input(|input| input.modifiers);
+            let scroll = ui.input(|input| {
+                let delta = input.smooth_scroll_delta;
+                if modifiers.shift {
+                    delta.x + delta.y
+                } else {
+                    delta.y
+                }
+            }) * if modifiers.alt {
+                0.05
+            } else if modifiers.ctrl {
+                0.1
+            } else {
+                1.0
+            };
             if scroll.abs() > f32::EPSILON && !ui.ctx().egui_wants_keyboard_input() {
-                if let Some(walkthrough) = &mut self.walkthrough {
+                if modifiers.shift && self.walkthrough.is_some() {
+                    self.travel_walkthrough(
+                        scene.document,
+                        -self.camera_direction() * (self.distance * f64::from(scroll) * 0.001),
+                    );
+                } else if let Some(walkthrough) = &mut self.walkthrough {
                     let scroll_steps = f64::from(scroll) / 40.0;
                     walkthrough.position += walkthrough.forward()
                         * (scroll_steps
                             * self.walkthrough_tuning.move_speed
                             * WALK_SCROLL_MOVE_SCALE);
+                } else if modifiers.shift {
+                    self.target -=
+                        self.camera_direction() * (self.distance * f64::from(scroll) * 0.001);
                 } else {
                     self.zoom_at(
                         rect,
@@ -2034,6 +2056,18 @@ impl Viewport {
             walk.position +=
                 walk.forward() * (f64::from(steps) * self.walkthrough_tuning.move_speed * 0.1);
         }
+    }
+
+    /// Preserve the new eye height on the next ground-following controller tick.
+    pub(crate) fn travel_walkthrough(&mut self, document: &Document, delta: Vec3) {
+        let Some(mut walk) = self.walkthrough else {
+            return;
+        };
+        walk.position += delta;
+        let support =
+            self.walk_support_height(document, walk.position.x, walk.position.z, walk.position.y);
+        walk.eye_offset = walk.position.y - support - WALK_EYE_HEIGHT - walk.jump_offset;
+        self.walkthrough = Some(walk);
     }
 
     pub(crate) fn native_walkthrough_drag(&mut self, dx: f32, dy: f32, pan: bool) {
@@ -6015,6 +6049,26 @@ mod tests {
         let landed = viewport.walkthrough.unwrap();
         assert!(landed.grounded);
         assert!((landed.position.y - 11.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn walkthrough_travel_keeps_its_height_when_crossing_ground_supports() {
+        let mut document = Document::new();
+        document
+            .add_cuboid("platform", Vec3::new(2., 2., 2.), Vec3::new(2., 0., 0.))
+            .unwrap();
+        let mut viewport = Viewport::default();
+        let eye = Vec3::new(0., super::WALK_EYE_HEIGHT, 0.5);
+        let direction = Vec3::new(1., -0.5, 0.).try_normalized(1e-12).unwrap();
+        viewport.native_walkthrough_pose(eye, direction);
+        let delta = Vec3::new(3., -1., 0.);
+        viewport.travel_walkthrough(&document, delta);
+        let (position, forward) = viewport.native_walkthrough_step(&document, 0.05, [false; 7]);
+        assert!(position.distance(eye + delta) < 1e-9);
+        assert!(forward.distance(direction) < 1e-9);
+        viewport.travel_walkthrough(&document, -delta);
+        let (position, _) = viewport.native_walkthrough_step(&document, 0.05, [false; 7]);
+        assert!(position.distance(eye) < 1e-9);
     }
 
     #[test]

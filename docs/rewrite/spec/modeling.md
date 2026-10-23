@@ -408,10 +408,16 @@ Mirror Selection takes a plane origin and a second point defining its normal.
 Preview and commit share the same reflection, support mesh fragments and object
 instances, preserve independent source topology, and maintain outward winding.
 
-Solids groups Union, Intersection, Difference, mesh intersection curves and Planar
-Section. Boolean operands are two closed, consistently directed mesh instances
-sharing an editable parent. Difference subtracts the second (later placement ID)
-operand from the first. Resolve transforms/scripts and preserve surface materials;
+Solids groups Union, Intersection, Difference, Intersection Curves and Planar
+Section. Intersection Curves has an explicit button in both the native Modify ribbon
+and Solids toolbar (compact label: Int. Curves), as well as an entry in the Solids
+dropdown. Boolean operands
+are two closed, consistently directed mesh instances
+sharing an editable parent. Difference subtracts the second-picked operand from
+the first-picked operand (A − B). Preserve picking order through selection additions,
+removals and command validation; document placement IDs do not determine operand order.
+For automation, the supplied selection target array determines this order.
+Resolve transforms/scripts and preserve surface materials;
 replace only the selected operands with ordinary parent-graph geometry in one
 transaction. Empty intersections/differences are valid. Invalid/open input and
 exhausted geometry/depth budgets fail atomically. Intersection curves preserve

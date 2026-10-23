@@ -2969,6 +2969,9 @@ impl MeshcraftApp {
     pub(crate) fn native_walkthrough_scroll(&mut self, steps: f32) {
         self.viewport.native_walkthrough_scroll(steps);
     }
+    pub(crate) fn native_travel_walkthrough(&mut self, delta: Vec3) {
+        self.viewport.travel_walkthrough(&self.document, delta);
+    }
     pub(crate) fn native_walkthrough_drag(&mut self, dx: f32, dy: f32, pan: bool) {
         self.viewport.native_walkthrough_drag(dx, dy, pan);
     }
@@ -5394,7 +5397,7 @@ impl MeshcraftApp {
     fn prune_uneditable_selection(&mut self) {
         let retained = self
             .selection
-            .selected()
+            .ordered_selected()
             .iter()
             .map(|target| {
                 if target.entity == SelectedEntity::Occurrence {
@@ -13800,6 +13803,7 @@ mod tests {
         assert!(command_ids("HVAC").contains(&"tool.builtin.hvac_plumbing"));
         assert!(command_ids("Solids").contains(&"tool.builtin.plane_section"));
         assert!(command_ids("Solids").contains(&"tool.builtin.solid_union"));
+        assert!(command_ids("Solids").contains(&"tool.builtin.mesh_intersection"));
         assert!(command_ids("Arrays").contains(&"tool.builtin.random_surface_array"));
         assert!(!command_ids("Modification").contains(&"tool.builtin.random_surface_array"));
         assert!(command_ids("Modification 2").contains(&"geometry.fill_loops"));

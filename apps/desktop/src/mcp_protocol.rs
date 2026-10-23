@@ -82,7 +82,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "meshcraft_select",
-            "Replace/add/remove explicit selection targets returned by meshcraft_geometry. Targets have path:[ids], kind:occurrence|vertex|segment|triangle|semantic_handle, and id as a decimal string (or semantic ID). Inspect meshcraft://guide for exact examples. External/read-only geometry is rejected. An empty targets array clears selection.",
+            "Replace/add/remove explicit selection targets returned by meshcraft_geometry. Targets have path:[ids], kind:occurrence|vertex|segment|triangle|semantic_handle, and id as a decimal string (or semantic ID). Inspect meshcraft://guide for exact examples. External/read-only geometry is rejected. Target array order is retained (add appends new targets); Solid Difference subtracts the second selected object from the first. An empty targets array with replace clears selection.",
             schema(
                 json!({"targets":{"type":"array","items":{"type":"object"}},"mode":{"enum":["replace","add","remove"]}}),
                 &["targets"],

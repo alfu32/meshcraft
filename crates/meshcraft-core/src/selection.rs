@@ -381,6 +381,7 @@ pub enum EditContext {
 pub struct SelectionSession {
     pub context: EditContext,
     selected: BTreeSet<SelectionTarget>,
+    ordered: Vec<SelectionTarget>,
     revision: u64,
 }
 
@@ -393,20 +394,27 @@ impl SelectionSession {
         &self.selected
     }
 
+    /// Selection insertion order, used by asymmetric operations such as A − B.
+    pub fn ordered_selected(&self) -> &[SelectionTarget] {
+        &self.ordered
+    }
+
     pub fn set_context(&mut self, context: EditContext) -> bool {
         if self.context == context {
             return false;
         }
         self.context = context;
         self.selected.clear();
+        self.ordered.clear();
         self.bump_revision();
         true
     }
 
     pub fn select(&mut self, target: SelectionTarget) -> bool {
-        if !self.selected.insert(target) {
+        if !self.selected.insert(target.clone()) {
             return false;
         }
+        self.ordered.push(target);
         self.bump_revision();
         true
     }
@@ -417,25 +425,40 @@ impl SelectionSession {
         targets: impl IntoIterator<Item = SelectionTarget>,
         mode: SelectionMode,
     ) -> usize {
-        let targets = targets.into_iter().collect::<BTreeSet<_>>();
+        let mut order_changed = false;
         let changed = match mode {
             SelectionMode::Replace => {
-                let changed = self.selected.symmetric_difference(&targets).count();
-                if changed > 0 {
-                    self.selected = targets;
-                }
+                let mut unique = BTreeSet::new();
+                let ordered = targets
+                    .into_iter()
+                    .filter(|t| unique.insert(t.clone()))
+                    .collect();
+                let changed = self.selected.symmetric_difference(&unique).count();
+                order_changed = self.ordered != ordered;
+                self.selected = unique;
+                self.ordered = ordered;
                 changed
             }
             SelectionMode::Add => targets
                 .into_iter()
-                .filter(|target| self.selected.insert(target.clone()))
+                .filter(|target| {
+                    if !self.selected.insert(target.clone()) {
+                        return false;
+                    }
+                    self.ordered.push(target.clone());
+                    true
+                })
                 .count(),
-            SelectionMode::Remove => targets
-                .into_iter()
-                .filter(|target| self.selected.remove(target))
-                .count(),
+            SelectionMode::Remove => {
+                let changed = targets
+                    .into_iter()
+                    .filter(|t| self.selected.remove(t))
+                    .count();
+                self.ordered.retain(|t| self.selected.contains(t));
+                changed
+            }
         };
-        if changed > 0 {
+        if changed > 0 || order_changed {
             self.bump_revision();
         }
         changed
@@ -461,6 +484,7 @@ impl SelectionSession {
         if !self.selected.remove(target) {
             return false;
         }
+        self.ordered.retain(|t| t != target);
         self.bump_revision();
         true
     }
@@ -470,6 +494,7 @@ impl SelectionSession {
             return false;
         }
         self.selected.clear();
+        self.ordered.clear();
         self.bump_revision();
         true
     }
@@ -484,39 +509,36 @@ impl SelectionSession {
         if remap.is_empty() {
             return 0;
         }
-        let mut replacement = self.selected.clone();
+        let mut replacement = Vec::new();
         let mut changed = 0;
-        let targets = self
-            .selected
-            .iter()
-            .filter_map(|target| {
-                let resolved = document.resolve_occurrence(&target.occurrence)?;
-                if resolved.definition.id != definition
-                    || resolved
-                        .edits
-                        .is_some_and(|edits| edits.geometry_replacement.is_some())
-                {
-                    return None;
-                }
-                let SelectedEntity::Segment(id) = target.entity else {
-                    return None;
-                };
-                remap
-                    .get(&id)
-                    .map(|segments| (target.clone(), segments.clone()))
-            })
-            .collect::<Vec<_>>();
-        for (source, segments) in targets {
-            replacement.remove(&source);
-            changed += 1;
-            replacement.extend(segments.into_iter().map(|id| SelectionTarget {
-                occurrence: source.occurrence.clone(),
-                entity: SelectedEntity::Segment(id),
-            }));
+        for target in &self.ordered {
+            let segments = document
+                .resolve_occurrence(&target.occurrence)
+                .and_then(|resolved| {
+                    if resolved.definition.id != definition
+                        || resolved
+                            .edits
+                            .is_some_and(|e| e.geometry_replacement.is_some())
+                    {
+                        return None;
+                    }
+                    match target.entity {
+                        SelectedEntity::Segment(id) => remap.get(&id),
+                        _ => None,
+                    }
+                });
+            if let Some(segments) = segments {
+                changed += 1;
+                replacement.extend(segments.iter().map(|id| SelectionTarget {
+                    occurrence: target.occurrence.clone(),
+                    entity: SelectedEntity::Segment(*id),
+                }));
+            } else {
+                replacement.push(target.clone());
+            }
         }
         if changed > 0 {
-            self.selected = replacement;
-            self.bump_revision();
+            self.apply(replacement, SelectionMode::Replace);
         }
         changed
     }
@@ -533,6 +555,7 @@ impl SelectionSession {
         if !context_valid {
             self.context = EditContext::Document;
             self.selected.clear();
+            self.ordered.clear();
             self.bump_revision();
             return true;
         }
@@ -570,6 +593,7 @@ impl SelectionSession {
         if self.selected.len() == before {
             return false;
         }
+        self.ordered.retain(|t| self.selected.contains(t));
         self.bump_revision();
         true
     }
@@ -658,6 +682,53 @@ mod tests {
     };
     use crate::document::{DefinitionKind, Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec2, Vec3};
+
+    #[test]
+    fn ordered_selection_survives_add_remove_reorder_and_stale_target_cleanup() {
+        let mut document = Document::new();
+        let mut targets = Vec::new();
+        for x in 0..3 {
+            targets.push(SelectionTarget {
+                occurrence: document
+                    .add_cuboid("part", Vec3::new(1., 1., 1.), Vec3::X * f64::from(x))
+                    .unwrap(),
+                entity: SelectedEntity::Occurrence,
+            });
+        }
+        let [a, b, c] = targets.try_into().unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(c.clone());
+        selection.apply([a.clone(), c.clone(), b.clone()], SelectionMode::Add);
+        assert_eq!(
+            selection.ordered_selected(),
+            &[c.clone(), a.clone(), b.clone()]
+        );
+        selection.deselect(&a);
+        selection.select(a.clone());
+        assert_eq!(
+            selection.ordered_selected(),
+            &[c.clone(), b.clone(), a.clone()]
+        );
+        selection.apply([c.clone(), c.clone()], SelectionMode::Remove);
+        let revision = selection.revision();
+        // Reordering the same membership affects operand semantics and invalidates session state.
+        assert_eq!(
+            selection.apply([a.clone(), b.clone(), a.clone()], SelectionMode::Replace),
+            0
+        );
+        assert!(selection.revision() > revision);
+        assert_eq!(selection.ordered_selected(), &[a.clone(), b.clone()]);
+        let mut stale = c;
+        stale.entity = SelectedEntity::Triangle(crate::document::TriangleId(u64::MAX));
+        selection.select(stale);
+        assert!(selection.retain_valid(&document));
+        assert_eq!(selection.ordered_selected(), &[a, b]);
+        selection.set_context(EditContext::Definition(crate::document::DefinitionId(
+            u64::MAX,
+        )));
+        assert!(selection.ordered_selected().is_empty());
+        assert!(selection.selected().is_empty());
+    }
 
     #[test]
     fn mixed_selection_operations_are_atomic_and_report_per_type_counts() {

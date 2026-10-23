@@ -1,0 +1,114 @@
+{
+  "version": "0.33.1",
+  "shiftWheel": [
+    {
+      "before": {
+        "position": {
+          "x": 6.0,
+          "y": 5.000000014901161,
+          "z": 7.0
+        },
+        "target": {
+          "x": 1.5,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "orthographic": false,
+        "walkthrough": false,
+        "fieldOfView": 67.0
+      },
+      "after": {
+        "position": {
+          "x": 4.38,
+          "y": 3.5600000095367434,
+          "z": 4.84
+        },
+        "target": {
+          "x": -0.11999999999999988,
+          "y": -0.44000000536441797,
+          "z": -1.1600000000000001
+        },
+        "orthographic": false,
+        "walkthrough": false,
+        "fieldOfView": 67.0
+      }
+    },
+    {
+      "before": {
+        "position": {
+          "x": -0.11999999999999988,
+          "y": 8.059999994635582,
+          "z": -1.1600003715468041
+        },
+        "target": {
+          "x": -0.11999999999999988,
+          "y": -0.44000000536441797,
+          "z": -1.1600000000000001
+        },
+        "orthographic": true,
+        "walkthrough": false,
+        "fieldOfView": 67.0
+      },
+      "after": {
+        "position": {
+          "x": -0.11999999999999988,
+          "y": 4.999999994635582,
+          "z": -1.1600002377899548
+        },
+        "target": {
+          "x": -0.11999999999999988,
+          "y": -3.5000000053644182,
+          "z": -1.1599998662431508
+        },
+        "orthographic": true,
+        "walkthrough": false,
+        "fieldOfView": 67.0
+      }
+    },
+    {
+      "before": {
+        "position": {
+          "x": 6.0,
+          "y": 6.0,
+          "z": 7.0
+        },
+        "target": {
+          "x": 1.500000003712401,
+          "y": 1.9999999883987494,
+          "z": 1.0000000049498654
+        },
+        "orthographic": false,
+        "walkthrough": true,
+        "fieldOfView": 67.0
+      },
+      "after": {
+        "position": {
+          "x": 4.380000001336464,
+          "y": 4.559999995823549,
+          "z": 4.840000001781952
+        },
+        "target": {
+          "x": -0.11999999495113478,
+          "y": 0.5599999842222987,
+          "z": -1.1599999932681824
+        },
+        "orthographic": false,
+        "walkthrough": true,
+        "fieldOfView": 67.0
+      }
+    }
+  ],
+  "ordinaryWheelStillZooms": true,
+  "differencePickedRanges": [
+    [
+      0.0,
+      1.0
+    ],
+    [
+      2.0,
+      3.0
+    ]
+  ],
+  "selectionArrayOrderPreserved": true,
+  "intersectionCurvesRibbonClickRetainsBothSolids": true
+}

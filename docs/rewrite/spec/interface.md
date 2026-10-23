@@ -257,7 +257,10 @@ ribbon.
 The GPUI offscreen viewport supports perspective orbit, six axis-aligned orthographic views,
 and walkthrough. Orthographic rays are parallel; projection, model picking, helpers and pixel-width
 strokes use the same camera basis, including top/bottom views. Right-drag orbits; middle-drag or
-Shift+right-drag pans. Walkthrough uses right-drag to look, WASD/arrows to move, Q/E or PageDown/
+Shift+right-drag pans. Shift+wheel translates both eye and target along their shared
+view axis, preserving their separation, orientation and projection. Ordinary wheel
+zooms; Ctrl reduces the wheel rate to 1/10 and Alt to 1/20 (Alt takes precedence).
+Walkthrough uses right-drag to look, WASD/arrows to move, Q/E or PageDown/
 PageUp to adjust eye height, and Space to jump with the existing surface-support and gravity rules.
 Movement stops while the canvas lacks focus, the window is inactive, or a modal/menu is open.
 Perspective and Frame Document leave walkthrough. UI Settings supplies walking speed/jump/gravity.

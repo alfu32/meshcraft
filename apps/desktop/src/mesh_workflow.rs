@@ -89,7 +89,7 @@ impl MeshcraftApp {
         CommandResult::completed()
     }
     pub(super) fn solid_boolean(&mut self, operation: Boolean) -> CommandResult {
-        let targets: Vec<_> = self.selection.selected().iter().cloned().collect();
+        let targets = self.selection.ordered_selected().to_vec();
         if targets.len() != 2
             || targets
                 .iter()
@@ -369,6 +369,55 @@ mod tests {
         );
         cmd(&mut a, "edit.undo");
         a.document.validate().unwrap();
+    }
+
+    #[test]
+    fn difference_uses_click_order_even_when_it_reverses_placement_ids() {
+        for reversed in [false, true] {
+            let mut a = app();
+            let first = a
+                .document
+                .add_cuboid("A", Vec3::new(2., 2., 2.), Vec3::ZERO)
+                .unwrap();
+            let second = a
+                .document
+                .add_cuboid("B", Vec3::new(2., 2., 2.), Vec3::X)
+                .unwrap();
+            let mut picks = [first.clone(), second.clone()];
+            if reversed {
+                picks.reverse();
+            }
+            for (index, occurrence) in picks.into_iter().enumerate() {
+                a.handle_native_selection_click(
+                    Some(SelectionTarget {
+                        occurrence,
+                        entity: SelectedEntity::Occurrence,
+                    }),
+                    egui::Modifiers {
+                        shift: index > 0,
+                        ..Default::default()
+                    },
+                    1000 + index as u64 * 1000,
+                    meshcraft_core::geometry::Vec2::ZERO,
+                );
+            }
+            let cursor = a.history.cursor();
+            cmd(&mut a, "tool.builtin.solid_subtraction");
+            let faces = a.mesh_faces_for(a.selection.selected());
+            let xs: Vec<_> = faces.iter().flat_map(|f| f.points.map(|p| p.x)).collect();
+            let min = xs.iter().copied().fold(f64::INFINITY, f64::min);
+            let max = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let expected_min = if reversed { 2. } else { 0. };
+            assert!(
+                (min - expected_min).abs() < 1e-6 && (max - expected_min - 1.).abs() < 1e-6,
+                "reversed={reversed}: {min}..{max}"
+            );
+            assert_eq!(a.history.cursor(), cursor + 1);
+            a.document.validate().unwrap();
+            cmd(&mut a, "edit.undo");
+            assert!(a.document.resolve_occurrence(&first).is_some());
+            assert!(a.document.resolve_occurrence(&second).is_some());
+        }
     }
     #[test]
     fn mirror_two_points_and_fill_closed_directed_lines() {
