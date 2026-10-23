@@ -283,3 +283,20 @@ commands and Copy as Script; Modify contains Flip. Selected segment arrows are v
 Normal Paste (Ctrl/Cmd+V) starts a snapped insertion-point pick with floating wireframe feedback.
 Paste in Place (Ctrl/Cmd+Shift+V) inserts immediately at the copied coordinates. Both commands
 remain available in Edit and the Actions panel. Escape cancels only the floating paste when active.
+
+## Buffered numeric point input (0.29.0)
+
+Tool workflows accept append-only numeric text, Backspace and Enter. A scalar
+length constrains the current pointer direction from the tool's relevant reference;
+unit suffixes convert through the model's configured unit size/name. Bare values
+remain internal. Two comma-separated values are relative cursor-plane offsets;
+three are relative world XYZ. Capture the plane basis when typing begins. Final
+rotation scalars remain degrees and scale scalars factors. With an empty buffer,
+Enter retains multipoint finish behavior. Invalid input is repairable and commits
+nothing. Ignore Delete/navigation while typing; focused editors/menus own input.
+Copy previews accept xN fixed-increment repetitions and /N equal divisions,
+including the endpoint. Both mean N new copies plus the source. Scale supports
+Copy Mode; divided factors interpolate from identity and repetitions compound.
+Use the shared transactional array operation and cap preview cost independently
+of the accepted count. MCP uses the same text/backspace/finish operations and
+reports pending text. See [syntax and examples](../../numeric-tool-input.md).

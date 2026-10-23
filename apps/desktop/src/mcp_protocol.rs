@@ -55,9 +55,9 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "k3d_pointer_event",
-            "Operate the current tool deterministically in world model units. action=click picks a point, move updates wireframe feedback, finish presses Enter for multipoint tools, cancel presses Escape, text sends a numeric/tool text input. Select entities explicitly using meshcraft_select. No screen-coordinate guessing is required.",
+            "Operate the current tool in world model units. click picks a point, move sets the current direction/preview, text appends to the numeric buffer, backspace removes its last character (or undoes a point), finish presses Enter, cancel presses Escape. Numeric text accepts bare internal distances, unit-suffixed lengths (e.g. 30cm), relative plane coordinates 2,3 or world XYZ 2,3,4. Final rotation values are degrees (or deg/rad); scale values are factors. In copy mode x12 creates 12 new copies at the current increment; /12 creates 12 copies dividing the picked span/angle/scale, including its endpoint. A value and repetition may combine as 2m x12. Select entities explicitly with meshcraft_select.",
             schema(
-                json!({"action":{"enum":["click","move","finish","cancel","text"]},"worldX":{"type":"number"},"worldY":{"type":"number"},"worldZ":{"type":"number"},"text":{"type":"string"}}),
+                json!({"action":{"enum":["click","move","finish","cancel","text","backspace"]},"worldX":{"type":"number"},"worldY":{"type":"number"},"worldZ":{"type":"number"},"text":{"type":"string"}}),
                 &["action"],
             ),
             false,

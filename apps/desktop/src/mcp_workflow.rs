@@ -198,7 +198,7 @@ impl MeshcraftApp {
             EditContext::Occurrence(p) => json!({"kind":"occurrence","path":p.path}),
         };
         let pending_dialog=self.pending_replacement.as_ref().map(|p|json!({"job_id":p.job_id,"kind":match &p.target {ReplacementTarget::NewDocument=>"new",ReplacementTarget::OpenProject(_)=>"open"},"choices":["save","discard","cancel"],"instructions":"Use meshcraft_resolve_document explicitly; save needs a path when the document is unnamed."}));
-        json!({"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
+        json!({"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"numericInput":self.tool_numeric_text(),"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
     }
     pub(crate) fn mcp_commands(&self, args: &Value) -> Value {
         let query = args["query"].as_str().unwrap_or("").to_lowercase();
@@ -365,17 +365,12 @@ impl MeshcraftApp {
                 if text.len() > 256 {
                     return Err("tool input exceeds 256 characters".into());
                 }
-                if self.transform_tool_state.active().is_some() {
-                    self.transform_tool_state.add_numeric_text(text);
-                } else if self.revolve_tool_state.active() {
-                    self.revolve_tool_state.add_numeric_text(text);
-                } else if self.active_tool == "Push/Pull" {
-                    self.push_pull_numeric_input.push_str(text);
-                } else if matches!(self.active_tool.as_str(), "Line" | "Construction Line") {
-                    self.drawing_tool.handle(ToolEvent::Text(text));
-                } else {
+                if !self.append_tool_numeric_text(text) {
                     return Err("current tool does not accept numeric text; annotation text uses annotation.update".into());
                 }
+            }
+            "backspace" => {
+                self.run_command("tool.undo_point");
             }
             action @ ("click" | "move") => {
                 let number = |key| {

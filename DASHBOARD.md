@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.29.0 numeric tool entry:** buffered distances, unit suffixes and relative 2D/3D
+coordinates advance normal tool workflows. Copy previews support xN repetition
+and /N equal divisions for movement, rotation and scale, with one Undo step.
+Backspace edits the buffer; Enter accepts it or finishes a path when empty.
+See the [input guide](docs/numeric-tool-input.md).
+
 **0.28.0 IFC starter presets:** Object Instance and Object Prototypes offer compact
 Wall/Slab/Door/Window Common property subsets, also discoverable/applicable by MCP.
 Only missing fields are added, initially Unset; authored values are preserved,

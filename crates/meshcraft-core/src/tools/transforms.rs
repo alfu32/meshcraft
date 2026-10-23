@@ -52,7 +52,10 @@ impl TransformTool {
     }
 
     pub fn supports_copy_mode(self) -> bool {
-        matches!(self, Self::Move | Self::Rotate | Self::Rotate2)
+        matches!(
+            self,
+            Self::Move | Self::Rotate | Self::Rotate2 | Self::Scale | Self::Squash
+        )
     }
 
     pub fn next_pick_prompt(self, placed: usize) -> &'static str {
@@ -130,6 +133,9 @@ impl TransformToolState {
 
     pub fn numeric_input(&self) -> &str {
         &self.numeric_input
+    }
+    pub fn clear_numeric_text(&mut self) {
+        self.numeric_input.clear();
     }
 
     pub fn copy_mode(&self) -> bool {
@@ -244,6 +250,15 @@ impl TransformToolState {
         let pointer = pointer.or(self.pointer)?;
         build_transform(tool, &self.points, Some(pointer), &self.numeric_input).ok()
     }
+    pub fn divided_preview(&self, pointer: Vec3, fraction: f64) -> Result<Affine3, String> {
+        build_transform_fraction(
+            self.active.ok_or("No transform active")?,
+            &self.points,
+            Some(pointer),
+            &self.numeric_input,
+            fraction,
+        )
+    }
 
     pub fn rotation_feedback(&self, pointer: Vec3) -> Option<RotationFeedback> {
         let tool = self.active?;
@@ -332,6 +347,15 @@ fn build_transform(
     pointer: Option<Vec3>,
     numeric_input: &str,
 ) -> Result<Affine3, String> {
+    build_transform_fraction(tool, points, pointer, numeric_input, 1.)
+}
+fn build_transform_fraction(
+    tool: TransformTool,
+    points: &[Vec3],
+    pointer: Option<Vec3>,
+    numeric_input: &str,
+    fraction: f64,
+) -> Result<Affine3, String> {
     let mut picks = points.to_vec();
     if let Some(pointer) = pointer {
         picks.push(pointer);
@@ -369,7 +393,7 @@ fn build_transform(
             {
                 return Err("reference and destination points must differ".to_owned());
             }
-            Ok(Affine3::from_translation(delta))
+            Ok(Affine3::from_translation(delta * fraction))
         }
         TransformTool::Scale | TransformTool::StretchScale => {
             let center = picks[0];
@@ -382,7 +406,7 @@ fn build_transform(
                 }
                 target = center + reference_vector * factor;
             }
-            scale_from_points(center, reference, target)
+            scale_from_points(center, reference, target).map(|t| interpolate_scale(t, fraction))
         }
         TransformTool::Squash => {
             let center = picks[0];
@@ -401,9 +425,12 @@ fn build_transform(
                 })
             });
             let transform = Affine3::from_linear_translation(linear, Vec3::ZERO);
-            Ok(Affine3::from_linear_translation(
-                linear,
-                center - transform.transform_vector(center),
+            Ok(interpolate_scale(
+                Affine3::from_linear_translation(
+                    linear,
+                    center - transform.transform_vector(center),
+                ),
+                fraction,
             ))
         }
         TransformTool::Rotate2 => {
@@ -432,7 +459,7 @@ fn build_transform(
             if !angle.is_finite() || angle.abs() <= 1.0e-12 {
                 return Err("Rotate 2 angle must be nonzero".to_owned());
             }
-            rotation_about(center, axis, angle)
+            rotation_about(center, axis, angle * fraction)
         }
         TransformTool::Rotate | TransformTool::RotateStretch => {
             let center = picks[0];
@@ -457,9 +484,20 @@ fn build_transform(
             if !angle.is_finite() || angle.abs() <= 1.0e-12 {
                 return Err("rotation angle must be nonzero".to_owned());
             }
-            rotation_about(center, axis, angle)
+            rotation_about(center, axis, angle * fraction)
         }
     }
+}
+fn interpolate_scale(t: Affine3, fraction: f64) -> Affine3 {
+    Affine3::from_linear_translation(
+        std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                let identity = if i == j { 1. } else { 0. };
+                identity + (t.linear[i][j] - identity) * fraction
+            })
+        }),
+        t.translation * fraction,
+    )
 }
 
 fn scale_from_points(center: Vec3, reference: Vec3, target: Vec3) -> Result<Affine3, String> {
@@ -653,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn move_numeric_distance_and_copy_mode_are_supported_only_when_characterized() {
+    fn numeric_distance_and_copy_mode_support_move_and_scale_but_not_stretch() {
         let mut state = TransformToolState::default();
         state.activate(Some(TransformTool::Move));
         assert!(state.toggle_copy_mode());
@@ -665,6 +703,8 @@ mod tests {
         assert!(commit.copy);
         assert_eq!(Vec3::new(0.0, 0.0, 2.5), commit.transform.translation);
         state.activate(Some(TransformTool::Scale));
+        assert!(state.toggle_copy_mode());
+        state.activate(Some(TransformTool::Stretch));
         assert!(!state.toggle_copy_mode());
     }
 

@@ -1870,7 +1870,12 @@ impl MeshcraftShell {
             && !modifiers.platform
             && self.open_menu.is_none()
             && !self.command_palette_open
-            && self.session.handle_native_tool_key(&key, modifiers.shift)
+            && (event
+                .keystroke
+                .key_char
+                .as_deref()
+                .is_some_and(|text| self.session.append_tool_numeric_text(text))
+                || self.session.handle_native_tool_key(&key, modifiers.shift))
         {
             self.refresh_scene();
         } else if !modifiers.control
@@ -3254,6 +3259,9 @@ impl Render for MeshcraftShell {
                         this.settings.active = None;
                         window.focus(&this.focus);
                     }
+                    return;
+                }
+                if !this.focus.is_focused(window) {
                     return;
                 }
                 this.shortcut(event);

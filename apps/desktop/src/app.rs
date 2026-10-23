@@ -13,6 +13,8 @@ mod materials_workflow;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "mcp_workflow.rs"]
 mod mcp_workflow;
+#[path = "numeric_workflow.rs"]
+mod numeric_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
 #[path = "parameter_workflow.rs"]
@@ -2344,6 +2346,7 @@ pub struct MeshcraftApp {
     push_pull_occurrence: Option<OccurrenceRef>,
     push_pull_distance_focused: bool,
     push_pull_numeric_input: String,
+    numeric_entry: numeric_workflow::State,
     tool_cycle_state: ToolCycleState,
     primitive_tool_state: PrimitiveToolState,
     revolve_tool_state: RevolveToolState,
@@ -2825,6 +2828,11 @@ impl MeshcraftApp {
             self.status = "World pointer needs finite coordinates.".to_owned();
             return;
         }
+        if !self.numeric_entry.text.is_empty() {
+            self.numeric_entry.pointer = Some(point);
+            self.finish_numeric_entry();
+            return;
+        }
         if architecture_workflow::active(&self.active_tool) {
             self.arch_click(point, snap, target);
             return;
@@ -3033,7 +3041,7 @@ impl MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn native_tool_feedback_for_snap(
         &mut self,
-        snap: SnapResult,
+        mut snap: SnapResult,
         screen_position: egui::Pos2,
     ) -> (Option<ToolPreview>, Option<ToolFeedback>) {
         if self.object_place_tool_state.active_definition().is_some() {
@@ -3051,8 +3059,23 @@ impl MeshcraftApp {
         self.line_offset_tool_state.set_pointer(Some(snap.point));
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ONE);
         let preview = self.tool_preview(rect, Some(screen_position), Some(snap));
-        let feedback =
+        snap.point = self.numeric_preview_point(snap.point);
+        let mut feedback =
             self.tool_feedback(rect, Some(screen_position), Some(snap), preview.as_ref());
+        if !self.numeric_entry.text.is_empty() {
+            let note = format!(
+                "Input: {} · Enter accept · Backspace edit",
+                self.numeric_entry.text
+            );
+            if let Some(feedback) = &mut feedback {
+                feedback.text = format!("{note} · {}", feedback.text);
+            } else {
+                feedback = Some(ToolFeedback {
+                    screen_position,
+                    text: note,
+                });
+            }
+        }
         (preview, feedback)
     }
 
@@ -3458,6 +3481,7 @@ impl MeshcraftApp {
             push_pull_occurrence: None,
             push_pull_distance_focused: false,
             push_pull_numeric_input: String::new(),
+            numeric_entry: Default::default(),
             tool_cycle_state: ToolCycleState::default(),
             primitive_tool_state: PrimitiveToolState::default(),
             revolve_tool_state: RevolveToolState::default(),
@@ -5799,6 +5823,7 @@ impl MeshcraftApp {
         self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.clipboard.placement = None;
+        self.numeric_entry = Default::default();
         self.saved_revision = self.document.revision();
         self.autosave_observed_revision = self.document.revision();
         self.autosave_deadline = None;
@@ -6027,6 +6052,7 @@ impl MeshcraftApp {
     }
 
     fn activate_tool(&mut self, tool: &str) {
+        self.numeric_entry = Default::default();
         self.clipboard.placement = None;
         self.annotations.points.clear();
         self.architecture = Default::default();
@@ -6212,6 +6238,20 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn handle_native_tool_key(&mut self, key: &str, shift: bool) -> bool {
+        if !self.numeric_entry.text.is_empty()
+            && matches!(
+                key,
+                "delete" | "left" | "right" | "up" | "down" | "home" | "end"
+            )
+        {
+            return true;
+        }
+        if key == "backspace" && self.backspace_tool_numeric() {
+            return true;
+        }
+        if key.chars().count() == 1 && self.append_tool_numeric_text(key) {
+            return true;
+        }
         if key == "backspace"
             && matches!(
                 self.active_tool.as_str(),
@@ -6368,6 +6408,9 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::FinishToolInput => {
+                if !self.numeric_entry.text.is_empty() {
+                    return self.finish_numeric_entry();
+                }
                 if self.active_tool == "Wall" {
                     self.activate_tool("Select");
                     self.status = "Wall chain finished.".into();
@@ -6406,6 +6449,9 @@ impl MeshcraftApp {
                 }
             }
             ShellAction::UndoToolPoint => {
+                if self.backspace_tool_numeric() {
+                    return CommandResult::completed();
+                }
                 if architecture_workflow::active(&self.active_tool)
                     && self.active_tool != "Freeform Slab"
                 {
@@ -7653,6 +7699,7 @@ impl MeshcraftApp {
             );
         }
         if id == "tool.finish"
+            && self.numeric_entry.text.is_empty()
             && self.active_tool != "Wall"
             && !line_distance_ready
             && !transform_input_ready
@@ -7666,6 +7713,7 @@ impl MeshcraftApp {
             );
         }
         if id == "tool.undo_point"
+            && self.numeric_entry.text.is_empty()
             && !(architecture_workflow::active(&self.active_tool)
                 && !self.architecture.points.is_empty())
             && !line_distance_ready
@@ -8339,6 +8387,7 @@ impl MeshcraftApp {
     }
 
     fn cancel_active_tool(&mut self) {
+        self.numeric_entry = Default::default();
         self.clipboard.placement = None;
         self.annotations.points.clear();
         self.architecture = Default::default();
@@ -8594,6 +8643,11 @@ impl MeshcraftApp {
         modifiers: egui::Modifiers,
         click_count: u8,
     ) {
+        if !self.numeric_entry.text.is_empty() {
+            self.numeric_entry.pointer = construction_point;
+            self.finish_numeric_entry();
+            return;
+        }
         if architecture_workflow::active(&self.active_tool) {
             if let Some(point) = construction_point {
                 self.arch_click(point, snap, None);
@@ -9565,6 +9619,28 @@ impl MeshcraftApp {
         pointer: Option<egui::Pos2>,
         snap: Option<SnapResult>,
     ) -> Option<ToolPreview> {
+        let raw_point = snap
+            .map(|s| s.point)
+            .or_else(|| pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p)));
+        let snap = raw_point.map(|raw| {
+            let point = self.numeric_preview_point(raw);
+            if self.push_pull_reference.is_some() {
+                self.push_pull_pointer = Some(point);
+            }
+            self.transform_tool_state.set_pointer(Some(point));
+            snap.map_or(
+                SnapResult {
+                    point,
+                    normal: self.preferences.grid_normal_axis.vector(),
+                    kind: SnapKind::Free,
+                    screen_distance: 0.,
+                },
+                |mut s| {
+                    s.point = point;
+                    s
+                },
+            )
+        });
         if architecture_workflow::active(&self.active_tool) {
             let point = snap.map(|s| s.point).or_else(|| {
                 pointer.and_then(|p| self.viewport.screen_to_construction_plane(rect, p))
@@ -9786,6 +9862,26 @@ impl MeshcraftApp {
         }
         if self.transform_tool_state.active().is_some() {
             let point = point?;
+            if let Ok(transforms) = self.numeric_copy_transforms(point, 64) {
+                let edges = modeling_transforms::preview_selection_transform(
+                    &self.document,
+                    &self.selection,
+                    Affine3::IDENTITY,
+                )
+                .ok()?;
+                let capped = meshcraft_core::tools::numeric::parse(
+                    &self.numeric_entry.text,
+                    self.document.model_settings(),
+                )
+                .ok()
+                .and_then(|e| e.repetition)
+                .is_some_and(|r| r.count > transforms.len());
+                return Some(ToolPreview::ArrayTransforms {
+                    edges,
+                    transforms,
+                    capped,
+                });
+            }
             let preview = if matches!(
                 self.transform_tool_state.active(),
                 Some(
@@ -10143,7 +10239,7 @@ impl MeshcraftApp {
             return Some(ToolFeedback {
                 screen_position,
                 text: format!(
-                    "Rotational array preview: {} copies{} | {}",
+                    "Copy array preview: {} copies{} | {}",
                     transforms.len(),
                     if *capped { " (preview capped)" } else { "" },
                     measurement
@@ -11832,141 +11928,58 @@ impl MeshcraftApp {
             && self.pending_replacement.is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && !popup_open;
-        if shortcuts_allowed && matches!(self.active_tool.as_str(), "Line" | "Construction Line") {
-            let typed = ui.input(|input| {
-                input
-                    .events
+        let mut tool_keyboard_handled = false;
+        if !self.numeric_entry.text.is_empty()
+            && ui.input(|i| {
+                [
+                    egui::Key::Delete,
+                    egui::Key::ArrowLeft,
+                    egui::Key::ArrowRight,
+                    egui::Key::ArrowUp,
+                    egui::Key::ArrowDown,
+                    egui::Key::Home,
+                    egui::Key::End,
+                ]
+                .iter()
+                .any(|k| i.key_pressed(*k))
+            })
+        {
+            tool_keyboard_handled = true;
+        }
+        if shortcuts_allowed
+            && !ui.input(|i| i.modifiers.ctrl || i.modifiers.alt || i.modifiers.mac_cmd)
+        {
+            let typed = ui.input(|i| {
+                i.events
                     .iter()
-                    .filter_map(|event| match event {
-                        egui::Event::Text(text) => Some(text.as_str()),
+                    .filter_map(|e| match e {
+                        egui::Event::Text(t) => Some(t.as_str()),
                         _ => None,
                     })
                     .collect::<String>()
             });
-            if !typed.is_empty() {
-                self.drawing_tool.handle(ToolEvent::Text(&typed));
+            tool_keyboard_handled |= self.append_tool_numeric_text(&typed);
+            if self.tool_numeric_active() && ui.input(|i| i.key_pressed(egui::Key::Backspace)) {
+                self.run_command("tool.undo_point");
+                tool_keyboard_handled = true;
             }
-            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
-                self.drawing_tool.handle(ToolEvent::Backspace);
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                let effect = self.drawing_tool.handle(ToolEvent::Enter);
-                self.handle_drawing_tool_effect(effect, None);
-            }
-        }
-        if shortcuts_allowed
-            && matches!(
-                self.active_tool.as_str(),
-                "Polyline"
-                    | "Double Line"
-                    | "Extrude Swipe"
-                    | "Extrude Swipe 3D"
-                    | "Ribbon 3D"
-                    | "Freeform Slab"
-            )
-        {
-            if ui.input(|input| input.key_pressed(egui::Key::Backspace))
-                && self.polyline_tool_state.backspace()
-            {
-                self.status = "Removed the last path point or arc control point.".to_owned();
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            if self.tool_numeric_active() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.run_command("tool.finish");
+                tool_keyboard_handled = true;
             }
-            if !ui.input(|input| {
-                input.modifiers.shift
-                    || input.modifiers.ctrl
-                    || input.modifiers.alt
-                    || input.modifiers.mac_cmd
-            }) {
-                let key = ui.input(|input| {
-                    if input.key_pressed(egui::Key::A) {
-                        Some("a")
-                    } else if input.key_pressed(egui::Key::C) {
-                        Some("c")
-                    } else if input.key_pressed(egui::Key::L) {
-                        Some("l")
-                    } else {
-                        None
+            if !tool_keyboard_handled && !ui.input(|i| i.modifiers.shift) {
+                for (key, text) in [
+                    (egui::Key::A, "a"),
+                    (egui::Key::C, "c"),
+                    (egui::Key::L, "l"),
+                ] {
+                    if ui.input(|i| i.key_pressed(key)) && self.set_path_segment_key(text) {
+                        tool_keyboard_handled = true;
                     }
-                });
-                if let Some(key) = key {
-                    self.set_path_segment_key(key);
                 }
             }
         }
-        if shortcuts_allowed && self.revolve_tool_state.active() {
-            let typed = ui.input(|input| {
-                input
-                    .events
-                    .iter()
-                    .filter_map(|event| match event {
-                        egui::Event::Text(text) => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<String>()
-            });
-            self.revolve_tool_state.add_numeric_text(&typed);
-            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
-                self.status = if self.revolve_tool_state.backspace() {
-                    "Removed the last Revolve input character or axis point.".to_owned()
-                } else {
-                    "There is no Revolve input to undo.".to_owned()
-                };
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                self.run_command("tool.finish");
-            }
-        }
-        if shortcuts_allowed
-            && self.active_tool == "Mesh"
-            && ui.input(|input| input.key_pressed(egui::Key::Enter))
-        {
-            self.run_command("tool.finish");
-        }
-        if shortcuts_allowed && self.transform_tool_state.active().is_some() {
-            let typed = ui.input(|input| {
-                input
-                    .events
-                    .iter()
-                    .filter_map(|event| match event {
-                        egui::Event::Text(text) => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<String>()
-            });
-            if !typed.is_empty() {
-                self.transform_tool_state.add_numeric_text(&typed);
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
-                self.transform_tool_state.backspace();
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                self.finish_transform_input();
-            }
-        }
-        if shortcuts_allowed && self.active_tool == "Push/Pull" && self.push_pull_distance_focused {
-            let typed = ui.input(|input| {
-                input
-                    .events
-                    .iter()
-                    .filter_map(|event| match event {
-                        egui::Event::Text(text) => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<String>()
-            });
-            self.push_pull_numeric_input
-                .extend(typed.chars().filter(|character| {
-                    character.is_ascii_digit() || matches!(character, '-' | '+' | '.' | 'e' | 'E')
-                }));
-            if ui.input(|input| input.key_pressed(egui::Key::Backspace)) {
-                self.push_pull_numeric_input.pop();
-            }
-            if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                self.run_command("tool.finish");
-            }
-        }
+        let shortcuts_allowed = shortcuts_allowed && !tool_keyboard_handled;
         let distance_input_shortcut = shortcuts_allowed
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::N));
         if distance_input_shortcut {
@@ -12900,6 +12913,7 @@ mod tests {
             push_pull_occurrence: None,
             push_pull_distance_focused: false,
             push_pull_numeric_input: String::new(),
+            numeric_entry: Default::default(),
             tool_cycle_state: ToolCycleState::default(),
             primitive_tool_state: PrimitiveToolState::default(),
             revolve_tool_state: RevolveToolState::default(),
