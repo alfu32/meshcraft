@@ -239,6 +239,7 @@ struct RenderScene {
     preview: Option<ToolPreview>,
     reference_edges: Vec<[Vec3; 2]>,
     selection_rect: Option<([f32; 4], bool)>,
+    hotspot_drag: Option<(meshcraft_core::document::OccurrenceRef, String, Vec3)>,
     grid_spacing: f64,
     normal_line_width: f32,
     black_model_lines: bool,
@@ -261,9 +262,22 @@ impl RenderScene {
             && self.guides_visible == other.guides_visible
             && self.cursor == other.cursor
             && self.cursor_axes == other.cursor_axes
-            && self.preview == other.preview
+            && match (&self.preview, &other.preview) {
+                (
+                    Some(ToolPreview::Placement {
+                        edges: a,
+                        transform: x,
+                    }),
+                    Some(ToolPreview::Placement {
+                        edges: b,
+                        transform: y,
+                    }),
+                ) => Arc::ptr_eq(a, b) && x == y,
+                _ => self.preview == other.preview,
+            }
             && self.reference_edges == other.reference_edges
             && self.selection_rect == other.selection_rect
+            && self.hotspot_drag == other.hotspot_drag
             && self.grid_spacing == other.grid_spacing
             && self.black_model_lines == other.black_model_lines
             && self.normal_line_width == other.normal_line_width
@@ -291,6 +305,7 @@ impl Default for RenderScene {
             preview: None,
             reference_edges: vec![],
             selection_rect: None,
+            hotspot_drag: None,
             grid_spacing: 1.0,
             normal_line_width: 1.0,
             black_model_lines: true,
@@ -1247,52 +1262,8 @@ impl MeshcraftShell {
             }
         };
         self.feedback = feedback;
-        if let Some(drag) = self.hotspot_drag.as_ref().filter(|drag| drag.moved) {
-            let mut preview_document = if drag.authoring {
-                self.session.native_document_for_view()
-            } else {
-                (*self.cached_document).clone()
-            };
-            let result = if drag.authoring {
-                preview_document
-                    .resolve_occurrence(&drag.handle.occurrence)
-                    .map(|r| r.definition.id)
-                    .ok_or_else(|| "object no longer exists".to_owned())
-                    .and_then(|definition| {
-                        let mut hotspot = drag.handle.hotspot.clone();
-                        hotspot.position = drag.target;
-                        preview_document
-                            .put_hotspot(definition, hotspot)
-                            .map(|_| ())
-                    })
-            } else {
-                preview_document.set_hotspot_target(
-                    &drag.handle.occurrence,
-                    &drag.handle.hotspot.id,
-                    drag.target,
-                )
-            };
-            if result.is_ok() {
-                self.cached_document = Arc::new(preview_document);
-            }
-            let delta =
-                (drag.target - drag.start_target) * self.cached_document.model_settings().unit_size;
-            self.feedback = Some(ToolFeedback {
-                screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
-                text: format!(
-                    "{} · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}",
-                    if drag.authoring {
-                        "Hotspot position"
-                    } else {
-                        drag.handle.hotspot.operation.name()
-                    },
-                    delta.x,
-                    delta.y,
-                    delta.z,
-                    delta.length(),
-                    self.cached_document.model_settings().unit_name
-                ),
-            });
+        if let Some(ghost) = self.hotspot_drag_preview() {
+            preview = Some(ghost);
         }
         if let Some(ghost) = self.preview_architecture_drag() {
             preview = Some(ghost);
@@ -1335,6 +1306,11 @@ impl MeshcraftShell {
                 .unwrap_or_default(),
             preview,
             selection_rect,
+            hotspot_drag: self
+                .hotspot_drag
+                .as_ref()
+                .filter(|d| d.moved)
+                .map(hotspots::Drag::marker),
             grid_spacing: self.cached_document.model_settings().grid_size,
             normal_line_width: preferences.normal_grid_width,
             black_model_lines: preferences.black_model_lines,
@@ -1415,7 +1391,9 @@ impl MeshcraftShell {
             point,
             snap,
         });
-        self.refresh_scene();
+        if self.hotspot_drag.is_none() {
+            self.refresh_scene();
+        }
     }
 
     fn dispatch(&mut self, id: &str) {
@@ -1780,6 +1758,10 @@ impl MeshcraftShell {
         if button != gpui::MouseButton::Left {
             return;
         }
+        if self.hotspot_drag.is_some() {
+            self.update_pointer(x, y);
+            self.update_hotspot_drag(x, y);
+        }
         if self.finish_architecture_drag() || self.finish_hotspot_drag() {
             return;
         }
@@ -1921,9 +1903,7 @@ impl MeshcraftShell {
             self.selection_gesture = None;
             self.selection_cursor = None;
             let architecture_drag = self.architecture.drag.take().is_some();
-            if self.hotspot_drag.take().is_some() {
-                self.cached_document_revision = None;
-            } else if !architecture_drag {
+            if self.hotspot_drag.take().is_none() && !architecture_drag {
                 self.session.handle_native_escape();
             }
             self.cursor_snap = None;

@@ -314,6 +314,27 @@ mod tests {
         serde_json::json!({"id":"test","source":{"onCreate":create,"onAnimationFrame":frame},"state":state,"geometry":[{"kind":"authored"}],"hotspots":{},"time":1.,"deltaTime":0.033,"model":{"objects":[],"materials":[],"settings":{}}})
     }
     #[test]
+    fn deferred_model_queries_are_reported_even_when_user_code_catches_the_signal() {
+        let engine = unsafe { Engine::load() }.unwrap();
+        let mut input = request(
+            "",
+            "try { model.getObject('missing'); } catch(e) {} return [];",
+            serde_json::json!({"initializer":"","properties":{}}),
+        );
+        input["deferModel"] = serde_json::json!(true);
+        let result = engine.evaluate(&input).unwrap();
+        assert_eq!(result["needsDeferredModel"], true);
+        input["deferModel"] = serde_json::json!(false);
+        assert!(engine.evaluate(&input).unwrap()["items"].is_array());
+        input["deferModel"] = serde_json::json!(true);
+        input["source"]["onAnimationFrame"] = serde_json::json!("return []; ");
+        assert!(
+            engine.evaluate(&input).unwrap()["items"].is_array(),
+            "a parameter-only script does not require the model"
+        );
+    }
+
+    #[test]
     fn javascriptcore_helpers_state_hotspots_and_explode_current_output() {
         let engine = unsafe { Engine::load() }
             .expect("JavaScriptCore must be installed for native runtime qualification");

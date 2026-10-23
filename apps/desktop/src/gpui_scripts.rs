@@ -37,18 +37,19 @@ pub(super) struct Editor {
 }
 const EXAMPLE: &str = "$NUMBER('depth', 'Depth', 1);\n$LIST('finish', {plain: 'Plain', blue: 'Blue'}, 'Finish');\n\nfunction onCreate() {\n  $TEXT('caption', 'Caption', 'Box');\n  $CHECKBOX('enabled', 'Enabled', true);\n  $HOTSPOT(new Point(3, 2, 0), 'size', 'Size');\n}\n\nfunction onAnimationFrame(params, model) {\n  const { depth, finish, enabled, size } = params;\n  if (!enabled) return [];\n  return [this.geometry, cube(new Point(),\n    new Point(Math.max(0.1, size.position.x), Math.max(0.1, size.position.y), depth),\n    'body', phong(finish === 'blue' ? '#498bd6' : '#dddddd'))];\n}\n";
 fn key(shell: &MeshcraftShell) -> u64 {
-    let mut value = shell
+    shell
         .session
         .document_revision()
-        .wrapping_add(shell.session.document_generation().wrapping_mul(1000000007));
-    if let Some(drag) = &shell.hotspot_drag {
-        for p in [drag.target.x, drag.target.y, drag.target.z] {
-            value = value.wrapping_mul(31).wrapping_add(p.to_bits());
-        }
-    }
-    value
+        .wrapping_add(shell.session.document_generation().wrapping_mul(1000000007))
 }
+pub(super) fn snapshot_time(shell: &MeshcraftShell) -> f64 {
+    shell.scripts.clock.start.elapsed().as_secs_f64()
+}
+
 pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
+    if shell.hotspot_drag.is_some() {
+        return shell.poll_hotspot_preview();
+    }
     let mut state = std::mem::take(&mut shell.scripts);
     let mut changed = false;
     if let Some(editor) = state.editor.as_mut() {
@@ -101,16 +102,9 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
             let errors_changed = state.errors != response.errors;
             state.errors = response.errors;
             state.failed_key = response.halted.then_some(current);
-            if shell.hotspot_drag.is_some() {
-                let mut document = (*shell.cached_document).clone();
-                document.install_script_frames(response.frames);
-                shell.cached_document = Arc::new(document);
-                changed = true;
-            } else {
-                let before = shell.session.native_visual_revision();
-                shell.session.install_native_script_frames(response.frames);
-                changed = before != shell.session.native_visual_revision();
-            }
+            let before = shell.session.native_visual_revision();
+            shell.session.install_native_script_frames(response.frames);
+            changed = before != shell.session.native_visual_revision();
             changed |= errors_changed;
         }
         if state.failed_key != Some(current)
@@ -118,11 +112,7 @@ pub(super) fn tick(shell: &mut MeshcraftShell) -> bool {
         {
             let delta = state.clock.last.elapsed().as_secs_f64();
             state.clock.last = Instant::now();
-            let document = if shell.hotspot_drag.is_some() {
-                shell.cached_document.clone()
-            } else {
-                Arc::new(shell.session.document_snapshot())
-            };
+            let document = Arc::new(shell.session.document_snapshot());
             runtime.submit(
                 document,
                 current,

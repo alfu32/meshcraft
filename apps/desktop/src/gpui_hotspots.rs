@@ -1,5 +1,7 @@
 //! Screen-sized instance handles, rendered over the offscreen scene, with one undoable drag.
 use super::*;
+#[path = "hotspot_preview.rs"]
+mod preview;
 use meshcraft_core::document::{
     OccurrenceRef,
     hotspots::{Hotspot, Shape},
@@ -11,7 +13,6 @@ pub(super) struct Handle {
     pub hotspot: Hotspot,
     pub world: Vec3,
 }
-#[derive(Clone)]
 pub(super) struct Drag {
     pub handle: Handle,
     pub authoring: bool,
@@ -21,6 +22,14 @@ pub(super) struct Drag {
     pub target: Vec3,
     pub inverse: meshcraft_core::geometry::Affine3,
     pub moved: bool,
+    world: meshcraft_core::geometry::Affine3,
+    revision: u64,
+    generation: u64,
+    context: EditContext,
+    worker: Option<preview::Worker>,
+    ghost: Option<ToolPreview>,
+    error: Option<String>,
+    last_serial: u64,
 }
 
 pub(super) fn handles(
@@ -131,7 +140,15 @@ pub(super) fn draw(
     selection: &lighting::SelectionIndex,
 ) {
     for handle in handles {
-        let Some((x, y)) = project_point(camera, size, handle.world) else {
+        let Some((x, y)) = project_point(
+            camera,
+            size,
+            scene
+                .hotspot_drag
+                .as_ref()
+                .filter(|(path, id, _)| path == &handle.occurrence && id == &handle.hotspot.id)
+                .map_or(handle.world, |(_, _, p)| *p),
+        ) else {
             continue;
         };
         let selected = selection.exactly_contains(&SelectionTarget {
@@ -234,6 +251,21 @@ impl MeshcraftShell {
                     .unwrap_or(handle.hotspot.position)
             };
             self.hotspot_drag = Some(Drag {
+                world: r.world_transform,
+                revision: self.session.document_revision(),
+                generation: self.session.document_generation(),
+                context: self.session.native_edit_context(),
+                worker: (!authoring).then(|| {
+                    preview::Worker::new(
+                        Arc::clone(&self.cached_document),
+                        handle.occurrence.clone(),
+                        handle.hotspot.id.clone(),
+                        super::scripts::snapshot_time(self),
+                    )
+                }),
+                ghost: None,
+                error: None,
+                last_serial: 0,
                 start: (x, y),
                 start_pick: self.cursor_snap.map_or(handle.world, |s| s.point),
                 start_target,
@@ -258,17 +290,98 @@ impl MeshcraftShell {
         let Some(snap) = self.cursor_snap else {
             return;
         };
-        drag.moved = true;
-        drag.target =
+        let target =
             drag.start_target + drag.inverse.transform_vector(snap.point - drag.start_pick);
+        if target != drag.target {
+            drag.target = target;
+            drag.moved = true;
+            if let Some(worker) = &mut drag.worker {
+                worker.submit(target);
+            }
+        }
         self.refresh_scene();
+    }
+
+    pub(super) fn poll_hotspot_preview(&mut self) -> bool {
+        let Some(drag) = self.hotspot_drag.as_mut() else {
+            return false;
+        };
+        if !drag.valid(&self.session) {
+            self.hotspot_drag = None;
+            self.session.set_native_status(
+                "Handle drag canceled: the drawing or edit context changed.".into(),
+            );
+            return true;
+        }
+        let Some(response) = drag.worker.as_ref().and_then(|w| w.poll()) else {
+            return false;
+        };
+        if response.serial <= drag.last_serial {
+            return false;
+        }
+        drag.last_serial = response.serial;
+        match response.result {
+            Ok(edges) => {
+                drag.ghost = Some(ToolPreview::Placement {
+                    edges,
+                    transform: meshcraft_core::geometry::Affine3::IDENTITY,
+                });
+                drag.error = None;
+            }
+            Err(error) => {
+                drag.error = Some(error);
+            }
+        }
+        true
+    }
+
+    pub(super) fn hotspot_drag_preview(&mut self) -> Option<ToolPreview> {
+        let drag = self.hotspot_drag.as_ref().filter(|d| d.moved)?;
+        let delta =
+            (drag.target - drag.start_target) * self.cached_document.model_settings().unit_size;
+        self.feedback = Some(ToolFeedback {
+            screen_position: egui::Pos2::new(drag.start.0, drag.start.1),
+            text: format!(
+                "{} · Δ ({:.3}, {:.3}, {:.3}) · {:.3} {}{}",
+                if drag.authoring {
+                    "Hotspot position"
+                } else {
+                    drag.handle.hotspot.operation.name()
+                },
+                delta.x,
+                delta.y,
+                delta.z,
+                delta.length(),
+                self.cached_document.model_settings().unit_name,
+                drag.error
+                    .as_ref()
+                    .map(|e| format!(" · {e}"))
+                    .unwrap_or_default()
+            ),
+        });
+        if drag.authoring {
+            Some(ToolPreview::Point {
+                position: drag.world.transform_point(drag.target),
+            })
+        } else {
+            drag.ghost.clone().or_else(|| {
+                Some(ToolPreview::Line {
+                    start: drag.handle.world,
+                    end: drag.world.transform_point(drag.target),
+                })
+            })
+        }
     }
 
     pub(super) fn finish_hotspot_drag(&mut self) -> bool {
         let Some(drag) = self.hotspot_drag.take() else {
             return false;
         };
-        if drag.moved {
+        if !drag.valid(&self.session) {
+            self.session.set_native_status(
+                "Handle drag canceled: the drawing or edit context changed.".into(),
+            );
+        } else if drag.moved {
             let result = if drag.authoring {
                 self.session.commit_native_hotspot_anchor(
                     &drag.handle.occurrence,
@@ -286,10 +399,23 @@ impl MeshcraftShell {
                 self.session.set_native_status(error);
             }
         }
-        // An aborted or clicked handle must restore the authoritative snapshot as well.
-        self.cached_document_revision = None;
         self.refresh_scene();
         true
+    }
+}
+
+impl Drag {
+    fn valid(&self, session: &MeshcraftApp) -> bool {
+        self.revision == session.document_revision()
+            && self.generation == session.document_generation()
+            && self.context == session.native_edit_context()
+    }
+    pub(super) fn marker(&self) -> (OccurrenceRef, String, Vec3) {
+        (
+            self.handle.occurrence.clone(),
+            self.handle.hotspot.id.clone(),
+            self.world.transform_point(self.target),
+        )
     }
 }
 

@@ -393,6 +393,95 @@ impl Runtime {
         Some(response)
     }
 }
+
+/// One frozen model/VM for a handle drag. Only the isolated object's hooks run;
+/// the full drawing remains available for read-only model queries and is prepared once.
+pub(crate) struct PreviewEvaluator {
+    worker: Option<Worker>,
+    prepared: bool,
+    time: f64,
+    model: Arc<Document>,
+    canceled: Arc<std::sync::atomic::AtomicBool>,
+}
+impl PreviewEvaluator {
+    pub(crate) fn new(
+        model: Arc<Document>,
+        canceled: Arc<std::sync::atomic::AtomicBool>,
+        time: f64,
+    ) -> Self {
+        Self {
+            worker: None,
+            prepared: false,
+            time,
+            model,
+            canceled,
+        }
+    }
+    pub(crate) fn evaluate(&mut self, document: Document) -> Result<Document, String> {
+        if document.scripted_occurrences().is_empty() {
+            return Ok(document);
+        }
+        if self.worker.as_ref().is_some_and(|w| w.broken) {
+            self.worker = None;
+            self.prepared = false;
+        }
+        if self.worker.is_none() {
+            let mut worker = Worker::new()?;
+            worker.cancel = Some(self.canceled.clone());
+            self.worker = Some(worker);
+        }
+        let mut sweep = Sweep::new(Request {
+            document: Arc::new(document),
+            query_model: Some(self.model.clone()),
+            key: 0,
+            time: self.time,
+            delta: 0.,
+        });
+        // Most parameter-driven objects never query the drawing. The SDK can signal
+        // a real model access, then we retry from the same immutable input/state.
+        // No external effects exist in this sandbox, so the first result is disposable.
+        sweep.prepared = true;
+        let scope = sweep.request.document.clone();
+        let mut frames = BTreeMap::new();
+        while sweep.pending() {
+            if self.canceled.load(std::sync::atomic::Ordering::Acquire) {
+                return Err("Preview canceled".into());
+            }
+            let response = sweep.evaluate(
+                &mut |mut v| {
+                    v["deferModel"] = json!(!self.prepared);
+                    let result = self.worker.as_mut().unwrap().evaluate(v.clone())?;
+                    if result["needsDeferredModel"] != true {
+                        return Ok(result);
+                    }
+                    let query = Sweep::new(Request {
+                        document: scope.clone(),
+                        query_model: Some(self.model.clone()),
+                        key: 0,
+                        time: self.time,
+                        delta: 0.,
+                    });
+                    self.worker
+                        .as_mut()
+                        .unwrap()
+                        .evaluate(json!({"prepareModel":query.model()}))?;
+                    self.prepared = true;
+                    v["deferModel"] = json!(false);
+                    self.worker.as_mut().unwrap().evaluate(v)
+                },
+                &mut BTreeMap::new(),
+                Duration::from_millis(50),
+            );
+            if !response.errors.is_empty() {
+                return Err(response.errors.join("; "));
+            }
+            frames.extend(response.frames);
+        }
+        let mut document = Arc::try_unwrap(sweep.request.document).unwrap_or_else(|d| (*d).clone());
+        document.install_script_frames(frames);
+        Ok(document)
+    }
+}
 impl Drop for Runtime {
     fn drop(&mut self) {
         self.sender.take();

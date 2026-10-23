@@ -187,3 +187,24 @@ The object-name inspector renames each distinct selected object prototype once,
 in one undoable edit. While editing a prototype it continues to name the active
 prototype. Unselected prototypes retain their names; shared definitions retain
 shared naming semantics.
+
+### Object handle drag feedback (0.33.3)
+
+Dragging a closed instance's hotspot leaves the filled drawing unchanged and
+shows an object-only phantom wireframe. The marker follows the current snapped
+pointer immediately. Evaluate only the affected object's hierarchy in a bounded
+background worker; keep only the latest requested target and latest completed
+wireframe. Preserve nested transforms, private layouts, current instance state
+and occurrence identities. Script model queries read the frozen full drawing,
+prepared lazily on the first actual query and reused; unrelated scripts are not
+reevaluated/installed during the drag. Scripts that only use parameters/own geometry
+skip full-model preparation entirely.
+Freeze preview time at drag start so animation does not move the geometry beneath
+the pointer. Reuse the main scene and GPU geometry/shadow caches.
+
+Mouse release commits the latest target through the normal instance hotspot
+transaction, with one Undo step. Escape, a click without movement or a changed
+document/edit context discard the preview without applying a target. Cancel/release
+must not block on JavaScript or allow late preview results into the document.
+Authoring-mode marker repositioning also stays non-mutating until release; it
+moves the marker without repeatedly rebuilding its prototype or the drawing.

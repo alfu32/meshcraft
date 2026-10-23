@@ -1,0 +1,22 @@
+{
+  "version": "0.33.3",
+  "backgroundInstances": 1001,
+  "backgroundTriangles": 12012,
+  "sourceGeometryAndScriptStateFrozenDuringDrag": true,
+  "phantomOrangePixels": [
+    669,
+    6707
+  ],
+  "statusLatencyMsDuringDrag": [
+    14.307848003227264,
+    30.845378001686186,
+    11.182186019141227,
+    27.467842039186507
+  ],
+  "committedWidth": 6.0,
+  "releaseCommits": true,
+  "singleUndoRestores": true,
+  "escapeCancelsWithoutMutation": true,
+  "changedDocumentCancelsStaleDrag": true,
+  "fullFrozenModelQueryAndOriginalInstanceIdentityPreviewed": true
+}

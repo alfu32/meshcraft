@@ -4313,7 +4313,7 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.33.2"
+version = "0.33.3"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

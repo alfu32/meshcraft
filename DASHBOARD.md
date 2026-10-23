@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.33.3 object handle feedback:** instance hotspot dragging keeps the filled drawing
+fixed and evaluates only an object phantom wireframe in the background. Rapid
+targets coalesce; the final value commits once on release and Escape cancels.
+Unrelated scripts and scene/GPU geometry caches stay unchanged during the drag.
+
 **0.33.2 line display:** UI Settings defaults to black model lines, with an option
 to show line material colors. The preference persists independently of drawings;
 faces and authored materials retain their colors. Native/browser views and the

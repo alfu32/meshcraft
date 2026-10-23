@@ -1,6 +1,8 @@
 // Fresh globals per invocation; an immutable scene JSON string is shared by the VM.
 (function(request) {
 "use strict";
+let needsDeferredModel=false;
+try {
 const point = p => {if(Array.isArray(p))p={x:p[0],y:p[1],z:p[2]===undefined?0:p[2]};return {x:Number(p.x),y:Number(p.y),z:Number(p.z),id:p.id===undefined?"":String(p.id)};};
 let nextId=0;
 const automaticId=name=>name+':'+nextId++;
@@ -178,7 +180,7 @@ const freeze=o=>{if(o&&typeof o==="object"){Object.freeze(o);for(const v of Obje
 // Most generators only need their own geometry/state. Parse and freeze the scene
 // snapshot only when a script actually queries it, never once per ordinary instance.
 let data;
-const snapshot=()=>data||(data=freeze(request.model||JSON.parse(__meshcraftModelJson)));
+const snapshot=()=>{if(request.deferModel){needsDeferredModel=true;throw Error("Deferred model query");}return data||(data=freeze(request.model||JSON.parse(__meshcraftModelJson)));};
 const model=Object.freeze({get objects(){return snapshot().objects;},get materials(){return snapshot().materials;},get settings(){return snapshot().settings;},time:request.time,deltaTime:request.deltaTime,getObject:id=>snapshot().objects.find(o=>o.id===id),findObjects:name=>snapshot().objects.filter(o=>o.name===name),getMaterial:id=>snapshot().materials.find(m=>m.id===id),queryGeometry:id=>snapshot().objects.find(o=>o.id===id)?.geometry||[]});
 // Compile in a lexical scope containing only the SDK and immutable query facade.
 const compile=(source,name)=> {
@@ -217,5 +219,10 @@ for(const h of declaredHotspots)if(!output.some(v=>v.kind==='hotspot'&&v.id===h.
 const properties={};for(const[k,v]of Object.entries(instance))if(!["id","geometry","hotspots","time","deltaTime"].includes(k))properties[k]=v;
 const result=JSON.stringify({items:output,state:{initializer,properties,declarations,parameters:parameterValues,ifcInitialized:true,prototypeIfc,instanceIfc}});
 if(result.length>16000000)throw Error("Script output exceeds 16 MB");
+if(needsDeferredModel)return JSON.stringify({needsDeferredModel:true});
 return result;
+} catch(error) {
+ if(needsDeferredModel)return JSON.stringify({needsDeferredModel:true});
+ throw error;
+}
 })

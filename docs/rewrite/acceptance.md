@@ -269,3 +269,16 @@ authored geometry/materials/revision/history stay unchanged. Check selected-line
 highlights, wireframes, script preview, preference persistence and frame invalidation
 on each toggle without continuous idle redraw. The browser renderer uses the same
 preference.
+
+### Object handle phantom feedback follow-up (0.33.3)
+
+In a drawing with many unrelated faces/instances, drag ordinary attached-geometry
+and scripted instance hotspots. The source document, filled geometry, unrelated
+script state and main scene snapshot remain fixed while the affected object's
+wireframe and handle move. Rapid target updates must coalesce and eventually show
+the latest target. Preserve script access to the full frozen model and original
+instance IDs. Include nested transforms and private/inherited child layouts.
+Release commits the final target once; one Undo restores it. Escape/click/stale
+context cancel without mutation; release/cancel never wait for an in-flight script.
+A stalled or invalid preview must keep pointer/selection/camera interaction responsive
+and must not publish late geometry after the drag ends.

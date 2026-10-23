@@ -498,6 +498,161 @@ impl Document {
             positions,
         })
     }
+
+    /// Small, non-authoritative scene for handle feedback. Preserve occurrence IDs,
+    /// ancestor transforms, nested layouts, instance state and evaluated script frames.
+    /// Ancestors carry no geometry/scripts; siblings and unrelated prototypes are omitted.
+    pub fn hotspot_preview_scene(&self, target: &OccurrenceRef) -> Result<Self, String> {
+        self.resolve_occurrence(target)
+            .ok_or("instance no longer exists")?;
+        let mut result = Self::new();
+        result.root_layout = self.root_layout;
+        result.next_id = self.next_id;
+        result.model_settings = self.model_settings.clone();
+        result.extensions = self
+            .extensions
+            .iter()
+            .filter(|(key, _)| key.as_str() == materials::CATALOG_KEY)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        result.definitions.clear();
+        result.child_layouts.clear();
+        let mut pending = vec![OccurrenceRef::scene_root()];
+        let mut frames = BTreeMap::new();
+        while let Some(path) = pending.pop() {
+            if path.path.len() > 128 {
+                return Err("preview hierarchy exceeds 128 levels".into());
+            }
+            let r = self
+                .resolve_occurrence(&path)
+                .ok_or("preview occurrence is missing")?;
+            let ancestor = path.path.len() < target.path.len();
+            result
+                .definitions
+                .entry(r.definition.id)
+                .or_insert_with(|| {
+                    if ancestor {
+                        // Do not even temporarily clone an ancestor's potentially huge mesh.
+                        Definition {
+                            id: r.definition.id,
+                            name: r.definition.name.clone(),
+                            kind: r.definition.kind,
+                            frame: r.definition.frame,
+                            geometry: GeometryBundle {
+                                id: r.definition.geometry.id,
+                                ..Default::default()
+                            },
+                            default_child_layout: r.definition.default_child_layout,
+                            domain_data: BTreeMap::new(),
+                            domain_entity_ids: BTreeMap::new(),
+                            extensions: BTreeMap::new(),
+                            legacy_aliases: vec![],
+                        }
+                    } else {
+                        r.definition.clone()
+                    }
+                });
+            if let Some(edits) = self.occurrence_edits.get(&path) {
+                let edits = if ancestor {
+                    InstanceEdits {
+                        transform: edits.transform,
+                        child_layout: edits.child_layout,
+                        ..Default::default()
+                    }
+                } else {
+                    edits.clone()
+                };
+                result.occurrence_edits.insert(path.clone(), edits);
+            }
+            if !ancestor && let Some(frame) = self.script_frame(&path) {
+                frames.insert(path.clone(), frame.clone());
+            }
+            let layout = r
+                .edits
+                .and_then(|e| e.child_layout)
+                .or(r.definition.default_child_layout)
+                .or_else(|| path.is_scene_root().then_some(self.root_layout));
+            if let Some(id) = layout {
+                let source = self.child_layout(id).ok_or("preview layout missing")?;
+                let layout = if ancestor {
+                    ChildLayout {
+                        id,
+                        extensions: BTreeMap::new(),
+                        entries: source
+                            .entries
+                            .iter()
+                            .filter(|e| e.id == target.path[path.path.len()])
+                            .map(|e| {
+                                if path.path.len() + 1 == target.path.len() {
+                                    return e.clone();
+                                }
+                                LayoutEntry {
+                                    id: e.id,
+                                    definition: e.definition,
+                                    transform: e.transform,
+                                    default_edits: InstanceEdits {
+                                        transform: e.default_edits.transform,
+                                        child_layout: e.default_edits.child_layout,
+                                        ..Default::default()
+                                    },
+                                    legacy_aliases: vec![],
+                                }
+                            })
+                            .collect(),
+                    }
+                } else {
+                    source.clone()
+                };
+                for entry in &layout.entries {
+                    let mut child = path.clone();
+                    child.path.push(entry.id);
+                    pending.push(child);
+                }
+                result.child_layouts.insert(id, layout);
+            }
+        }
+        // Retain unused inherited layouts too: an instance can override its prototype's
+        // default child layout, but the prototype must remain a valid reusable graph.
+        let mut layouts: Vec<_> = result
+            .definitions
+            .values()
+            .filter_map(|d| d.default_child_layout)
+            .chain(result.child_layouts.values().flat_map(|l| {
+                l.entries
+                    .iter()
+                    .filter_map(|e| e.default_edits.child_layout)
+            }))
+            .collect();
+        let mut seen = BTreeSet::new();
+        while let Some(id) = layouts.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                result.child_layouts.entry(id)
+            {
+                entry.insert(
+                    self.child_layout(id)
+                        .ok_or("inherited preview layout missing")?
+                        .clone(),
+                );
+            }
+            for entry in &result.child_layouts[&id].entries {
+                if let Some(layout) = entry.default_edits.child_layout {
+                    layouts.push(layout);
+                }
+                let d = result
+                    .definitions
+                    .entry(entry.definition)
+                    .or_insert_with(|| self.definitions[&entry.definition].clone());
+                if let Some(layout) = d.default_child_layout {
+                    layouts.push(layout);
+                }
+            }
+        }
+        result.script_cache.frames = std::sync::Arc::new(frames);
+        Ok(result)
+    }
 }
 
 fn ordered(hotspots: &[Hotspot]) -> Result<Vec<usize>, String> {
@@ -1303,5 +1458,89 @@ mod deletion_tests {
                 .geometry_replacement
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod preview_scene_tests {
+    use super::*;
+    #[test]
+    fn isolated_handle_scene_keeps_paths_transforms_private_layouts_and_script_state() {
+        let mut d = Document::new();
+        let a = d
+            .add_cuboid("A", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        let b = d
+            .add_cuboid("B", Vec3::new(1., 1., 1.), Vec3::X * 100.)
+            .unwrap();
+        let def = d.resolve_occurrence(&a).unwrap().definition.id;
+        let child_def = d.resolve_occurrence(&b).unwrap().definition.id;
+        let parent = d.add_definition("parent", DefinitionKind::Hybrid);
+        let shared = d.add_child_layout();
+        d.definitions.get_mut(&parent).unwrap().default_child_layout = Some(shared);
+        let outer = d
+            .add_layout_entry(
+                d.root_layout(),
+                parent,
+                Affine3::from_translation(Vec3::new(4., 5., 6.)),
+            )
+            .unwrap();
+        let inner = d
+            .add_layout_entry(shared, def, Affine3::from_translation(Vec3::X * 3.))
+            .unwrap();
+        let path = OccurrenceRef {
+            path: vec![outer, inner],
+        };
+        let inherited = d.add_child_layout();
+        d.definitions.get_mut(&def).unwrap().default_child_layout = Some(inherited);
+        d.add_layout_entry(inherited, child_def, Affine3::IDENTITY)
+            .unwrap();
+        let private = d.add_child_layout();
+        d.add_layout_entry(private, child_def, Affine3::from_translation(Vec3::Y * 10.))
+            .unwrap();
+        d.set_occurrence_edits(
+            path.clone(),
+            InstanceEdits {
+                child_layout: Some(private),
+                ..Default::default()
+            },
+        );
+        let script = scripts::ScriptDefinition {
+            source: "function onAnimationFrame(){return this.geometry;}".into(),
+            ..Default::default()
+        };
+        d.set_script(parent, script.clone()).unwrap();
+        d.set_script(def, script).unwrap();
+        let frame = scripts::ScriptFrame {
+            geometry: d.definition(def).unwrap().geometry.clone(),
+            hotspots: vec![],
+            state: scripts::ScriptState {
+                properties: BTreeMap::from([("preserved".into(), serde_json::json!(123))]),
+                ..Default::default()
+            },
+        };
+        d.install_script_frames(BTreeMap::from([(path.clone(), frame)]));
+        let unused = d.add_definition("unrelated prototype", DefinitionKind::Mesh);
+        let before = d.clone();
+        let preview = d.hotspot_preview_scene(&path).unwrap();
+        preview.validate().unwrap();
+        assert!(preview.resolve_occurrence(&a).is_none());
+        assert!(preview.resolve_occurrence(&b).is_none());
+        assert!(preview.definition(unused).is_none());
+        assert_eq!(
+            preview.resolve_occurrence(&path).unwrap().world_transform,
+            d.resolve_occurrence(&path).unwrap().world_transform
+        );
+        assert_eq!(preview.scripted_occurrences(), vec![path.clone()]);
+        assert_eq!(
+            preview.script_frame(&path).unwrap().state.properties["preserved"],
+            serde_json::json!(123)
+        );
+        assert_eq!(
+            preview.occurrence_edits(&path).unwrap().child_layout,
+            Some(private)
+        );
+        assert!(preview.child_layout(inherited).is_some());
+        assert_eq!(d, before);
     }
 }
