@@ -1903,7 +1903,7 @@ impl MeshcraftShell {
                     values: BTreeMap::from([("definition_id".into(), serde_json::json!(id.0))]),
                     ..Default::default()
                 };
-                self.dispatch_payload("object.delete_unused_definition", &payload);
+                self.dispatch_payload("object.delete_definition", &payload);
             } else {
                 self.dispatch("edit.delete_selection");
             }
@@ -2408,7 +2408,10 @@ fn command_enabled(session: &MeshcraftApp, command: &CommandDescriptor) -> bool 
     session.native_command_state(command.id.as_str()).enabled
         && !matches!(
             command.id.as_str(),
-            "object.delete_unused_definition" | "selection.update_display" | "view.camera.set_pose"
+            "object.delete_unused_definition"
+                | "object.delete_definition"
+                | "selection.update_display"
+                | "view.camera.set_pose"
         )
 }
 
@@ -3243,6 +3246,15 @@ impl Render for MeshcraftShell {
                     }
                     return;
                 }
+                if this.session.native_prototype_deletion_prompt().is_some() {
+                    if event.keystroke.key == "escape" {
+                        this.session.native_resolve_prototype_deletion(false);
+                        this.refresh_scene();
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
                 if this.session.native_document_replacement_prompt().is_some() {
                     if event.keystroke.key == "escape" {
                         this.session.native_resolve_document_replacement(
@@ -3302,6 +3314,7 @@ impl Render for MeshcraftShell {
             root = root.child(material_editor);
         }
         root = root.children(files::replacement_dialog(self, cx));
+        root = root.children(files::prototype_deletion_dialog(self, cx));
         root
     }
 }

@@ -4,6 +4,57 @@ use gpui::{DismissEvent, Focusable};
 use gpui_component::menu::{PopupMenu, PopupMenuItem};
 
 type MenuKey = (Vec<String>, Vec<(String, bool)>);
+
+pub(super) fn prototype_deletion_dialog(
+    shell: &MeshcraftShell,
+    cx: &mut Context<MeshcraftShell>,
+) -> Option<gpui::AnyElement> {
+    let prompt = shell.session.native_prototype_deletion_prompt()?;
+    let dialog = div()
+        .w(px(500.))
+        .p(px(18.))
+        .rounded(px(6.))
+        .bg(rgb(0x202832))
+        .border_1()
+        .border_color(rgb(0x536477))
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .gap(px(14.))
+        .child(div().text_lg().child("Delete prototype and instances?"))
+        .child(prompt.message())
+        .child(
+            div().flex().gap(px(8.)).justify_end().children(
+                [("Cancel", false), ("Delete Prototype and Instances", true)]
+                    .into_iter()
+                    .map(|(label, confirmed)| {
+                        Button::new(SharedString::from(format!("prototype-delete/{confirmed}")))
+                            .label(label)
+                            .on_click(cx.listener(move |shell, _, _, cx| {
+                                shell.session.native_resolve_prototype_deletion(confirmed);
+                                shell.refresh_scene();
+                                cx.notify();
+                            }))
+                    }),
+            ),
+        );
+    Some(
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .bg(gpui::rgba(0x00000088))
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_down(gpui::MouseButton::Right, |_, _, cx| cx.stop_propagation())
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .child(dialog)
+            .into_any_element(),
+    )
+}
+
 #[derive(Default)]
 pub(super) struct Ui {
     menu: Option<Entity<PopupMenu>>,

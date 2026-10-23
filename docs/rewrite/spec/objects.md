@@ -16,10 +16,17 @@ are ordinary editable primitives; do not create an automatic replacement object
 or an “exploded” prototype. Repeating Explode on that mesh cannot allocate another
 wrapper. Traversal must be bounded by the actual hierarchy, not viewport frames.
 
-Delete Prototype removes an unused definition with Undo. References from the
-scene, retained parent prototypes and owned instance layouts prevent deletion;
-unowned stale layout snapshots do not. A zero active-scene occurrence count can
-still have a real reference in an unplaced parent prototype. Built-in windows and
+The Object Prototypes panel has an explicit **Delete Prototype** button, enabled
+for the selected definition whether or not it has instances. An unused prototype
+is deleted immediately. For a used prototype, show a warning naming it and
+stating that **all its instances will be deleted**, including placements inside
+other prototypes. Cancel (or Escape) leaves the drawing unchanged. Confirm removes
+the definition and all its placements from the scene, retained parent prototypes,
+and private instance layouts, as one undoable transaction. This works at any point
+in the editing history. Remove descendant overrides whose paths no longer exist;
+retain unrelated prototypes and geometry. A changed drawing invalidates an open
+confirmation. Unowned stale layouts must not block deletion. A zero active-scene
+instance count can still mean the definition is used by an unplaced parent prototype. Built-in windows and
 doors use their architectural properties and are not implicitly user objects;
 see [frame ownership](modeling.md#p03-stairs-window-frames-and-door-frames).
 

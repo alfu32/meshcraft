@@ -22,6 +22,11 @@ impl Default for Defaults {
     fn default() -> Self {
         Self {
             wall: Wall {
+                thickness: 1.0,
+                height: 9.0,
+                offset: 0.5,
+                inclination_deg: 0.0,
+                auto_join: true,
                 materials: BTreeMap::from([
                     ("exterior".into(), "smoke-white".into()),
                     ("interior".into(), "smoke-grey".into()),
@@ -29,6 +34,7 @@ impl Default for Defaults {
                 ..Wall::default()
             },
             slab: Slab {
+                thickness: 1.0,
                 materials: BTreeMap::from([
                     ("top".into(), "smoke-white".into()),
                     ("bottom".into(), "smoke-grey".into()),
@@ -37,6 +43,8 @@ impl Default for Defaults {
                 ..Slab::default()
             },
             frame: Frame {
+                depth: 0.4,
+                frame_width: 0.3,
                 materials: BTreeMap::from([
                     ("frame".into(), "smoke-white".into()),
                     ("glazing".into(), "glass".into()),
@@ -1477,6 +1485,38 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(app.document.occurrence_refs().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn new_drawing_architectural_defaults_match_requested_values_and_materials() {
+        let mut app = app();
+        let d = app.arch_defaults();
+        assert_eq!(
+            (
+                d.wall.thickness,
+                d.wall.height,
+                d.wall.end_height(),
+                d.wall.offset
+            ),
+            (1., 9., 9., 0.5)
+        );
+        assert_eq!(d.wall.inclination_deg, 0.);
+        assert!(d.wall.auto_join);
+        assert_eq!(d.slab.thickness, 1.);
+        assert_eq!((d.frame.depth, d.frame.frame_width), (0.4, 0.3));
+        assert!(d.frame.glazing_enabled);
+        assert_eq!(d.wall.materials["exterior"], "smoke-white");
+        assert_eq!(d.wall.materials["interior"], "smoke-grey");
+        assert_eq!(d.slab.materials["side"], "side-grey");
+        assert_eq!(d.frame.materials["frame"], "smoke-white");
+        assert_eq!(d.frame.materials["glazing"], "glass");
+        command(
+            &mut app,
+            "architecture.settings",
+            json!({"wall_height":4.,"frame_depth":0.2}),
+        );
+        assert_eq!(app.arch_defaults().wall.height, 4.);
+        assert_eq!(app.arch_defaults().frame.depth, 0.2);
     }
     #[test]
     fn interactive_hole_locks_to_the_first_picked_owner_and_is_undoable() {

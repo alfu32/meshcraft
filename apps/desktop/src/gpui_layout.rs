@@ -375,14 +375,25 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                                     super::scripts::edit(this, false, window, cx);
                                 })),
                         )
-                        .child(Button::new("objects/delete-prototype").label("Delete Prototype").small()
-                            .disabled(self.shell.session.native_selected_prototype().is_none_or(|id| meshcraft_core::operations::objects::definition_reference_count(document,id)>0))
-                            .on_click(self.cx.listener(|this,_,_,cx| {
-                                if let Some(id)=this.session.native_selected_prototype() {
-                                    let payload=meshcraft_core::commands::CommandPayload {values:std::collections::BTreeMap::from([("definition_id".into(),serde_json::json!(id.0))]),..Default::default()};
-                                    this.dispatch_payload("object.delete_unused_definition",&payload);cx.notify();
-                                }
-                            }))),
+                        .child(
+                            Button::new("objects/delete-prototype")
+                                .label("Delete Prototype")
+                                .small()
+                                .disabled(self.shell.session.native_selected_prototype().is_none())
+                                .on_click(self.cx.listener(|this, _, _, cx| {
+                                    if let Some(id) = this.session.native_selected_prototype() {
+                                        let payload = meshcraft_core::commands::CommandPayload {
+                                            values: std::collections::BTreeMap::from([(
+                                                "definition_id".into(),
+                                                serde_json::json!(id.0),
+                                            )]),
+                                            ..Default::default()
+                                        };
+                                        this.dispatch_payload("object.delete_definition", &payload);
+                                        cx.notify();
+                                    }
+                                })),
+                        ),
                 )
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;

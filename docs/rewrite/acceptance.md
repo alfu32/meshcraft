@@ -49,9 +49,13 @@ object/prototype; double-click stays in the architectural parameter workflow.
 Explode emits loose mesh into the parent graph without a replacement prototype;
 a second Explode on that mesh fails without mutation. Check that idle rendering
 and repeated previews do not advance the persistent ID allocator. Delete unused
-prototypes from the browser with Undo, including obsolete exploded wrappers;
-unowned stale layouts must not prevent deletion, but retained parent prototypes
-must protect their child definitions.
+prototypes directly from the browser, including obsolete exploded wrappers.
+For used prototypes, the same button warns and offers Cancel/Delete Prototype and
+Instances. Cancel/Escape changes nothing; confirmation removes every placement,
+including nested, private-layout and unplaced-parent references, without deleting
+unrelated child definitions. Test after 100 later edits, one-step Undo/Redo,
+Save/Open and deletion while editing an affected instance. Reject stale warnings.
+Unowned stale layouts must not prevent deletion.
 
 ## C08 — Mixed payloads and lifecycle
 

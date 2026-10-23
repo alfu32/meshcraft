@@ -307,6 +307,13 @@ picking, window selection, crossing selection and world-volume selection must
 resolve to the same editable Frame owner.
 
 
+**Defaults for new architecture (2026-10-23).** New drawings start with wall
+thickness 1, start/end heights 9, axis offset 0.5, inclination 0° and Autojoin on;
+slab thickness 1; frame depth 0.4, width 0.3 and glazing on. Materials are wall
+exterior smoke-white/interior smoke-grey, slab top smoke-white/bottom smoke-grey/
+sides side-grey, and frame smoke-white/glazing glass. Inputs remain internal model
+units. Preserve saved drawing defaults and existing elements when opening a file.
+
 ### P04 HVAC
 
 **Observed.** `HVAC_PLUMBING`, `HVAC_VENTILATION`. Plumbing stores sampled path, diameter, side count, color; defaults 0.2 diameter and 16 sides. Ventilation stores endpoints, orientation reference, width/height, auto-join flag and hump span/clearance; defaults 0.5×0.25, auto-join false, hump half-span 0.625, clearance 0.05. Controls alter paths/duct ends and regenerate geometry.

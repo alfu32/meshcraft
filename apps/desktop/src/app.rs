@@ -729,6 +729,7 @@ enum ShellAction {
     BeginObjectPlacement,
     ToggleObjectPlaceGlue,
     DeleteUnusedDefinition,
+    DeleteDefinition,
     ArraySelection,
     UpdateModelSettings,
     UpdateUiPreferences,
@@ -972,6 +973,14 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "object place align surface normal glue",
                 None,
                 ShellAction::ToggleObjectPlaceGlue,
+            ),
+            (
+                "object.delete_definition",
+                "Objects> Delete Prototype",
+                "Objects",
+                "prototype remove delete definition all instances confirmation",
+                Some("edit.delete_selection"),
+                ShellAction::DeleteDefinition,
             ),
             (
                 "object.delete_unused_definition",
@@ -1617,6 +1626,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::CreateObject
         | ShellAction::ExplodeSelection
         | ShellAction::DeleteUnusedDefinition
+        | ShellAction::DeleteDefinition
         | ShellAction::ArraySelection
         | ShellAction::UpdateModelSettings
         | ShellAction::Undo
@@ -1963,6 +1973,10 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         "object.place_selected_definition" => &[("definition_id", CommandValueType::Integer)],
         "object.create_from_selection" => &[("name", CommandValueType::String)],
         "object.delete_unused_definition" => &[("definition_id", CommandValueType::Integer)],
+        "object.delete_definition" => &[
+            ("definition_id", CommandValueType::Integer),
+            ("confirmed", CommandValueType::Boolean),
+        ],
         "model.update_settings" => &[
             ("unit_name", CommandValueType::String),
             ("unit_size", CommandValueType::Number),
@@ -2069,7 +2083,10 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             required: (id == "selection.set" && *name == "paths")
                 || (id == "selection.update_display"
                     && matches!(*name, "kind" | "property" | "enabled"))
-                || (id == "object.delete_unused_definition" && *name == "definition_id")
+                || (matches!(
+                    id,
+                    "object.delete_unused_definition" | "object.delete_definition"
+                ) && *name == "definition_id")
                 || (id == "paint.set_color" && matches!(*name, "red" | "green" | "blue" | "alpha"))
                 || (id == "view.camera.set_pose" && matches!(*name, "position" | "target")),
         })
@@ -2310,6 +2327,7 @@ pub struct MeshcraftApp {
     next_job_id: u64,
     job_results: BTreeMap<String, CommandResult>,
     pending_replacement: Option<PendingReplacement>,
+    pending_prototype_deletion: Option<object_workflow::PrototypeDeletionPrompt>,
     #[cfg(not(target_arch = "wasm32"))]
     replacement_after_save: Option<PendingReplacement>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -3418,6 +3436,7 @@ impl MeshcraftApp {
             next_job_id: 1,
             job_results: BTreeMap::new(),
             pending_replacement: None,
+            pending_prototype_deletion: None,
             #[cfg(not(target_arch = "wasm32"))]
             replacement_after_save: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -7065,6 +7084,7 @@ impl MeshcraftApp {
                 result.outputs.insert("enabled".to_owned(), enabled.into());
                 return result;
             }
+            ShellAction::DeleteDefinition => return self.delete_prototype_command(payload),
             ShellAction::DeleteUnusedDefinition => {
                 let Some(definition_id) = payload
                     .values
@@ -11972,6 +11992,7 @@ impl MeshcraftApp {
         let popup_open = egui::Popup::is_any_open(ui.ctx());
         let shortcuts_allowed = !self.command_palette_open
             && self.pending_replacement.is_none()
+            && self.native_prototype_deletion_prompt().is_none()
             && !ui.ctx().egui_wants_keyboard_input()
             && !popup_open;
         let mut tool_keyboard_handled = false;
@@ -12289,6 +12310,7 @@ impl MeshcraftApp {
         self.show_command_palette(ui.ctx());
         self.show_recent_projects_dialog(ui.ctx());
         self.show_document_replacement_dialog(ui.ctx());
+        self.show_prototype_deletion_dialog(ui.ctx());
     }
 }
 
@@ -12925,6 +12947,7 @@ mod tests {
             next_job_id: 1,
             job_results: BTreeMap::new(),
             pending_replacement: None,
+            pending_prototype_deletion: None,
             #[cfg(not(target_arch = "wasm32"))]
             replacement_after_save: None,
             pending_project_load: None,

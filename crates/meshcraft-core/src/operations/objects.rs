@@ -775,7 +775,7 @@ pub fn group_selection(
 
 /// Layouts owned by the scene, retained prototypes or explicit instance overrides.
 /// Old private-layout snapshots no longer owned by any of these are not references.
-fn owned_layouts(document: &Document) -> BTreeSet<ChildLayoutId> {
+fn owned_layouts(document: &Document, include_shadowed: bool) -> BTreeSet<ChildLayoutId> {
     let root = document
         .scene_container_occurrence()
         .and_then(|p| document.resolve_occurrence(&p));
@@ -799,7 +799,7 @@ fn owned_layouts(document: &Document) -> BTreeSet<ChildLayoutId> {
         document
             .definitions
             .values()
-            .filter(|d| Some(d.id) != hidden_root_default)
+            .filter(|d| include_shadowed || Some(d.id) != hidden_root_default)
             .filter_map(|d| d.default_child_layout),
     );
     pending.extend(
@@ -826,7 +826,7 @@ fn owned_layouts(document: &Document) -> BTreeSet<ChildLayoutId> {
 }
 
 pub fn definition_reference_count(document: &Document, id: DefinitionId) -> usize {
-    owned_layouts(document)
+    owned_layouts(document, false)
         .iter()
         .filter_map(|id| document.child_layout(*id))
         .flat_map(|l| &l.entries)
@@ -854,9 +854,47 @@ pub fn delete_unused_definition(
         ));
     }
 
+    delete_definition(document, definition_id)
+}
+
+/// Deletes a prototype and every placement of it, including placements in unused
+/// parent prototypes and private instance layouts. Other definitions are retained.
+/// The caller must obtain confirmation before invoking this on an in-use prototype.
+pub fn delete_definition(
+    document: &mut Document,
+    definition_id: DefinitionId,
+) -> Result<(), String> {
+    if definition_id == Document::SCENE_ROOT_DEFINITION_ID
+        || document
+            .scene_container_occurrence()
+            .and_then(|p| document.resolve_occurrence(&p))
+            .is_some_and(|r| r.definition.id == definition_id)
+    {
+        return Err("the scene root definition cannot be deleted".into());
+    }
+    if document.definition(definition_id).is_none() {
+        return Err("the object definition does not exist".into());
+    }
+
     let mut candidate = document.clone();
+    for layout in candidate.child_layouts.values_mut() {
+        layout.entries.retain(|e| e.definition != definition_id);
+    }
     candidate.definitions.remove(&definition_id);
-    let owned = owned_layouts(&candidate);
+    // Removing a placement also removes overrides for all of its descendants.
+    let invalid = candidate
+        .occurrence_edits
+        .keys()
+        .chain(candidate.script_cache.frames.keys())
+        .filter(|p| candidate.resolve_occurrence(p).is_none())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    candidate
+        .occurrence_edits
+        .retain(|p, _| !invalid.contains(p));
+    std::sync::Arc::make_mut(&mut candidate.script_cache.frames)
+        .retain(|p, _| !invalid.contains(p));
+    let owned = owned_layouts(&candidate, true);
     candidate.child_layouts.retain(|id, _| owned.contains(id));
     candidate.hotspot_cache.clear();
     candidate.revision = document
@@ -3299,5 +3337,104 @@ mod tests {
         delete_unused_definition(&mut document, parent_definition).unwrap();
         delete_unused_definition(&mut document, child_definition).unwrap();
         document.validate().unwrap();
+    }
+
+    #[test]
+    fn deleting_used_prototype_removes_shared_private_and_unplaced_references() {
+        let mut document = Document::new();
+        let child = cube(&mut document, "delete me", Vec3::ZERO);
+        let id = document.resolve_occurrence(&child).unwrap().definition.id;
+        let sibling = cube(&mut document, "keep me", Vec3::X * 2.);
+        let sibling_id = document.resolve_occurrence(&sibling).unwrap().definition.id;
+        let parent = group_occurrences(&mut document, &[child, sibling], "parent").unwrap();
+        let copy = document
+            .copy_root_occurrence(&parent, Vec3::X * 10.)
+            .unwrap();
+        let sibling_copy = document
+            .scene_geometry_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| {
+                p.path.starts_with(&copy.path)
+                    && document.resolve_occurrence(p).unwrap().definition.id == sibling_id
+            })
+            .unwrap();
+        document
+            .remove_selected_occurrences(&[sibling_copy])
+            .unwrap(); // private child layout
+        let extra = place_definition(
+            &mut document,
+            &EditContext::Document,
+            id,
+            Vec3::ZERO,
+            None,
+            false,
+        )
+        .unwrap();
+        let unused_parent = group_occurrences(&mut document, &[extra], "unplaced parent").unwrap();
+        let unused_id = document
+            .resolve_occurrence(&unused_parent)
+            .unwrap()
+            .definition
+            .id;
+        document
+            .remove_selected_occurrences(&[unused_parent])
+            .unwrap();
+        let revision = document.revision();
+        super::delete_definition(&mut document, id).unwrap();
+        assert_eq!(document.revision(), revision + 1);
+        assert!(document.definition(id).is_none());
+        assert!(document.definition(sibling_id).is_some());
+        assert!(document.definition(unused_id).is_some());
+        assert!(document.resolve_occurrence(&parent).is_some());
+        assert!(document.resolve_occurrence(&copy).is_some());
+        assert!(
+            document
+                .child_layouts
+                .values()
+                .flat_map(|l| &l.entries)
+                .all(|e| e.definition != id)
+        );
+        assert!(
+            document
+                .occurrence_edits
+                .keys()
+                .all(|p| document.resolve_occurrence(p).is_some())
+        );
+        document.validate().unwrap();
+        assert!(
+            super::delete_definition(&mut document, Document::SCENE_ROOT_DEFINITION_ID).is_err()
+        );
+    }
+    #[test]
+    fn deletion_survives_legacy_private_scene_layout_and_save_reopen() {
+        let mut document = Document::new();
+        cube(&mut document, "delete me", Vec3::ZERO);
+        cube(&mut document, "keep me", Vec3::X * 3.);
+        document = crate::legacy::import_current_value(
+            &crate::legacy::export_current_value(&document).unwrap(),
+        )
+        .unwrap();
+        let discarded = document
+            .scene_geometry_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| document.resolve_occurrence(p).unwrap().definition.name == "keep me")
+            .unwrap();
+        document.remove_selected_occurrences(&[discarded]).unwrap();
+        let target = document
+            .definitions()
+            .find(|d| d.name == "delete me")
+            .unwrap()
+            .id;
+        super::delete_definition(&mut document, target).unwrap();
+        document.validate().unwrap();
+        let reopened = crate::legacy::import_current_value(
+            &crate::legacy::export_current_value(&document).unwrap(),
+        )
+        .unwrap();
+        assert!(reopened.definitions().all(|d| d.name != "delete me"));
+        assert!(reopened.definitions().any(|d| d.name == "keep me"));
+        reopened.validate().unwrap();
     }
 }

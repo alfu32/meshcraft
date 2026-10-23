@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.32.0 prototype management:** Delete Prototype is available for used and unused
+prototypes. Used definitions require a warning confirmation that removes all their
+instances, including placements inside other prototypes; Cancel is non-mutating.
+Undo/Redo remains available afterward. New architecture defaults match the requested
+1-unit walls/slabs, 9-unit wall heights, 0.5 axis offset and 0.4/0.3 frame section.
+
 **0.31.0 frame ownership and Explode:** windows/doors are built-in Frame entities,
 with consistent click/window/crossing selection and architectural properties.
 Legacy plain frame wrappers stay compatible but no longer appear as user objects.

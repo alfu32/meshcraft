@@ -89,6 +89,8 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
                 "Export only the selection; defaults to whether anything is selected. Set false for the full scene, including hidden geometry.",
             "definition_id" =>
                 "Numeric prototype ID from meshcraft_scene, distinct from occurrence/instance paths.",
+            "confirmed" =>
+                "For object.delete_definition, true explicitly confirms deleting the prototype and ALL its instances. Omit first to inspect reference counts and request confirmation.",
             "clipboard" =>
                 "Portable Meshcraft selection JSON or Copy as Script source. Use the copy result or OS clipboard when omitted.",
             "source" => "Unified JavaScript object source; see meshcraft_script_api.",
@@ -198,7 +200,7 @@ impl MeshcraftApp {
             EditContext::Occurrence(p) => json!({"kind":"occurrence","path":p.path}),
         };
         let pending_dialog=self.pending_replacement.as_ref().map(|p|json!({"job_id":p.job_id,"kind":match &p.target {ReplacementTarget::NewDocument=>"new",ReplacementTarget::OpenProject(_)=>"open"},"choices":["save","discard","cancel"],"instructions":"Use meshcraft_resolve_document explicitly; save needs a path when the document is unnamed."}));
-        json!({"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"numericInput":self.tool_numeric_text(),"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
+        json!({"prototypeDeletion":self.native_prototype_deletion_prompt().map(|p|json!({"definition_id":p.definition_id.0,"name":p.name,"references":p.references,"instances":p.instances,"message":p.message()})),"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"numericInput":self.tool_numeric_text(),"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
     }
     pub(crate) fn mcp_commands(&self, args: &Value) -> Value {
         let query = args["query"].as_str().unwrap_or("").to_lowercase();

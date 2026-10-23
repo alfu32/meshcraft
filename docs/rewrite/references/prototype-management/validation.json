@@ -1,0 +1,220 @@
+{
+  "version": "0.32.0",
+  "usedPrototypeButtonEnabled": true,
+  "confirmationShowsAllThreeInstances": true,
+  "escapeCancelsWithoutMutation": true,
+  "confirmationClickDeletesPrototypeAndAllInstances": true,
+  "oneStepUndoRedo": true,
+  "unusedPrototypeButtonDeletesDirectly": true,
+  "architecturalDefaults": {
+    "wall": {
+      "id": "meshcraft:architecture:74",
+      "materials": {
+        "exterior": "smoke-white",
+        "interior": "smoke-grey"
+      },
+      "name": "Wall",
+      "start": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 5.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "thickness": 1.0,
+      "height": 9.0,
+      "endHeight": null,
+      "offset": 0.5,
+      "autoJoin": true,
+      "up": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "inclinationDeg": 0.0,
+      "exteriorColor": {
+        "r": 0.9294117647058824,
+        "g": 0.9294117647058824,
+        "b": 0.9294117647058824,
+        "a": 1.0
+      },
+      "interiorColor": {
+        "r": 0.8392156862745098,
+        "g": 0.8392156862745098,
+        "b": 0.8392156862745098,
+        "a": 1.0
+      },
+      "holes": []
+    },
+    "slab": {
+      "id": "meshcraft:architecture:124",
+      "materials": {
+        "bottom": "smoke-grey",
+        "side": "side-grey",
+        "top": "smoke-white"
+      },
+      "name": "Slab",
+      "profile": {
+        "points": [
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 5.0
+          },
+          {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 5.0
+          },
+          {
+            "x": 5.0,
+            "y": 0.0,
+            "z": 10.0
+          },
+          {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 10.0
+          }
+        ],
+        "closed": true
+      },
+      "normal": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "origin": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 5.0
+      },
+      "axisU": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "thickness": 1.0,
+      "topColor": {
+        "r": 0.9294117647058824,
+        "g": 0.9294117647058824,
+        "b": 0.9294117647058824,
+        "a": 1.0
+      },
+      "bottomColor": {
+        "r": 0.8392156862745098,
+        "g": 0.8392156862745098,
+        "b": 0.8392156862745098,
+        "a": 1.0
+      },
+      "sideColor": {
+        "r": 0.8784313725490196,
+        "g": 0.8784313725490196,
+        "b": 0.8784313725490196,
+        "a": 1.0
+      },
+      "holes": [],
+      "contour": [
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 5.0
+        },
+        {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 5.0
+        },
+        {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 10.0
+        },
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 10.0
+        }
+      ],
+      "min": {
+        "x": 0.0,
+        "y": -1.0,
+        "z": 5.0
+      },
+      "max": {
+        "x": 5.0,
+        "y": -1.0,
+        "z": 10.0
+      },
+      "axisV": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -1.0
+      }
+    },
+    "frame": {
+      "id": "meshcraft:architecture:158",
+      "materials": {
+        "frame": "smoke-white",
+        "glazing": "glass"
+      },
+      "name": "Window",
+      "contour": [
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -5.0
+        },
+        {
+          "x": 2.0,
+          "y": 0.0,
+          "z": -5.0
+        },
+        {
+          "x": 2.0,
+          "y": 2.0,
+          "z": -5.0
+        },
+        {
+          "x": 0.0,
+          "y": 2.0,
+          "z": -5.0
+        }
+      ],
+      "normal": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0
+      },
+      "depth": 0.4,
+      "frameWidth": 0.3,
+      "kind": "WINDOW",
+      "color": {
+        "r": 0.9294117647058824,
+        "g": 0.9294117647058824,
+        "b": 0.9294117647058824,
+        "a": 1.0
+      },
+      "glazingEnabled": true,
+      "glazingColor": {
+        "r": 0.7215686274509804,
+        "g": 0.8392156862745098,
+        "b": 0.9490196078431372,
+        "a": 0.4
+      },
+      "cornerA": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -5.0
+      },
+      "cornerB": {
+        "x": 2.0,
+        "y": 2.0,
+        "z": -5.0
+      }
+    }
+  }
+}

@@ -3,8 +3,176 @@ use super::*;
 use meshcraft_core::document::hotspots::{
     Hotspot, HotspotColor, Operation, SegmentAttachment, Shape, TriangleAttachment,
 };
+use serde_json::Value;
+
+#[derive(Clone)]
+pub(crate) struct PrototypeDeletionPrompt {
+    pub definition_id: DefinitionId,
+    pub name: String,
+    pub references: usize,
+    pub instances: usize,
+    generation: u64,
+    revision: u64,
+}
+impl PrototypeDeletionPrompt {
+    pub fn message(&self) -> String {
+        format!(
+            "Delete prototype “{}”? It has {} instance(s) in the drawing and {} stored placement(s). All its instances will be deleted, including placements inside other prototypes.",
+            self.name, self.instances, self.references
+        )
+    }
+}
 
 impl MeshcraftApp {
+    pub(crate) fn native_prototype_deletion_prompt(&self) -> Option<&PrototypeDeletionPrompt> {
+        self.pending_prototype_deletion.as_ref().filter(|p| {
+            p.generation == self.document_generation
+                && self.document.definition(p.definition_id).is_some()
+        })
+    }
+
+    pub(crate) fn native_resolve_prototype_deletion(&mut self, confirmed: bool) {
+        let Some(prompt) = self.pending_prototype_deletion.clone() else {
+            return;
+        };
+        if !confirmed {
+            self.pending_prototype_deletion = None;
+            self.status = "Prototype deletion cancelled.".into();
+            return;
+        }
+        let payload = CommandPayload {
+            values: BTreeMap::from([
+                ("definition_id".into(), json!(prompt.definition_id.0)),
+                ("confirmed".into(), json!(true)),
+            ]),
+            ..Default::default()
+        };
+        self.dispatch_command("object.delete_definition", &payload);
+    }
+
+    pub(super) fn delete_prototype_command(&mut self, payload: &CommandPayload) -> CommandResult {
+        let Some(id) = payload
+            .values
+            .get("definition_id")
+            .and_then(Value::as_u64)
+            .map(DefinitionId)
+        else {
+            return CommandResult::failed("definition_id must be an unsigned integer");
+        };
+        if id == Document::SCENE_ROOT_DEFINITION_ID
+            || self
+                .document
+                .scene_container_occurrence()
+                .and_then(|p| self.document.resolve_occurrence(&p))
+                .is_some_and(|r| r.definition.id == id)
+        {
+            return CommandResult::failed("the scene root definition cannot be deleted");
+        }
+        let Some(definition) = self.document.definition(id) else {
+            return CommandResult::failed("the object definition does not exist");
+        };
+        let name = definition.name.clone();
+        let references = modeling_objects::definition_reference_count(&self.document, id);
+        let instances = self
+            .document
+            .scene_geometry_refs()
+            .unwrap_or_default()
+            .iter()
+            .filter(|p| {
+                self.document
+                    .resolve_occurrence(p)
+                    .is_some_and(|r| r.definition.id == id)
+            })
+            .count();
+        let confirmed = payload
+            .values
+            .get("confirmed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if confirmed
+            && self.pending_prototype_deletion.as_ref().is_some_and(|p| {
+                p.definition_id == id
+                    && (p.generation != self.document_generation
+                        || p.revision != self.document.revision())
+            })
+        {
+            self.pending_prototype_deletion = None;
+            return CommandResult::failed(
+                "The drawing changed since the warning. Click Delete Prototype again to review the current instances.",
+            );
+        }
+        if references > 0 && !confirmed {
+            let prompt = PrototypeDeletionPrompt {
+                definition_id: id,
+                name,
+                references,
+                instances,
+                generation: self.document_generation,
+                revision: self.document.revision(),
+            };
+            self.status = prompt.message();
+            self.pending_prototype_deletion = Some(prompt);
+            let mut result = CommandResult::completed();
+            result.outputs.extend(BTreeMap::from([
+                ("confirmation_required".into(), json!(true)),
+                ("definition_id".into(), json!(id.0)),
+                ("references".into(), json!(references)),
+                ("instances".into(), json!(instances)),
+                ("warning".into(), json!(self.status)),
+            ]));
+            return result;
+        }
+        // Prototype management is global, even when invoked while editing an instance.
+        let context = self.selection.context.clone();
+        self.selection.set_context(EditContext::Document);
+        let deleted = self.commit_document_edit("Delete object prototype and instances", |d| {
+            modeling_objects::delete_definition(d, id)
+        });
+        self.selection.set_context(context);
+        self.selection.retain_valid(&self.document);
+        self.pending_prototype_deletion = None;
+        match deleted {
+            Ok(()) => {
+                self.activate_tool("Select");
+                self.object_browser_selection = self
+                    .object_browser_selection
+                    .filter(|selected| *selected != id);
+                self.status = format!("Deleted prototype “{name}” and all its instances.");
+                let mut result = CommandResult::completed();
+                result.outputs.extend(BTreeMap::from([
+                    ("definition_id".into(), json!(id.0)),
+                    ("deleted_instances".into(), json!(instances)),
+                    ("deleted_placements".into(), json!(references)),
+                ]));
+                result
+            }
+            Err(error) => CommandResult::failed(error),
+        }
+    }
+
+    pub(super) fn show_prototype_deletion_dialog(&mut self, context: &egui::Context) {
+        let Some(prompt) = self.native_prototype_deletion_prompt().cloned() else {
+            return;
+        };
+        let mut decision = None;
+        egui::Modal::new(egui::Id::new("delete-prototype-confirmation")).show(context, |ui| {
+            ui.set_min_width(420.);
+            ui.heading("Delete prototype and instances?");
+            ui.label(prompt.message());
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    decision = Some(false);
+                }
+                if ui.button("Delete Prototype and Instances").clicked() {
+                    decision = Some(true);
+                }
+            });
+        });
+        if let Some(confirmed) = decision {
+            self.native_resolve_prototype_deletion(confirmed);
+        }
+    }
+
     pub(super) fn delete_selection_with_hotspots(&mut self) -> CommandResult {
         let selected = self.selection.selected().clone();
         let mut handles = Vec::new();
@@ -789,6 +957,92 @@ impl MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prototype_delete_warning_cancel_and_confirmation_work_after_later_edits() {
+        let mut app = super::super::tests::test_app();
+        app.run_command("geometry.add_cuboid");
+        let instance = app.selected_occurrences()[0].clone();
+        let id = app
+            .document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        app.document
+            .copy_root_occurrence(&instance, Vec3::X * 5.)
+            .unwrap();
+        for i in 0..100 {
+            let payload = CommandPayload {
+                values: BTreeMap::from([("grid_size".into(), json!(1. + i as f64))]),
+                ..Default::default()
+            };
+            app.dispatch_command("model.update_settings", &payload);
+        }
+        app.select_native_prototype(id);
+        let before = serde_json::to_value(&app.document).unwrap();
+        let cursor = app.history.cursor();
+        let payload = CommandPayload {
+            values: BTreeMap::from([("definition_id".into(), json!(id.0))]),
+            ..Default::default()
+        };
+        let request = app.dispatch_command("object.delete_definition", &payload);
+        assert!(request.accepted);
+        assert_eq!(request.result.outputs["confirmation_required"], json!(true));
+        assert_eq!(app.native_prototype_deletion_prompt().unwrap().instances, 2);
+        assert_eq!(serde_json::to_value(&app.document).unwrap(), before);
+        assert_eq!(app.history.cursor(), cursor);
+        app.native_resolve_prototype_deletion(false);
+        assert!(app.native_prototype_deletion_prompt().is_none());
+        assert_eq!(serde_json::to_value(&app.document).unwrap(), before);
+        app.dispatch_command("object.delete_definition", &payload);
+        app.native_resolve_prototype_deletion(true);
+        assert!(app.document.definition(id).is_none());
+        assert!(app.document.resolve_occurrence(&instance).is_none());
+        assert_eq!(
+            app.history.entries().last().unwrap().label,
+            "Delete object prototype and instances"
+        );
+        app.document.validate().unwrap();
+        app.run_command("edit.undo");
+        let mut restored = serde_json::to_value(&app.document).unwrap();
+        assert!(restored["revision"].as_u64().unwrap() > before["revision"].as_u64().unwrap());
+        restored["revision"] = before["revision"].clone();
+        assert_eq!(restored, before);
+        app.run_command("edit.redo");
+        assert!(app.document.definition(id).is_none());
+    }
+
+    #[test]
+    fn prototype_delete_rejects_stale_confirmation_and_exits_deleted_edit_context() {
+        let mut app = super::super::tests::test_app();
+        app.run_command("geometry.add_cuboid");
+        let instance = app.selected_occurrences()[0].clone();
+        let id = app
+            .document
+            .resolve_occurrence(&instance)
+            .unwrap()
+            .definition
+            .id;
+        let payload = CommandPayload {
+            values: BTreeMap::from([("definition_id".into(), json!(id.0))]),
+            ..Default::default()
+        };
+        app.dispatch_command("object.delete_definition", &payload);
+        app.run_command("geometry.add_cuboid");
+        let revision = app.document.revision();
+        app.native_resolve_prototype_deletion(true);
+        assert_eq!(app.document.revision(), revision);
+        assert!(app.document.definition(id).is_some());
+        assert!(app.native_prototype_deletion_prompt().is_none());
+        app.selection.set_context(EditContext::Occurrence(instance));
+        app.dispatch_command("object.delete_definition", &payload);
+        app.native_resolve_prototype_deletion(true);
+        assert!(app.document.definition(id).is_none());
+        assert_eq!(app.selection.context, EditContext::Document);
+        app.document.validate().unwrap();
+    }
+
     #[test]
     fn hotspot_property_patch_updates_all_selected_hotspots_atomically() {
         let mut app = super::super::tests::test_app();
