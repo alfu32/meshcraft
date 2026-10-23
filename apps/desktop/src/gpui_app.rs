@@ -1894,7 +1894,19 @@ impl MeshcraftShell {
             self.toggle_command_palette();
         } else if self.command_palette_open || self.open_menu.is_some() {
         } else if key == "delete" {
-            self.dispatch("edit.delete_selection");
+            if let Some(id) = self
+                .session
+                .native_selected_prototype()
+                .filter(|_| self.session.native_selection_targets().is_empty())
+            {
+                let payload = CommandPayload {
+                    values: BTreeMap::from([("definition_id".into(), serde_json::json!(id.0))]),
+                    ..Default::default()
+                };
+                self.dispatch_payload("object.delete_unused_definition", &payload);
+            } else {
+                self.dispatch("edit.delete_selection");
+            }
         } else if (modifiers.control || modifiers.platform) && key == "c" {
             self.dispatch(if modifiers.shift {
                 "edit.copy_as_script"
@@ -2055,14 +2067,6 @@ fn selection_region_in_context(
         let mut projected_vertices =
             std::collections::BTreeMap::<VertexId, Option<(f32, f32)>>::new();
         for vertex in geometry.vertices.values() {
-            if vertex
-                .legacy_aliases
-                .iter()
-                .any(|a| a.source == meshcraft_core::document::architecture::GENERATED)
-            {
-                continue;
-            }
-
             projected_vertices.insert(
                 vertex.id,
                 project_point(
@@ -2087,7 +2091,10 @@ fn selection_region_in_context(
             }
             _ => 0,
         };
-        if occurrence.path.len() > active_depth && !object_points.is_empty() {
+        if occurrence.path.len() > active_depth
+            && document.is_object_occurrence(&occurrence)
+            && !object_points.is_empty()
+        {
             let bounds = projected_bounds(&object_points);
             let selected_object = if crossing {
                 rects_intersect(bounds, region)
@@ -3392,6 +3399,110 @@ mod tests {
     use gpui::RenderImage;
     use image::{Frame, ImageBuffer};
     use std::sync::Arc;
+
+    #[test]
+    fn frame_picking_and_both_marquee_directions_share_canonical_entity_targets() {
+        use super::*;
+        use meshcraft_core::document::{
+            DefinitionKind,
+            architecture::{Element, Frame, FrameKind},
+        };
+        use meshcraft_core::selection::SelectionKind;
+        for legacy in [false, true] {
+            let mut d = Document::new();
+            for (x, kind) in [(-3., FrameKind::Window), (1., FrameKind::Door)] {
+                let contour = vec![
+                    Vec3::new(x, 0., 0.),
+                    Vec3::new(x + 2., 0., 0.),
+                    Vec3::new(x + 2., 2., 0.),
+                    Vec3::new(x, 2., 0.),
+                ];
+                let owner = if legacy {
+                    d.add_definition("Legacy Frame", DefinitionKind::Architecture)
+                } else {
+                    Document::SCENE_ROOT_DEFINITION_ID
+                };
+                d.put_architecture(
+                    owner,
+                    None,
+                    Element::Frame(Frame {
+                        kind,
+                        contour,
+                        glazing_enabled: kind == FrameKind::Window,
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+                if legacy {
+                    meshcraft_core::operations::objects::place_definition(
+                        &mut d,
+                        &EditContext::Document,
+                        owner,
+                        Vec3::ZERO,
+                        None,
+                        false,
+                    )
+                    .unwrap();
+                }
+            }
+            let camera = OrbitCamera {
+                eye: Some(Vec3::new(0., 1., 14.)),
+                target: Vec3::new(0., 1., 0.),
+                yaw: 0.,
+                pitch: 0.,
+                ..Default::default()
+            };
+            let mut app = MeshcraftApp::new_native_session(d, "Ready".into(), None);
+            let expected = app
+                .document_snapshot()
+                .architecture_elements()
+                .into_iter()
+                .map(|e| e.target)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(2, expected.len());
+            for (x, _) in [(-3., FrameKind::Window), (1., FrameKind::Door)] {
+                let hit = app
+                    .pick_native_target(Vec3::new(x + 0.03, 1., 10.), -Vec3::Z, 0.01)
+                    .unwrap();
+                assert!(expected.contains(&hit));
+            }
+            for crossing in [false, true] {
+                let (start, end) = if crossing {
+                    ((799., 599.), (1., 1.))
+                } else {
+                    ((1., 1.), (799., 599.))
+                };
+                let hits = selection_region_in_context(
+                    &app.document_snapshot(),
+                    camera,
+                    (800., 600.),
+                    start,
+                    end,
+                    crossing,
+                    &EditContext::Document,
+                );
+                app.apply_native_selection_region(hits, crossing, SelectionMode::Replace);
+                let selected = app
+                    .native_selection_targets()
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(expected, selected);
+                assert_eq!(0, app.native_selection_summary().objects);
+                assert_eq!(
+                    2,
+                    app.native_selection_summary().count(SelectionKind::Frame)
+                );
+                let result =
+                    app.dispatch_command("edit.copy_selection", &CommandPayload::default());
+                assert_eq!(CommandCompletion::Completed, result.result.completion);
+                let result =
+                    app.dispatch_command("edit.paste_in_place", &CommandPayload::default());
+                assert_eq!(CommandCompletion::Completed, result.result.completion);
+                assert_eq!(4, app.document_snapshot().architecture_elements().len());
+                app.dispatch_command("edit.undo", &CommandPayload::default());
+            }
+        }
+    }
 
     #[test]
     fn wheel_modifiers_reduce_the_zoom_rate() {

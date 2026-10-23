@@ -24,6 +24,22 @@ mod material_surfaces;
 mod slabs;
 pub use controls::{Control, ControlPoint};
 
+#[derive(Debug, Default)]
+pub(crate) struct FrameClassificationCache {
+    definitions: std::sync::OnceLock<BTreeSet<DefinitionId>>,
+    overrides: std::sync::Mutex<BTreeMap<OccurrenceRef, bool>>,
+}
+impl Clone for FrameClassificationCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+impl PartialEq for FrameClassificationCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub struct Color {
@@ -867,6 +883,102 @@ pub struct PlacedElement {
     pub transform: Affine3,
 }
 impl Document {
+    /// Compatibility storage for a standalone frame made by earlier desktop versions.
+    /// Authored mesh, scripts, handles or nested content make it a real object instead.
+    pub fn is_frame_definition(&self, id: DefinitionId) -> bool {
+        self.frame_classification
+            .definitions
+            .get_or_init(|| {
+                self.definitions
+                    .keys()
+                    .copied()
+                    .filter(|id| self.is_plain_frame_definition(*id))
+                    .collect()
+            })
+            .contains(&id)
+    }
+
+    fn is_plain_frame_definition(&self, id: DefinitionId) -> bool {
+        let Some(d) = self.definition(id) else {
+            return false;
+        };
+        if d.kind != DefinitionKind::Architecture
+            || d.extensions.contains_key(scripts::SCRIPT_KEY)
+            || d.extensions
+                .get("k3d.externalReferenceEnabled")
+                .and_then(Value::as_bool)
+                == Some(true)
+            || d.domain_data
+                .get("hotspots")
+                .or_else(|| d.extensions.get("k3d.hotspots"))
+                .and_then(Value::as_array)
+                .is_some_and(|h| !h.is_empty())
+            || d.default_child_layout
+                .and_then(|id| self.child_layout(id))
+                .is_some_and(|l| !l.entries.is_empty())
+            || d.domain_entity_ids
+                .iter()
+                .any(|(field, ids)| field != FRAMES && !ids.is_empty())
+        {
+            return false;
+        }
+        let Some(ids) = d.domain_entity_ids.get(FRAMES).filter(|ids| ids.len() == 1) else {
+            return false;
+        };
+        let owned = |ext: &BTreeMap<String, Value>| {
+            semantic_entity(ext).is_some_and(|e| matches!(e,SelectedEntity::SemanticHandle{kind:SelectionKind::Frame,id} if id==ids[0]))
+        };
+        d.geometry.segments.values().all(|s| owned(&s.extensions))
+            && d.geometry.triangles.values().all(|f| owned(&f.extensions))
+            && d.geometry
+                .vertices
+                .values()
+                .all(|v| v.legacy_aliases.iter().any(|a| a.source == GENERATED))
+    }
+
+    pub fn frame_target_for_occurrence(
+        &self,
+        occurrence: &OccurrenceRef,
+    ) -> Option<SelectionTarget> {
+        if occurrence.is_scene_root()
+            || self.scene_container_occurrence().as_ref() == Some(occurrence)
+        {
+            return None;
+        }
+        let r = self.resolve_occurrence(occurrence)?;
+        if !self.is_frame_definition(r.definition.id) {
+            return None;
+        }
+        if let Some(g) = r.edits.and_then(|e| e.geometry_replacement.as_ref()) {
+            let mut cache = self
+                .frame_classification
+                .overrides
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let plain = *cache.entry(occurrence.clone()).or_insert_with(|| {
+                g.segments.values().all(|s| generated(&s.extensions))
+                    && g.triangles.values().all(|f| generated(&f.extensions))
+            });
+            if !plain {
+                return None;
+            }
+        }
+        Some(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Frame,
+                id: r.definition.domain_entity_ids[FRAMES][0].clone(),
+            },
+        })
+    }
+
+    /// Reusable user objects exclude the scene container and legacy frame placement records.
+    pub fn is_object_occurrence(&self, occurrence: &OccurrenceRef) -> bool {
+        !occurrence.is_scene_root()
+            && self.scene_container_occurrence().as_ref() != Some(occurrence)
+            && self.frame_target_for_occurrence(occurrence).is_none()
+    }
+
     pub fn architecture_defaults(&self) -> Option<&Value> {
         self.extensions.get("k3d.meshcraftArchitectureDefaults")
     }

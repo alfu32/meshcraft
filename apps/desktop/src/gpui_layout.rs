@@ -67,9 +67,7 @@ impl SceneCounts {
                     *counts.semantic.entry(kind).or_default() += count;
                 }
             }
-            if !occurrence.path.is_empty()
-                && document.scene_container_occurrence().as_ref() != Some(&occurrence)
-            {
+            if document.is_object_occurrence(&occurrence) {
                 counts.objects += 1;
             }
             if let Some(geometry) = document.effective_geometry(&occurrence) {
@@ -345,6 +343,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .definitions()
                 .filter(|definition| {
                     definition.id != Document::SCENE_ROOT_DEFINITION_ID
+                        && !document.is_frame_definition(definition.id)
                         && !document
                             .scene_container_occurrence()
                             .and_then(|path| document.resolve_occurrence(&path))
@@ -358,6 +357,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
                         .gap(px(4.))
                         .child(
                             Button::new("scripts/new")
@@ -374,7 +374,15 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                                 .on_click(self.cx.listener(|this, _, window, cx| {
                                     super::scripts::edit(this, false, window, cx);
                                 })),
-                        ),
+                        )
+                        .child(Button::new("objects/delete-prototype").label("Delete Prototype").small()
+                            .disabled(self.shell.session.native_selected_prototype().is_none_or(|id| meshcraft_core::operations::objects::definition_reference_count(document,id)>0))
+                            .on_click(self.cx.listener(|this,_,_,cx| {
+                                if let Some(id)=this.session.native_selected_prototype() {
+                                    let payload=meshcraft_core::commands::CommandPayload {values:std::collections::BTreeMap::from([("definition_id".into(),serde_json::json!(id.0))]),..Default::default()};
+                                    this.dispatch_payload("object.delete_unused_definition",&payload);cx.notify();
+                                }
+                            }))),
                 )
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;

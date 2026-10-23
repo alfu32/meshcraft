@@ -48,7 +48,9 @@ impl Document {
             .or_default()
             .push(id.clone());
         d.extensions.insert(key, Value::Array(records.clone()));
-
+        if d.domain_data.contains_key(field) {
+            d.domain_data.insert(field.into(), Value::Array(records));
+        }
         self.bump_revision();
         Ok(id)
     }

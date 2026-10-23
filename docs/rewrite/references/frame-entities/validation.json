@@ -1,0 +1,76 @@
+{
+  "version": "0.31.0",
+  "nativePickingAndBothMarqueeDirectionsAgree": true,
+  "nativeCopyPasteAfterMarquee": true,
+  "moveCopyFinalPointAccepted": true,
+  "frameDoubleClickStaysInDocument": true,
+  "framesHaveNoPrototypes": true,
+  "idleAllocatorMarkers": [
+    193,
+    193
+  ],
+  "previewAllocatorMarkers": [
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193,
+    193
+  ],
+  "explodeAllocatorMarkers": [
+    193,
+    193
+  ],
+  "secondExplodeRejectedWithoutMutation": true,
+  "newExplodedPrototypes": 0,
+  "nativeDeletePrototypeButtonAndKeyWithUndo": true,
+  "legacyReopened": {
+    "architectureCount": 36,
+    "idleAllocatorMarkers": [
+      3466,
+      3466
+    ],
+    "previewAllocatorMarkers": [
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466,
+      3466
+    ],
+    "explodeAllocatorMarkers": [
+      3466,
+      3544
+    ],
+    "secondExplodeRejectedWithoutMutation": true,
+    "newExplodedPrototypes": 0
+  }
+}

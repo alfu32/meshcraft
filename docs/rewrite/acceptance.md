@@ -34,15 +34,24 @@ Group a known mesh, place two instances, edit the prototype, and verify both upd
 
 Copy architectural surface picks for standalone windows/doors alongside walls and
 slabs. Exercise Paste in Place and floating Paste with an insertion pick, then
-Explode and Undo. Repeat after save/reopen and inside a frame prototype. Preserve
+Explode and Undo. Repeat after save/reopen and inside a user prototype containing a frame. Preserve
 owned holes, material references, independent instance state, sibling placements
 and active edit context. Copy as Script includes realized walls/slabs/frames.
 Reject read-only explode without mutation. For mixed architectural surface picks,
 accept Move's final point at +9 vertical units, Move Copy and Rotate Copy; compare
 preview/committed world geometry and unchanged source/sibling instances. Verify
 one-step Undo/Redo, numeric repeated copies and array-span queries, both in new
-and reopened drawings. Inside frame prototype editing, move its geometry while
-retaining placement transforms.
+and reopened drawings. Inside user prototype editing, move its frame geometry while
+retaining placement transforms. Compare individual picks with both native marquee
+directions for new Frame entities and compatible legacy frame placements; Copy,
+Move Copy and Rotate Copy must accept the same targets. New frames add no implicit
+object/prototype; double-click stays in the architectural parameter workflow.
+Explode emits loose mesh into the parent graph without a replacement prototype;
+a second Explode on that mesh fails without mutation. Check that idle rendering
+and repeated previews do not advance the persistent ID allocator. Delete unused
+prototypes from the browser with Undo, including obsolete exploded wrappers;
+unowned stale layouts must not prevent deletion, but retained parent prototypes
+must protect their child definitions.
 
 ## C08 — Mixed payloads and lifecycle
 

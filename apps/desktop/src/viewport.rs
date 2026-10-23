@@ -3459,7 +3459,7 @@ impl Viewport {
             let Some(geometry) = document.effective_geometry(&occurrence) else {
                 continue;
             };
-            if !occurrence.is_scene_root()
+            if document.is_object_occurrence(&occurrence)
                 && policy.can_select(SelectionKind::Object)
                 && self
                     .derived
@@ -3473,6 +3473,13 @@ impl Viewport {
             }
             if policy.can_select(SelectionKind::Vertex) {
                 for (id, vertex) in &geometry.vertices {
+                    if vertex
+                        .legacy_aliases
+                        .iter()
+                        .any(|a| a.source == meshcraft_core::document::architecture::GENERATED)
+                    {
+                        continue;
+                    }
                     let point = resolved.world_transform.transform_point(vertex.position);
                     if point_in_aabb(point, volume) {
                         selected.insert(SelectionTarget {
@@ -3482,8 +3489,15 @@ impl Viewport {
                     }
                 }
             }
-            if policy.can_select(SelectionKind::Edge) {
+            {
                 for segment in geometry.segments.values() {
+                    let entity = meshcraft_core::document::architecture::semantic_entity(
+                        &segment.extensions,
+                    )
+                    .unwrap_or(SelectedEntity::Segment(segment.id));
+                    if !policy.can_select(entity.kind()) {
+                        continue;
+                    }
                     let (Some(start), Some(end)) = (
                         geometry.vertex_position(segment.endpoints[0]),
                         geometry.vertex_position(segment.endpoints[1]),
@@ -3495,15 +3509,23 @@ impl Viewport {
                     if segment_intersects_aabb(start, end, volume) {
                         selected.insert(SelectionTarget {
                             occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Segment(segment.id),
+                            entity,
                         });
                     }
                 }
             }
-            if policy.can_select(SelectionKind::Face)
-                && !policy.state(SelectionKind::Face).wireframe
             {
                 for triangle in geometry.triangles.values() {
+                    let entity = meshcraft_core::document::architecture::semantic_entity(
+                        &triangle.extensions,
+                    )
+                    .unwrap_or(SelectedEntity::Triangle(triangle.id));
+                    if !policy.can_select(entity.kind())
+                        || (matches!(entity, SelectedEntity::Triangle(_))
+                            && policy.state(SelectionKind::Face).wireframe)
+                    {
+                        continue;
+                    }
                     let [Some(a), Some(b), Some(c)] = triangle
                         .vertices
                         .map(|reference| geometry.vertex_position(reference))
@@ -3516,7 +3538,7 @@ impl Viewport {
                     if triangle_bounds.is_some_and(|bounds| aabb_intersects(bounds, volume)) {
                         selected.insert(SelectionTarget {
                             occurrence: occurrence.clone(),
-                            entity: SelectedEntity::Triangle(triangle.id),
+                            entity,
                         });
                     }
                 }

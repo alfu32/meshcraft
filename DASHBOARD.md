@@ -1,5 +1,13 @@
 # Dashboard
 
+**0.31.0 frame ownership and Explode:** windows/doors are built-in Frame entities,
+with consistent click/window/crossing selection and architectural properties.
+Legacy plain frame wrappers stay compatible but no longer appear as user objects.
+Explode puts ordinary mesh in the parent graph in one step; it creates no
+replacement prototype. Unused prototypes have a Delete Prototype action, and
+stale private layouts no longer block deletion. Allocator checks cover idle
+rendering and repeated transform previews.
+
 **0.30.2 architecture transforms:** picked window/door frames use instance ownership
 for transform previews and commits, including mixed wall/slab/frame selections.
 Move, Move Copy and Rotate Copy accept their final point; array eligibility and

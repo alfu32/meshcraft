@@ -582,15 +582,16 @@ pub(super) struct ObjectImportJob {
 }
 impl MeshcraftApp {
     pub fn select_native_prototype(&mut self, id: DefinitionId) {
-        if self.document.definition(id).is_some() {
+        if self.document.definition(id).is_some() && !self.document.is_frame_definition(id) {
             self.object_browser_selection = Some(id);
             self.selection.clear();
             self.status = "Prototype selected. Double-click to insert an instance.".into();
         }
     }
     pub fn native_selected_prototype(&self) -> Option<DefinitionId> {
-        self.object_browser_selection
-            .filter(|id| self.document.definition(*id).is_some())
+        self.object_browser_selection.filter(|id| {
+            self.document.definition(*id).is_some() && !self.document.is_frame_definition(*id)
+        })
     }
     pub(super) fn execute_object_file_command(
         &mut self,

@@ -216,9 +216,9 @@ impl MeshcraftApp {
             let r=self.document.resolve_occurrence(p)?;
             let g=self.document.effective_geometry(p)?;
             let bounds=meshcraft_core::geometry::Aabb3::from_points(g.vertices.values().map(|v|r.world_transform.transform_point(v.position)));
-            Some(json!({"path":p.path,"is_scene_root":p.is_scene_root()||self.document.scene_container_occurrence().as_ref()==Some(p),"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"target":target_json(&SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence})}))
+            Some(json!({"path":p.path,"is_scene_root":p.is_scene_root()||self.document.scene_container_occurrence().as_ref()==Some(p),"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"classification":if self.document.frame_target_for_occurrence(p).is_some(){"frame"}else if self.document.is_object_occurrence(p){"object"}else{"scene"},"target":target_json(&self.document.frame_target_for_occurrence(p).unwrap_or(SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence}))}))
         }).collect::<Vec<_>>();
-        let prototypes=self.document.definitions().map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some()})).collect::<Vec<_>>();
+        let prototypes=self.document.definitions().filter(|d|!self.document.is_frame_definition(d.id)).map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some()})).collect::<Vec<_>>();
         Ok(
             json!({"objects":objects,"total":paths.len(),"offset":offset,"nextOffset":if offset.saturating_add(limit)<paths.len(){Some(offset+limit)}else{None},"prototypes":prototypes,"materials":self.document.materials(),"settings":self.document.model_settings(),"status":self.mcp_status()}),
         )
@@ -334,6 +334,16 @@ impl MeshcraftApp {
                 _ => return Err("unknown selection target kind".into()),
             };
             let target = SelectionTarget { occurrence, entity };
+            let target = if target.entity == SelectedEntity::Occurrence
+                && self
+                    .document
+                    .frame_target_for_occurrence(&target.occurrence)
+                    .is_some()
+            {
+                self.native_normalize_selection_target(target)
+            } else {
+                target
+            };
             if !self.native_target_editable(&target) {
                 return Err(
                     "target is missing, hidden, outside the edit context or read-only".into(),

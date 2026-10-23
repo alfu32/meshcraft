@@ -773,8 +773,69 @@ pub fn group_selection(
     )
 }
 
+/// Layouts owned by the scene, retained prototypes or explicit instance overrides.
+/// Old private-layout snapshots no longer owned by any of these are not references.
+fn owned_layouts(document: &Document) -> BTreeSet<ChildLayoutId> {
+    let root = document
+        .scene_container_occurrence()
+        .and_then(|p| document.resolve_occurrence(&p));
+    let hidden_root_default = root.as_ref().and_then(|r| {
+        r.edits
+            .and_then(|e| e.child_layout)
+            .filter(|_| {
+                // A reused scene-container definition still owns its default layout.
+                document
+                    .child_layouts
+                    .values()
+                    .flat_map(|l| &l.entries)
+                    .filter(|e| e.definition == r.definition.id)
+                    .count()
+                    == 1
+            })
+            .map(|_| r.definition.id)
+    });
+    let mut pending = vec![document.root_layout];
+    pending.extend(
+        document
+            .definitions
+            .values()
+            .filter(|d| Some(d.id) != hidden_root_default)
+            .filter_map(|d| d.default_child_layout),
+    );
+    pending.extend(
+        document
+            .occurrence_edits
+            .values()
+            .filter_map(|e| e.child_layout),
+    );
+    let mut found = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !found.insert(id) {
+            continue;
+        }
+        if let Some(layout) = document.child_layout(id) {
+            pending.extend(
+                layout
+                    .entries
+                    .iter()
+                    .filter_map(|e| e.default_edits.child_layout),
+            );
+        }
+    }
+    found
+}
+
+pub fn definition_reference_count(document: &Document, id: DefinitionId) -> usize {
+    owned_layouts(document)
+        .iter()
+        .filter_map(|id| document.child_layout(*id))
+        .flat_map(|l| &l.entries)
+        .filter(|e| e.definition == id)
+        .count()
+}
+
 /// Deletes an unused object definition. The root definition and definitions referenced by any
-/// stored layout are retained; callers must remove placements before retrying.
+/// owned layout are retained; callers must remove placements before retrying.
 pub fn delete_unused_definition(
     document: &mut Document,
     definition_id: DefinitionId,
@@ -785,12 +846,7 @@ pub fn delete_unused_definition(
     let Some(definition) = document.definitions.get(&definition_id) else {
         return Err("the object definition does not exist".to_owned());
     };
-    let reference_count = document
-        .child_layouts
-        .values()
-        .flat_map(|layout| layout.entries.iter())
-        .filter(|entry| entry.definition == definition_id)
-        .count();
+    let reference_count = definition_reference_count(document, definition_id);
     if reference_count > 0 {
         return Err(format!(
             "cannot delete definition {:?}: {reference_count} object instance(s) still use it",
@@ -799,21 +855,9 @@ pub fn delete_unused_definition(
     }
 
     let mut candidate = document.clone();
-    let child_layout = definition.default_child_layout;
     candidate.definitions.remove(&definition_id);
-    if let Some(layout_id) = child_layout {
-        let shared = candidate
-            .definitions
-            .values()
-            .any(|item| item.default_child_layout == Some(layout_id))
-            || candidate
-                .occurrence_edits
-                .values()
-                .any(|edits| edits.child_layout == Some(layout_id));
-        if layout_id != candidate.root_layout && !shared {
-            candidate.child_layouts.remove(&layout_id);
-        }
-    }
+    let owned = owned_layouts(&candidate);
+    candidate.child_layouts.retain(|id, _| owned.contains(id));
     candidate.hotspot_cache.clear();
     candidate.revision = document
         .revision
@@ -1799,12 +1843,21 @@ pub fn explode_selection(
         }
         occurrences.push(target.occurrence.clone());
     }
-    explode_occurrences(document, &occurrences, adapter)
+    explode_occurrences_in_context(document, &occurrences, &selection.context, adapter)
 }
 
 pub fn explode_occurrences(
     document: &mut Document,
     occurrences: &[OccurrenceRef],
+    adapter: &impl ObjectExplodeAdapter,
+) -> Result<ExplodeReport, String> {
+    explode_occurrences_in_context(document, occurrences, &EditContext::Document, adapter)
+}
+
+fn explode_occurrences_in_context(
+    document: &mut Document,
+    occurrences: &[OccurrenceRef],
+    context: &EditContext,
     adapter: &impl ObjectExplodeAdapter,
 ) -> Result<ExplodeReport, String> {
     if occurrences.is_empty() || occurrences.iter().any(|item| item.path.is_empty()) {
@@ -1856,128 +1909,99 @@ pub fn explode_occurrences(
         materialized.push((parent, definition_name, content));
     }
 
-    candidate.remove_selected_occurrences(occurrences)?;
+    let mut removed = SelectionSession::default();
+    removed.set_context(context.clone());
+    for occurrence in occurrences {
+        removed.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+    }
+    delete_selection(&mut candidate, &removed)?;
     let mut report = ExplodeReport {
         exploded_occurrences: materialized.len(),
-        ..ExplodeReport::default()
+        ..Default::default()
     };
-    for (parent, definition_name, mut content) in materialized {
-        let layout_id = child_layout_for_parent(&candidate, &parent)?;
-        content.geometry.id = GeometryBundleId(candidate.allocate_id());
-        let definition_id = DefinitionId(candidate.allocate_id());
-        let definition_name = format!("{definition_name} exploded");
+    for (parent, _, mut content) in materialized {
+        if parent.is_scene_root() {
+            candidate.ensure_scene_root();
+        }
+        let r = candidate
+            .resolve_occurrence(&parent)
+            .ok_or("Explode parent is missing")?;
+        let definition = r.definition.id;
+        let authored = parent.is_scene_root()
+            || candidate.scene_container_occurrence().as_ref() == Some(&parent)
+            || matches!(context,EditContext::Occurrence(active) if *active==parent)
+            || matches!(context,EditContext::Definition(id) if *id==definition);
+        if !authored && !content.domain_records.is_empty() {
+            return Err("Enter the parent object before exploding inherited annotations.".into());
+        }
         report.vertices += content.geometry.vertices.len();
         report.segments += content.geometry.segments.len();
         report.triangles += content.geometry.triangles.len();
         report.dimensions += content.domain_records.get("dimensions").map_or(0, Vec::len);
         report.texts += content.domain_records.get("texts").map_or(0, Vec::len);
         report.vector_texts += content.vector_texts;
-        let vertex_ids = content
-            .geometry
-            .vertices
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        let segment_ids = content
-            .geometry
-            .segments
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        let triangle_ids = content
-            .geometry
-            .triangles
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        let mut domain_entity_ids = BTreeMap::new();
-        let mut extensions = BTreeMap::new();
-        for (field, records) in content.domain_records {
-            let identities = (0..records.len())
-                .map(|index| format!("meshcraft:explode:{}:{field}:{index}", definition_id.0))
-                .collect::<Vec<_>>();
-            if !records.is_empty() {
-                domain_entity_ids.insert(field.clone(), identities.clone());
-            }
-            let key = format!("k3d.{field}");
-            extensions.insert(key, Value::Array(records));
-        }
-        let semantic_targets = domain_entity_ids
-            .iter()
-            .flat_map(|(field, identities)| {
-                let kind = match field.as_str() {
-                    "dimensions" => SelectionKind::Dimension,
-                    "texts" => SelectionKind::Text,
-                    _ => return Vec::new(),
-                };
-                identities
-                    .iter()
-                    .map(|id| SelectionTarget {
-                        occurrence: parent.clone(),
-                        entity: SelectedEntity::SemanticHandle {
-                            kind,
-                            id: id.clone(),
-                        },
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let has_semantic_targets = !semantic_targets.is_empty();
-        let definition_kind = if domain_entity_ids.is_empty() {
-            DefinitionKind::Mesh
-        } else {
-            DefinitionKind::Hybrid
-        };
-        candidate.definitions.insert(
-            definition_id,
-            Definition {
-                id: definition_id,
-                name: definition_name,
-                kind: definition_kind,
-                frame: Affine3::IDENTITY,
-                geometry: content.geometry,
-                default_child_layout: None,
-                domain_data: BTreeMap::new(),
-                domain_entity_ids,
-                extensions,
-                legacy_aliases: Vec::new(),
-            },
-        );
-        let entry_id = candidate
-            .add_layout_entry(layout_id, definition_id, Affine3::IDENTITY)
-            .ok_or_else(|| "could not insert exploded geometry in the parent graph".to_owned())?;
-        let result = parent.child(entry_id);
         report
             .selected_results
-            .extend(semantic_targets.into_iter().map(|mut target| {
-                target.occurrence = result.clone();
-                target
+            .extend(content.geometry.segments.keys().map(|id| SelectionTarget {
+                occurrence: parent.clone(),
+                entity: SelectedEntity::Segment(*id),
             }));
-        if !triangle_ids.is_empty() || !segment_ids.is_empty() {
+        report
+            .selected_results
+            .extend(content.geometry.triangles.keys().map(|id| SelectionTarget {
+                occurrence: parent.clone(),
+                entity: SelectedEntity::Triangle(*id),
+            }));
+        if content.geometry.segments.is_empty() && content.geometry.triangles.is_empty() {
             report
                 .selected_results
-                .extend(segment_ids.into_iter().map(|id| SelectionTarget {
-                    occurrence: result.clone(),
-                    entity: SelectedEntity::Segment(id),
+                .extend(content.geometry.vertices.keys().map(|id| SelectionTarget {
+                    occurrence: parent.clone(),
+                    entity: SelectedEntity::Vertex(*id),
                 }));
-            report
-                .selected_results
-                .extend(triangle_ids.into_iter().map(|id| SelectionTarget {
-                    occurrence: result.clone(),
-                    entity: SelectedEntity::Triangle(id),
-                }));
-        } else if !vertex_ids.is_empty() {
-            report
-                .selected_results
-                .extend(vertex_ids.into_iter().map(|id| SelectionTarget {
-                    occurrence: result.clone(),
-                    entity: SelectedEntity::Vertex(id),
-                }));
-        } else if !has_semantic_targets {
-            report.selected_results.push(SelectionTarget {
-                occurrence: result,
-                entity: SelectedEntity::Occurrence,
-            });
+        }
+        if authored {
+            if !candidate.append_geometry_to_definition(definition, content.geometry) {
+                return Err("Cannot append exploded geometry to parent graph".into());
+            }
+        } else {
+            let mut geometry = candidate
+                .effective_geometry(&parent)
+                .cloned()
+                .ok_or("Explode parent geometry is missing")?;
+            geometry.vertices.append(&mut content.geometry.vertices);
+            geometry.segments.append(&mut content.geometry.segments);
+            geometry.triangles.append(&mut content.geometry.triangles);
+            geometry.extensions.append(&mut content.geometry.extensions);
+            geometry.validate()?;
+            let mut edits = candidate
+                .occurrence_edits(&parent)
+                .cloned()
+                .unwrap_or_default();
+            edits.geometry_replacement = Some(geometry);
+            if !candidate.set_occurrence_edits(parent.clone(), edits) {
+                return Err("Cannot store exploded geometry in parent instance".into());
+            }
+        }
+        for (field, records) in content.domain_records {
+            let kind = match field.as_str() {
+                "dimensions" => SelectionKind::Dimension,
+                "texts" => SelectionKind::Text,
+                _ => return Err("Unsupported exploded semantic content".into()),
+            };
+            if !records.is_empty() {
+                candidate.definitions.get_mut(&definition).unwrap().kind = DefinitionKind::Hybrid;
+            }
+            for record in records {
+                let id = candidate.add_annotation(definition, &field, record)?;
+                report.selected_results.push(SelectionTarget {
+                    occurrence: parent.clone(),
+                    entity: SelectedEntity::SemanticHandle { kind, id },
+                });
+            }
         }
     }
     candidate.validate()?;
@@ -1992,40 +2016,35 @@ fn append_occurrence_tree(
     output: &mut ExplodeContent,
     adapter: &impl ObjectExplodeAdapter,
 ) -> Result<(), String> {
-    let (relative, source, child_ids) = {
-        let resolved = document
-            .resolve_occurrence(occurrence)
-            .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
-        let relative = parent_inverse.compose(resolved.world_transform);
-        let source = document.effective_geometry(occurrence).cloned();
-        let child_layout = resolved
-            .edits
-            .and_then(|edits| edits.child_layout)
-            .or(resolved.definition.default_child_layout);
-        let child_ids: Vec<LayoutEntryId> = child_layout
-            .map(|layout_id| {
-                document
-                    .child_layouts
-                    .get(&layout_id)
-                    .map(|layout| layout.entries.iter().map(|entry| entry.id).collect())
-                    .ok_or_else(|| "an object child layout is missing".to_owned())
-            })
-            .transpose()?
-            .unwrap_or_default();
-        (relative, source, child_ids)
-    };
-    if let Some(source) = source {
-        append_transformed_bundle(document, &source, relative, &mut output.geometry);
-    }
-    adapter.append_resolved_content(document, occurrence, relative, output)?;
-    for entry_id in child_ids {
-        append_occurrence_tree(
-            document,
-            &occurrence.child(entry_id),
-            parent_inverse,
-            output,
-            adapter,
-        )?;
+    let mut pending = vec![occurrence.clone()];
+    while let Some(occurrence) = pending.pop() {
+        let (relative, source, child_ids) = {
+            let resolved = document
+                .resolve_occurrence(&occurrence)
+                .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
+            let relative = parent_inverse.compose(resolved.world_transform);
+            let source = document.effective_geometry(&occurrence).cloned();
+            let child_layout = resolved
+                .edits
+                .and_then(|edits| edits.child_layout)
+                .or(resolved.definition.default_child_layout);
+            let child_ids: Vec<LayoutEntryId> = child_layout
+                .map(|layout_id| {
+                    document
+                        .child_layouts
+                        .get(&layout_id)
+                        .map(|layout| layout.entries.iter().map(|entry| entry.id).collect())
+                        .ok_or_else(|| "an object child layout is missing".to_owned())
+                })
+                .transpose()?
+                .unwrap_or_default();
+            (relative, source, child_ids)
+        };
+        if let Some(source) = source {
+            append_transformed_bundle(document, &source, relative, &mut output.geometry);
+        }
+        adapter.append_resolved_content(document, &occurrence, relative, output)?;
+        pending.extend(child_ids.into_iter().rev().map(|id| occurrence.child(id)));
     }
     Ok(())
 }
@@ -2741,7 +2760,11 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|prototype| prototype["name"] == "annotated exploded")
+            .find(|prototype| {
+                prototype["dimensions"]
+                    .as_array()
+                    .is_some_and(|v| !v.is_empty())
+            })
             .unwrap();
         assert_eq!(
             serde_json::json!({"x": 7.0, "y": 2.0, "z": -3.0}),
@@ -3255,6 +3278,26 @@ mod tests {
         delete_unused_definition(&mut document, definition).unwrap();
         assert!(document.definition(definition).is_none());
         assert_eq!(revision + 1, document.revision());
+        document.validate().unwrap();
+    }
+
+    #[test]
+    fn unused_parent_prototype_keeps_its_child_definition_referenced() {
+        let mut document = Document::new();
+        let child = cube(&mut document, "child", Vec3::ZERO);
+        let child_definition = document.resolve_occurrence(&child).unwrap().definition.id;
+        let parent = group_occurrences(&mut document, &[child], "parent").unwrap();
+        let parent_definition = document.resolve_occurrence(&parent).unwrap().definition.id;
+        document.remove_selected_occurrences(&[parent]).unwrap();
+        assert_eq!(
+            super::definition_reference_count(&document, child_definition),
+            1
+        );
+        let before = serde_json::to_value(&document).unwrap();
+        assert!(delete_unused_definition(&mut document, child_definition).is_err());
+        assert_eq!(serde_json::to_value(&document).unwrap(), before);
+        delete_unused_definition(&mut document, parent_definition).unwrap();
+        delete_unused_definition(&mut document, child_definition).unwrap();
         document.validate().unwrap();
     }
 }

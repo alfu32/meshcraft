@@ -188,19 +188,38 @@ impl SelectionDisplayPolicy {
     }
 
     fn is_object(&self, document: &Document, occurrence: &OccurrenceRef) -> bool {
-        !occurrence.is_scene_root()
-            && document.scene_container_occurrence().as_ref() != Some(occurrence)
+        document.is_object_occurrence(occurrence)
     }
 
     pub fn can_draw_target(&self, document: &Document, target: &SelectionTarget) -> bool {
         self.occurrence_visible(document, &target.occurrence)
-            && self.can_draw(target.entity.kind())
+            && self.can_draw(
+                if target.entity == SelectedEntity::Occurrence
+                    && document
+                        .frame_target_for_occurrence(&target.occurrence)
+                        .is_some()
+                {
+                    SelectionKind::Frame
+                } else {
+                    target.entity.kind()
+                },
+            )
             && (target.entity.kind() != SelectionKind::Vertex || self.can_draw(SelectionKind::Edge))
     }
 
     pub fn can_edit_target(&self, document: &Document, target: &SelectionTarget) -> bool {
         self.can_draw_target(document, target)
-            && self.can_select(target.entity.kind())
+            && self.can_select(
+                if target.entity == SelectedEntity::Occurrence
+                    && document
+                        .frame_target_for_occurrence(&target.occurrence)
+                        .is_some()
+                {
+                    SelectionKind::Frame
+                } else {
+                    target.entity.kind()
+                },
+            )
             && (!self.is_object(document, &target.occurrence)
                 || self.can_select(SelectionKind::Object))
             && (target.entity.kind() != SelectionKind::Vertex

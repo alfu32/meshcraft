@@ -289,10 +289,22 @@ Defaults: stair height 2.7, 14 steps, support thickness 0.2, both rails on; fram
 
 Source: architecture store/tools/settings and architecture DTOs. Acceptance: C03, C22.
 
-**Confirmed frame ownership (2026-10-21).** Windows and doors are independent
-object instances with their own prototype/frame parameters. Creating, moving or
+**Confirmed frame ownership (updated 2026-10-23).** Windows and doors are independent
+built-in Frame entities, like walls and slabs. Their parameters belong to the
+active scene or the user object prototype being edited. Creating, moving or
 deleting them never implicitly edits another wall or slab. Wall/slab openings
-are created explicitly with Tool → Add Hole.
+are created explicitly with Tool → Add Hole. A Frame is counted and selected once
+under Frames, and is not automatically a reusable object. Double-clicking opens
+its architectural properties; Explode replaces it with editable mesh primitives
+in the parent graph in one operation.
+
+Older drawings can store a standalone Frame in an internal prototype/placement.
+Keep that storage and its transforms/overrides compatible, while presenting the
+plain parametric frame as a Frame. Hide only pure generated frame wrappers from
+the Object Prototypes browser. Definitions with authored geometry, scripts,
+hotspots, children or external references remain real user objects. Individual
+picking, window selection, crossing selection and world-volume selection must
+resolve to the same editable Frame owner.
 
 
 ### P04 HVAC

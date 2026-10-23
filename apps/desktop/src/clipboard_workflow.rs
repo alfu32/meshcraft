@@ -440,6 +440,117 @@ mod tests {
     }
 
     #[test]
+    fn frame_explode_finishes_in_parent_mesh_without_new_prototypes_or_repeat_growth() {
+        for reopened in [false, true] {
+            let (mut app, targets) = architecture_app(reopened);
+            let frame = targets
+                .into_iter()
+                .find(|t| app.document.architecture_element(t).unwrap().element.name() == "Window")
+                .unwrap();
+            let prototypes = app.document.definitions().map(|d| d.id).collect::<Vec<_>>();
+            app.selection.select(frame);
+            complete(&mut app, "object.explode_selection");
+            assert_eq!(
+                prototypes,
+                app.document.definitions().map(|d| d.id).collect::<Vec<_>>()
+            );
+            assert!(
+                app.selection
+                    .selected()
+                    .iter()
+                    .all(|t| t.occurrence.is_scene_root()
+                        || app.document.scene_container_occurrence().as_ref()
+                            == Some(&t.occurrence))
+            );
+            assert!(!app.selection.selected().is_empty());
+            let snapshot = serde_json::to_value(&app.document).unwrap();
+            let r = app
+                .dispatch_command("object.explode_selection", &CommandPayload::default())
+                .result;
+            assert_eq!(CommandCompletion::Failed, r.completion);
+            assert_eq!(snapshot, serde_json::to_value(&app.document).unwrap());
+            complete(&mut app, "edit.undo");
+            assert_eq!(5, app.document.architecture_elements().len());
+        }
+    }
+
+    #[test]
+    fn unused_prototype_deletion_ignores_stale_private_layouts_but_preserves_real_references() {
+        let mut d = Document::new();
+        d.add_cuboid("Window exploded", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        d = meshcraft_core::legacy::import_current_value(
+            &meshcraft_core::legacy::export_current_value(&d).unwrap(),
+        )
+        .unwrap();
+        let object = d
+            .scene_geometry_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| {
+                d.resolve_occurrence(p)
+                    .is_some_and(|r| r.definition.name == "Window exploded")
+            })
+            .unwrap();
+        let id = d.resolve_occurrence(&object).unwrap().definition.id;
+        d.remove_selected_occurrences(&[object]).unwrap();
+        let mut app = MeshcraftApp::new_native_session(d, "Ready".into(), None);
+        assert_eq!(
+            0,
+            app.document
+                .occurrence_refs()
+                .unwrap()
+                .into_iter()
+                .filter(|p| app
+                    .document
+                    .resolve_occurrence(p)
+                    .is_some_and(|r| r.definition.id == id))
+                .count()
+        );
+        let payload = CommandPayload {
+            values: BTreeMap::from([("definition_id".into(), json!(id.0))]),
+            ..Default::default()
+        };
+        let r = app
+            .dispatch_command("object.delete_unused_definition", &payload)
+            .result;
+        assert_eq!(
+            CommandCompletion::Completed,
+            r.completion,
+            "{:?}",
+            r.diagnostics
+        );
+        assert!(app.document.definition(id).is_none());
+        app.document.validate().unwrap();
+        complete(&mut app, "edit.undo");
+        assert!(app.document.definition(id).is_some());
+    }
+
+    #[test]
+    fn frame_preview_updates_do_not_advance_the_persistent_id_allocator() {
+        let (mut app, targets) = architecture_app(true);
+        app.selection.apply(targets, SelectionMode::Replace);
+        complete(&mut app, "tool.builtin.move");
+        app.handle_native_world_pick(Vec3::ZERO, None, None);
+        let before = serde_json::to_value(&app.document).unwrap()["next_id"].clone();
+        let revision = app.document.revision();
+        for i in 1..=30 {
+            let snap = crate::viewport::SnapResult {
+                point: Vec3::Y * i as f64,
+                normal: Vec3::Y,
+                kind: crate::viewport::SnapKind::Free,
+                screen_distance: 0.,
+            };
+            app.native_tool_feedback_for_snap(snap, egui::Pos2::ZERO);
+        }
+        assert_eq!(
+            before,
+            serde_json::to_value(&app.document).unwrap()["next_id"]
+        );
+        assert_eq!(revision, app.document.revision());
+    }
+
+    #[test]
     fn mixed_architecture_transform_tools_accept_final_pick_and_match_their_preview() {
         for reopened in [false, true] {
             for (command, picks, copies) in [

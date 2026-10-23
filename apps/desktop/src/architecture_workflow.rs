@@ -1,8 +1,7 @@
 //! Shared point-input, structured commands and transactional architecture editing.
 use super::*;
-use meshcraft_core::document::{
-    DefinitionKind,
-    architecture::{self as arch, Control, Element, Frame, FrameKind, PlacedElement, Slab, Wall},
+use meshcraft_core::document::architecture::{
+    self as arch, Control, Element, Frame, FrameKind, PlacedElement, Slab, Wall,
 };
 use serde_json::Value;
 
@@ -374,7 +373,7 @@ impl MeshcraftApp {
         Ok(element)
     }
     fn commit_arch_element(&mut self, element: Element) -> Result<SelectionTarget, String> {
-        let (owner, occurrence, inverse) = self.arch_owner();
+        let (owner, occurrence, _) = self.arch_owner();
         let target = SelectionTarget {
             occurrence: occurrence.clone(),
             entity: SelectedEntity::SemanticHandle {
@@ -388,41 +387,13 @@ impl MeshcraftApp {
         {
             return Err("This architecture type is hidden or read-only.".into());
         }
-        let context = self.selection.context.clone();
         let target = self.commit_document_edit("Create architecture element", |doc| {
-            if let Element::Frame(mut frame) = element {
-                // Anchor the independent prototype at the first authored corner.
-                let anchor = frame.contour[0];
-                for p in &mut frame.contour {
-                    *p -= anchor;
-                }
-                let world_anchor = inverse
-                    .inverse(GeometryTolerance::default())
-                    .ok_or("Architecture context is singular.")?
-                    .transform_point(anchor);
-                let definition =
-                    doc.add_definition(frame.name.clone(), DefinitionKind::Architecture);
-                doc.put_architecture(definition, None, Element::Frame(frame))?;
-                let path = modeling_objects::place_definition(
-                    doc,
-                    &context,
-                    definition,
-                    world_anchor,
-                    None,
-                    false,
-                )?;
-                Ok(SelectionTarget {
-                    occurrence: path,
-                    entity: SelectedEntity::Occurrence,
-                })
-            } else {
-                let kind = element.kind();
-                let id = doc.put_architecture(owner, None, element)?;
-                Ok(SelectionTarget {
-                    occurrence,
-                    entity: SelectedEntity::SemanticHandle { kind, id },
-                })
-            }
+            let kind = element.kind();
+            let id = doc.put_architecture(owner, None, element)?;
+            Ok(SelectionTarget {
+                occurrence,
+                entity: SelectedEntity::SemanticHandle { kind, id },
+            })
         })?;
         self.selection
             .apply([target.clone()], SelectionMode::Replace);
@@ -1177,7 +1148,13 @@ impl MeshcraftApp {
                 if !self.arch_editable(&e) {
                     return CommandResult::failed("Architecture selection is read-only.");
                 }
-                if matches!(e.element, Element::Frame(_)) {
+                if self
+                    .document
+                    .frame_target_for_occurrence(&t.occurrence)
+                    .is_some()
+                    && !matches!(&self.selection.context, EditContext::Occurrence(active) if active==&t.occurrence)
+                    && !matches!(&self.selection.context, EditContext::Definition(id) if *id==e.definition)
+                {
                     selected.select(SelectionTarget {
                         occurrence: t.occurrence.clone(),
                         entity: SelectedEntity::Occurrence,
@@ -1487,8 +1464,10 @@ mod tests {
                 ..
             })
         ));
-        assert_ne!(window.definition, door.definition);
-        assert_ne!(window.target.occurrence, door.target.occurrence);
+        assert_eq!(window.definition, door.definition);
+        assert_eq!(window.target.occurrence, door.target.occurrence);
+        assert_ne!(window.target.entity, door.target.entity);
+        assert_eq!(0, app.top_level_occurrences().len());
         assert!(
             app.document
                 .architecture_element(&target)
@@ -1497,7 +1476,7 @@ mod tests {
                 .holes()
                 .is_empty()
         );
-        assert_eq!(app.document.occurrence_refs().unwrap().len(), 2);
+        assert_eq!(app.document.occurrence_refs().unwrap().len(), 0);
     }
     #[test]
     fn interactive_hole_locks_to_the_first_picked_owner_and_is_undoable() {
@@ -1792,7 +1771,7 @@ mod tests {
             panic!()
         };
         assert!((f.normal - Vec3::X).length() < 1e-6);
-        assert!(f.contour.iter().all(|p| p.x.abs() < 1e-6));
+        assert!(f.contour.iter().all(|p| (p.x - a.x).abs() < 1e-6));
     }
     #[test]
     fn window_uses_blue_cursor_axis_on_a_line_instead_of_snap_normal() {

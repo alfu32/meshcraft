@@ -2640,40 +2640,7 @@ impl MeshcraftApp {
         }
         let target = target
             .filter(|target| self.native_target_editable(target))
-            .map(|mut target| {
-                if matches!(
-                    target.entity,
-                    SelectedEntity::SemanticHandle {
-                        kind: SelectionKind::Frame,
-                        ..
-                    }
-                ) && !target.occurrence.is_scene_root()
-                    && self.document.scene_container_occurrence().as_ref()
-                        != Some(&target.occurrence)
-                    && self
-                        .document
-                        .resolve_occurrence(&target.occurrence)
-                        .is_some_and(|r| {
-                            r.definition.kind
-                                == meshcraft_core::document::DefinitionKind::Architecture
-                                && r.definition
-                                    .domain_entity_ids
-                                    .get("architectureFrames")
-                                    .is_some_and(|ids| ids.len() == 1)
-                                && r.definition
-                                    .domain_entity_ids
-                                    .get("architectureWalls")
-                                    .is_none_or(Vec::is_empty)
-                                && r.definition
-                                    .domain_entity_ids
-                                    .get("architectureSlabs")
-                                    .is_none_or(Vec::is_empty)
-                        })
-                {
-                    target.entity = SelectedEntity::Occurrence;
-                }
-                target
-            });
+            .map(|target| self.native_normalize_selection_target(target));
         let click_count = self
             .selection_click_tracker
             .record(at_millis, screen_position);
@@ -2712,7 +2679,7 @@ impl MeshcraftApp {
             let child = (target.occurrence.path.len() > active_depth).then(|| OccurrenceRef {
                 path: target.occurrence.path[..active_depth + 1].to_vec(),
             });
-            if let Some(group) = child {
+            if let Some(group) = child.filter(|p| self.document.is_object_occurrence(p)) {
                 self.selection
                     .set_context(EditContext::Occurrence(group.clone()));
                 self.selection_click_tracker.reset();
@@ -2720,6 +2687,17 @@ impl MeshcraftApp {
                 return;
             }
             match &target.entity {
+                SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Frame,
+                    ..
+                } => {
+                    self.selection
+                        .apply([target.clone()], SelectionMode::Replace);
+                    self.open_panels(ARCHITECTURE_PANEL_IDS);
+                    self.selection_click_tracker.reset();
+                    self.status="Frame selected: edit its parameters or handles; Explode exposes mesh primitives.".into();
+                    return;
+                }
                 SelectedEntity::Occurrence => {
                     self.selection
                         .set_context(EditContext::Occurrence(target.occurrence.clone()));
@@ -2791,19 +2769,7 @@ impl MeshcraftApp {
     ) {
         let targets = targets
             .into_iter()
-            .map(|target| {
-                if matches!(
-                    target.entity,
-                    SelectedEntity::SemanticHandle {
-                        kind: SelectionKind::Dimension | SelectionKind::Text,
-                        ..
-                    }
-                ) {
-                    self.native_normalize_selection_target(target)
-                } else {
-                    target
-                }
-            })
+            .map(|target| self.native_normalize_selection_target(target))
             .filter(|target| self.native_target_editable(target))
             .collect::<Vec<_>>();
         self.selection.apply(targets, mode);
@@ -2956,6 +2922,12 @@ impl MeshcraftApp {
     ) -> Result<(), String> {
         if self.document.resolve_occurrence(occurrence).is_none() {
             return Err("the selected object no longer exists".to_owned());
+        }
+        if let Some(frame) = self.document.frame_target_for_occurrence(occurrence) {
+            self.selection.apply([frame], SelectionMode::Replace);
+            self.open_panels(ARCHITECTURE_PANEL_IDS);
+            self.status = "Frame selected: edit its parameters or handles.".into();
+            return Ok(());
         }
         self.set_selection([occurrence.clone()]);
         self.selection_click_tracker.reset();
@@ -3515,6 +3487,7 @@ impl MeshcraftApp {
                     path.path.len() == 1
                 }
             })
+            .filter(|path| self.document.is_object_occurrence(path))
             .collect()
     }
 
@@ -4946,6 +4919,25 @@ impl MeshcraftApp {
         &self,
         mut target: SelectionTarget,
     ) -> SelectionTarget {
+        if target.entity == SelectedEntity::Occurrence {
+            if let Some(frame) = self
+                .document
+                .frame_target_for_occurrence(&target.occurrence)
+            {
+                target = frame;
+            }
+        } else if let Some(g) = self.document.effective_geometry(&target.occurrence) {
+            let ext = match target.entity {
+                SelectedEntity::Segment(id) => g.segments.get(&id).map(|s| &s.extensions),
+                SelectedEntity::Triangle(id) => g.triangles.get(&id).map(|f| &f.extensions),
+                _ => None,
+            };
+            if let Some(entity) =
+                ext.and_then(meshcraft_core::document::architecture::semantic_entity)
+            {
+                target.entity = entity;
+            }
+        }
         if let EditContext::Definition(id) = self.selection.context
             && self
                 .document
@@ -4959,15 +4951,22 @@ impl MeshcraftApp {
             _ if self
                 .document
                 .scene_container_occurrence()
-                .is_some_and(|root| target.occurrence.path.starts_with(&root.path)) =>
+                .is_some_and(|p| target.occurrence.path.starts_with(&p.path)) =>
             {
                 1
             }
             _ => 0,
         };
-        if target.occurrence.path.len() > depth {
-            target.occurrence.path.truncate(depth + 1);
-            target.entity = SelectedEntity::Occurrence;
+        for len in depth + 1..=target.occurrence.path.len() {
+            let path = OccurrenceRef {
+                path: target.occurrence.path[..len].to_vec(),
+            };
+            if self.document.is_object_occurrence(&path) {
+                return SelectionTarget {
+                    occurrence: path,
+                    entity: SelectedEntity::Occurrence,
+                };
+            }
         }
         target
     }
@@ -5288,11 +5287,19 @@ impl MeshcraftApp {
             .selection
             .selected()
             .iter()
+            .map(|target| {
+                if target.entity == SelectedEntity::Occurrence {
+                    self.document
+                        .frame_target_for_occurrence(&target.occurrence)
+                        .unwrap_or_else(|| target.clone())
+                } else {
+                    target.clone()
+                }
+            })
             .filter(|target| {
                 self.selection_display_policy
                     .can_edit_target(&self.document, target)
             })
-            .cloned()
             .collect::<Vec<_>>();
         self.selection.apply(retained, SelectionMode::Replace);
     }
@@ -9285,6 +9292,11 @@ impl MeshcraftApp {
                 } else {
                     SelectionMode::Replace
                 };
+                let targets = targets
+                    .into_iter()
+                    .map(|t| self.native_normalize_selection_target(t))
+                    .filter(|t| self.native_target_editable(t))
+                    .collect::<Vec<_>>();
                 self.selection.apply(targets, mode);
                 self.selection_click_tracker.reset();
                 let summary = self.selection.summary();

@@ -10,6 +10,19 @@ The **Object Prototypes** browser lists prototypes, once each, with name, intern
 
 Double-clicking a prototype row activates insertion of that definition, even when no existing instance is selected. The cursor shows the instance's wireframe placement feedback and uses ordinary point-input snapping and surface-glue rules. Accepted placement creates an instance in the active scene/subscene. Double-clicking a placed instance enters its shared prototype for editing in place.
 
+Explode replaces the selected placement with its current resolved content in the
+parent graph, including evaluated scripts and instance deformations. Mesh results
+are ordinary editable primitives; do not create an automatic replacement object
+or an “exploded” prototype. Repeating Explode on that mesh cannot allocate another
+wrapper. Traversal must be bounded by the actual hierarchy, not viewport frames.
+
+Delete Prototype removes an unused definition with Undo. References from the
+scene, retained parent prototypes and owned instance layouts prevent deletion;
+unowned stale layout snapshots do not. A zero active-scene occurrence count can
+still have a real reference in an unplaced parent prototype. Built-in windows and
+doors use their architectural properties and are not implicitly user objects;
+see [frame ownership](modeling.md#p03-stairs-window-frames-and-door-frames).
+
 Import/prototype insertion prepares its wireframe once per source revision/context. Pointer
 motion only updates the placement transform; it must not clone, insert or validate a temporary
 scene on every move. The native renderer retains the uploaded wireframe between moves, including

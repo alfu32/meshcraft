@@ -498,6 +498,8 @@ pub struct Document {
     pub(crate) hotspot_cache: hotspots::EvaluationCache,
     #[serde(skip)]
     pub(crate) script_cache: scripts::FrameCache,
+    #[serde(skip)]
+    pub(crate) frame_classification: architecture::FrameClassificationCache,
 }
 
 impl Document {
@@ -546,6 +548,7 @@ impl Document {
             next_id: 2,
             hotspot_cache: hotspots::EvaluationCache::default(),
             script_cache: scripts::FrameCache::default(),
+            frame_classification: architecture::FrameClassificationCache::default(),
         }
     }
 
@@ -595,6 +598,7 @@ impl Document {
 
     /// Monotonic authored-state revision used to invalidate non-persistent caches.
     pub(crate) fn bump_revision(&mut self) {
+        self.frame_classification = architecture::FrameClassificationCache::default();
         self.hotspot_cache.clear();
         self.revision = self.revision.saturating_add(1);
     }
@@ -1749,7 +1753,7 @@ impl Document {
         Ok(inserted)
     }
 
-    fn append_geometry_to_definition(
+    pub(crate) fn append_geometry_to_definition(
         &mut self,
         definition_id: DefinitionId,
         mut addition: GeometryBundle,
@@ -1780,6 +1784,7 @@ impl Document {
         merged.vertices.append(&mut addition.vertices);
         merged.segments.append(&mut addition.segments);
         merged.triangles.append(&mut addition.triangles);
+        merged.extensions.append(&mut addition.extensions);
         if merged.validate().is_err() {
             return false;
         }
