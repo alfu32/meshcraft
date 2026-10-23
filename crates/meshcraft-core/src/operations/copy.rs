@@ -37,6 +37,9 @@ impl LinearArrayReport {
 /// Returns whether the current selection contains object, mesh, dimension, or text entities
 /// supported by the shared copy transform.
 pub fn can_linear_array_selection(document: &Document, selection: &SelectionSession) -> bool {
+    let normalized =
+        crate::operations::objects::architecture_instance_selection(document, selection);
+    let selection = normalized.as_ref();
     !selection.selected().is_empty()
         && selection.selected().iter().all(|target| {
             if !target_in_selection_context(document, selection, target) {
@@ -203,6 +206,9 @@ pub fn projected_selection_span(
     selection: &SelectionSession,
     direction: Vec3,
 ) -> Option<f64> {
+    let normalized =
+        crate::operations::objects::architecture_instance_selection(document, selection);
+    let selection = normalized.as_ref();
     if !can_linear_array_selection(document, selection) {
         return None;
     }

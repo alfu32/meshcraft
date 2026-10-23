@@ -1696,6 +1696,26 @@ pub fn place_definition(
     Ok(placed)
 }
 
+/// Read-only transform queries can borrow selections containing only ordinary targets.
+pub(crate) fn architecture_instance_selection<'a>(
+    document: &Document,
+    selection: &'a SelectionSession,
+) -> std::borrow::Cow<'a, SelectionSession> {
+    if selection.selected().iter().any(|target| {
+        matches!(
+            target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Frame,
+                ..
+            }
+        )
+    }) {
+        std::borrow::Cow::Owned(selection_with_architecture_instances(document, selection))
+    } else {
+        std::borrow::Cow::Borrowed(selection)
+    }
+}
+
 /// A standalone window/door can be picked through its generated frame facets.
 /// Commands operate on that placement outside prototype editing, so sibling
 /// instances retain their own state and the shared prototype stays intact.

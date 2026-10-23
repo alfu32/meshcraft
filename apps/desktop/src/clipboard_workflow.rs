@@ -440,6 +440,189 @@ mod tests {
     }
 
     #[test]
+    fn mixed_architecture_transform_tools_accept_final_pick_and_match_their_preview() {
+        for reopened in [false, true] {
+            for (command, picks, copies) in [
+                ("tool.builtin.move", vec![Vec3::ZERO, Vec3::Y * 9.], false),
+                ("tool.move_copy", vec![Vec3::ZERO, Vec3::Y * 9.], true),
+                (
+                    "tool.rotate_copy", // Keep the copy away from the source wall's autojoin endpoint.
+                    vec![
+                        Vec3::new(0., 0., -10.),
+                        Vec3::new(1., 0., -10.),
+                        Vec3::new(0., 0., -9.),
+                    ],
+                    true,
+                ),
+            ] {
+                let (mut app, targets) = architecture_app(reopened);
+                app.apply_native_selection_region(targets, false, SelectionMode::Replace);
+                let original = app.document.architecture_elements();
+                let before = meshcraft_core::legacy::export_current_value(&app.document).unwrap();
+                let source = ClipboardSelection::capture(&app.document, &app.selection)
+                    .unwrap()
+                    .placement_wireframe();
+                complete(&mut app, command);
+                for p in &picks[..picks.len() - 1] {
+                    app.handle_native_world_pick(*p, None, None);
+                }
+                let last = *picks.last().unwrap();
+                let affine = app.transform_tool_state.preview(Some(last)).unwrap();
+                let expected = meshcraft_core::geometry::Aabb3::from_points(
+                    source
+                        .into_iter()
+                        .flatten()
+                        .map(|p| affine.transform_point(p)),
+                )
+                .unwrap();
+                let preview = modeling_transforms::preview_selection_transform(
+                    &app.document,
+                    &app.selection,
+                    affine,
+                )
+                .unwrap();
+                let preview =
+                    meshcraft_core::geometry::Aabb3::from_points(preview.into_iter().flatten())
+                        .unwrap();
+                assert!(
+                    expected.min.distance(preview.min) < 1e-6
+                        && expected.max.distance(preview.max) < 1e-6,
+                    "{command}: frame geometry missing from preview"
+                );
+                app.handle_native_world_pick(last, None, None);
+                assert_eq!(1, app.history.entries().len(), "{command}: {}", app.status);
+                assert!(
+                    app.transform_tool_state.points().is_empty(),
+                    "final pick was rejected: {}",
+                    app.status
+                );
+                let selected = app.native_selected_architectures();
+                assert_eq!(4, selected.len());
+                let actual = ClipboardSelection::capture(&app.document, &app.selection)
+                    .unwrap()
+                    .placement_wireframe();
+                let actual =
+                    meshcraft_core::geometry::Aabb3::from_points(actual.into_iter().flatten())
+                        .unwrap();
+                assert!(
+                    expected.min.distance(actual.min) < 1e-6
+                        && expected.max.distance(actual.max) < 1e-6,
+                    "{command} (reopened={reopened}): committed geometry {actual:?} differs from preview {expected:?}"
+                );
+                let all = app.document.architecture_elements();
+                assert_eq!(if copies { 9 } else { 5 }, all.len());
+                for e in &original {
+                    if copies || (e.transform.translation.x - 12.).abs() < 1e-6 {
+                        assert!(
+                            all.iter()
+                                .any(|a| a.element == e.element && a.transform == e.transform),
+                            "{command}: changed source/sibling instance"
+                        );
+                    }
+                }
+                for e in selected {
+                    let source = original
+                        .iter()
+                        .find(|a| a.element.name() == e.element.name())
+                        .unwrap();
+                    assert_eq!(source.element.holes().len(), e.element.holes().len());
+                    assert_eq!(
+                        source.element.surface_materials(),
+                        e.element.surface_materials()
+                    );
+                }
+                complete(&mut app, "edit.undo");
+                assert_eq!(
+                    before,
+                    meshcraft_core::legacy::export_current_value(&app.document).unwrap()
+                );
+                complete(&mut app, "edit.redo");
+                assert_eq!(
+                    if copies { 9 } else { 5 },
+                    app.document.architecture_elements().len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn architecture_frame_surface_picks_support_array_queries_and_multiple_copies() {
+        for reopened in [false, true] {
+            let (mut app, targets) = architecture_app(reopened);
+            app.selection.apply(targets, SelectionMode::Replace);
+            assert!(modeling_copy::can_linear_array_selection(
+                &app.document,
+                &app.selection
+            ));
+            assert!(
+                (modeling_copy::projected_selection_span(&app.document, &app.selection, Vec3::X)
+                    .unwrap()
+                    - 18.)
+                    .abs()
+                    < 1e-6
+            );
+            let original = app.document.architecture_elements();
+            let mut selected = app.selection.clone();
+            let report = modeling_copy::translated_array(
+                &mut app.document,
+                &mut selected,
+                &[Vec3::Y * 9., Vec3::Y * 18.],
+            )
+            .unwrap();
+            assert_eq!(2, report.copies);
+            assert_eq!(8, selected.selected().len());
+            assert_eq!(13, app.document.architecture_elements().len());
+            for source in original {
+                assert!(
+                    app.document
+                        .architecture_elements()
+                        .iter()
+                        .any(|e| e.element == source.element && e.transform == source.transform)
+                );
+            }
+            app.document.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn moving_a_frame_inside_prototype_editing_changes_its_geometry_not_its_placements() {
+        let (mut app, targets) = architecture_app(true);
+        let frame = targets
+            .into_iter()
+            .find(|t| app.document.architecture_element(t).unwrap().element.name() == "Window")
+            .unwrap();
+        let original = app
+            .document
+            .resolve_occurrence(&frame.occurrence)
+            .unwrap()
+            .world_transform;
+        app.selection
+            .set_context(EditContext::Occurrence(frame.occurrence.clone()));
+        app.selection.select(frame.clone());
+        complete(&mut app, "tool.builtin.move");
+        app.handle_native_world_pick(Vec3::ZERO, None, None);
+        app.handle_native_world_pick(Vec3::Y * 9., None, None);
+        assert_eq!(1, app.history.entries().len(), "{}", app.status);
+        assert_eq!(
+            original,
+            app.document
+                .resolve_occurrence(&frame.occurrence)
+                .unwrap()
+                .world_transform
+        );
+        let meshcraft_core::document::architecture::Element::Frame(changed) =
+            app.document.architecture_element(&frame).unwrap().element
+        else {
+            panic!()
+        };
+        assert!(changed.contour.iter().all(|p| p.y >= 9. - 1e-6));
+        assert_eq!(
+            EditContext::Occurrence(frame.occurrence),
+            app.selection.context
+        );
+    }
+
+    #[test]
     fn architecture_copy_paste_and_script_capture_preserve_owners_in_new_and_reopened_drawings() {
         for reopened in [false, true] {
             let (mut app, targets) = architecture_app(reopened);

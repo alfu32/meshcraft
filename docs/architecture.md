@@ -51,6 +51,11 @@ and an inclined, offset wall with owned openings.
 Wall/slab selections operate on canonical elements rather than generated facets.
 Move, copy, arrays and clipboard placement retain their profiles and owned holes.
 Windows/doors retain ordinary object placement/prototype editing behavior.
+Transform previews, commits and copy arrays resolve standalone frame surface picks
+to their instance outside prototype editing. Move accepts its destination for a
+mixed wall/slab/window/door selection; other instances remain in place. While
+editing a frame prototype, the same commands edit its geometry and retain its
+instance placements.
 Explode materializes an object's current architecture geometry as ordinary mesh.
 It also works directly on selected walls or slabs, replacing their canonical
 parameters with their currently realized lines and triangles. Mixed selections of

@@ -37,7 +37,12 @@ slabs. Exercise Paste in Place and floating Paste with an insertion pick, then
 Explode and Undo. Repeat after save/reopen and inside a frame prototype. Preserve
 owned holes, material references, independent instance state, sibling placements
 and active edit context. Copy as Script includes realized walls/slabs/frames.
-Reject read-only explode without mutation.
+Reject read-only explode without mutation. For mixed architectural surface picks,
+accept Move's final point at +9 vertical units, Move Copy and Rotate Copy; compare
+preview/committed world geometry and unchanged source/sibling instances. Verify
+one-step Undo/Redo, numeric repeated copies and array-span queries, both in new
+and reopened drawings. Inside frame prototype editing, move its geometry while
+retaining placement transforms.
 
 ## C08 — Mixed payloads and lifecycle
 

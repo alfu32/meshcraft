@@ -1,0 +1,28 @@
+{
+  "version": "0.30.2",
+  "sourceArchitectureCount": 36,
+  "cases": [
+    {
+      "tool": "tool.builtin.move",
+      "finalPointAccepted": true,
+      "windowDoorWallSlabWorldPointsCorrect": true,
+      "countsCorrect": true,
+      "undo": true
+    },
+    {
+      "tool": "tool.move_copy",
+      "finalPointAccepted": true,
+      "windowDoorWallSlabWorldPointsCorrect": true,
+      "countsCorrect": true,
+      "undo": true
+    },
+    {
+      "tool": "tool.rotate_copy",
+      "finalPointAccepted": true,
+      "windowDoorWallSlabWorldPointsCorrect": true,
+      "countsCorrect": true,
+      "undo": true
+    }
+  ],
+  "numericCopyArrayX3": true
+}

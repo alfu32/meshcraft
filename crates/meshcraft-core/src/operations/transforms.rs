@@ -133,7 +133,9 @@ fn transform_selection_internal(
         return Ok((TransformReport::default(), Vec::new()));
     }
 
-    let selected = selection
+    let normalized =
+        crate::operations::objects::selection_with_architecture_instances(document, selection);
+    let selected = normalized
         .selected()
         .iter()
         .filter(|target| target_in_context(document, &selection.context, target))
@@ -244,7 +246,7 @@ fn transform_selection_internal(
     }
 
     let mut candidate = document.clone();
-    let mut candidate_selection = selection.clone();
+    let mut candidate_selection = normalized;
     let mut report = TransformReport::default();
     let mut copy_targets = BTreeSet::new();
     let mut path_remaps = Vec::new();
@@ -918,6 +920,9 @@ fn preview_transform_internal(
     world_transform: Affine3,
     connected: bool,
 ) -> Result<Vec<[Vec3; 2]>, String> {
+    let normalized =
+        crate::operations::objects::architecture_instance_selection(document, selection);
+    let selection = normalized.as_ref();
     if !world_transform.is_finite()
         || world_transform
             .inverse(GeometryTolerance::default())

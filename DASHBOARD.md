@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.30.2 architecture transforms:** picked window/door frames use instance ownership
+for transform previews and commits, including mixed wall/slab/frame selections.
+Move, Move Copy and Rotate Copy accept their final point; array eligibility and
+span queries use the same targets. Prototype editing retains shared geometry edits.
+
 **0.30.1 architecture clipboard:** architectural frame picks use their independent
 window/door instance for Copy, Paste and Explode. Mixed walls/slabs/frames retain
 owned openings and material bindings; Copy as Script includes realized wall/slab
