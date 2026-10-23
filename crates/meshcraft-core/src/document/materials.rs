@@ -2,6 +2,9 @@
 use super::*;
 
 pub const CATALOG_KEY: &str = "k3d.meshcraftMaterials";
+const PALETTE_KEY: &str = "k3d.meshcraftPaletteVersion";
+pub const DEFAULT_LINE_MATERIAL: &str = "ansi-black";
+pub const DEFAULT_FACE_MATERIAL: &str = "ansi-grey";
 pub const MATERIAL_KEY: &str = "k3d.meshcraftMaterialId";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -40,6 +43,54 @@ impl Default for Material {
     }
 }
 
+/// Conventional 16-color ANSI palette plus the architecture surface defaults.
+/// ANSI defines color slots; these RGB values use the classic VGA palette.
+pub fn default_palette() -> Vec<Material> {
+    [
+        ("ansi-black", 0x000000ff),
+        ("ansi-red", 0x800000ff),
+        ("ansi-green", 0x008000ff),
+        ("ansi-yellow", 0x808000ff),
+        ("ansi-blue", 0x000080ff),
+        ("ansi-magenta", 0x800080ff),
+        ("ansi-cyan", 0x008080ff),
+        ("ansi-grey", 0xc0c0c0ff),
+        ("ansi-dark-grey", 0x808080ff),
+        ("ansi-bright-red", 0xff0000ff),
+        ("ansi-bright-green", 0x00ff00ff),
+        ("ansi-bright-yellow", 0xffff00ff),
+        ("ansi-bright-blue", 0x0000ffff),
+        ("ansi-bright-magenta", 0xff00ffff),
+        ("ansi-bright-cyan", 0x00ffffff),
+        ("ansi-white", 0xffffffff),
+        ("smoke-white", 0xedededff),
+        ("smoke-grey", 0xd6d6d6ff),
+        ("side-grey", 0xe0e0e0ff),
+        ("glass", 0xb8d6f266),
+    ]
+    .into_iter()
+    .map(|(name, rgba): (&str, u32)| {
+        let [red, green, blue, alpha] = rgba.to_be_bytes();
+        Material {
+            id: name.into(),
+            name: name.into(),
+            color: Rgba8::new(red, green, blue, alpha),
+            ..Material::default()
+        }
+    })
+    .collect()
+}
+
+pub(super) fn initial_extensions() -> BTreeMap<String, Value> {
+    BTreeMap::from([
+        (
+            CATALOG_KEY.into(),
+            serde_json::to_value(default_palette()).expect("palette serialization"),
+        ),
+        (PALETTE_KEY.into(), Value::from(1)),
+    ])
+}
+
 impl Material {
     pub fn validate(&self) -> Result<(), String> {
         if self.id.trim().is_empty() || self.name.trim().is_empty() {
@@ -60,21 +111,39 @@ pub fn material_id(extensions: &BTreeMap<String, Value>) -> Option<&str> {
 }
 
 pub(super) fn default_binding() -> BTreeMap<String, Value> {
-    BTreeMap::from([(MATERIAL_KEY.into(), Value::String("default".into()))])
+    BTreeMap::from([(
+        MATERIAL_KEY.into(),
+        Value::String(DEFAULT_FACE_MATERIAL.into()),
+    )])
+}
+
+pub(super) fn default_line_binding() -> BTreeMap<String, Value> {
+    BTreeMap::from([(
+        MATERIAL_KEY.into(),
+        Value::String(DEFAULT_LINE_MATERIAL.into()),
+    )])
 }
 
 impl Document {
     pub fn materials(&self) -> Vec<Material> {
-        self.read_materials()
-            .unwrap_or_else(|_| vec![Material::default()])
+        self.read_materials().unwrap_or_else(|_| default_palette())
     }
 
     fn read_materials(&self) -> Result<Vec<Material>, String> {
-        match self.extensions.get(CATALOG_KEY) {
+        let mut materials: Vec<Material> = match self.extensions.get(CATALOG_KEY) {
             Some(value) => serde_json::from_value(value.clone())
-                .map_err(|e| format!("invalid material catalog: {e}")),
-            None => Ok(vec![Material::default()]),
+                .map_err(|e| format!("invalid material catalog: {e}"))?,
+            // Preserve the original white "default" binding in older drawings.
+            None => vec![Material::default()],
+        };
+        if !self.extensions.contains_key(PALETTE_KEY) {
+            for material in default_palette() {
+                if !materials.iter().any(|m| m.id == material.id) {
+                    materials.push(material);
+                }
+            }
         }
+        Ok(materials)
     }
 
     pub(super) fn validate_materials(&self) -> Result<(), String> {
@@ -88,9 +157,6 @@ impl Document {
             if !ids.insert(material.id) {
                 return Err("material IDs must be unique".into());
             }
-        }
-        if !ids.contains("default") {
-            return Err("the Default material is missing".into());
         }
         Ok(())
     }
@@ -115,6 +181,7 @@ impl Document {
             CATALOG_KEY.into(),
             serde_json::to_value(materials).map_err(|e| e.to_string())?,
         );
+        self.extensions.insert(PALETTE_KEY.into(), Value::from(1));
         // Keep a current RGBA fallback for legacy readers and color-based modeling tools.
         let sync = |geometry: &mut GeometryBundle| {
             for segment in geometry.segments.values_mut() {
@@ -188,6 +255,104 @@ impl Document {
         if let Some(value) = self.extensions.get_mut("k3d.meshcraftArchitectureDefaults") {
             sync_record(value, &id, color);
         }
+        self.bump_revision();
+        Ok(())
+    }
+
+    /// References include unplaced prototypes, per-instance replacements, scripted
+    /// frames, architecture owners and architecture creation defaults.
+    pub fn material_is_used(&self, id: &str) -> bool {
+        // These materials are the implicit creation defaults, even in an empty drawing.
+        if [
+            DEFAULT_LINE_MATERIAL,
+            DEFAULT_FACE_MATERIAL,
+            "smoke-white",
+            "smoke-grey",
+            "side-grey",
+            "glass",
+        ]
+        .contains(&id)
+        {
+            return true;
+        }
+        let color = self.material_colors().get(id).copied();
+        let geometry_uses = |g: &GeometryBundle| {
+            g.segments
+                .values()
+                .map(|s| (&s.extensions, s.color))
+                .chain(g.triangles.values().map(|f| (&f.extensions, f.color)))
+                .any(|(ext, rgba)| {
+                    material_id(ext)
+                        .or_else(|| {
+                            ext.get("k3d.meshcraftScriptMaterial")
+                                .and_then(|v| v.get("id"))
+                                .and_then(Value::as_str)
+                        })
+                        .map_or(color == Some(rgba), |bound| bound == id)
+                })
+        };
+        fn record_uses(value: &Value, id: &str) -> bool {
+            match value {
+                Value::Object(map) => {
+                    map.get("materials")
+                        .and_then(Value::as_object)
+                        .is_some_and(|bindings| bindings.values().any(|v| v.as_str() == Some(id)))
+                        || map.values().any(|v| record_uses(v, id))
+                }
+                Value::Array(values) => values.iter().any(|v| record_uses(v, id)),
+                _ => false,
+            }
+        }
+        self.definitions.values().any(|d| {
+            geometry_uses(&d.geometry)
+                || [
+                    architecture::WALLS,
+                    architecture::SLABS,
+                    architecture::FRAMES,
+                ]
+                .iter()
+                .any(|key| {
+                    d.domain_data.get(*key).is_some_and(|v| record_uses(v, id))
+                        || d.extensions
+                            .get(&format!("k3d.{key}"))
+                            .is_some_and(|v| record_uses(v, id))
+                })
+        }) || self
+            .occurrence_edits
+            .values()
+            .chain(
+                self.child_layouts
+                    .values()
+                    .flat_map(|l| l.entries.iter().map(|e| &e.default_edits)),
+            )
+            .any(|e| e.geometry_replacement.as_ref().is_some_and(geometry_uses))
+            || self
+                .script_cache
+                .frames
+                .values()
+                .any(|frame| geometry_uses(&frame.geometry))
+            || self
+                .extensions
+                .get("k3d.meshcraftArchitectureDefaults")
+                .is_some_and(|v| record_uses(v, id))
+    }
+
+    /// Remove an unused material. Rejection leaves the document untouched.
+    pub fn remove_material(&mut self, id: &str) -> Result<(), String> {
+        let mut materials = self.read_materials()?;
+        let index = materials
+            .iter()
+            .position(|m| m.id == id)
+            .ok_or("Material missing")?;
+        if self.material_is_used(id) {
+            return Err("Material is used by geometry or creation defaults".into());
+        }
+        materials.remove(index);
+        self.extensions.insert(
+            CATALOG_KEY.into(),
+            serde_json::to_value(materials).map_err(|e| e.to_string())?,
+        );
+        self.extensions.insert(PALETTE_KEY.into(), Value::from(1));
         self.bump_revision();
         Ok(())
     }
@@ -291,7 +456,7 @@ impl Document {
             .iter()
             .map(|m| m.id.clone())
             .collect::<BTreeSet<_>>();
-        let mut added = false;
+        let mut added = !self.extensions.contains_key(PALETTE_KEY);
         let mut ids = BTreeMap::new();
         for (key, color) in needed {
             let id = if let Some(id) = by_color.get(&key) {
@@ -329,6 +494,7 @@ impl Document {
                 serde_json::to_value(catalog).map_err(|e| e.to_string())?,
             );
         }
+        self.extensions.insert(PALETTE_KEY.into(), Value::from(1));
         colors = self.material_colors();
         let mut changed = added;
         let mut sync = |g: &mut GeometryBundle| {
@@ -376,6 +542,150 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_drawing_palette_defaults_and_unused_deletion_survive_roundtrip() {
+        let mut d = Document::new();
+        assert_eq!(
+            16,
+            d.materials()
+                .iter()
+                .filter(|m| m.id.starts_with("ansi-"))
+                .count()
+        );
+        assert_eq!(20, d.materials().len());
+        assert_eq!(Rgba8::BLACK, d.material_colors()[DEFAULT_LINE_MATERIAL]);
+        assert_eq!(Rgba8::ANSI_GREY, d.material_colors()[DEFAULT_FACE_MATERIAL]);
+        assert_eq!(102, d.material_colors()["glass"].alpha);
+        let cube = d
+            .add_cuboid("box", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        d.normalize_material_bindings().unwrap();
+        let geometry = d.effective_geometry(&cube).unwrap();
+        assert!(geometry.segments.values().all(|s| s.color == Rgba8::BLACK
+            && material_id(&s.extensions) == Some(DEFAULT_LINE_MATERIAL)));
+        assert!(
+            geometry
+                .triangles
+                .values()
+                .all(|f| f.color == Rgba8::ANSI_GREY
+                    && material_id(&f.extensions) == Some(DEFAULT_FACE_MATERIAL))
+        );
+        d.remove_material("ansi-red").unwrap();
+        let reopened =
+            crate::legacy::import_current_value(&crate::legacy::export_current_value(&d).unwrap())
+                .unwrap();
+        assert_eq!(d.materials(), reopened.materials());
+        assert!(!reopened.material_colors().contains_key("ansi-red"));
+        for id in [DEFAULT_LINE_MATERIAL, DEFAULT_FACE_MATERIAL, "glass"] {
+            let before = d.clone();
+            assert!(d.remove_material(id).is_err());
+            assert_eq!(before, d);
+        }
+    }
+
+    #[test]
+    fn legacy_palette_migration_keeps_authored_white_faces_and_lines() {
+        let mut d = Document::new();
+        let cube = d
+            .add_cuboid("old", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let definition = d.resolve_occurrence(&cube).unwrap().definition.id;
+        let g = &mut d.definitions.get_mut(&definition).unwrap().geometry;
+        for s in g.segments.values_mut() {
+            s.color = Rgba8::WHITE;
+            s.extensions.clear();
+        }
+        for f in g.triangles.values_mut() {
+            f.color = Rgba8::WHITE;
+            f.extensions.insert(MATERIAL_KEY.into(), "default".into());
+        }
+        d.extensions.remove(CATALOG_KEY);
+        d.extensions.remove(PALETTE_KEY);
+        d = crate::legacy::import_current_value(&crate::legacy::export_current_value(&d).unwrap())
+            .unwrap();
+        d.normalize_material_bindings().unwrap();
+        let g = &d
+            .definitions
+            .values()
+            .find(|definition| definition.name == "old")
+            .unwrap()
+            .geometry;
+        assert!(g.segments.values().all(|s| s.color == Rgba8::WHITE));
+        assert!(
+            g.triangles
+                .values()
+                .all(|f| f.color == Rgba8::WHITE && material_id(&f.extensions) == Some("default"))
+        );
+        assert!(d.material_colors().contains_key("glass"));
+        d.validate().unwrap();
+    }
+
+    #[test]
+    fn deletion_checks_unplaced_definitions_instance_overrides_and_architecture_defaults() {
+        let mut d = Document::new();
+        let cube = d
+            .add_cuboid("box", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let definition = d.resolve_occurrence(&cube).unwrap().definition.id;
+        let m = d.next_material();
+        d.put_material(m.clone()).unwrap();
+        let mut replacement = d.effective_geometry(&cube).unwrap().clone();
+        replacement
+            .triangles
+            .values_mut()
+            .next()
+            .unwrap()
+            .extensions
+            .insert(MATERIAL_KEY.into(), m.id.clone().into());
+        d.child_layouts
+            .get_mut(&d.root_layout)
+            .unwrap()
+            .entries
+            .clear();
+        d.definitions.get_mut(&definition).unwrap().geometry = replacement.clone();
+        let before = d.clone();
+        assert!(d.remove_material(&m.id).is_err());
+        assert_eq!(before, d);
+        d.definitions.get_mut(&definition).unwrap().geometry = GeometryBundle::default();
+        assert!(!d.material_is_used(&m.id));
+        d.child_layouts
+            .get_mut(&d.root_layout)
+            .unwrap()
+            .entries
+            .push(LayoutEntry {
+                id: LayoutEntryId(999),
+                definition,
+                transform: Affine3::IDENTITY,
+                default_edits: InstanceEdits {
+                    geometry_replacement: Some(replacement.clone()),
+                    ..Default::default()
+                },
+                legacy_aliases: vec![],
+            });
+        assert!(d.material_is_used(&m.id));
+        d.child_layouts
+            .get_mut(&d.root_layout)
+            .unwrap()
+            .entries
+            .clear();
+        d.occurrence_edits.insert(
+            cube.clone(),
+            InstanceEdits {
+                geometry_replacement: Some(replacement),
+                ..Default::default()
+            },
+        );
+        assert!(d.material_is_used(&m.id));
+        d.occurrence_edits.clear();
+        d.extensions.insert(
+            "k3d.meshcraftArchitectureDefaults".into(),
+            serde_json::json!({"wall":{"materials":{"exterior":m.id}}}),
+        );
+        assert!(d.remove_material(&m.id).is_err());
+        d.extensions.remove("k3d.meshcraftArchitectureDefaults");
+        d.remove_material(&m.id).unwrap();
+    }
 
     #[test]
     fn assigning_and_repainting_preserve_instance_scope_and_catalog_reference() {
@@ -459,7 +769,7 @@ mod tests {
             .triangles
             .values()
             .filter_map(|face| material_id(&face.extensions))
-            .find(|id| *id != "default")
+            .find(|id| *id != DEFAULT_FACE_MATERIAL)
             .unwrap();
         assert_ne!(id, blue.id);
         assert_eq!(red.color, host.material_colors()[id]);
@@ -469,7 +779,7 @@ mod tests {
     #[test]
     fn catalog_is_shared_persistent_and_invalid_edits_are_atomic() {
         let mut document = Document::new();
-        assert_eq!(vec![Material::default()], document.materials());
+        assert_eq!(default_palette(), document.materials());
         let mut material = document.next_material();
         material.color = Rgba8::new(22, 44, 66, 90);
         material.texture_path = Some("textures/brick.png".into());

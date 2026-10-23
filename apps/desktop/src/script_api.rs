@@ -85,19 +85,19 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "Segment",
             "new Segment(p0, p1, id, material?)",
             "new Segment(new Point(), new Point(1, 0, 0), this.id + ':edge')",
-            "A line segment with a nonempty stable ID. An absent material uses a dark line color.",
+            "A line segment with a nonempty stable ID. An absent material uses opaque black.",
         ),
         entry(
             "line",
             "line(p0, p1, id, material?) → Segment",
             "line(new Point(), new Point(1, 0, 0), this.id + ':edge')",
-            "Same as new Segment. Point arguments have x/y/z coordinates. Each segment ID must be unique in the emitted array.",
+            "Same as new Segment; the default line color is opaque black. Point arguments have x/y/z coordinates. Each segment ID must be unique in the emitted array.",
         ),
         entry(
             "Face",
             "new Face(a, b, c, id, material?)",
             "new Face(new Point(), new Point(1, 0, 0), new Point(0, 1, 0), this.id + ':face')",
-            "A triangle in local coordinates. Vertex winding controls its normal. Its ID must be unique.",
+            "A triangle in local coordinates; absent material uses ANSI grey (#c0c0c0). Vertex winding controls its normal. Its ID must be unique.",
         ),
         entry(
             "face",
@@ -541,7 +541,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
         entry(
             "model.getMaterial",
             "model.getMaterial(id) → Material | undefined",
-            "model.getMaterial('default')",
+            "model.getMaterial('ansi-grey')",
             "Read a catalog material by stable ID. Use its color or pass the value to a geometry helper.",
         ),
         entry(

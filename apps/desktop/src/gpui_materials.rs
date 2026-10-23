@@ -136,10 +136,14 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         .find(|m| m.id == selected)
         .cloned()
         .unwrap_or_default();
+    let delete_id = selected.clone();
+    let used = shell.cached_document.material_is_used(&selected);
     div().flex().flex_col().gap(px(5.))
+        .on_scroll_wheel(|_,_,cx| cx.stop_propagation())
+        .child(div().id("materials/list").max_h(px(240.)).overflow_y_scroll().flex().flex_col().gap(px(3.))
         .children(materials.into_iter().map(|material| {
             let active = material.id == selected;
-            Button::new(SharedString::from(format!("material/{}",material.id))).ghost().w_full().justify_start()
+            Button::new(SharedString::from(format!("material/{}",material.id))).ghost().w_full().flex_shrink_0().justify_start()
                 .child(div().w_full().flex().items_center().gap(px(8.))
                     .child(div().size(px(23.)).border_1().border_color(rgb(0x8e9eae)).bg(gpui::rgba(u32::from_be_bytes([material.color.red,material.color.green,material.color.blue,material.color.alpha]))))
                     .child(material.name.clone()))
@@ -149,10 +153,17 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     if event.click_count()==2 { edit(this,material.clone(),window,cx); }
                     cx.notify();
                 }))
-        }))
+        })))
         .child(div().flex().flex_wrap().gap(px(4.))
             .child(Button::new("material/new").small().label("New Material").on_click(cx.listener(|this,_,window,cx| {let material=this.cached_document.next_material(); edit(this,material,window,cx);})))
             .child(Button::new("material/edit").small().label("Edit").on_click(cx.listener(move |this,_,window,cx| edit(this,selected_material.clone(),window,cx))))
+            .child(Button::new("material/delete").small().label("Delete").disabled(used)
+                .tooltip(if used { "Used by geometry or creation defaults" } else { "Delete unused material" })
+                .on_click(cx.listener(move |this,_,_,cx| {
+                    if let Err(error)=this.session.delete_native_material(&delete_id) {this.session.set_native_status(error);}
+                    this.materials.selected=None;
+                    this.refresh_scene(); cx.notify();
+                })))
             .child(Button::new("material/apply").small().label("Apply to Selection").disabled(!shell.session.native_selection_targets().iter().any(|t|matches!(&t.entity,SelectedEntity::Segment(_)|SelectedEntity::Triangle(_)|SelectedEntity::Occurrence|SelectedEntity::SemanticHandle{kind:meshcraft_core::selection::SelectionKind::Wall|meshcraft_core::selection::SelectionKind::Slab|meshcraft_core::selection::SelectionKind::Frame,..}))).on_click(cx.listener(move |this,_,_,cx| {
                 if let Err(error)=this.session.assign_native_material(&selected) {this.session.set_native_status(error);}
                 this.refresh_scene(); cx.notify();

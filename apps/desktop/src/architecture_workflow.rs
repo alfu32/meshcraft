@@ -22,9 +22,26 @@ struct Defaults {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
-            wall: Wall::default(),
-            slab: Slab::default(),
+            wall: Wall {
+                materials: BTreeMap::from([
+                    ("exterior".into(), "smoke-white".into()),
+                    ("interior".into(), "smoke-grey".into()),
+                ]),
+                ..Wall::default()
+            },
+            slab: Slab {
+                materials: BTreeMap::from([
+                    ("top".into(), "smoke-white".into()),
+                    ("bottom".into(), "smoke-grey".into()),
+                    ("side".into(), "side-grey".into()),
+                ]),
+                ..Slab::default()
+            },
             frame: Frame {
+                materials: BTreeMap::from([
+                    ("frame".into(), "smoke-white".into()),
+                    ("glazing".into(), "glass".into()),
+                ]),
                 glazing_enabled: true,
                 ..Frame::default()
             },

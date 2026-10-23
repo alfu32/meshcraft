@@ -17,8 +17,8 @@ const toColor = c => {
 };
 class Material {constructor(c="#ffffffff",texturePath=null){this.id="script";this.name="Script material";this.color=toColor(c);this.texturePath=texturePath;this.textureScaleU=1;this.textureScaleV=1;this.shadingType="phong";}}
 const phong=c=>new Material(c),gouraud=c=>Object.assign(new Material(c),{shadingType:"gouraud"});
-class Segment {constructor(a,b,id,material="#20252aff"){Object.assign(this,{kind:"segment",id:String(id),points:[point(a),point(b)],color:toColor(material),material:material instanceof Material?material:undefined});}}
-class Face {constructor(a,b,c,id,material){Object.assign(this,{kind:"face",id:String(id),points:[point(a),point(b),point(c)],color:toColor(material),material:material instanceof Material?material:undefined});}}
+class Segment {constructor(a,b,id,material="#000000ff"){Object.assign(this,{kind:"segment",id:String(id),points:[point(a),point(b)],color:toColor(material),material:material instanceof Material||(material&&typeof material.id==="string"&&material.color)?material:undefined});}}
+class Face {constructor(a,b,c,id,material="#c0c0c0ff"){Object.assign(this,{kind:"face",id:String(id),points:[point(a),point(b),point(c)],color:toColor(material),material:material instanceof Material||(material&&typeof material.id==="string"&&material.color)?material:undefined});}}
 const line=(...args)=>new Segment(...args),face=(...args)=>new Face(...args);
 const state=request.state||{initializer:"",properties:{}};
 const instance=Object.assign({},state.properties,{id:request.id,geometry:request.geometry,hotspots:request.hotspots||{},time:request.time,deltaTime:request.deltaTime});

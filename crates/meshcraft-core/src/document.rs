@@ -130,6 +130,8 @@ pub struct Rgba8 {
 
 impl Rgba8 {
     pub const WHITE: Self = Self::new(255, 255, 255, 255);
+    pub const ANSI_GREY: Self = Self::new(192, 192, 192, 255);
+    pub const BLACK: Self = Self::new(0, 0, 0, 255);
 
     pub const fn new(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         Self {
@@ -540,7 +542,7 @@ impl Document {
             child_layouts,
             occurrence_edits: BTreeMap::new(),
             model_settings: ModelSettings::default(),
-            extensions: BTreeMap::new(),
+            extensions: materials::initial_extensions(),
             next_id: 2,
             hotspot_cache: hotspots::EvaluationCache::default(),
             script_cache: scripts::FrameCache::default(),
@@ -887,9 +889,9 @@ impl Document {
                 Segment {
                     id,
                     endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::BLACK,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_line_binding(),
                 },
             );
         }
@@ -917,7 +919,7 @@ impl Document {
                         VertexRef::new(vertex_ids[b]),
                         VertexRef::new(vertex_ids[c]),
                     ],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::ANSI_GREY,
                     legacy_aliases: Vec::new(),
                     extensions: materials::default_binding(),
                 },
@@ -966,9 +968,9 @@ impl Document {
             Segment {
                 id: segment_id,
                 endpoints: [VertexRef::new(start_id), VertexRef::new(end_id)],
-                color: Rgba8::WHITE,
+                color: Rgba8::BLACK,
                 legacy_aliases: Vec::new(),
-                extensions: BTreeMap::new(),
+                extensions: materials::default_line_binding(),
             },
         );
         self.add_root_geometry(name, geometry, Affine3::IDENTITY)
@@ -1063,16 +1065,16 @@ impl Document {
             .into_iter()
             .map(|[a, b]| RawGeometrySegment {
                 endpoints: [raw_reference(a), raw_reference(b)],
-                color: Rgba8::WHITE,
+                color: Rgba8::BLACK,
                 legacy_aliases: Vec::new(),
-                extensions: BTreeMap::new(),
+                extensions: materials::default_line_binding(),
             })
             .collect();
         let triangles = [[0, 1, 2], [0, 2, 3]]
             .into_iter()
             .map(|[a, b, c]| RawGeometryTriangle {
                 vertices: [raw_reference(a), raw_reference(b), raw_reference(c)],
-                color: Rgba8::WHITE,
+                color: Rgba8::ANSI_GREY,
                 legacy_aliases: Vec::new(),
                 extensions: materials::default_binding(),
             })
@@ -1111,11 +1113,11 @@ impl Document {
                 vertices,
                 segments
                     .into_iter()
-                    .map(|edge| (edge, Rgba8::WHITE))
+                    .map(|edge| (edge, Rgba8::BLACK))
                     .collect(),
                 triangles
                     .into_iter()
-                    .map(|face| (face, Rgba8::WHITE))
+                    .map(|face| (face, Rgba8::ANSI_GREY))
                     .collect(),
             );
         }
@@ -1177,7 +1179,7 @@ impl Document {
                         VertexRef::new(vertex_ids[second]),
                         VertexRef::new(vertex_ids[third]),
                     ],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::ANSI_GREY,
                     legacy_aliases: Vec::new(),
                     extensions: materials::default_binding(),
                 },
@@ -1268,7 +1270,7 @@ impl Document {
                         VertexRef::new(second_id),
                         VertexRef::new(third_id),
                     ],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::ANSI_GREY,
                     legacy_aliases: Vec::new(),
                     extensions: materials::default_binding(),
                 },
@@ -1647,11 +1649,7 @@ impl Document {
                     vertices: [vertex_refs[first], vertex_refs[second], vertex_refs[third]],
                     color,
                     legacy_aliases: Vec::new(),
-                    extensions: if color == Rgba8::WHITE {
-                        materials::default_binding()
-                    } else {
-                        BTreeMap::new()
-                    },
+                    extensions: BTreeMap::new(),
                 },
             );
             triangle_ids.push(id);
@@ -1840,9 +1838,9 @@ impl Document {
                 Segment {
                     id,
                     endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::BLACK,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_line_binding(),
                 },
             );
         }
@@ -1857,7 +1855,7 @@ impl Document {
                         VertexRef::new(vertex_ids[b]),
                         VertexRef::new(vertex_ids[c]),
                     ],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::ANSI_GREY,
                     legacy_aliases: Vec::new(),
                     extensions: materials::default_binding(),
                 },
@@ -1917,9 +1915,9 @@ impl Document {
                 Segment {
                     id,
                     endpoints: [VertexRef::new(vertex_ids[a]), VertexRef::new(vertex_ids[b])],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::BLACK,
                     legacy_aliases: Vec::new(),
-                    extensions: BTreeMap::new(),
+                    extensions: materials::default_line_binding(),
                 },
             );
         }
@@ -1934,7 +1932,7 @@ impl Document {
                         VertexRef::new(vertex_ids[b]),
                         VertexRef::new(vertex_ids[c]),
                     ],
-                    color: Rgba8::WHITE,
+                    color: Rgba8::ANSI_GREY,
                     legacy_aliases: Vec::new(),
                     extensions: materials::default_binding(),
                 },
@@ -2978,9 +2976,9 @@ fn insert_line_geometry(
             start: start + (end - start) * pair[0].0,
             end: start + (end - start) * pair[1].0,
             source: None,
-            color: Rgba8::WHITE,
+            color: Rgba8::BLACK,
             legacy_aliases: Vec::new(),
-            extensions: BTreeMap::new(),
+            extensions: materials::default_line_binding(),
             from_new_line: true,
             break_start: pair[0].1,
             break_end: pair[1].1,

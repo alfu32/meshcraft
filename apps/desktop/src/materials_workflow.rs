@@ -3,6 +3,28 @@ use super::*;
 use meshcraft_core::document::materials::Material;
 
 impl MeshcraftApp {
+    pub(super) fn current_face_color(&self) -> Rgba8 {
+        if self.current_paint_material.is_none() && self.current_paint_color == Rgba8::ANSI_GREY {
+            self.document
+                .material_colors()
+                .get("ansi-grey")
+                .copied()
+                .unwrap_or(Rgba8::ANSI_GREY)
+        } else {
+            self.current_paint_color
+        }
+    }
+    pub(super) fn current_outline_color(&self) -> Rgba8 {
+        if self.current_paint_material.is_none() && self.current_paint_color == Rgba8::ANSI_GREY {
+            self.document
+                .material_colors()
+                .get("ansi-black")
+                .copied()
+                .unwrap_or(Rgba8::BLACK)
+        } else {
+            self.current_paint_color
+        }
+    }
     pub(super) fn commit_global_document_edit<T>(
         &mut self,
         label: &str,
@@ -62,6 +84,18 @@ impl MeshcraftApp {
             self.current_paint_color = color;
         }
         self.status = format!("Saved material {name}.");
+        Ok(())
+    }
+
+    pub fn delete_native_material(&mut self, id: &str) -> Result<(), String> {
+        self.commit_global_document_edit("Delete unused material", |document| {
+            document.remove_material(id)
+        })?;
+        if self.current_paint_material.as_deref() == Some(id) {
+            self.current_paint_material = None;
+            self.current_paint_color = Rgba8::ANSI_GREY;
+        }
+        self.status = "Deleted unused material.".into();
         Ok(())
     }
 
@@ -162,6 +196,26 @@ impl MeshcraftApp {
 mod tests {
     use super::*;
     #[test]
+    fn deleting_unused_materials_is_undoable_and_defaults_remain_available() {
+        let mut app = MeshcraftApp::new_native_session(Document::new(), "Ready".into(), None);
+        let mut payload = CommandPayload::default();
+        payload.values.insert("id".into(), "ansi-red".into());
+        assert!(app.dispatch_command("material.delete", &payload).accepted);
+        assert!(!app.document.material_colors().contains_key("ansi-red"));
+        app.undo_document();
+        assert!(app.document.material_colors().contains_key("ansi-red"));
+        let before = app.document.clone();
+        payload.values.insert("id".into(), "ansi-grey".into());
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.dispatch_command("material.delete", &payload)
+                .result
+                .completion
+        );
+        assert_eq!(before, app.document);
+    }
+
+    #[test]
     fn material_commands_are_undoable_and_apply_to_only_the_selected_instance() {
         let mut document = Document::new();
         let first = document
@@ -169,6 +223,7 @@ mod tests {
             .unwrap();
         let second = document.copy_root_occurrence(&first, Vec3::X * 3.).unwrap();
         let mut app = MeshcraftApp::new_native_session(document, "Ready".into(), None);
+        let initial_materials = app.document.materials();
         let mut material = app.document.next_material();
         material.color = Rgba8::new(180, 80, 25, 110);
         let mut payload = CommandPayload::default();
@@ -204,7 +259,7 @@ mod tests {
                 .values()
                 .all(
                     |f| meshcraft_core::document::materials::material_id(&f.extensions)
-                        == Some("default")
+                        == Some("ansi-grey")
                 )
         );
         app.undo_document();
@@ -216,10 +271,10 @@ mod tests {
                 .values()
                 .all(
                     |f| meshcraft_core::document::materials::material_id(&f.extensions)
-                        == Some("default")
+                        == Some("ansi-grey")
                 )
         );
         app.undo_document();
-        assert_eq!(1, app.document.materials().len());
+        assert_eq!(initial_materials, app.document.materials());
     }
 }

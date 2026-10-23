@@ -1559,6 +1559,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
             ("apply", "Apply Material to Selection", ShellAction::MaterialAction("apply")),
             ("save", "Save Material", ShellAction::MaterialAction("save")),
+            ("delete", "Delete Unused Material", ShellAction::MaterialAction("delete")),
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
@@ -1948,7 +1949,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
-        "material.apply" => &[("id", CommandValueType::String)],
+        "material.apply" | "material.delete" => &[("id", CommandValueType::String)],
         "material.save" => &[("material", CommandValueType::Object)],
         "hotspot.add" => &[("position", CommandValueType::Object)],
         "hotspot.update" => &[
@@ -2870,7 +2871,7 @@ impl MeshcraftApp {
         let mut target_selection = SelectionSession::default();
         target_selection.set_context(self.selection.context.clone());
         target_selection.select(target);
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
         let material = self.current_paint_material.clone();
         match self.commit_document_edit("Paint entity", |document| {
             Self::paint_with_material(document, &target_selection, color, material.as_deref())
@@ -3491,7 +3492,7 @@ impl MeshcraftApp {
             placement_preview: Default::default(),
             array_tool_state: ArrayToolState::default(),
             rotational_array_tool_state: RotationalArrayToolState::default(),
-            current_paint_color: Rgba8::WHITE,
+            current_paint_color: Rgba8::ANSI_GREY,
             current_paint_material: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -3655,11 +3656,12 @@ impl MeshcraftApp {
         kind: PrimitiveKind,
     ) -> Result<Vec<SelectionTarget>, String> {
         let (owner, occurrence, _) = self.line_geometry_context();
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
+        let line_color = self.current_outline_color();
         let segments = mesh
             .segments
             .into_iter()
-            .map(|segment| (segment, color))
+            .map(|segment| (segment, line_color))
             .collect::<Vec<_>>();
         let triangles = mesh
             .triangles
@@ -3706,11 +3708,12 @@ impl MeshcraftApp {
         for vertex in &mut mesh.vertices {
             *vertex = inverse.transform_point(*vertex);
         }
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
+        let line_color = self.current_outline_color();
         let segments = mesh
             .segments
             .into_iter()
-            .map(|segment| (segment, color))
+            .map(|segment| (segment, line_color))
             .collect::<Vec<_>>();
         let triangles = mesh
             .triangles
@@ -4708,7 +4711,7 @@ impl MeshcraftApp {
     fn spatial_sweep_preview(&self, path: Option<&PolylinePath>) -> Option<ToolPreview> {
         let (_, _, inverse) = self.line_geometry_context();
         let world_transform = inverse.inverse(GeometryTolerance::default())?;
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
         if let Some(path) = path
             && let Ok((_, _, _, mesh)) = self.build_spatial_sweep(path)
         {
@@ -4768,7 +4771,7 @@ impl MeshcraftApp {
     fn extrude_swipe_preview(&self, path: Option<&PolylinePath>) -> Option<ToolPreview> {
         let (_, _, inverse, profile) = self.selected_sweep_profile().ok()?;
         let world_transform = inverse.inverse(GeometryTolerance::default())?;
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
         if let Some(path) = path
             && let Ok(mesh) = self.build_extrude_swipe_mesh(path)
         {
@@ -4845,13 +4848,14 @@ impl MeshcraftApp {
         mesh: SweepMesh,
         label: &str,
     ) -> CommandResult {
-        let color = self.current_paint_color;
+        let color = self.current_face_color();
+        let line_color = self.current_outline_color();
         let inserted = self.commit_document_edit(label, |document| match owner {
             LineOwner::SceneRoot => document.append_colored_indexed_mesh_to_scene_root(
                 mesh.vertices,
                 mesh.segments
                     .into_iter()
-                    .map(|segment| (segment, color))
+                    .map(|segment| (segment, line_color))
                     .collect(),
                 mesh.triangles
                     .into_iter()
@@ -4864,7 +4868,7 @@ impl MeshcraftApp {
                     mesh.vertices,
                     mesh.segments
                         .into_iter()
-                        .map(|segment| (segment, color))
+                        .map(|segment| (segment, line_color))
                         .collect(),
                     mesh.triangles
                         .into_iter()
@@ -5820,6 +5824,8 @@ impl MeshcraftApp {
         let recent_error = self.remember_recent_project(path).err();
         self.document = project.document;
         let _ = self.document.normalize_material_bindings();
+        self.current_paint_material = None;
+        self.current_paint_color = Rgba8::ANSI_GREY;
         self.viewport.invalidate_document_caches();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.clipboard.placement = None;
@@ -5999,6 +6005,8 @@ impl MeshcraftApp {
             self.autosave_deadline = None;
             self.autosave_observed_revision = self.document.revision();
         }
+        self.current_paint_material = None;
+        self.current_paint_color = Rgba8::ANSI_GREY;
         self.saved_revision = self.document.revision();
         self.document_generation = self.document_generation.wrapping_add(1);
         self.selection.clear();
@@ -6327,8 +6335,14 @@ impl MeshcraftApp {
                             .values
                             .get("id")
                             .and_then(serde_json::Value::as_str)
-                            .unwrap_or("default"),
+                            .unwrap_or("ansi-grey"),
                     ),
+                    "delete" => payload
+                        .values
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| "Material ID required".to_owned())
+                        .and_then(|id| self.delete_native_material(id)),
                     "save" => match payload.values.get("material") {
                         Some(value) => serde_json::from_value(value.clone())
                             .map_err(|e| e.to_string())
@@ -6547,7 +6561,7 @@ impl MeshcraftApp {
             }
             ShellAction::PaintSelection => {
                 let selection = self.selection.clone();
-                let color = self.current_paint_color;
+                let color = self.current_face_color();
                 let material = self.current_paint_material.clone();
                 match self.commit_document_edit("Paint selection", |document| {
                     Self::paint_with_material(document, &selection, color, material.as_deref())
@@ -9130,7 +9144,7 @@ impl MeshcraftApp {
             let mut target_selection = SelectionSession::default();
             target_selection.set_context(self.selection.context.clone());
             target_selection.select(target);
-            let color = self.current_paint_color;
+            let color = self.current_face_color();
             let material = self.current_paint_material.clone();
             match self.commit_document_edit("Paint entity", |document| {
                 Self::paint_with_material(document, &target_selection, color, material.as_deref())
@@ -9940,7 +9954,7 @@ impl MeshcraftApp {
                     ]
                 })
                 .collect();
-            let color = self.current_paint_color;
+            let color = self.current_face_color();
             let triangles = mesh
                 .triangles
                 .iter()
@@ -10250,7 +10264,7 @@ impl MeshcraftApp {
             if !matches!(preview, Some(ToolPreview::Paint { .. })) {
                 return None;
             }
-            let color = self.current_paint_color;
+            let color = self.current_face_color();
             return Some(ToolFeedback {
                 screen_position,
                 text: format!(
@@ -12923,7 +12937,7 @@ mod tests {
             placement_preview: Default::default(),
             array_tool_state: super::ArrayToolState::default(),
             rotational_array_tool_state: super::RotationalArrayToolState::default(),
-            current_paint_color: Rgba8::WHITE,
+            current_paint_color: Rgba8::ANSI_GREY,
             current_paint_material: None,
             array_count: 12,
             array_spacing: 3.0,
@@ -15445,13 +15459,13 @@ mod tests {
                 geometry
                     .segments
                     .values()
-                    .all(|segment| segment.color == Rgba8::WHITE)
+                    .all(|segment| segment.color == Rgba8::BLACK)
             );
             assert!(
                 geometry
                     .triangles
                     .values()
-                    .all(|triangle| triangle.color == Rgba8::WHITE)
+                    .all(|triangle| triangle.color == Rgba8::ANSI_GREY)
             );
 
             app.run_command("edit.undo");
@@ -17081,7 +17095,7 @@ mod tests {
             geometry
                 .triangles
                 .values()
-                .all(|triangle| triangle.color == Rgba8::WHITE)
+                .all(|triangle| triangle.color == Rgba8::ANSI_GREY)
         );
         assert_eq!(2, app.history.entries().len());
         app.run_command("edit.undo");
@@ -17142,7 +17156,7 @@ mod tests {
             geometry
                 .triangles
                 .values()
-                .all(|triangle| triangle.color == Rgba8::WHITE)
+                .all(|triangle| triangle.color == Rgba8::ANSI_GREY)
         );
         assert_eq!(5, app.history.entries().len());
 
@@ -21259,6 +21273,7 @@ mod tests {
     #[test]
     fn dirty_new_can_discard_and_replace_the_document() {
         let mut app = test_app();
+        app.choose_native_material("ansi-red").unwrap();
         app.run_command("geometry.add_cuboid");
         let result = app.dispatch_command("file.new", &CommandPayload::default());
 
@@ -21269,6 +21284,9 @@ mod tests {
         assert!(app.pending_replacement.is_none());
         assert_eq!(0, app.document.definitions().count());
         assert_eq!("New empty document.", app.status);
+        assert_eq!(Rgba8::BLACK, app.current_outline_color());
+        assert_eq!(Rgba8::ANSI_GREY, app.current_face_color());
+        assert_eq!(20, app.document.materials().len());
         let job_id = match result.result.completion {
             CommandCompletion::Pending { job_id, .. } => job_id,
             _ => unreachable!(),

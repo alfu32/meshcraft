@@ -159,6 +159,9 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
     }
 
     let mut document = Document::new();
+    // Loading must not inherit the new-drawing palette marker: older catalogs
+    // are migrated once, while saved deletions in current catalogs stay deleted.
+    document.extensions.clear();
     document.model_settings = parse_model_settings(root)?;
     preserve_root_fields(root, &mut document);
     let mut definitions = HashMap::new();

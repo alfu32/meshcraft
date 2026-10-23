@@ -1385,7 +1385,7 @@ impl MeshcraftShell {
         };
         let payload = if id == "ui.update_preferences" {
             self.session.native_ui_preferences_payload()
-        } else if id == "material.apply" {
+        } else if matches!(id, "material.apply" | "material.delete") {
             let mut payload = CommandPayload::default();
             payload.values.insert(
                 "id".into(),
@@ -1393,7 +1393,7 @@ impl MeshcraftShell {
                     self.materials
                         .selected
                         .clone()
-                        .unwrap_or_else(|| "default".into()),
+                        .unwrap_or_else(|| "ansi-grey".into()),
                 ),
             );
             payload

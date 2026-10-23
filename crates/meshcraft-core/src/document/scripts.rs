@@ -545,13 +545,9 @@ mod tests {
         assert_eq!(original.triangles.len(), frame.geometry.triangles.len());
         assert_eq!(original.segments.len(), frame.geometry.segments.len());
         assert_eq!(original.vertices.len(), frame.geometry.vertices.len());
-        assert!(
-            frame
-                .geometry
-                .triangles
-                .values()
-                .all(|t| materials::material_id(&t.extensions) == Some("default"))
-        );
+        assert!(frame.geometry.triangles.values().all(
+            |t| materials::material_id(&t.extensions) == Some(materials::DEFAULT_FACE_MATERIAL)
+        ));
         let definition = document.resolve_occurrence(&path).unwrap().definition.id;
         document
             .set_script(definition, ScriptDefinition::default())

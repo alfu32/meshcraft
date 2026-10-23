@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.30.0 drawing materials:** new drawings include 16 named ANSI colors plus
+smoke-white, smoke-grey, side-grey and transparent glass. Default lines use
+ansi-black and faces ansi-grey. The scrollable Materials manager deletes unused
+materials with Undo; prototype, instance, script and architecture references are
+protected. Older drawing colors are preserved.
+
 **0.29.0 numeric tool entry:** buffered distances, unit suffixes and relative 2D/3D
 coordinates advance normal tool workflows. Copy previews support xN repetition
 and /N equal divisions for movement, rotation and scale, with one Undo step.

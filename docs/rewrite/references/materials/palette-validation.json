@@ -1,0 +1,19 @@
+{
+  "lineDefault": {
+    "red": 0,
+    "green": 0,
+    "blue": 0,
+    "alpha": 255
+  },
+  "boundMaterial": "ansi-black",
+  "generatedOutlinesBlack": true,
+  "facesAnsiGrey": true,
+  "scriptDefaultBlack": true,
+  "explicitScriptMaterialPreserved": true,
+  "ansiColors": 16,
+  "architectureColors": 4,
+  "unusedDeletionUndo": true,
+  "nativeDeleteButton": true,
+  "panelScrollDoesNotZoomCanvas": true,
+  "defaultDeletionRejected": true
+}

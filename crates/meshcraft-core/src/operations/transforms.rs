@@ -1988,7 +1988,7 @@ mod tests {
             document.effective_geometry(&first).unwrap().triangles[&triangle].color
         );
         assert_eq!(
-            Rgba8::WHITE,
+            Rgba8::ANSI_GREY,
             document.effective_geometry(&second).unwrap().triangles[&triangle].color
         );
         assert!(document.validate().is_ok());
