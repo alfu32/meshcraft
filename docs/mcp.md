@@ -332,3 +332,11 @@ for private occurrence settings. `meshcraft_scene` reports each owner's
 mesh triangles. Select/copy/transform their occurrence targets; generated leaves
 and branches cannot be individually snapped, exported or Explode-baked.
 See [preset workflow and limitations](procedural-presets.md).
+
+
+`meshcraft.foliage.v1` uses GPU `foliage` generation on source triangles. The
+published schema includes density, size, width, height, spread, tilt, curl, wind,
+variation, seed, leafColor and alternateColor. Spread is a local tangent-plane
+radius that scatters leaves beyond source boundaries. Assign and override it
+through the existing material commands. All shader `color` parameters now use
+native color pickers in the UI; model/MCP values remain normalized RGBA arrays.

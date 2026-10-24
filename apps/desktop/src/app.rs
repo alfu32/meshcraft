@@ -1587,6 +1587,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 &format!("Hotspots> {label}"), "Hotspots", "object prototype instance hotspot", Some("hotspot"), ShellAction::HotspotAction(suffix));
         }
         for (id, label, action) in [
+            ("new_foliage","New Procedural Foliage Material",ShellAction::OpenPanel("material_editor_foliage")),
             ("new_water","New Procedural Water Material",ShellAction::OpenPanel("material_editor_water")),
             ("new_brick","New Procedural Brick Material",ShellAction::OpenPanel("material_editor_brick")),
             ("new_wood","New Procedural Wood Material",ShellAction::OpenPanel("material_editor_wood")),

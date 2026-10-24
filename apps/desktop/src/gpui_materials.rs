@@ -33,11 +33,13 @@ impl SelectItem for ParameterChoice {
         &self.key
     }
 }
-type ParameterField = (
-    Parameter,
-    Entity<InputState>,
-    Option<Entity<SelectState<Vec<ParameterChoice>>>>,
-);
+struct ParameterField {
+    parameter: Parameter,
+    input: Entity<InputState>,
+    choices: Option<Entity<SelectState<Vec<ParameterChoice>>>>,
+    color: Option<Entity<ColorPickerState>>,
+    _color_subscription: Option<gpui::Subscription>,
+}
 #[derive(Clone)]
 struct ObjectEdit {
     definition: Option<DefinitionId>,
@@ -295,7 +297,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             .child(Button::new("material/grass").small().label("New Grass").on_click(cx.listener(|this,_,window,cx| {
                 let mut material=this.cached_document.next_material();material.name="Grass".into();material.color=Rgba8::new(65,130,35,255);material.procedural=Some(ProceduralMaterial::default());edit(this,material,window,cx);
             })))
-            .children([(procedural::WATER,"New Water"),(procedural::BRICK,"New Brick"),(procedural::WOOD,"New Wood")].into_iter().map(|(id,label)|Button::new(SharedString::from(format!("material/{id}"))).small().label(label).on_click(cx.listener(move|this,_,window,cx|{let mut m=this.cached_document.next_material();procedural::apply_preset(&mut m,id);edit(this,m,window,cx);}))))
+            .children([(procedural::FOLIAGE,"New Foliage"),(procedural::WATER,"New Water"),(procedural::BRICK,"New Brick"),(procedural::WOOD,"New Wood")].into_iter().map(|(id,label)|Button::new(SharedString::from(format!("material/{id}"))).small().label(label).on_click(cx.listener(move|this,_,window,cx|{let mut m=this.cached_document.next_material();procedural::apply_preset(&mut m,id);edit(this,m,window,cx);}))))
             .child(Button::new("material/program").small().label("New Shader").on_click(cx.listener(|this,_,window,cx|open_program(this,Program {id:format!("custom.surface.{}",this.cached_document.procedural_programs().len()),name:"Custom surface".into(),..Default::default()},window,cx))))
             .child(Button::new("material/new").small().label("New Material").on_click(cx.listener(|this,_,window,cx| {let material=this.cached_document.next_material(); edit(this,material,window,cx);})))
             .child(Button::new("material/edit").small().label("Edit").on_click(cx.listener(move |this,_,window,cx| edit(this,selected_material.clone(),window,cx))))
@@ -589,6 +591,21 @@ fn display_value(v: &Value) -> String {
         .map(str::to_owned)
         .unwrap_or_else(|| v.to_string())
 }
+fn parameter_color(value: &Value) -> Option<gpui::Hsla> {
+    let a = value.as_array()?;
+    if a.len() != 4 {
+        return None;
+    }
+    Some(
+        gpui::Rgba {
+            r: a[0].as_f64()? as f32,
+            g: a[1].as_f64()? as f32,
+            b: a[2].as_f64()? as f32,
+            a: a[3].as_f64()? as f32,
+        }
+        .into(),
+    )
+}
 fn parameter_fields(
     material: &Material,
     document: &Document,
@@ -636,7 +653,42 @@ fn parameter_fields(
             } else {
                 None
             };
-            (p, input, choices)
+            let (color, subscription) = if p.kind == "color" {
+                let picker = cx.new(|cx| {
+                    ColorPickerState::new(window, cx)
+                        .default_value(parameter_color(value).unwrap_or_default())
+                });
+                let raw = input.clone();
+                let subscription = cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |_, _, event: &ColorPickerEvent, window, cx| {
+                        if let ColorPickerEvent::Change(Some(value)) = event {
+                            let rgba: gpui::Rgba = (*value).into();
+                            let value = json!([
+                                rgba.r.clamp(0., 1.),
+                                rgba.g.clamp(0., 1.),
+                                rgba.b.clamp(0., 1.),
+                                rgba.a.clamp(0., 1.)
+                            ]);
+                            raw.update(cx, |input, cx| {
+                                input.set_value(value.to_string(), window, cx)
+                            });
+                            cx.notify();
+                        }
+                    },
+                );
+                (Some(picker), Some(subscription))
+            } else {
+                (None, None)
+            };
+            ParameterField {
+                parameter: p,
+                input,
+                choices,
+                color,
+                _color_subscription: subscription,
+            }
         })
         .collect()
 }
@@ -647,7 +699,13 @@ fn read_parameter_fields(
     editor
         .parameters
         .iter()
-        .map(|(p, input, choices)| {
+        .map(|field| {
+            let ParameterField {
+                parameter: p,
+                input,
+                choices,
+                ..
+            } = field;
             let text = input.read(cx).value().to_string();
             let value = if let Some(choices) = choices {
                 json!(
@@ -687,10 +745,18 @@ fn procedural_fields(
         .flex_col()
         .gap(px(6.))
         .child(div().text_sm().child("Procedural parameters"))
-        .children(editor.parameters.iter().map(|(p, input, choices)| {
+        .children(editor.parameters.iter().map(|field| {
+            let ParameterField {
+                parameter: p,
+                input,
+                choices,
+                color,
+                ..
+            } = field;
             let input = input.clone();
             let input_bool = input.clone();
             let choices_reset = choices.clone();
+            let color_reset = color.clone();
             div()
                 .flex()
                 .items_center()
@@ -704,14 +770,20 @@ fn procedural_fields(
                         } else {
                             p.label.clone()
                         })
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0xa9b7c5))
-                                .child(format!("{} · {} {}", p.description, p.kind, p.unit)),
-                        ),
+                        .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(
+                            if p.kind == "color" {
+                                "Color and opacity".into()
+                            } else {
+                                format!("{} · {} {}", p.description, p.kind, p.unit)
+                            },
+                        )),
                 )
-                .child(if p.kind == "boolean" {
+                .child(if let Some(picker) = color {
+                    div()
+                        .flex_1()
+                        .child(ColorPicker::new(picker).w_full())
+                        .into_any_element()
+                } else if p.kind == "boolean" {
                     Checkbox::new(SharedString::from(format!("procedural/{}", p.id)))
                         .checked(input.read(cx).value().as_ref() == "true")
                         .on_click(cx.listener(move |_, checked: &bool, window, cx| {
@@ -742,6 +814,13 @@ fn procedural_fields(
                                             window,
                                             cx,
                                         )
+                                    });
+                                }
+                                if let Some(picker) = &color_reset
+                                    && let Some(value) = parameter_color(&value)
+                                {
+                                    picker.update(cx, |picker, cx| {
+                                        picker.set_value(value, window, cx)
                                     });
                                 }
                                 input.update(cx, |i, cx| {
@@ -1000,9 +1079,21 @@ fn read_selection_values(
         }
     }
     let values = result.ok_or("The selection has no surfaces assigned to this material")?;
-    for (p, input, choices) in &editor.parameters {
+    for field in &editor.parameters {
+        let ParameterField {
+            parameter: p,
+            input,
+            choices,
+            color,
+            ..
+        } = field;
         if let Some(value) = values.get(&p.id) {
             input.update(cx, |i, cx| i.set_value(display_value(value), window, cx));
+            if let Some(picker) = color
+                && let Some(value) = parameter_color(value)
+            {
+                picker.update(cx, |picker, cx| picker.set_value(value, window, cx));
+            }
             if let Some(choices) = choices {
                 choices.update(cx, |i, cx| {
                     i.set_selected_value(&value.as_str().unwrap_or_default().to_owned(), window, cx)

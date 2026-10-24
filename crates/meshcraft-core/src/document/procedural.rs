@@ -94,7 +94,7 @@ impl Parameter {
 pub struct Program {
     pub id: String,
     pub name: String,
-    /// Surface shading, GPU-subdivided surface_grid, distributed blades, or an independent tree.
+    /// Surface shading, GPU-subdivided surface_grid, distributed blades/foliage, or an independent tree.
     pub generation: String,
     pub backend: String,
     pub parameters: Vec<Parameter>,
@@ -186,7 +186,7 @@ impl Program {
         self.backend == "vertex_instancing_gl33"
             && matches!(
                 self.generation.as_str(),
-                "surface" | "blades" | "surface_grid" | "tree"
+                "surface" | "blades" | "foliage" | "surface_grid" | "tree"
             )
             && self.parameters.iter().all(|p| {
                 matches!(

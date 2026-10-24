@@ -3123,6 +3123,44 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T65",
+      "title": "#29/#30 Add foliage scattering and color pickers for shader parameters",
+      "phase": "desktop",
+      "dependencies": [
+        "T64"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C42"
+      ],
+      "targets": [
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/gpui_procedural.rs",
+        "assets/shaders/procedural.vs",
+        "crates/meshcraft-core/src/document/procedural/presets.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/procedural-presets.md"
+      ],
+      "slices": [
+        "Render color parameters with the shared HSL/RGB/swatch picker and opacity, converting to the existing normalized model values without quantizing untouched colors.",
+        "Add a GPU-only Foliage material with seeded leaf scattering, surface-edge spread, size/tilt/curl/wind/colors, bounded work, LOD, expanded bounds, shadows and transparency.",
+        "Qualify material/prototype/instance picker editing, Reset/Read Selection/Cancel, actual GPU scatter and animation, source-buffer reuse, and persistence/API discovery."
+      ],
+      "done": [
+        "C42 extension passes with recorded native UI and GPU evidence; settings remain backward compatible."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

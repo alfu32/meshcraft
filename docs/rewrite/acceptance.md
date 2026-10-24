@@ -257,6 +257,14 @@ history; generated branches/leaves remain GPU-only. Verify zero wind/speed idle,
 frustum rejection, bounded foliage/subdivision work, shadows, compile failure
 fallback and API/schema discovery. Record native backend limitations explicitly.
 
+For #29/#30/T65, edit built-in and custom shader colors through the HSL/RGB picker
+and opacity controls in material and object editors. Verify Save/Cancel, Reset,
+Read Selection Values and prototype/instance isolation; unchanged colors retain
+stored precision. Create Foliage, change spread to cover the source boundary,
+check seeded output/wind, alpha shadows, bounds, culling/LOD and candidate limits.
+Source geometry and source GPU buffers must survive parameter edits unchanged.
+Save/reopen foliage and color overrides without converting model/API color arrays.
+
 ## C43 — Scripted object hooks, preview and instance values
 
 Create or script an existing prototype and retain its authored geometry. Preview a valid `onCreate`/`onAnimationFrame` pair in one monospace script, with shared top-level helpers/constants, materials and helper-generated faces/lines. Ctrl+Space shows a scrollable documented API list; typing filters, arrows navigate, Enter/Tab inserts, and Escape dismisses completion before the editor. Verify independent preview orbit/pan/zoom, editor focus, diagnostics and Cancel isolation. Save, place two instances, drag scripted hotspots, copy an adjusted instance and confirm independent values. Edit graphical geometry in the prototype and include it through `this.geometry`. Save/load, undo/redo script changes, stable IDs and query-only model data. Explode an adjusted instance and compare its current issued world geometry; it must survive without scripts. Test syntax errors, thrown errors, invalid/duplicate IDs, nonfinite coordinates, excessive output, infinite loops, runtime shutdown and all packaged native engine providers. A failed script cannot hang or mutate other model content.

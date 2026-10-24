@@ -93,3 +93,23 @@ Bounds remain selectable/visible with diagnostics if the program is unavailable.
 Reuse the shared program/resource/parameter machinery; mesh shaders and compute
 remain later work. The tree deliverable is a slice of #31, which also asks for a
 bush and broader source-domain/LOD qualification.
+
+
+### Shader parameter pickers and foliage — #29/#30, T65
+
+Every declared `color` parameter uses the existing color picker in both shader
+material and procedural object editors, including custom programs. HSL, RGB and
+swatches expose opacity. Convert to normalized RGBA internally; opening/saving
+an untouched color must retain the original stored values. Parameter Reset and
+Read Selection Values synchronize the picker and backing value. Apply/Save/Cancel
+retain the existing shared-default, private-instance and assignment scopes.
+
+Foliage is a built-in surface material, similar to Grass. GPU-only broad leaf
+strips scatter on the source and within a configurable tangent-plane radius
+around it, including beyond its boundary. Expose density, leaf length/width,
+height, edge spread, tilt, curl, wind, seed, brightness variation and two leaf
+colors. Stable seeds, cached source domains, expanded transformed bounds, culling,
+LOD, work budgets, shadow cutouts and alpha apply. Color-parameter opacity must
+participate in transparent rendering, including object programs. Zero wind or
+zero emitted density must let rendering idle. No generated leaves enter CPU
+geometry, snapping, export or Explode. Publish the program and schema via MCP.

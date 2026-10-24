@@ -184,7 +184,7 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
         }
         if command.id.as_str() == "material.program" && name == "program" {
             spec["description"] = json!(
-                "Procedural Program: id, name, generation=surface|blades|surface_grid|tree, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds; localPosition/sourceNormal varyings anchor material patterns. Optional vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv) changes shading relief. tree programs belong to independent objects; surface_grid subdivides on the GPU. See meshcraft_scene.proceduralPrograms for builtins."
+                "Procedural Program: id, name, generation=surface|blades|foliage|surface_grid|tree, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds; localPosition/sourceNormal varyings anchor material patterns. Optional vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv) changes shading relief. tree programs belong to independent objects; surface_grid subdivides on the GPU. See meshcraft_scene.proceduralPrograms for builtins."
             );
         }
         if command.id.as_str() == "material.save" && name == "material" {

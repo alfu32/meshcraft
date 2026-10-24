@@ -311,7 +311,7 @@ mod tests {
             assert!(p.supported());
             assert!(d.put_procedural_program(p).is_err());
         }
-        assert_eq!(d.procedural_programs().len(), 5);
+        assert_eq!(d.procedural_programs().len(), 6);
         let id = d.create_procedural_tree().unwrap();
         let before = d.clone();
         let mut bad = d.procedural_object_definition(id).unwrap();

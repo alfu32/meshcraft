@@ -1,0 +1,57 @@
+{
+  "version": "0.36.0",
+  "newFoliageSaveCancel": true,
+  "materialAndObjectColorPickers": true,
+  "customProgramColorPicker": true,
+  "hslRgbOpacity": true,
+  "untouchedColorPrecision": true,
+  "objectInstanceIsolation": true,
+  "materialAssignmentIsolation": true,
+  "resetColor": true,
+  "readSelectionColorPickerSync": true,
+  "cancelColor": true,
+  "saveReopen": true,
+  "sourcePrimitives": 6,
+  "treeAuthoredTriangles": 0,
+  "presetDiscovery": true,
+  "zeroWindIdle": true,
+  "capture": {
+    "includes": "3D viewport only; GPUI labels/panels are separate",
+    "width": 850,
+    "height": 781,
+    "procedural": {
+      "diagnostics": [],
+      "candidateInstances": 5193,
+      "drawCalls": 4
+    },
+    "frameSequence": 25,
+    "fresh": true,
+    "revision": 14,
+    "generation": 3
+  },
+  "backend": "Linux x86_64, private Xvfb, software Mesa OpenGL 3.3",
+  "regularTests": {
+    "core": 312,
+    "desktop": 377,
+    "cli": 5,
+    "io": 42,
+    "ignored": 15
+  },
+  "gpuChecks": 8,
+  "clippy": true,
+  "nativeBuild": true,
+  "wasmLibraryCheck": true,
+  "releaseHelperTests": 8,
+  "example": {
+    "path": "examples/foliage-colors.octd",
+    "sha256": "545aadabb3cd1ce45282f6e03f08c4973fa7c4c34a27ae6425410aaec09c4f43"
+  },
+  "customVectorUniformCompatibility": true,
+  "screenshots": {
+    "custom-picker-open.png": "1ba51fca8683ebac1d735fb99889d36d10dc495fbce1c9cf7779654d6f22d9bd",
+    "foliage-rgb-picked.png": "6b4bdd45ce8204911257f69599087c13f6468c6277080bef7187891f4da8b9c7",
+    "foliage.png": "da07f2d2f2b8dfac357f9238930571ecfeace77711688d462d19e3b23bd44271",
+    "read-selection-colors.png": "59f5681f40dfadc097505c5ea53b45cfb55a81220ef70e398363f6deac5406f3",
+    "tree-color-picker.png": "29df5949c2b79b8ba4a81a94837e965748c6c0e147fe586e59035e72a7e8cd1c"
+  }
+}

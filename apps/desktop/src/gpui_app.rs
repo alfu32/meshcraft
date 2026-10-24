@@ -2809,6 +2809,7 @@ impl Render for MeshcraftShell {
                 materials::edit_tree(self, panel == "tree_new", panel == "tree_edit", window, cx);
             }
             if let Some(id) = match panel.as_str() {
+                "material_editor_foliage" => Some(meshcraft_core::document::procedural::FOLIAGE),
                 "material_editor_water" => Some(meshcraft_core::document::procedural::WATER),
                 "material_editor_brick" => Some(meshcraft_core::document::procedural::BRICK),
                 "material_editor_wood" => Some(meshcraft_core::document::procedural::WOOD),

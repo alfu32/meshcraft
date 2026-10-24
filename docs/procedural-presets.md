@@ -12,13 +12,20 @@ source surfaces, object settings and seeds are saved, not generated mesh data.
 [Open the example drawing](../examples/procedural-presets.octd) for three surface
 materials and two tree instances with different settings.
 
-## Water, brick and wood
+## Foliage, water, brick and wood
 
-In **Materials**, choose **New Water**, **New Brick** or **New Wood**, adjust its
+In **Materials**, choose **New Foliage**, **New Water**, **New Brick** or **New Wood**, adjust its
 parameters, Save, select the source geometry and **Apply to Selection**.
 Double-click the material to edit shared defaults. The existing **Apply Values
 to Selection** action changes only the selected assignments.
 
+- **Foliage:** broad leaves scattered across and around the source, with density,
+  leaf length/width, height, edge spread, tilt, curl, wind, seed, brightness
+  variation and two leaf colors. Edge spread offsets leaf roots in the surface
+  plane so leaves can extend beyond the source boundary. Set height/tilt/wind
+  near zero for leaf litter; choose green colors and raised/curled leaves for
+  ground cover. Density uses world area; other lengths use local model units.
+  LOD and the candidate budget bound rendering work. No CPU leaf meshes are saved.
 - **Water:** wave height, wavelength, direction, speed, mean surface offset,
   subdivision detail, opacity, shallow/deep colors and crest foam. Set speed or
   wave height to zero to stop animation. Subdivision is generated on the GPU and
@@ -32,6 +39,23 @@ to Selection** action changes only the selected assignments.
   axis, light/dark colors, seed and shading relief. It is a solid-coordinate
   pattern: end faces reveal rings, longitudinal faces reveal grain. Default axis
   is Z. Relief on brick/wood changes lighting only, not their silhouettes.
+
+![Foliage scatter](rewrite/references/foliage/foliage.png)
+
+[Open the foliage/color example](../examples/foliage-colors.octd) for a source
+surface with independently colored assignments and a procedural tree. This
+example deliberately uses partial leaf opacity to demonstrate color persistence.
+
+## Picking shader colors
+
+Shader color parameters use the shared color picker, including custom shader
+parameters and tree bark/leaves. Choose HSL, RGB or swatches and adjust opacity;
+normalized RGBA conversion happens internally. Opening and saving an unchanged
+color preserves its original values. Reset restores the program default; Read
+Selection Values also synchronizes material assignment color pickers. The model
+and automation API continue using normalized RGBA arrays.
+
+![Shader color picker](rewrite/references/foliage/foliage-rgb-picked.png)
 
 ## Trees
 

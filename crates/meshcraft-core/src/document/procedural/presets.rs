@@ -3,13 +3,15 @@ use super::*;
 pub const WATER: &str = "meshcraft.water.v1";
 pub const BRICK: &str = "meshcraft.brick.v1";
 pub const WOOD: &str = "meshcraft.wood.v1";
+pub const FOLIAGE: &str = "meshcraft.foliage.v1";
 pub const TREE: &str = "meshcraft.tree.v1";
 pub fn is_builtin(id: &str) -> bool {
-    matches!(id, GRASS | WATER | BRICK | WOOD | TREE)
+    matches!(id, GRASS | WATER | BRICK | WOOD | TREE | FOLIAGE)
 }
 pub fn builtin_programs() -> Vec<Program> {
     vec![
         grass_program(),
+        foliage_program(),
         water_program(),
         brick_program(),
         wood_program(),
@@ -73,6 +75,93 @@ fn seed() -> Parameter {
             u32::MAX as f64,
             "Deterministic variation. Changing this reshuffles the result.",
         )
+    }
+}
+pub fn foliage_program() -> Program {
+    Program {
+        id: FOLIAGE.into(),
+        name: "Foliage".into(),
+        generation: "foliage".into(),
+        animated: true,
+        parameters: vec![
+            scalar(
+                "density",
+                "Density",
+                18.,
+                0.,
+                10000.,
+                "Leaf candidates per square world model unit; LOD and budget cap the work.",
+            ),
+            scalar(
+                "size",
+                "Leaf length",
+                0.55,
+                0.001,
+                100.,
+                "Length in local model units, with seeded size variation.",
+            ),
+            scalar(
+                "width",
+                "Leaf width",
+                0.32,
+                0.001,
+                100.,
+                "Maximum width in local model units.",
+            ),
+            scalar(
+                "height",
+                "Height above surface",
+                0.12,
+                0.,
+                1000.,
+                "Root height along the source normal; zero places leaves directly on the surface.",
+            ),
+            scalar(
+                "spread",
+                "Edge spread",
+                0.45,
+                0.,
+                1000.,
+                "Random tangent-plane offset in local units, allowing leaves beyond the source boundary.",
+            ),
+            scalar(
+                "tilt",
+                "Tilt (degrees)",
+                30.,
+                0.,
+                90.,
+                "Leaf angle above the source plane, with seeded variation.",
+            ),
+            scalar(
+                "curl",
+                "Curl",
+                0.2,
+                -1.,
+                1.,
+                "Tip curl relative to leaf length.",
+            ),
+            scalar(
+                "wind",
+                "Wind strength",
+                0.1,
+                0.,
+                1.,
+                "Animated tip motion relative to leaf length; zero pauses animation.",
+            ),
+            scalar(
+                "variation",
+                "Color variation",
+                0.25,
+                0.,
+                1.,
+                "Seeded variation in leaf brightness.",
+            ),
+            color("leafColor", "Leaf color", [0.12, 0.36, 0.035, 1.]),
+            color("alternateColor", "Alternate color", [0.36, 0.60, 0.075, 1.]),
+            seed(),
+        ],
+        fragment: include_str!("foliage.fs").into(),
+        ..Default::default()
     }
 }
 pub fn water_program() -> Program {
@@ -345,6 +434,7 @@ pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) 
         BRICK => "Brick",
         WOOD => "Wood",
         TREE => "Tree",
+        FOLIAGE => "Foliage",
         _ => "Grass",
     }
     .into();
@@ -352,6 +442,7 @@ pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) 
         WATER => Rgba8::new(12, 95, 130, 185),
         BRICK => Rgba8::new(148, 48, 23, 255),
         WOOD => Rgba8::new(171, 99, 41, 255),
+        FOLIAGE => Rgba8::new(44, 115, 20, 255),
         _ => Rgba8::new(65, 130, 35, 255),
     };
     material.pbr = Some(Pbr {

@@ -1,7 +1,7 @@
 # Procedural materials (#30)
 
 Procedural materials add GPU-generated surface details to ordinary Meshcraft
-geometry. Grass, Water, Brick and Wood are included; custom programs can deform/shade a surface or
+geometry. Grass, Foliage, Water, Brick and Wood are included; custom programs can deform/shade a surface or
 customize generated strips. Definitions, settings and source surfaces are saved;
 generated blades never become editable mesh triangles.
 

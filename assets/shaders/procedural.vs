@@ -1,4 +1,5 @@
 #version 330
+/*GENERATOR*/
 layout(location=0) in vec3 domainA;
 layout(location=1) in vec3 domainB;
 layout(location=2) in vec3 domainC;
@@ -19,6 +20,7 @@ out vec2 proceduralUv;
 out vec2 materialUv;
 out vec3 proceduralNormal;
 flat out float faceOrientation;
+flat out float variationKey;
 /*PARAMETERS*/
 /*VERTEX*/
 uint hash(uint x) { x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; return x ^ (x >> 16u); }
@@ -27,10 +29,10 @@ void main() {
     vec3 normal = normalize(cross(domainB-domainA,domainC-domainA));
     vec3 position;
     vec2 uv = vec2(0.0);
-    color = baseColor;
+    color = baseColor;variationKey=0.0;
     sourceNormal=normal;localPosition=domainA;
     /*TREE_BRANCH*/
-    if (generation == 1) {
+    if (generation == 1 || generation == 4) {
         uint candidate = uint(gl_InstanceID % bladesPerTriangle);
         uint key = hash(uint(domainSeed.x) | (uint(domainSeed.y) << 16u)) ^ hash(candidate) ^ uint(u_seed);
         vec3 wa=(model*vec4(domainA,1.0)).xyz, wb=(model*vec4(domainB,1.0)).xyz, wc=(model*vec4(domainC,1.0)).xyz;
@@ -48,12 +50,32 @@ void main() {
         int corner=gl_VertexID%6;
         vec2 pattern[6]=vec2[](vec2(-1,0),vec2(1,0),vec2(1,1),vec2(-1,0),vec2(1,1),vec2(-1,1));
         uv=vec2(pattern[corner].x,(float(segment)+pattern[corner].y)/3.0);
+        variationKey=random(key+6u);
+#ifdef MESHCRAFT_FOLIAGE
+        {
+            float offsetAngle=random(key+7u)*6.28318530718;
+            root+=(tangent*cos(offsetAngle)+bitangent*sin(offsetAngle))*(u_spread*sqrt(random(key+8u)));
+            root+=normal*(u_height*(0.35+0.65*random(key+9u)));
+            float length=u_size*(0.7+0.6*random(key+5u));
+            float tilt=radians(u_tilt)*(0.7+0.6*random(key+10u));
+            vec3 forward=bend*cos(tilt)+normal*sin(tilt);
+            float wind=u_wind*sin(time*1.7+root.x*0.5+root.z*0.7+angle);
+            position=root+forward*(uv.y*length)+side*(uv.x*u_width*0.5)
+                +normal*(uv.y*uv.y*length*(u_curl+wind)+abs(uv.x)*u_width*0.10);
+            normal=normalize(cross(side,forward));
+            materialUv=vec2(uv.x*u_width*0.5,uv.y*length);
+            color.rgb=vec3(1.0-u_variation*variationKey);
+        }
+#else
+        {
         float h=u_height*(0.7+0.6*random(key+5u));
         float wind=u_wind*sin(time*1.7+root.x*0.5+root.z*0.7+angle);
         position=root+normal*(uv.y*h)+side*(uv.x*u_width*0.5*(1.0-uv.y))+bend*(uv.y*uv.y*h*(u_curvature+wind));
         materialUv=vec2(uv.x*u_width*0.5,uv.y*h);
         color.rgb*=1.0-u_variation*random(key+6u);
         color.rgb*=0.65+0.35*uv.y;
+        }
+#endif
     } else {
         position=gl_VertexID==0?domainA:(gl_VertexID==1?domainB:domainC);
         if(generation==3) {

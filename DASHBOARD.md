@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.36.0 foliage and shader colors:** shader material/object color parameters
+use the HSL/RGB/swatch picker with opacity. Foliage scatters broad curled leaves
+on and beyond source surfaces using GPU instancing, with seed, wind, bounds,
+LOD and candidate limits. See the [preset/color guide](docs/procedural-presets.md)
+and [T65 validation](docs/rewrite/handoffs/T65.md).
+
 **0.35.0 shader presets:** Water, Brick and Wood join the material library.
 Independent procedural Tree prototypes/instances generate branches and foliage
 on the GPU, with seeded shape, wind, bounded detail and editable settings.

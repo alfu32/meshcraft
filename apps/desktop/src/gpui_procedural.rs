@@ -147,6 +147,8 @@ fn shader_sources(p: &Program) -> (String, String) {
     }
     (
         include_str!("../../../assets/shaders/procedural.vs")
+            // Foliage-only names must not constrain unrelated custom parameter types.
+            .replace("/*GENERATOR*/",if p.generation=="foliage" {"#define MESHCRAFT_FOLIAGE 1"}else{""})
             .replace("/*PARAMETERS*/", &declarations)
             .replace("/*VERTEX*/", &p.vertex)
             .replace("/*TREE*/",if p.generation=="tree" {"uniform int treeBranches; uniform int treeLeafCount; flat out float treePart; flat out float treeKey; void treeVertex(out vec3 p,out vec3 normal,out vec2 uv);"}else{""})
@@ -191,6 +193,7 @@ fn tree_branch_count(values: &BTreeMap<String, Value>) -> usize {
 fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
     match p.id.as_str() {
         meshcraft_core::document::procedural::GRASS
+        | meshcraft_core::document::procedural::FOLIAGE
         | meshcraft_core::document::procedural::TREE => num(values, "wind", 0.) > 0.,
         meshcraft_core::document::procedural::WATER => {
             num(values, "amplitude", 0.) > 0. && num(values, "speed", 0.) > 0.
@@ -509,7 +512,7 @@ impl Renderer {
                         .push(format!("Base texture unavailable: {path}"));
                 }
             }
-            if p.generation == "blades"
+            if matches!(p.generation.as_str(), "blades" | "foliage")
                 && self.domains[domain].data.len() > config.max_instances as usize
             {
                 self.diagnostics.push(format!("{}: {} source triangles exceed the {} candidate budget; increase the budget or simplify the domain",material.name,self.domains[domain].data.len(),config.max_instances));
@@ -520,6 +523,13 @@ impl Renderer {
                         * 1.3
                         * (1. + num(&values, "curvature", 0.).abs() + num(&values, "wind", 0.))
                         + num(&values, "width", 0.)
+                } else if p.generation == "foliage" {
+                    num(&values, "spread", 0.)
+                        + num(&values, "height", 0.)
+                        + num(&values, "width", 0.)
+                        + num(&values, "size", 0.)
+                            * 1.3
+                            * (1. + num(&values, "curl", 0.).abs() + num(&values, "wind", 0.))
                 } else if p.generation == "surface_grid" {
                     num(&values, "amplitude", 0.) * 1.35 + num(&values, "offset", 0.).abs()
                 } else {
@@ -650,6 +660,7 @@ impl Renderer {
                 shader.get_shader_location("generation"),
                 match program.generation.as_str() {
                     "blades" => 1,
+                    "foliage" => 4,
                     "tree" => 2,
                     "surface_grid" => 3,
                     _ => 0,
@@ -723,7 +734,21 @@ impl Renderer {
                 );
                 raylib::ffi::rlActiveTextureSlot(0);
             }
-            let transparent = color.alpha < 255 || program.transparent;
+            let transparent = color.alpha < 255
+                || program.transparent
+                || program
+                    .parameters
+                    .iter()
+                    .filter(|p| p.kind == "color")
+                    .any(|p| {
+                        batch
+                            .values
+                            .get(&p.id)
+                            .and_then(Value::as_array)
+                            .and_then(|v| v.get(3))
+                            .and_then(Value::as_f64)
+                            .is_some_and(|a| a < 1.)
+                    });
             if !depth && transparent != translucent {
                 continue;
             }
@@ -778,13 +803,15 @@ impl Renderer {
                         + cols[1].cross(cols[2]).length_squared()
                         + cols[2].cross(cols[0]).length_squared())
                     .sqrt();
-                if (program.generation == "blades" && density <= 0.)
-                    || matches!(program.generation.as_str(), "blades" | "surface_grid")
-                        && domain.data.len() > config.max_instances as usize
+                if (matches!(program.generation.as_str(), "blades" | "foliage") && density <= 0.)
+                    || matches!(
+                        program.generation.as_str(),
+                        "blades" | "foliage" | "surface_grid"
+                    ) && domain.data.len() > config.max_instances as usize
                 {
                     continue;
                 }
-                let per = if program.generation == "blades" {
+                let per = if matches!(program.generation.as_str(), "blades" | "foliage") {
                     ((max_area * density).ceil() as usize)
                         .min(config.max_instances as usize / domain.data.len())
                         .max(1)
@@ -847,7 +874,7 @@ impl Renderer {
                     } else {
                         raylib::ffi::rlDrawVertexArrayInstanced(
                             0,
-                            if program.generation == "blades" {
+                            if matches!(program.generation.as_str(), "blades" | "foliage") {
                                 18
                             } else {
                                 3
@@ -1063,8 +1090,8 @@ mod tests {
     }
     #[test]
     #[ignore = "requires private X11/OpenGL 3.3; renders all shader presets"]
-    fn procedural_presets_gpu_tree_water_brick_wood() {
-        use meshcraft_core::document::procedural::{self, BRICK, TREE, WATER, WOOD};
+    fn procedural_presets_gpu_tree_water_brick_wood_foliage() {
+        use meshcraft_core::document::procedural::{self, BRICK, FOLIAGE, TREE, WATER, WOOD};
         let (mut rl, thread) = raylib::init()
             .size(640, 480)
             .hidden()
@@ -1074,7 +1101,7 @@ mod tests {
         let mut texture = rl.load_render_texture(&thread, 640, 480).unwrap();
         let mut renderer = lighting::Renderer::new(&mut rl, &thread);
         let mut results = Vec::new();
-        for id in [BRICK, WOOD, WATER, TREE] {
+        for id in [BRICK, WOOD, WATER, TREE, FOLIAGE] {
             let mut d = if id == TREE {
                 Document::new()
             } else {
@@ -1102,6 +1129,13 @@ mod tests {
             } else {
                 let mut m = d.materials().into_iter().find(|m| m.id == "grass").unwrap();
                 procedural::apply_preset(&mut m, id);
+                if id == FOLIAGE {
+                    m.procedural
+                        .as_mut()
+                        .unwrap()
+                        .parameters
+                        .insert("wind".into(), json!(0.));
+                }
                 if id == WATER {
                     m.procedural
                         .as_mut()
@@ -1180,6 +1214,193 @@ mod tests {
                 assert_ne!(results[a], results[b]);
             }
         }
+    }
+    #[test]
+    #[ignore = "requires private X11/OpenGL; validates foliage scatter, buffers, wind and alpha"]
+    fn procedural_foliage_gpu_scatter_seed_wind_and_alpha() {
+        use meshcraft_core::document::procedural::{self, FOLIAGE};
+        let (mut rl, thread) = raylib::init()
+            .size(420, 420)
+            .hidden()
+            .title("foliage scatter")
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut target = rl.load_render_texture(&thread, 420, 420).unwrap();
+        let mut renderer = lighting::Renderer::new(&mut rl, &thread);
+        let mut d = drawing();
+        let topology = d.scene_root_definition().unwrap().geometry.clone();
+        let mut material = d.materials().into_iter().find(|m| m.id == "grass").unwrap();
+        procedural::apply_preset(&mut material, FOLIAGE);
+        let config = material.procedural.as_mut().unwrap();
+        config.max_instances = 2000;
+        config.parameters = BTreeMap::from([
+            ("density".into(), json!(24.)),
+            ("spread".into(), json!(2.)),
+            ("size".into(), json!(0.8)),
+            ("width".into(), json!(0.45)),
+            ("wind".into(), json!(0.)),
+        ]);
+        d.put_material(material.clone()).unwrap();
+        let mut scene = RenderScene {
+            document: Arc::new(d.clone()),
+            grid_visible: false,
+            guides_visible: false,
+            ..Default::default()
+        };
+        let camera = OrbitCamera {
+            target: Vec3::ZERO,
+            eye: Some(Vec3::Y * 15.),
+            up: -Vec3::Z,
+            orthographic: true,
+            distance: 16.,
+            ..Default::default()
+        };
+        renderer.prepare(&mut rl, &thread, &scene);
+        assert!(
+            renderer.gpu.procedural.diagnostics.is_empty(),
+            "{:?}",
+            renderer.gpu.procedural.diagnostics
+        );
+        assert!(renderer.gpu.procedural.batches[0].expansion > 2.);
+        let uploads = renderer.gpu.procedural.domain_uploads;
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            0,
+            &mut renderer,
+        );
+        let first = copy_target_to_gpui_image(&target).unwrap();
+        assert!(!renderer.gpu.procedural.animated);
+        assert!(
+            renderer.gpu.procedural.candidates > 100 && renderer.gpu.procedural.candidates <= 2000
+        );
+        let fringe = first
+            .enumerate_pixels()
+            .filter(|(x, y, p)| {
+                let (origin, _) = camera.ray(*x as f32, *y as f32, 420., 420.).unwrap();
+                (origin.x.abs() > 4.2 || origin.z.abs() > 4.2)
+                    && i32::from(p[1]) > i32::from(p[0]) + 20
+                    && i32::from(p[1]) > i32::from(p[2]) + 20
+            })
+            .count();
+        assert!(
+            fringe > 20,
+            "leaves must scatter beyond the source boundary: {fringe}"
+        );
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            1,
+            &mut renderer,
+        );
+        assert_eq!(
+            first,
+            copy_target_to_gpui_image(&target).unwrap(),
+            "same seed is deterministic"
+        );
+        material
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("seed".into(), json!(73));
+        d.put_material(material.clone()).unwrap();
+        scene.document = Arc::new(d.clone());
+        renderer.prepare(&mut rl, &thread, &scene);
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            2,
+            &mut renderer,
+        );
+        assert_ne!(first, copy_target_to_gpui_image(&target).unwrap());
+        material
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("wind".into(), json!(0.4));
+        d.put_material(material.clone()).unwrap();
+        scene.document = Arc::new(d.clone());
+        renderer.prepare(&mut rl, &thread, &scene);
+        let oblique = OrbitCamera {
+            target: Vec3::ZERO,
+            distance: 14.,
+            yaw: 0.7,
+            pitch: 0.65,
+            ..Default::default()
+        };
+        renderer.gpu.procedural.time = 1.;
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            oblique,
+            &scene,
+            3,
+            &mut renderer,
+        );
+        let windy = copy_target_to_gpui_image(&target).unwrap();
+        renderer.gpu.procedural.time = 2.;
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            oblique,
+            &scene,
+            4,
+            &mut renderer,
+        );
+        assert_ne!(windy, copy_target_to_gpui_image(&target).unwrap());
+        assert!(renderer.gpu.procedural.animated);
+        let p = material.procedural.as_mut().unwrap();
+        for name in ["leafColor", "alternateColor"] {
+            p.parameters
+                .insert(name.into(), json!([0.2, 0.4, 0.08, 0.5]));
+        }
+        d.put_material(material).unwrap();
+        scene.document = Arc::new(d.clone());
+        renderer.prepare(&mut rl, &thread, &scene);
+        let mut shadow = rl.load_render_texture(&thread, 160, 160).unwrap();
+        {
+            let mut pass = rl.begin_texture_mode(&thread, &mut shadow);
+            pass.clear_background(Color::WHITE);
+            let _view = pass.begin_mode3D(Camera3D::orthographic(
+                RayVector3::new(6., 8., 6.),
+                RayVector3::zero(),
+                RayVector3::new(0., 1., 0.),
+                18.,
+            ));
+            renderer.gpu.procedural.draw(&scene, None, true, 0, false);
+        }
+        assert!(
+            copy_target_to_gpui_image(&shadow)
+                .unwrap()
+                .pixels()
+                .all(|p| p[0] == 255 && p[1] == 255 && p[2] == 255),
+            "translucent leaf colors must not cast opaque shadows"
+        );
+        assert_eq!(
+            uploads, renderer.gpu.procedural.domain_uploads,
+            "parameter/seed/color edits must reuse the source GPU buffer"
+        );
+        let geometry = scene
+            .document
+            .scene_root_definition()
+            .unwrap()
+            .geometry
+            .clone();
+        assert_eq!(topology.vertices, geometry.vertices);
+        assert_eq!(topology.triangles.len(), geometry.triangles.len());
     }
     #[test]
     fn source_contract_and_conservative_frustum_bounds() {
@@ -1497,7 +1718,15 @@ mod integration_tests {
         parameter.id = "albedo".into();
         parameter.kind = "texture".into();
         parameter.default = json!(path.to_string_lossy());
-        d.put_procedural_program(Program {id:"texture-surface".into(),name:"Textured surface".into(),parameters:vec![parameter],fragment:"vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv){return texture(u_albedo,uv);}".into(),..Default::default()}).unwrap();
+        let mut size = parameter.clone();
+        size.id = "size".into();
+        size.kind = "vec3".into();
+        size.default = json!([1., 1., 1.]);
+        let mut spread = size.clone();
+        spread.id = "spread".into();
+        spread.kind = "vec2".into();
+        spread.default = json!([0., 0.]);
+        d.put_procedural_program(Program {id:"texture-surface".into(),name:"Textured surface".into(),parameters:vec![parameter,size,spread],fragment:"vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv){return texture(u_albedo,uv);}".into(),..Default::default()}).unwrap();
         let mut material = Material {
             id: "custom".into(),
             name: "Custom".into(),

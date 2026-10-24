@@ -9,6 +9,7 @@ in vec2 materialUv;
 in vec3 proceduralNormal;
 uniform int generation;
 flat in float faceOrientation;
+flat in float variationKey;
 uniform float time;
 uniform vec3 towardLight;
 uniform vec3 eye;
@@ -45,7 +46,7 @@ float visibility(vec3 normal) {
     return 1.0-shadowStrength*occlusion/9.0;
 }
 void main() {
-    vec3 normal=generation!=1?normalize(proceduralNormal):normalize(cross(dFdx(worldPosition),dFdy(worldPosition)));
+    vec3 normal=generation!=1&&generation!=4?normalize(proceduralNormal):normalize(cross(dFdx(worldPosition),dFdy(worldPosition)));
     normal=proceduralShadingNormal(normal,worldPosition,proceduralUv);
     vec4 c=proceduralColor(color,worldPosition,normal,proceduralUv);
     if(hasBaseTexture!=0) c*=texture(baseTexture,materialUv/max(textureSizes,vec2(0.0001)));
