@@ -264,3 +264,52 @@ Scripted hotspot appearance uses `$HOTSPOT(position, id, label, shape, color)`.
 `meshcraft_script_api` publishes the shape constants and full optional defaults;
 `meshcraft_geometry` returns the resulting marker shape and RGBA color. See the
 [appearance API](script-parameters.md#hotspot-appearance).
+
+## Procedural materials (#30)
+
+`meshcraft_scene.proceduralPrograms` publishes every program, its parameter
+signatures/defaults/ranges/descriptions and shader functions. `meshcraft.grass.v1`
+is built in and read-only. A normal material may add:
+
+```json
+{"id":"my-grass","name":"Grass","color":{"red":65,"green":130,"blue":35,"alpha":255},"procedural":{"program":"meshcraft.grass.v1","parameters":{"density":30,"height":0.8,"width":0.06,"curvature":0.3,"seed":42,"wind":0.15,"variation":0.25},"lodDistance":100,"maxInstances":50000,"showBounds":false}}
+```
+
+Pass this as `material` to `material.save`, select surfaces/instances, then call
+`material.apply` with `id`. Optional `baseMaterial` references a conventional
+catalog material for color/alpha, texture dimensions and PBR settings
+(`pbr:{roughness:0.6,metallic:0}`). Apply different instance values with
+`material.parameters`, arguments `{"id":"my-grass","parameters":{"height":2,"seed":7}}`.
+This applies to the editable selection; sibling instances keep their values.
+`material.apply` clears selection overrides to inherit the material defaults.
+Architectural assignments retain values through regeneration and project IO.
+
+Use `material.program` with a `program` object to save a custom reusable program.
+Fields: `id`, `name`, `generation` (`surface` or `blades`), `backend`
+(`vertex_instancing_gl33`), `parameters`, `vertex`, `fragment`, `boundsExpansion`,
+`animated`, `transparent`. Each parameter has `id`, `kind`, `default`, optional
+`label`, `description`, `min`, `max`, `step`, `unit`, and `options` for enum choices.
+Kinds: `float`, `integer` (signed 32-bit), `unsigned`/`seed` (unsigned 32-bit),
+`boolean`, `vec2`, `vec3`, `vec4`, `color` (four 0–1 channels), `matrix` (16 values,
+column-major), `texture` (file path), `enum` (option key). Shader uniforms are
+`u_<id>`; `time` is seconds. Texture parameters bind samplers (up to eight).
+
+Vertex source defines
+`void proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv)` in local
+source coordinates. Fragment source defines
+`vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv)` with world-space
+position/normal, before built-in lighting. Sources use GLSL 330; `eye` and
+`towardLight` are also available in the fragment scope. A `surface` program emits
+the source triangles with its deformation/shading; `blades` starts with instanced
+strips. Declare sufficient `boundsExpansion` for custom displacement, and
+`transparent:true` if the fragment function emits blended alpha. Set `animated`
+only when time affects the program. Texture paths are absolute or relative to the
+process working directory.
+
+`meshcraft_capture_view` reports `procedural.diagnostics`, candidate counts and
+GPU draw counts. Unsupported/missing programs and compile failures retain base
+surfaces and report diagnostics. Generated details are visual-only: geometry
+queries, snapping, mesh export and Explode operate on the authored source mesh.
+The native path uses OpenGL 3.3 instancing; compute/mesh shader declarations fall
+back explicitly. Candidate limits and LOD bound work; a domain with more triangles
+than its candidate budget needs a larger budget or a simpler distribution mesh.

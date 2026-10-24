@@ -19,6 +19,20 @@ pub enum ShadingType {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
+pub struct Pbr {
+    pub roughness: f64,
+    pub metallic: f64,
+}
+impl Default for Pbr {
+    fn default() -> Self {
+        Self {
+            roughness: 0.6,
+            metallic: 0.0,
+        }
+    }
+}
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Material {
     pub id: String,
     pub name: String,
@@ -27,6 +41,10 @@ pub struct Material {
     pub texture_path: Option<String>,
     pub texture_scale_u: f64,
     pub texture_scale_v: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub procedural: Option<super::procedural::ProceduralMaterial>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pbr: Option<Pbr>,
 }
 
 impl Default for Material {
@@ -39,6 +57,8 @@ impl Default for Material {
             texture_path: None,
             texture_scale_u: 1.,
             texture_scale_v: 1.,
+            procedural: None,
+            pbr: None,
         }
     }
 }
@@ -101,6 +121,16 @@ impl Material {
             .any(|size| !size.is_finite() || *size <= 0.)
         {
             return Err("texture U/V sizes must be positive model-unit distances".into());
+        }
+        if self.pbr.as_ref().is_some_and(|p| {
+            [p.roughness, p.metallic]
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        }) {
+            return Err("PBR roughness and metallic must be between zero and one".into());
+        }
+        if let Some(p) = &self.procedural {
+            p.validate()?;
         }
         Ok(())
     }
@@ -166,6 +196,35 @@ impl Document {
         material.name = material.name.trim().to_owned();
         material.texture_path = material.texture_path.filter(|p| !p.trim().is_empty());
         material.validate()?;
+        if let Some(p) = &material.procedural {
+            if let Some(program) = self
+                .procedural_programs()
+                .into_iter()
+                .find(|v| v.id == p.program)
+            {
+                program.resolve(&p.parameters, &BTreeMap::new())?;
+            }
+            if let Some(base) = &p.base_material
+                && (base == &material.id
+                    || !self
+                        .materials()
+                        .iter()
+                        .any(|m| &m.id == base && m.procedural.is_none()))
+            {
+                return Err("Base shading material must reference a conventional material".into());
+            }
+        }
+        if material.procedural.is_some()
+            && self.materials().iter().any(|m| {
+                m.id != material.id
+                    && m.procedural
+                        .as_ref()
+                        .and_then(|p| p.base_material.as_deref())
+                        == Some(material.id.as_str())
+            })
+        {
+            return Err("A referenced base material must remain conventional".into());
+        }
         let id = material.id.clone();
         let color = material.color;
         let mut materials = self.read_materials()?;
@@ -275,6 +334,14 @@ impl Document {
         {
             return true;
         }
+        if self.materials().iter().any(|m| {
+            m.procedural
+                .as_ref()
+                .and_then(|p| p.base_material.as_deref())
+                == Some(id)
+        }) {
+            return true;
+        }
         let color = self.material_colors().get(id).copied();
         let geometry_uses = |g: &GeometryBundle| {
             g.segments
@@ -361,25 +428,96 @@ impl Document {
         &mut self,
         source: &Document,
     ) -> Result<BTreeMap<String, String>, String> {
-        let mut ids = BTreeMap::new();
-        for mut material in source.read_materials()? {
-            let original = material.id.clone();
-            if let Some(existing) = self.materials().into_iter().find(|m| m.id == material.id) {
-                if existing == material {
-                    ids.insert(original, existing.id);
-                    continue;
+        let mut programs = BTreeMap::new();
+        for mut p in source
+            .procedural_programs()
+            .into_iter()
+            .filter(|p| p.id != super::procedural::GRASS)
+        {
+            let old = p.id.clone();
+            if self
+                .procedural_programs()
+                .iter()
+                .any(|v| v.id == p.id && v != &p)
+            {
+                let existing = self.procedural_programs();
+                let mut n = 1;
+                while existing
+                    .iter()
+                    .any(|v| v.id == format!("{old}.imported{n}"))
+                {
+                    n += 1;
                 }
-                material.id = self.next_material().id;
-                material.name.push_str(" (imported)");
+                p.id = format!("{old}.imported{n}");
             }
-            ids.insert(original, material.id.clone());
-            self.put_material(material)?;
+            programs.insert(old, p.id.clone());
+            self.put_procedural_program(p)?;
+        }
+        let mut source_materials = source.read_materials()?;
+        source_materials.sort_by_key(|m| m.procedural.is_some());
+        let mut reserved = self
+            .materials()
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<BTreeSet<_>>();
+        let mut ids = BTreeMap::<String, String>::new();
+        for m in &source_materials {
+            let mut comparable = m.clone();
+            if let Some(p) = comparable.procedural.as_mut() {
+                if let Some(id) = programs.get(&p.program) {
+                    p.program = id.clone();
+                }
+                if let Some(base) = p.base_material.as_mut()
+                    && let Some(id) = ids.get(base)
+                {
+                    *base = id.clone();
+                }
+            }
+            let id = if self
+                .materials()
+                .iter()
+                .any(|v| v.id == m.id && v != &comparable)
+            {
+                let n = (1..)
+                    .find(|n| !reserved.contains(&format!("material-{n}")))
+                    .unwrap();
+                format!("material-{n}")
+            } else {
+                m.id.clone()
+            };
+            reserved.insert(id.clone());
+            ids.insert(m.id.clone(), id);
+        }
+        // Conventional base materials must exist before their procedural users.
+        let mut ordered = source_materials;
+        ordered.sort_by_key(|m| m.procedural.is_some());
+        for mut m in ordered {
+            let old = m.id.clone();
+            m.id = ids[&old].clone();
+            if m.id != old {
+                m.name.push_str(" (imported)");
+            }
+            if let Some(p) = m.procedural.as_mut() {
+                if let Some(id) = programs.get(&p.program) {
+                    p.program = id.clone();
+                }
+                if let Some(base) = p.base_material.as_mut()
+                    && let Some(id) = ids.get(base)
+                {
+                    *base = id.clone();
+                }
+            }
+            self.put_material(m)?;
         }
         Ok(ids)
     }
 
     pub fn material_for_color(&mut self, color: Rgba8) -> Result<String, String> {
-        if let Some(m) = self.materials().into_iter().find(|m| m.color == color) {
+        if let Some(m) = self
+            .materials()
+            .into_iter()
+            .find(|m| m.procedural.is_none() && m.color == color)
+        {
             return Ok(m.id);
         }
         let mut material = self.next_material();
@@ -445,6 +583,7 @@ impl Document {
         let mut catalog = self.materials();
         let mut by_color = catalog
             .iter()
+            .filter(|m| m.procedural.is_none())
             .map(|m| {
                 (
                     [m.color.red, m.color.green, m.color.blue, m.color.alpha],

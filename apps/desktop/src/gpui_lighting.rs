@@ -274,6 +274,16 @@ impl Renderer {
         } else {
             vec![]
         };
+        if changed {
+            self.gpu.procedural.prepare(rl, thread, scene);
+        }
+        self.gpu.procedural.tick();
+        if changed && let Some(b) = self.gpu.procedural.bounds() {
+            self.radius = self
+                .radius
+                .max(self.center.distance(b.min))
+                .max(self.center.distance(b.max));
+        }
         self.gpu.prepare(
             scene,
             &self.selection,
@@ -286,7 +296,9 @@ impl Renderer {
         );
         let direction = scene.lighting.direction();
         let light = (scene.lighting.azimuth, scene.lighting.elevation);
-        if !scene.lighting.shadows || (!changed && self.last_light == Some(light)) {
+        if !scene.lighting.shadows
+            || (!changed && self.last_light == Some(light) && !self.gpu.procedural.animated)
+        {
             return;
         }
         self.last_light = Some(light);
@@ -319,6 +331,7 @@ impl Renderer {
                 );
             }
             self.gpu.draw_shadow(&mut self.depth);
+            self.gpu.procedural.draw(scene, None, true, 0, false);
             unsafe {
                 raylib::ffi::rlEnableBackfaceCulling();
             }

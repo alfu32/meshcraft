@@ -32,3 +32,38 @@ nested instance defaults, evaluated scripts, architecture records and architectu
 creation defaults count as use. Implicit line/face/architecture defaults count as
 use even before geometry is created. Unused ANSI colors and custom materials can
 be deleted, with no forced replacement or recoloring of geometry.
+
+### #30 Procedural materials (under #29, T63)
+
+A conventional material may carry an optional procedural configuration: stable
+program ID, typed parameter values, optional conventional/PBR base-material
+reference, LOD distance, candidate budget and bounds display. Shared program
+resources define generation mode, backend requirements, shader functions,
+parameter schemas, conservative bounds expansion, animation and transparency.
+Parameter resolution is program defaults, material values, then surface/instance
+assignment overrides. The existing material assignment interface and independent
+instance/prototype editing semantics apply; architectural overrides belong to
+canonical owners and survive their regeneration. Assignment and program changes
+are validated and undoable. Import remaps resource, material and base references.
+Unknown backend/program data round-trips and cannot prevent unrelated geometry
+from loading; render it with an explicit diagnostic and conventional fallback.
+
+The first native mechanism is OpenGL 3.3 vertex instancing. A grass reference
+material exposes density, blade height/width, curvature, seed, wind and color
+variation. Geometry is generated on the GPU from source surface triangles, with
+stable seeded distribution, cached source buffers, transformed expanded bounds,
+culling, density LOD and configurable work limits. Program changes compile/cache
+GPU resources on the rendering owner; parameter/time changes reuse geometry.
+Opaque generated details participate in shadows/depth, and alpha uses blending.
+Texture inputs and optional PBR base references are evaluated by procedural
+shaders; conventional viewport texture/shading promises above remain unchanged.
+
+Generated details do not enter the persistent mesh, CPU picking/snapping,
+collision, mesh export or Explode. Interaction uses the source owner. The material
+editor exposes declarations, parameter controls and read/apply/reset of selection
+values. Custom shader definitions have separate monospace metadata, vertex and
+fragment editors and real compiler/linker diagnostics. Apply commits while keeping
+the dialog open; Cancel/Escape discards only edits not yet applied. The program
+editor has its own explicit Save action. Idle animation runs only while a used,
+visible program requests it. Compute/mesh shader generation is a later #29 phase;
+independent procedural objects and tree/bush examples belong to #31.

@@ -36,7 +36,7 @@ HSL, RGB and swatches, each with opacity controls.
 - **Annotate designs:** dimensions, text and leaders, with editable labels and sizes.
 - **Reuse selections:** system cut/copy/paste with floating wireframe placement, Paste in Place, and Copy as Script for an editable JavaScript geometry snapshot.
 - **Build architecture:** draw walls, rectangular or freeform polyline slabs, and owned wall/slab openings. Reshape walls, slab profiles, openings and frames with handles, join wall endpoints with Autojoin, and place independent windows and doors without automatic wall cuts. See the [architecture workflow and example](docs/architecture.md).
-- **Materials:** create and edit named RGBA materials, assign them to selections, and see their colors and transparency in the viewport. Optional texture paths, U/V sizes and shading types are retained for future rendering work.
+- **Materials:** create named RGBA materials and assign them to selections. Procedural materials generate grass and custom surface effects on the GPU, with editable parameters, independent assignment values, wind, textures and PBR bases. See the [procedural material guide and example](docs/procedural-materials.md). Conventional viewport textures and shading interpolation remain future rendering work.
 - **Exchange geometry:** import and export OBJ, STL, ASCII FBX, glTF/GLB, Collada, DXF, 3MF, AMF and IFC proxy geometry. Export the selection or full model, with physical units and background jobs. See [supported subsets and workflows](docs/interchange.md).
 - **Keep working:** save and load projects, open legacy `.octd` and `.k3d` designs, and undo or redo edits.
 

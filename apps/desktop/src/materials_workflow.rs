@@ -1,6 +1,7 @@
 //! Material operations use the same document history as modeling operations.
 use super::*;
 use meshcraft_core::document::materials::Material;
+use serde_json::Value;
 
 impl MeshcraftApp {
     pub(super) fn current_face_color(&self) -> Rgba8 {
@@ -99,7 +100,37 @@ impl MeshcraftApp {
         Ok(())
     }
 
+    pub fn save_native_procedural_program(
+        &mut self,
+        program: meshcraft_core::document::procedural::Program,
+    ) -> Result<(), String> {
+        self.commit_global_document_edit("Save procedural program", |d| {
+            d.put_procedural_program(program)
+        })
+    }
     pub fn assign_native_material(&mut self, id: &str) -> Result<(), String> {
+        self.assign_native_material_parameters(id, None)
+    }
+    pub fn assign_native_material_parameters(
+        &mut self,
+        id: &str,
+        parameters: Option<BTreeMap<String, Value>>,
+    ) -> Result<(), String> {
+        if let Some(values) = &parameters {
+            let material = self
+                .document
+                .materials()
+                .into_iter()
+                .find(|m| m.id == id)
+                .ok_or("Material missing")?;
+            let p = material.procedural.ok_or("Material is conventional")?;
+            self.document
+                .procedural_programs()
+                .into_iter()
+                .find(|v| v.id == p.program)
+                .ok_or("Program unavailable")?
+                .resolve(&p.parameters, values)?;
+        }
         let mut selection = SelectionSession::default();
         selection.set_context(self.selection.context.clone());
         let mut architecture = Vec::new();
@@ -179,11 +210,24 @@ impl MeshcraftApp {
                         .surface_materials_mut()
                         .insert((*slot).into(), id.into());
                 }
+                if let Some(values) = &parameters {
+                    element
+                        .procedural_parameters_mut()
+                        .insert(id.into(), values.clone());
+                } else {
+                    element.procedural_parameters_mut().remove(id);
+                }
                 let owner_id = element.id().to_owned();
                 document.put_architecture(owner.definition, Some(&owner_id), element)?;
             }
             if !selection.selected().is_empty() {
-                modeling_transforms::assign_material(document, &selection, id)?;
+                if let Some(values) = &parameters {
+                    modeling_transforms::assign_procedural_material(
+                        document, &selection, id, values,
+                    )?;
+                } else {
+                    modeling_transforms::assign_material(document, &selection, id)?;
+                }
             }
             Ok(())
         })?;
@@ -276,5 +320,95 @@ mod tests {
         );
         app.undo_document();
         assert_eq!(initial_materials, app.document.materials());
+    }
+}
+
+#[cfg(test)]
+mod procedural_tests {
+    use super::*;
+    use meshcraft_core::document::{
+        architecture::{Element, Wall},
+        materials::Material,
+        procedural::{OVERRIDES_KEY, ProceduralMaterial},
+    };
+    #[test]
+    fn procedural_architecture_overrides_regenerate_and_undo_without_baking() {
+        let mut app = MeshcraftApp::new_native_session(Document::new(), "Ready".into(), None);
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let owner = app
+            .document
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let material = Material {
+            id: "grass".into(),
+            name: "Grass".into(),
+            procedural: Some(ProceduralMaterial::default()),
+            ..Default::default()
+        };
+        app.save_native_material(material).unwrap();
+        let target = SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: meshcraft_core::selection::SelectionKind::Wall,
+                id: owner.clone(),
+            },
+        };
+        app.selection.select(target.clone());
+        let before = app.document.clone();
+        app.assign_native_material_parameters(
+            "grass",
+            Some(BTreeMap::from([("height".into(), json!(2.))])),
+        )
+        .unwrap();
+        assert!(
+            app.document
+                .scene_root_definition()
+                .unwrap()
+                .geometry
+                .triangles
+                .values()
+                .all(|f| f.extensions[OVERRIDES_KEY]["height"] == 2.)
+        );
+        let saved = meshcraft_core::legacy::export_current_value(&app.document).unwrap();
+        let reopened = meshcraft_core::legacy::import_current_value(&saved).unwrap();
+        assert!(reopened.scene_geometry_refs().unwrap().iter().any(|p| {
+            reopened.effective_geometry(p).is_some_and(|g| {
+                g.triangles.values().any(|f| {
+                    f.extensions
+                        .get(OVERRIDES_KEY)
+                        .is_some_and(|v| v["height"] == 2.)
+                })
+            })
+        }));
+        app.undo_document();
+        assert_eq!(
+            before.scene_root_definition(),
+            app.document.scene_root_definition()
+        );
+        app.redo_document();
+        let Element::Wall(mut wall) = app.document.architecture_element(&target).unwrap().element
+        else {
+            panic!()
+        };
+        wall.height = 12.;
+        app.document
+            .put_architecture(root, Some(&owner), Element::Wall(wall))
+            .unwrap();
+        assert!(
+            app.document
+                .scene_root_definition()
+                .unwrap()
+                .geometry
+                .triangles
+                .values()
+                .all(|f| f.extensions[OVERRIDES_KEY]["height"] == 2.)
+        );
     }
 }

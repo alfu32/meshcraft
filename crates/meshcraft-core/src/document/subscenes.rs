@@ -208,6 +208,15 @@ impl Document {
             copy.default_child_layout = definition.default_child_layout.map(|id| ids.layouts[&id]);
             fn remap_surfaces(value: &mut Value, ids: &BTreeMap<String, String>) {
                 if let Some(map) = value.as_object_mut() {
+                    if let Some(overrides) = map
+                        .get_mut("proceduralParameters")
+                        .and_then(Value::as_object_mut)
+                    {
+                        *overrides = std::mem::take(overrides)
+                            .into_iter()
+                            .map(|(id, value)| (ids.get(&id).cloned().unwrap_or(id), value))
+                            .collect();
+                    }
                     if let Some(materials) = map.get_mut("materials").and_then(Value::as_object_mut)
                     {
                         for value in materials.values_mut() {

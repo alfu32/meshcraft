@@ -1,0 +1,58 @@
+{
+  "version": "0.34.0",
+  "sourcePrimitives": 12,
+  "overrideFaces": 2,
+  "undoRedo": true,
+  "saveReopen": true,
+  "draftCancel": true,
+  "programDraftCancel": true,
+  "capture": {
+    "includes": "3D viewport only; GPUI labels/panels are separate",
+    "width": 850,
+    "height": 781,
+    "procedural": {
+      "diagnostics": [],
+      "candidateInstances": 3318,
+      "drawCalls": 2
+    },
+    "frameSequence": 12,
+    "fresh": true,
+    "revision": 6,
+    "generation": 0
+  },
+  "issues": [
+    29,
+    30
+  ],
+  "platform": "Linux X11/Xvfb, software Mesa OpenGL 3.3",
+  "regularTests": {
+    "core": 309,
+    "desktopLibrary": 376,
+    "cli": 5,
+    "io": 42,
+    "passed": 732,
+    "ignored": 13
+  },
+  "explicitGpuTests": [
+    "procedural_material_gpu_generation_and_fallback",
+    "procedural_surface_texture_pbr_and_instance_sharing"
+  ],
+  "existingGpuRegressions": [
+    "gpu_buffers_survive_navigation_selection_and_transform_only_edits",
+    "gpu_lines_match_screen_projection_and_clip_at_the_near_plane",
+    "gpu_light_camera_casts_shadows_and_black_lines_survive_composition",
+    "placement_gpu_quads_follow_transforms_and_reuse_the_uploaded_mesh"
+  ],
+  "analyticShadowIoU": 0.919,
+  "limits": [
+    "Only native OpenGL 3.3 instancing is implemented; compute/mesh shader backends fall back with diagnostics.",
+    "Generated details remain visual-only; no CPU mesh, snapping, baking or mesh export.",
+    "Texture paths are absolute or relative to process working directory.",
+    "Custom program bounds expansion and transparency mode are author declarations.",
+    "No physical GPU, Windows/macOS GUI, or browser rendering qualification is claimed."
+  ],
+  "windAdvancesWithoutModelEdits": true,
+  "zeroWindStopsRefresh": true,
+  "proceduralShadowDepthTest": true,
+  "translucentShadowExclusionTest": true
+}

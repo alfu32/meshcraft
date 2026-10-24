@@ -512,6 +512,6 @@ fn capture(shell: &MeshcraftShell, args: &Value) -> Result<Value, String> {
     .map_err(|e| e.to_string())?;
     let data = base64::engine::general_purpose::STANDARD.encode(png);
     Ok(
-        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"frameSequence":frame.sequence,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
+        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"procedural":{"diagnostics":frame.procedural_diagnostics,"candidateInstances":frame.procedural_candidates,"drawCalls":frame.procedural_draw_calls},"frameSequence":frame.sequence,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
     )
 }

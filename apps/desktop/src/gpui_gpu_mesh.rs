@@ -94,6 +94,7 @@ fn source_parts(
     policy: &SelectionDisplayPolicy,
     object_wire: bool,
     colors: &BTreeMap<String, Rgba8>,
+    suppressed: &std::collections::BTreeSet<String>,
 ) -> Vec<SourcePart> {
     let mut parts = BTreeMap::<SelectedEntity, SourceBuilder>::new();
     let edge_key = |a: Vec3, b: Vec3| {
@@ -135,6 +136,11 @@ fn source_parts(
                         .or_insert(([a, b], color(&f.extensions, f.color)));
                 }
             }
+            continue;
+        }
+        if meshcraft_core::document::materials::material_id(&f.extensions)
+            .is_some_and(|id| suppressed.contains(&procedural::surface_key(id, &f.extensions)))
+        {
             continue;
         }
         let c = rgba(color(&f.extensions, f.color));
@@ -194,7 +200,15 @@ fn source_parts(
         })
         .collect()
 }
+#[cfg(test)]
 fn plan(document: &Document, policy: &SelectionDisplayPolicy) -> Vec<PlannedGroup> {
+    plan_with_procedural(document, policy, &std::collections::BTreeSet::new())
+}
+fn plan_with_procedural(
+    document: &Document,
+    policy: &SelectionDisplayPolicy,
+    suppressed: &std::collections::BTreeSet<String>,
+) -> Vec<PlannedGroup> {
     let mut sources = HashMap::new();
     let mut groups: Vec<PlannedGroup> = vec![];
     let mut by_hash = HashMap::<u64, Vec<usize>>::new();
@@ -214,7 +228,7 @@ fn plan(document: &Document, policy: &SelectionDisplayPolicy) -> Vec<PlannedGrou
         // Cache by source identity within this immutable snapshot. No world-space duplication.
         let parts = sources
             .entry((g as *const GeometryBundle as usize, wire))
-            .or_insert_with(|| source_parts(g, policy, wire, &colors));
+            .or_insert_with(|| source_parts(g, policy, wire, &colors, suppressed));
         for part in parts.iter() {
             let at = by_hash.get(&part.key).and_then(|indices| {
                 indices
@@ -539,6 +553,7 @@ pub(super) struct Feedback<'a> {
     pub bounds: &'a [[Vec3; 2]],
 }
 pub(super) struct Scene {
+    pub procedural: procedural::Renderer,
     groups: Vec<Group>,
     surface: Shader,
     line: Shader,
@@ -549,6 +564,7 @@ pub(super) struct Scene {
 impl Scene {
     pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
         Self {
+            procedural: procedural::Renderer::default(),
             groups: vec![],
             overlay: vec![],
             feedback: [None, None],
@@ -579,7 +595,11 @@ impl Scene {
             self.feedback[1] = None;
         }
         if rebuild {
-            let plans = plan(&scene.document, &scene.display_policy);
+            let plans = plan_with_procedural(
+                &scene.document,
+                &scene.display_policy,
+                &self.procedural.surface_materials,
+            );
             let mut kept = std::mem::take(&mut self.groups);
             for planned in plans {
                 let old = kept
@@ -715,6 +735,7 @@ impl Scene {
         finish();
     }
     pub fn set_light_matrix(&mut self, matrix: raylib::ffi::Matrix) {
+        self.procedural.set_light(matrix);
         self.surface
             .set_shader_value_matrix(self.surface.get_shader_location("lightVP"), matrix);
     }
@@ -755,6 +776,15 @@ impl Scene {
                 mesh.draw(&g.buffer, g.instances.len());
             }
         }
+        self.procedural
+            .draw(scene, Some(camera), false, shadow_texture, false);
+        unsafe {
+            raylib::ffi::rlEnableShader(s.id);
+            raylib::ffi::rlActiveTextureSlot(1);
+            raylib::ffi::rlEnableTexture(shadow_texture);
+            raylib::ffi::rlActiveTextureSlot(0);
+            raylib::ffi::rlDisableBackfaceCulling();
+        }
         // Opaque depth is complete before any shared translucent group is blended.
         unsafe {
             raylib::ffi::rlDisableDepthMask();
@@ -771,6 +801,8 @@ impl Scene {
             raylib::ffi::rlActiveTextureSlot(0);
         }
         finish();
+        self.procedural
+            .draw(scene, Some(camera), false, shadow_texture, true);
     }
     pub fn draw_lines(&mut self, scene: &RenderScene, size: (f32, f32)) {
         flush();

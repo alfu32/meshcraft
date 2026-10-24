@@ -755,7 +755,7 @@ pub fn paint_selection(
     selection: &SelectionSession,
     color: crate::document::Rgba8,
 ) -> Result<PaintReport, String> {
-    paint_selection_impl(document, selection, color, None)
+    paint_selection_impl(document, selection, color, None, None)
 }
 
 /// Assign a catalog reference rather than an independent paint color.
@@ -769,7 +769,38 @@ pub fn assign_material(
         .into_iter()
         .find(|m| m.id == material_id)
         .ok_or("material no longer exists")?;
-    paint_selection_impl(document, selection, material.color, Some(material_id))
+    paint_selection_impl(document, selection, material.color, Some(material_id), None)
+}
+
+/// Assign a procedural material with per-surface values in the same edit scope as painting.
+pub fn assign_procedural_material(
+    document: &mut Document,
+    selection: &SelectionSession,
+    material_id: &str,
+    parameters: &BTreeMap<String, serde_json::Value>,
+) -> Result<PaintReport, String> {
+    let material = document
+        .materials()
+        .into_iter()
+        .find(|m| m.id == material_id)
+        .ok_or("Material missing")?;
+    let config = material
+        .procedural
+        .as_ref()
+        .ok_or("Material is conventional")?;
+    let program = document
+        .procedural_programs()
+        .into_iter()
+        .find(|p| p.id == config.program)
+        .ok_or("Program unavailable")?;
+    program.resolve(&config.parameters, parameters)?;
+    paint_selection_impl(
+        document,
+        selection,
+        material.color,
+        Some(material_id),
+        Some(parameters),
+    )
 }
 
 fn paint_selection_impl(
@@ -777,6 +808,7 @@ fn paint_selection_impl(
     selection: &SelectionSession,
     color: crate::document::Rgba8,
     material: Option<&str>,
+    parameters: Option<&BTreeMap<String, serde_json::Value>>,
 ) -> Result<PaintReport, String> {
     let selected = selection
         .selected()
@@ -814,6 +846,8 @@ fn paint_selection_impl(
         return Err("paint needs a selected edge or face".to_owned());
     }
 
+    let parameter_value =
+        parameters.map(|p| serde_json::to_value(p).expect("JSON parameter values"));
     let mut candidate = document.clone();
     let mut report = PaintReport::default();
     for (owner, (edges, faces)) in groups {
@@ -832,9 +866,25 @@ fn paint_selection_impl(
         for id in &edges {
             if let Some(segment) = geometry.segments.get_mut(id)
                 && (segment.color != color
-                    || crate::document::materials::material_id(&segment.extensions) != material)
+                    || crate::document::materials::material_id(&segment.extensions) != material
+                    || segment
+                        .extensions
+                        .get(crate::document::procedural::OVERRIDES_KEY)
+                        != parameter_value.as_ref())
             {
                 segment.color = color;
+                match &parameter_value {
+                    Some(v) => {
+                        segment
+                            .extensions
+                            .insert(crate::document::procedural::OVERRIDES_KEY.into(), v.clone());
+                    }
+                    None => {
+                        segment
+                            .extensions
+                            .remove(crate::document::procedural::OVERRIDES_KEY);
+                    }
+                }
                 match material {
                     Some(id) => {
                         segment.extensions.insert(
@@ -855,9 +905,25 @@ fn paint_selection_impl(
         for id in &faces {
             if let Some(triangle) = geometry.triangles.get_mut(id)
                 && (triangle.color != color
-                    || crate::document::materials::material_id(&triangle.extensions) != material)
+                    || crate::document::materials::material_id(&triangle.extensions) != material
+                    || triangle
+                        .extensions
+                        .get(crate::document::procedural::OVERRIDES_KEY)
+                        != parameter_value.as_ref())
             {
                 triangle.color = color;
+                match &parameter_value {
+                    Some(v) => {
+                        triangle
+                            .extensions
+                            .insert(crate::document::procedural::OVERRIDES_KEY.into(), v.clone());
+                    }
+                    None => {
+                        triangle
+                            .extensions
+                            .remove(crate::document::procedural::OVERRIDES_KEY);
+                    }
+                }
                 match material {
                     Some(id) => {
                         triangle.extensions.insert(

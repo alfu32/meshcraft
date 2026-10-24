@@ -3047,6 +3047,42 @@
       ],
       "tool_ids": [],
       "status": "in_progress"
+    },
+    {
+      "id": "T63",
+      "title": "#30 Implement GPU procedural materials under #29",
+      "phase": "desktop",
+      "dependencies": [
+        "T61"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C42"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/procedural.rs",
+        "apps/desktop/src/gpui_procedural.rs",
+        "apps/desktop/src/gpui_materials.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md"
+      ],
+      "slices": [
+        "Persist shared procedural program resources, typed parameters and assignment overrides with legacy/import/history compatibility.",
+        "Generate grass and custom surface programs through portable GPU instancing, with resource reuse, shadows, transparency, bounds/culling/LOD and diagnostics.",
+        "Expose program/parameter editing and MCP discovery; qualify real GPU output, instance scope, texture/PBR references, save/load, undo and conventional fallback."
+      ],
+      "done": [
+        "C42 passes with recorded headless and GUI/runtime evidence; unsupported rendering or platform cases are explicit."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

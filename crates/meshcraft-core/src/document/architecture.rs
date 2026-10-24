@@ -231,6 +231,8 @@ impl Hole {
 pub struct Wall {
     pub id: String,
     pub materials: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub procedural_parameters: BTreeMap<String, BTreeMap<String, Value>>,
     pub name: String,
     pub start: Vec3,
     pub end: Vec3,
@@ -250,6 +252,7 @@ impl Default for Wall {
         Self {
             id: String::new(),
             materials: BTreeMap::new(),
+            procedural_parameters: BTreeMap::new(),
             name: "Wall".into(),
             start: Vec3::ZERO,
             end: Vec3::X,
@@ -318,6 +321,8 @@ impl Wall {
 pub struct Slab {
     pub id: String,
     pub materials: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub procedural_parameters: BTreeMap<String, BTreeMap<String, Value>>,
     pub name: String,
     pub profile: PolylinePath,
     pub normal: Vec3,
@@ -334,6 +339,7 @@ impl Default for Slab {
         Self {
             id: String::new(),
             materials: BTreeMap::new(),
+            procedural_parameters: BTreeMap::new(),
             name: "Slab".into(),
             profile: PolylinePath {
                 points: vec![],
@@ -372,6 +378,8 @@ pub enum FrameKind {
 pub struct Frame {
     pub id: String,
     pub materials: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub procedural_parameters: BTreeMap<String, BTreeMap<String, Value>>,
     pub name: String,
     pub contour: Vec<Vec3>,
     pub normal: Vec3,
@@ -387,6 +395,7 @@ impl Default for Frame {
         Self {
             id: String::new(),
             materials: BTreeMap::new(),
+            procedural_parameters: BTreeMap::new(),
             name: "Window".into(),
             contour: vec![],
             normal: Vec3::Z,
@@ -1296,6 +1305,23 @@ impl Document {
                 extensions: ext.clone(),
             })
             .collect();
+        let overrides = self
+            .definition(definition)
+            .and_then(|d| {
+                let index = d
+                    .domain_entity_ids
+                    .get(field)?
+                    .iter()
+                    .position(|v| v == id)?;
+                d.domain_data
+                    .get(field)
+                    .or_else(|| d.extensions.get(&format!("k3d.{field}")))?
+                    .as_array()?
+                    .get(index)?
+                    .get("proceduralParameters")
+                    .cloned()
+            })
+            .unwrap_or(Value::Null);
         let faces = mesh
             .faces
             .into_iter()
@@ -1307,6 +1333,9 @@ impl Document {
                 extensions: {
                     let mut e = ext.clone();
                     if let Some(id) = material {
+                        if let Some(params) = overrides.get(&id) {
+                            e.insert(super::procedural::OVERRIDES_KEY.into(), params.clone());
+                        }
                         e.insert(materials::MATERIAL_KEY.into(), Value::String(id));
                     }
                     e

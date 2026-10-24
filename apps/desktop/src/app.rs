@@ -1587,10 +1587,13 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 &format!("Hotspots> {label}"), "Hotspots", "object prototype instance hotspot", Some("hotspot"), ShellAction::HotspotAction(suffix));
         }
         for (id, label, action) in [
+            ("new_grass", "New Procedural Grass Material", ShellAction::OpenPanel("material_editor_grass")),
             ("new", "New Material", ShellAction::OpenPanel("material_editor_new")),
             ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
             ("apply", "Apply Material to Selection", ShellAction::MaterialAction("apply")),
             ("save", "Save Material", ShellAction::MaterialAction("save")),
+            ("program", "Save Procedural Program", ShellAction::MaterialAction("program")),
+            ("parameters", "Apply Procedural Parameters", ShellAction::MaterialAction("parameters")),
             ("delete", "Delete Unused Material", ShellAction::MaterialAction("delete")),
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
@@ -2046,6 +2049,11 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("spacing", CommandValueType::Number),
         ],
         "material.apply" | "material.delete" => &[("id", CommandValueType::String)],
+        "material.program" => &[("program", CommandValueType::Object)],
+        "material.parameters" => &[
+            ("id", CommandValueType::String),
+            ("parameters", CommandValueType::Object),
+        ],
         "material.save" => &[("material", CommandValueType::Object)],
         "hotspot.add" => &[("position", CommandValueType::Object)],
         "hotspot.update" => &[
@@ -2167,7 +2175,9 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         .map(|(name, value_type)| CommandParameter {
             name: (*name).to_owned(),
             value_type: *value_type,
-            required: (id == "selection.set" && *name == "paths")
+            required: (id == "material.program" && *name == "program")
+                || (id == "material.parameters" && matches!(*name, "id" | "parameters"))
+                || (id == "selection.set" && *name == "paths")
                 || (id == "selection.update_display"
                     && matches!(*name, "kind" | "property" | "enabled"))
                 || (matches!(
@@ -6512,6 +6522,33 @@ impl MeshcraftApp {
         match action {
             ShellAction::MaterialAction(action) => {
                 let result = match action {
+                    "program" => serde_json::from_value(
+                        payload
+                            .values
+                            .get("program")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    )
+                    .map_err(|e| e.to_string())
+                    .and_then(|p| self.save_native_procedural_program(p)),
+                    "parameters" => serde_json::from_value(
+                        payload
+                            .values
+                            .get("parameters")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                    )
+                    .map_err(|e| e.to_string())
+                    .and_then(|p| {
+                        self.assign_native_material_parameters(
+                            payload
+                                .values
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or(""),
+                            Some(p),
+                        )
+                    }),
                     "apply" => self.assign_native_material(
                         payload
                             .values

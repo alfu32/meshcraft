@@ -234,6 +234,19 @@ Create a new project and verify 16 named ANSI materials plus smoke-white, smoke-
 
 Delete an unused ANSI color and a custom material; verify Undo/Redo and save/reopen without resurrecting deleted entries. Reject deletion without mutation when a material is referenced by an unplaced prototype, instance geometry override, nested default edit, evaluated script output, architecture owner or creation defaults. Keep default line/face/architecture materials available in an empty drawing. Import older white geometry and confirm migration adds the palette without recoloring it. The bounded scrolling list keeps manager actions visible. Creating a new drawing resets the active material choice.
 
+For the #30/T63 extension, create and assign procedural grass to a surface; vary
+seed, density, dimensions, curvature, wind and color variation. Compare seeded
+output across redraw/save/load; generated blades never change authored topology
+or become snap/select/export targets. Verify GPU domain reuse for parameter edits
+and repeated instances, isolated assignment overrides, canonical architectural
+regeneration, Undo/Redo, resource/base-material import collisions and unknown
+program round-tripping. Exercise custom surface deformation, shader errors with
+real diagnostics/fallback, typed texture inputs, PBR base settings, transformed
+bounds/culling, work budgets, shadows and transparent passes. Idle animation must
+stop with zero wind or no visible animated assignments. Review parameter forms,
+program editing, Apply/Cancel/Escape and MCP program/schema discovery. Record
+backend/platform limits explicitly.
+
 ## C43 — Scripted object hooks, preview and instance values
 
 Create or script an existing prototype and retain its authored geometry. Preview a valid `onCreate`/`onAnimationFrame` pair in one monospace script, with shared top-level helpers/constants, materials and helper-generated faces/lines. Ctrl+Space shows a scrollable documented API list; typing filters, arrows navigate, Enter/Tab inserts, and Escape dismisses completion before the editor. Verify independent preview orbit/pan/zoom, editor focus, diagnostics and Cancel isolation. Save, place two instances, drag scripted hotspots, copy an adjusted instance and confirm independent values. Edit graphical geometry in the prototype and include it through `this.geometry`. Save/load, undo/redo script changes, stable IDs and query-only model data. Explode an adjusted instance and compare its current issued world geometry; it must survive without scripts. Test syntax errors, thrown errors, invalid/duplicate IDs, nonfinite coordinates, excessive output, infinite loops, runtime shutdown and all packaged native engine providers. A failed script cannot hang or mutate other model content.

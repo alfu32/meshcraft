@@ -8,6 +8,13 @@ impl Element {
             Self::Frame(v) => &v.materials,
         }
     }
+    pub fn procedural_parameters_mut(&mut self) -> &mut BTreeMap<String, BTreeMap<String, Value>> {
+        match self {
+            Self::Wall(w) => &mut w.procedural_parameters,
+            Self::Slab(s) => &mut s.procedural_parameters,
+            Self::Frame(f) => &mut f.procedural_parameters,
+        }
+    }
     pub fn surface_materials_mut(&mut self) -> &mut BTreeMap<String, String> {
         match self {
             Self::Wall(v) => &mut v.materials,

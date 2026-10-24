@@ -12,6 +12,7 @@ pub mod hotspots;
 pub mod ifc;
 mod insertion;
 pub mod materials;
+pub mod procedural;
 pub mod scripts;
 pub mod subscenes;
 
@@ -2621,6 +2622,7 @@ impl Document {
     pub fn validate(&self) -> Result<(), String> {
         self.model_settings.validate()?;
         self.validate_materials()?;
+        self.validate_procedural_materials()?;
         if !self.child_layouts.contains_key(&self.root_layout) {
             return Err("root child layout is missing".to_owned());
         }

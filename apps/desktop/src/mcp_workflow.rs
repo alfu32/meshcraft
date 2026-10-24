@@ -171,6 +171,21 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
                 spec["enum"] = json!(["visible", "editable", "wireframe"]);
             }
         }
+        if command.id.as_str() == "material.program" && name == "program" {
+            spec["description"] = json!(
+                "Procedural Program: id, name, generation=surface|blades, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds. See meshcraft_scene.proceduralPrograms for builtins."
+            );
+        }
+        if command.id.as_str() == "material.save" && name == "material" {
+            spec["description"] = json!(
+                "Material: id/name/color RGBA, optional pbr={roughness,metallic}, texturePath/textureScaleU/V, procedural={program,parameters,baseMaterial,lodDistance,maxInstances,showBounds}. Material defaults and per-assignment overrides resolve against program parameter definitions; unsupported programs retain a conventional fallback."
+            );
+        }
+        if command.id.as_str() == "material.parameters" && name == "parameters" {
+            spec["description"] = json!(
+                "Parameter override object keyed by program parameter IDs, e.g. {height:2,seed:42}. Applies the material and values to editable selected surfaces/instances, preserving siblings and canonical architectural owners. Use material.apply to clear overrides and inherit material defaults."
+            );
+        }
         properties.insert(name.into(), spec);
         if parameter.required {
             required.push(name);
@@ -224,7 +239,7 @@ impl MeshcraftApp {
         }).collect::<Vec<_>>();
         let prototypes=self.document.definitions().filter(|d|!self.document.is_frame_definition(d.id)).map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some()})).collect::<Vec<_>>();
         Ok(
-            json!({"objects":objects,"total":paths.len(),"offset":offset,"nextOffset":if offset.saturating_add(limit)<paths.len(){Some(offset+limit)}else{None},"prototypes":prototypes,"materials":self.document.materials(),"settings":self.document.model_settings(),"status":self.mcp_status()}),
+            json!({"objects":objects,"total":paths.len(),"offset":offset,"nextOffset":if offset.saturating_add(limit)<paths.len(){Some(offset+limit)}else{None},"prototypes":prototypes,"materials":self.document.materials(),"proceduralPrograms":self.document.procedural_programs(),"settings":self.document.model_settings(),"status":self.mcp_status()}),
         )
     }
     pub(crate) fn mcp_geometry(&self, args: &Value) -> Result<Value, String> {

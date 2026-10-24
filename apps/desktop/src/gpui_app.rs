@@ -42,6 +42,8 @@ mod parameters;
 mod placement;
 #[path = "gpui_postprocess.rs"]
 mod postprocess;
+#[path = "gpui_procedural.rs"]
+mod procedural;
 #[path = "gpui_scripts.rs"]
 mod scripts;
 #[path = "gpui_settings.rs"]
@@ -330,6 +332,9 @@ struct ViewFrame {
     sequence: u64,
     frame_ms: f32,
     request_revision: u64,
+    procedural_diagnostics: Vec<String>,
+    procedural_candidates: usize,
+    procedural_draw_calls: usize,
 }
 
 #[derive(Clone)]
@@ -509,7 +514,9 @@ fn render_loop(
             break;
         };
         let next_revision = match changed.wait_while(revision, |revision| {
-            *revision == rendered_revision && !stop.load(Ordering::Acquire)
+            *revision == rendered_revision
+                && !lighting.gpu.procedural.animated
+                && !stop.load(Ordering::Acquire)
         }) {
             Ok(revision) if !stop.load(Ordering::Acquire) => *revision,
             _ => break,
@@ -576,6 +583,9 @@ fn render_loop(
                 sequence,
                 frame_ms: frame_start.elapsed().as_secs_f32() * 1_000.0,
                 request_revision: next_revision,
+                procedural_diagnostics: lighting.gpu.procedural.diagnostics.clone(),
+                procedural_candidates: lighting.gpu.procedural.candidates,
+                procedural_draw_calls: lighting.gpu.procedural.draw_calls,
             });
         }
         let elapsed = frame_start.elapsed();
@@ -2786,7 +2796,14 @@ impl Render for MeshcraftShell {
             if panel == "script_new" || panel == "script_edit" {
                 scripts::edit(self, panel == "script_new", window, cx);
             }
-            if panel == "material_editor_new" {
+            if panel == "material_editor_grass" {
+                let mut material = self.cached_document.next_material();
+                material.name = "Grass".into();
+                material.color = Rgba8::new(65, 130, 35, 255);
+                material.procedural =
+                    Some(meshcraft_core::document::procedural::ProceduralMaterial::default());
+                materials::edit(self, material, window, cx);
+            } else if panel == "material_editor_new" {
                 materials::edit(self, self.cached_document.next_material(), window, cx);
             } else if panel == "material_editor" {
                 let material = self
@@ -3362,6 +3379,9 @@ impl Render for MeshcraftShell {
                         window.focus(&this.focus);
                         cx.stop_propagation();
                     }
+                    return;
+                }
+                if materials::capture_key(this, event, window, cx) {
                     return;
                 }
                 if this.materials.editor.is_some() {
