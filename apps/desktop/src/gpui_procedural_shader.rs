@@ -83,16 +83,18 @@ pub(super) fn compile(vertex: &str, fragment: &str) -> Result<Shader, String> {
     }
 }
 mod function_types {
+    // C char is unsigned on Linux ARM64 and signed on other supported targets.
+    use std::ffi::c_char;
     pub type CreateShader = unsafe extern "system" fn(u32) -> u32;
-    pub type ShaderSource = unsafe extern "system" fn(u32, i32, *const *const i8, *const i32);
+    pub type ShaderSource = unsafe extern "system" fn(u32, i32, *const *const c_char, *const i32);
     pub type CompileShader = unsafe extern "system" fn(u32);
     pub type GetShaderiv = unsafe extern "system" fn(u32, u32, *mut i32);
-    pub type GetShaderInfoLog = unsafe extern "system" fn(u32, i32, *mut i32, *mut i8);
+    pub type GetShaderInfoLog = unsafe extern "system" fn(u32, i32, *mut i32, *mut c_char);
     pub type DeleteShader = unsafe extern "system" fn(u32);
     pub type CreateProgram = unsafe extern "system" fn() -> u32;
     pub type AttachShader = unsafe extern "system" fn(u32, u32);
     pub type LinkProgram = unsafe extern "system" fn(u32);
     pub type GetProgramiv = unsafe extern "system" fn(u32, u32, *mut i32);
-    pub type GetProgramInfoLog = unsafe extern "system" fn(u32, i32, *mut i32, *mut i8);
+    pub type GetProgramInfoLog = unsafe extern "system" fn(u32, i32, *mut i32, *mut c_char);
     pub type DeleteProgram = unsafe extern "system" fn(u32);
 }
