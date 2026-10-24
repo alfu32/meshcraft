@@ -1,0 +1,59 @@
+{
+  "version": "0.33.7",
+  "selected": 88,
+  "camera": {
+    "position": {
+      "x": 339.75007906787374,
+      "y": 287.34898084165616,
+      "z": 215.79372147261833
+    },
+    "target": {
+      "x": -3.1566897309543904,
+      "y": 29.499999999999986,
+      "z": -127.1130473262098
+    },
+    "orthographic": false,
+    "walkthrough": false,
+    "fieldOfView": 45.0
+  },
+  "move": {
+    "activationThroughCaptureMs": 210.89586801826954,
+    "referenceThroughCaptureMs": 410.7231249799952,
+    "firstPointerToStatusMs": 50.85041298298165,
+    "firstPointerToCapturedFrameMs": 260.4846950271167,
+    "warmPointerToStatusMs": [
+      19.584327994380146,
+      47.37501702038571,
+      64.81525499839336,
+      57.05090501578525,
+      62.2831400251016,
+      64.0195439918898,
+      61.75113300560042,
+      87.72907400270924
+    ],
+    "commitToStatusMs": 501.6903930227272,
+    "commitToCapturedFrameMs": 711.8013550061733,
+    "undoRedoAndEscape": true,
+    "allNineInstanceTransformsVerified": true
+  },
+  "rotate_2": {
+    "activationThroughCaptureMs": 265.64856996992603,
+    "referenceThroughCaptureMs": 204.26091295666993,
+    "firstPointerToStatusMs": 40.53129500243813,
+    "firstPointerToCapturedFrameMs": 211.14321297500283,
+    "warmPointerToStatusMs": [
+      37.92813600739464,
+      55.47172902151942,
+      83.45720201032236,
+      68.03826900431886,
+      54.70692698145285,
+      65.06554200313985,
+      70.8169789868407,
+      57.12391098495573
+    ],
+    "commitToStatusMs": 481.55232705175877,
+    "commitToCapturedFrameMs": 677.3991759982891,
+    "undoRedoAndEscape": true,
+    "allNineInstanceTransformsVerified": true
+  }
+}

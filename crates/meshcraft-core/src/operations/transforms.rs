@@ -70,7 +70,7 @@ struct DomainSelection {
 }
 
 /// Applies one world-space affine transform to the selected mesh entities and object instances.
-/// Previews should call this with a cloned document; committing should wrap it in document history.
+/// Wireframe previews use `preview_selection_transform`; commits wrap this in document history.
 /// A copy leaves source data untouched and selects the newly created entities/instances.
 pub fn transform_selection(
     document: &mut Document,
@@ -287,7 +287,7 @@ fn transform_selection_internal(
         }
     }
 
-    transform_domain_selections(
+    let changed_architecture = transform_domain_selections(
         &mut candidate,
         &domain,
         world_transform,
@@ -378,16 +378,8 @@ fn transform_selection_internal(
         }
         candidate_selection.apply(copy_targets, SelectionMode::Replace);
     }
-    if domain.values().any(|g| {
-        g.ids_by_field.keys().any(|field| {
-            matches!(
-                *field,
-                "architectureWalls" | "architectureSlabs" | "architectureFrames"
-            )
-        })
-    }) {
-        // Invalid unrelated legacy records remain opaque, just as on import.
-        candidate.regenerate_architecture();
+    if !changed_architecture.is_empty() {
+        candidate.regenerate_architecture_changes(document, &changed_architecture)?;
     }
     candidate.validate()?;
     candidate.hotspot_cache.clear();
@@ -481,7 +473,8 @@ fn transform_domain_selections(
     copy: bool,
     report: &mut TransformReport,
     copy_targets: &mut BTreeSet<SelectionTarget>,
-) -> Result<(), String> {
+) -> Result<BTreeSet<(DefinitionId, String)>, String> {
+    let mut changed_architecture = BTreeSet::new();
     for (definition_id, group) in groups {
         let mut local_transform = None;
         for occurrence in &group.occurrence_targets {
@@ -561,11 +554,23 @@ fn transform_domain_selections(
                         "selected {field} identity {selected_id:?} is ambiguous"
                     ));
                 }
-                let mut transformed = crate::operations::objects::transform_annotation_record(
+                let architecture = matches!(
                     field,
-                    &records[index],
-                    local_transform,
-                )?;
+                    "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                );
+                let mut transformed = if architecture {
+                    crate::document::architecture::transform_record_parameters(
+                        field,
+                        &records[index],
+                        local_transform,
+                    )?
+                } else {
+                    crate::operations::objects::transform_annotation_record(
+                        field,
+                        &records[index],
+                        local_transform,
+                    )?
+                };
                 if copy {
                     let fresh = document.allocate_id();
                     let new_id = format!("meshcraft:transform:{}:{field}:{fresh}", definition_id.0);
@@ -576,12 +581,21 @@ fn transform_domain_selections(
                         transformed["id"] = serde_json::json!(new_id);
                     }
                     next_records.push(transformed);
+                    if architecture {
+                        changed_architecture.insert((*definition_id, new_id.clone()));
+                    }
                     next_identities.push(new_id.clone());
                     generated.push((field, new_id));
                     report.copied_domain_entities += 1;
                     changed = true;
                 } else if transformed != records[index] {
                     next_records[index] = transformed;
+                    if matches!(
+                        field,
+                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                    ) {
+                        changed_architecture.insert((*definition_id, selected_id.clone()));
+                    }
                     report.transformed_domain_entities += 1;
                     changed = true;
                 }
@@ -632,7 +646,7 @@ fn transform_domain_selections(
             }
         }
     }
-    Ok(())
+    Ok(changed_architecture)
 }
 
 /// Reverse oriented mesh primitives without changing vertices, colors or material assignments.
@@ -942,12 +956,12 @@ fn preview_transform_internal(
         })
         .collect::<BTreeSet<_>>();
     let mut edges = Vec::new();
-    for object in &object_occurrences {
-        for occurrence in document
-            .occurrence_refs()?
-            .into_iter()
-            .filter(|candidate| candidate.path.starts_with(&object.path))
-        {
+    if !object_occurrences.is_empty() {
+        for occurrence in document.occurrence_refs()?.into_iter().filter(|candidate| {
+            object_occurrences
+                .iter()
+                .any(|object| candidate.path.starts_with(&object.path))
+        }) {
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
             };
@@ -972,6 +986,7 @@ fn preview_transform_internal(
         }
     }
 
+    let mut architecture_by_occurrence = BTreeMap::<OccurrenceRef, BTreeSet<SelectedEntity>>::new();
     let mut selected_by_occurrence = BTreeMap::<OccurrenceRef, BTreeSet<VertexId>>::new();
     for target in selected {
         if matches!(target.entity, SelectedEntity::Occurrence)
@@ -982,6 +997,21 @@ fn preview_transform_internal(
             continue;
         }
         if let SelectedEntity::SemanticHandle { kind, id } = &target.entity {
+            if crate::document::architecture::field(*kind).is_some() {
+                let resolved = document
+                    .resolve_occurrence(&target.occurrence)
+                    .ok_or("selected architecture occurrence is missing")?;
+                if matches!(
+                    geometry_owner(document, &selection.context, target, resolved.definition.id),
+                    GeometryOwner::Definition(_)
+                ) {
+                    architecture_by_occurrence
+                        .entry(target.occurrence.clone())
+                        .or_default()
+                        .insert(target.entity.clone());
+                }
+                continue;
+            }
             let field = match kind {
                 SelectionKind::Dimension => "dimensions",
                 SelectionKind::Text => "texts",
@@ -1066,6 +1096,39 @@ fn preview_transform_internal(
                 }
             }
             SelectedEntity::Occurrence | SelectedEntity::SemanticHandle { .. } => {}
+        }
+    }
+    // Preview the frozen realized boundaries, including joins and instance geometry.
+    // Rebuilding parametric solids here made every pointer update perform CSG twice.
+    for (occurrence, owners) in architecture_by_occurrence {
+        let r = document
+            .resolve_occurrence(&occurrence)
+            .ok_or("architecture occurrence is missing")?;
+        let Some(g) = document.geometry_in_context(&occurrence, &selection.context) else {
+            continue;
+        };
+        let transform = world_transform.compose(r.world_transform);
+        let mut outlined = BTreeSet::new();
+        for edge in g.segments.values() {
+            let Some(owner) = crate::document::architecture::semantic_entity(&edge.extensions)
+            else {
+                continue;
+            };
+            if owners.contains(&owner)
+                && let [Some(a), Some(b)] = edge.endpoints.map(|p| g.vertex_position(p))
+            {
+                edges.push([transform.transform_point(a), transform.transform_point(b)]);
+                outlined.insert(owner);
+            }
+        }
+        for face in g.triangles.values() {
+            if crate::document::architecture::semantic_entity(&face.extensions)
+                .is_some_and(|o| owners.contains(&o) && !outlined.contains(&o))
+                && let [Some(a), Some(b), Some(c)] = face.vertices.map(|p| g.vertex_position(p))
+            {
+                let [a, b, c] = [a, b, c].map(|p| transform.transform_point(p));
+                edges.extend([[a, b], [b, c], [c, a]]);
+            }
         }
     }
     for (occurrence, vertices) in selected_by_occurrence {

@@ -238,6 +238,21 @@ impl<C: HistoryClock> TransactionHistory<C> {
         }
     }
 
+    /// Run a single operation in an isolated draft and commit it as one undo entry.
+    /// Unlike repeated preview staging, this needs no extra rollback copy: any failed
+    /// operation or validation discards the entire draft and leaves the live model intact.
+    pub fn transact<T>(
+        &mut self,
+        document: &mut Document,
+        label: impl Into<String>,
+        operation: impl FnOnce(&mut Document) -> Result<T, String>,
+    ) -> Result<(T, Option<ChangeSet>), TransactionError> {
+        let mut pending = self.begin(document, label);
+        let result = operation(&mut pending.draft).map_err(TransactionError::Operation)?;
+        let changes = self.commit(document, pending)?;
+        Ok((result, changes))
+    }
+
     pub fn commit(
         &mut self,
         document: &mut Document,
@@ -766,17 +781,24 @@ impl OpaqueLegacyHistory {
 }
 
 fn snapshot_size(document: &Document) -> Result<usize, TransactionError> {
-    serde_json::to_vec(document)
-        .map(|bytes| bytes.len())
-        .map_err(|error| TransactionError::SnapshotEncoding(error.to_string()))
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, document)
+        .map_err(|error| TransactionError::SnapshotEncoding(error.to_string()))?;
+    Ok(counter.0)
 }
 
 fn same_authored_state(left: &Document, right: &Document) -> bool {
-    let mut left = left.clone();
-    let mut right = right.clone();
-    left.revision = 0;
-    right.revision = 0;
-    left == right
+    left.same_authored_state(right)
 }
 
 fn map_changed<K, V>(left: &BTreeMap<K, V>, right: &BTreeMap<K, V>) -> BTreeSet<K>
@@ -930,6 +952,70 @@ mod tests {
             FakeClock(Cell::new(42)),
             HistoryLimits::new(max_entries, max_bytes).unwrap(),
         )
+    }
+
+    #[test]
+    fn one_shot_edit_discards_failures_and_preserves_undo_redo() {
+        let mut d = Document::new();
+        let mut h = history(10, 1_000_000);
+        let before = d.clone();
+        let result: Result<((), _), _> = h.transact(&mut d, "failed", |draft| {
+            draft
+                .add_cuboid("temporary", Vec3::X + Vec3::Y + Vec3::Z, Vec3::ZERO)
+                .unwrap();
+            Err("deliberate error".into())
+        });
+        assert!(matches!(result, Err(TransactionError::Operation(_))));
+        assert_eq!(before, d);
+        assert!(!h.can_undo());
+        h.transact(&mut d, "add", |draft| {
+            Ok(draft
+                .add_cuboid("retained", Vec3::X + Vec3::Y + Vec3::Z, Vec3::ZERO)
+                .unwrap())
+        })
+        .unwrap();
+        let after = d.clone();
+        assert_eq!(h.entries().len(), 1);
+        h.undo(&mut d).unwrap();
+        assert!(super::same_authored_state(&before, &d));
+        h.redo(&mut d).unwrap();
+        assert!(super::same_authored_state(&after, &d));
+        let states = h.entries().to_vec();
+        let result = h.transact(&mut d, "invalid", |draft| {
+            draft
+                .definitions
+                .values_mut()
+                .flat_map(|d| d.geometry.vertices.values_mut())
+                .next()
+                .unwrap()
+                .position
+                .x = f64::NAN;
+            Ok(())
+        });
+        assert!(matches!(result, Err(TransactionError::InvalidDocument(_))));
+        assert_eq!(after.revision() + 2, d.revision());
+        assert!(super::same_authored_state(&after, &d));
+        assert_eq!(states, h.entries());
+    }
+
+    #[test]
+    fn counting_snapshot_writer_matches_json_byte_budget_including_escapes_and_unicode() {
+        let mut d = Document::new();
+        d.add_cuboid(
+            "日本語\n\"quoted\"",
+            Vec3::X + Vec3::Y + Vec3::Z,
+            Vec3::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            super::snapshot_size(&d).unwrap(),
+            serde_json::to_vec(&d).unwrap().len()
+        );
+        let mut revision_only = d.clone();
+        revision_only.revision += 1;
+        assert!(super::same_authored_state(&d, &revision_only));
+        revision_only.allocate_id();
+        assert!(!super::same_authored_state(&d, &revision_only));
     }
 
     #[test]

@@ -2,6 +2,8 @@
 use super::*;
 
 pub(super) fn wall_mesh(wall: &Wall, neighbors: &[Wall]) -> Result<Mesh, String> {
+    #[cfg(test)]
+    MESH_EVALUATIONS.with(|count| count.set(count.get() + 1));
     let plane = wall.plane()?;
     positive(wall.height, "Wall start height")?;
     positive(wall.end_height(), "Wall end height")?;

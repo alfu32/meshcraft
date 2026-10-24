@@ -83,6 +83,18 @@ impl Color {
 /// Apply a representable affine edit to canonical parameters, retaining owner-local holes.
 /// Sheared extrusions must be exploded before editing as an unrestricted mesh.
 pub fn transform_record(field: &str, record: &Value, transform: Affine3) -> Result<Value, String> {
+    let result = transform_record_parameters(field, record, transform)?;
+    Element::from_value(field, result.clone())?.mesh()?;
+    Ok(result)
+}
+
+/// Update parameters without tessellating. The transform commit validates/tessellates the
+/// affected owners together, with their final wall neighbors, before publishing its candidate.
+pub(crate) fn transform_record_parameters(
+    field: &str,
+    record: &Value,
+    transform: Affine3,
+) -> Result<Value, String> {
     let mut element = Element::from_value(field, record.clone())?;
     let plane = element.plane()?;
     let u = transform.transform_vector(plane.u);
@@ -156,7 +168,6 @@ pub fn transform_record(field: &str, record: &Value, transform: Affine3) -> Resu
             hole.v1 = a.y.max(b.y);
         }
     }
-    element.mesh()?;
     let mut result = record.clone();
     result
         .as_object_mut()
@@ -789,7 +800,9 @@ impl Element {
     }
     pub fn mesh(&self) -> Result<Mesh, String> {
         #[cfg(test)]
-        MESH_EVALUATIONS.with(|count| count.set(count.get() + 1));
+        if !matches!(self, Self::Wall(_)) {
+            MESH_EVALUATIONS.with(|count| count.set(count.get() + 1));
+        }
         let mut mesh = Mesh::default();
         match self {
             Self::Wall(w) => return joins::wall_mesh(w, &[]),
@@ -1194,6 +1207,13 @@ impl Document {
         }
     }
     fn remove_architecture_mesh(&mut self, definition: DefinitionId, id: &str) {
+        self.remove_architecture_meshes(definition, Some(&BTreeSet::from([id.to_owned()])));
+    }
+    fn remove_architecture_meshes(
+        &mut self,
+        definition: DefinitionId,
+        ids: Option<&BTreeSet<String>>,
+    ) {
         let Some(d) = self.definitions.get_mut(&definition) else {
             return;
         };
@@ -1201,7 +1221,7 @@ impl Document {
             ext.get(GENERATED)
                 .and_then(|v| v.get("id"))
                 .and_then(Value::as_str)
-                == Some(id)
+                .is_some_and(|id| ids.is_none_or(|ids| ids.contains(id)))
         };
         let mut vertices = BTreeSet::new();
         d.geometry.segments.retain(|_, e| {
@@ -1238,6 +1258,15 @@ impl Document {
         mesh: Mesh,
     ) -> Result<(), String> {
         self.remove_architecture_mesh(definition, id);
+        self.append_architecture_mesh(definition, field, id, mesh)
+    }
+    fn append_architecture_mesh(
+        &mut self,
+        definition: DefinitionId,
+        field: &str,
+        id: &str,
+        mesh: Mesh,
+    ) -> Result<(), String> {
         let ext = BTreeMap::from([(GENERATED.into(), serde_json::json!({"field":field,"id":id}))]);
         let vertices = mesh
             .points
@@ -1294,25 +1323,9 @@ impl Document {
     }
     /// Remove generated caches from an export snapshot; canonical records remain.
     pub fn strip_architecture_geometry(&mut self) {
-        let owners = self
-            .definitions
-            .values()
-            .flat_map(|d| {
-                d.geometry
-                    .segments
-                    .values()
-                    .map(|e| &e.extensions)
-                    .chain(d.geometry.triangles.values().map(|e| &e.extensions))
-                    .filter_map(|e| {
-                        e.get(GENERATED)
-                            .and_then(|v| v.get("id"))
-                            .and_then(Value::as_str)
-                            .map(|id| (d.id, id.to_owned()))
-                    })
-            })
-            .collect::<BTreeSet<_>>();
-        for (definition, id) in owners {
-            self.remove_architecture_mesh(definition, &id);
+        let definitions = self.definitions.keys().copied().collect::<Vec<_>>();
+        for definition in definitions {
+            self.remove_architecture_meshes(definition, None);
         }
     }
     /// Rebuild valid imported records. Unknown/invalid legacy records remain intact.
@@ -1340,25 +1353,40 @@ impl Document {
                 }
             }
         }
+        // Decode each neighbor list once, not once per rebuilt wall.
+        let neighbors = self
+            .definitions
+            .keys()
+            .copied()
+            .map(|id| {
+                (
+                    id,
+                    self.wall_records(id)
+                        .into_iter()
+                        .map(|(_, wall)| wall)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut appended = BTreeSet::new();
         let mut errors = vec![];
         for (definition, field, id, value) in records {
             match Element::from_value(field, value)
                 .and_then(|e| match e {
                     Element::Wall(mut w) => {
                         w.id = id.clone();
-                        joins::wall_mesh(
-                            &w,
-                            &self
-                                .wall_records(definition)
-                                .into_iter()
-                                .map(|(_, w)| w)
-                                .collect::<Vec<_>>(),
-                        )
+                        joins::wall_mesh(&w, &neighbors[&definition])
                     }
                     e => e.mesh(),
                 })
-                .and_then(|mesh| self.replace_architecture_mesh(definition, field, &id, mesh))
-            {
+                .and_then(|mesh| {
+                    if appended.insert((definition, id.clone())) {
+                        self.append_architecture_mesh(definition, field, &id, mesh)
+                    } else {
+                        // Preserve replacement semantics for malformed duplicate identities.
+                        self.replace_architecture_mesh(definition, field, &id, mesh)
+                    }
+                }) {
                 Ok(()) => {}
                 Err(e) => errors.push(format!("{id}: {e}")),
             }
@@ -1368,6 +1396,109 @@ impl Document {
         }
         errors
     }
+    /// Rebuild only transformed owners and walls sharing their old/new junctions.
+    pub(crate) fn regenerate_architecture_changes(
+        &mut self,
+        before: &Document,
+        changes: &BTreeSet<(DefinitionId, String)>,
+    ) -> Result<(), String> {
+        let definitions = changes.iter().map(|(d, _)| *d).collect::<BTreeSet<_>>();
+        for definition in definitions {
+            let mut ids = changes
+                .iter()
+                .filter(|(d, _)| *d == definition)
+                .map(|(_, id)| id.clone())
+                .collect::<BTreeSet<_>>();
+            let walls_changed = self
+                .definition(definition)
+                .and_then(|d| d.domain_entity_ids.get(WALLS))
+                .is_some_and(|wall_ids| wall_ids.iter().any(|id| ids.contains(id)));
+            let walls = if walls_changed {
+                self.wall_records(definition)
+            } else {
+                vec![]
+            };
+            if walls_changed {
+                let old = before.wall_records(definition);
+                let moved = old
+                    .iter()
+                    .chain(&walls)
+                    .filter(|(id, _)| ids.contains(id))
+                    .map(|(_, w)| w)
+                    .collect::<Vec<_>>();
+                let related = |a: &Wall, b: &Wall| {
+                    a.auto_join
+                        && b.auto_join
+                        && a.plane()
+                            .ok()
+                            .zip(b.plane().ok())
+                            .is_some_and(|(pa, pb)| pa.v.dot(pb.v) >= 1. - 1e-6)
+                        && [a.start, a.end]
+                            .iter()
+                            .any(|p| [b.start, b.end].iter().any(|q| p.distance(*q) <= 1e-5))
+                };
+                let neighbors = old
+                    .iter()
+                    .chain(&walls)
+                    .filter(|(_, wall)| moved.iter().any(|w| related(w, wall)))
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>();
+                ids.extend(neighbors);
+            }
+            let neighbors = walls.into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+            let mut prepared = vec![];
+            let d = self
+                .definition(definition)
+                .ok_or("architecture definition is missing")?;
+            for field in [WALLS, SLABS, FRAMES] {
+                let Some(records) = d
+                    .domain_data
+                    .get(field)
+                    .or_else(|| d.extensions.get(&format!("k3d.{field}")))
+                    .and_then(Value::as_array)
+                else {
+                    continue;
+                };
+                for (id, value) in d
+                    .domain_entity_ids
+                    .get(field)
+                    .into_iter()
+                    .flatten()
+                    .zip(records)
+                {
+                    if !ids.contains(id) {
+                        continue;
+                    }
+                    let mesh =
+                        Element::from_value(field, value.clone()).and_then(
+                            |element| match element {
+                                Element::Wall(mut w) => {
+                                    w.id = id.clone();
+                                    joins::wall_mesh(&w, &neighbors)
+                                }
+                                e => e.mesh(),
+                            },
+                        );
+                    match mesh {
+                        Ok(mesh) => prepared.push((field, id.clone(), mesh)),
+                        Err(error) if changes.contains(&(definition, id.clone())) => {
+                            return Err(error);
+                        }
+                        // An unrelated invalid legacy neighbor must not block this edit.
+                        Err(_) => {}
+                    }
+                }
+            }
+            let rebuilt_ids = prepared.iter().map(|(_, id, _)| id.clone()).collect();
+            self.remove_architecture_meshes(definition, Some(&rebuilt_ids));
+            for (field, id, mesh) in prepared {
+                self.append_architecture_mesh(definition, field, &id, mesh)?;
+            }
+        }
+        self.bump_revision();
+        Ok(())
+    }
+
     pub fn remove_architecture(&mut self, target: &SelectionTarget) -> Result<(), String> {
         let element = self
             .architecture_element(target)
@@ -2534,5 +2665,206 @@ mod tests {
         )
         .unwrap();
         assert_eq!(d.architecture_element(&target).unwrap().element, changed);
+    }
+    // Compare geometric output independently of regenerated entity IDs, keeping winding,
+    // segment direction and material/owner metadata in the comparison.
+    fn geometry_signature(d: &Document) -> Vec<String> {
+        let g = &d.scene_root_definition().unwrap().geometry;
+        let point = |r| {
+            let p = g.vertex_position(r).unwrap();
+            [p.x, p.y, p.z].map(|v| (v * 1e6).round() as i64)
+        };
+        let mut values = g
+            .segments
+            .values()
+            .map(|e| {
+                format!(
+                    "e:{:?}:{:?}:{:?}",
+                    e.endpoints.map(point),
+                    e.color,
+                    e.extensions
+                )
+            })
+            .chain(g.triangles.values().map(|f| {
+                format!(
+                    "f:{:?}:{:?}:{:?}",
+                    f.vertices.map(point),
+                    f.color,
+                    f.extensions
+                )
+            }))
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    #[test]
+    fn transform_rebuilds_old_and_new_wall_joins_without_replacing_unrelated_geometry() {
+        use crate::{operations::transforms::transform_selection, selection::SelectionSession};
+        let mut base = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let mut owners = vec![];
+        for (start, end) in [
+            (Vec3::ZERO, Vec3::X * 4.),
+            (Vec3::X * 4., Vec3::X * 4. + Vec3::Z * 4.),
+            (Vec3::X * 14., Vec3::X * 14. + Vec3::Z * 4.),
+            (Vec3::X * 100., Vec3::X * 104.),
+        ] {
+            owners.push(
+                base.put_architecture(
+                    root,
+                    None,
+                    Element::Wall(Wall {
+                        start,
+                        end,
+                        auto_join: true,
+                        ..Default::default()
+                    }),
+                )
+                .unwrap(),
+            );
+        }
+        let slab = base
+            .put_architecture(root, None, Element::Slab(rectangle()))
+            .unwrap();
+        let frame = base
+            .put_architecture(
+                root,
+                None,
+                Element::Frame(Frame {
+                    contour: vec![
+                        Vec3::ZERO,
+                        Vec3::X * 3.,
+                        (Vec3::X + Vec3::Y) * 3.,
+                        Vec3::Y * 3.,
+                    ],
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        base.add_architecture_hole(
+            &target(SelectionKind::Wall, owners[0].clone()),
+            Vec3::new(1., 1., 0.),
+            Vec3::new(2., 2., 0.),
+        )
+        .unwrap();
+        base.add_architecture_hole(
+            &target(SelectionKind::Slab, slab.clone()),
+            Vec3::new(1., 0., 1.),
+            Vec3::new(2., 0., 2.),
+        )
+        .unwrap();
+        let far = SelectedEntity::SemanticHandle {
+            kind: SelectionKind::Wall,
+            id: owners[3].clone(),
+        };
+        let far_edges = base
+            .scene_root_definition()
+            .unwrap()
+            .geometry
+            .segments
+            .iter()
+            .filter(|(_, e)| semantic_entity(&e.extensions).as_ref() == Some(&far))
+            .map(|(id, e)| (*id, e.clone()))
+            .collect::<BTreeMap<_, _>>();
+        for transform in [
+            Affine3::from_translation(Vec3::X * 10.),
+            Affine3::from_linear_translation(
+                [[0., 0., 1.], [0., 1., 0.], [-1., 0., 0.]],
+                Vec3::ZERO,
+            ),
+            Affine3::from_linear_translation(
+                [[-1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+                Vec3::ZERO,
+            ),
+            Affine3::from_linear_translation(
+                [[2., 0., 0.], [0., 2., 0.], [0., 0., 2.]],
+                Vec3::ZERO,
+            ),
+        ] {
+            for copy in [false, true] {
+                let mut d = base.clone();
+                let mut selection = SelectionSession::default();
+                selection.apply(
+                    [
+                        target(SelectionKind::Wall, owners[0].clone()),
+                        target(SelectionKind::Slab, slab.clone()),
+                        target(SelectionKind::Frame, frame.clone()),
+                    ],
+                    crate::selection::SelectionMode::Replace,
+                );
+                transform_selection(&mut d, &mut selection, transform, copy).unwrap();
+                for (id, e) in &far_edges {
+                    assert_eq!(
+                        Some(e),
+                        d.scene_root_definition().unwrap().geometry.segments.get(id)
+                    );
+                }
+                let mut rebuilt = d.clone();
+                assert!(rebuilt.regenerate_architecture().is_empty());
+                assert_eq!(
+                    geometry_signature(&rebuilt),
+                    geometry_signature(&d),
+                    "copy={copy}, transform={transform:?}"
+                );
+                d.validate().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn architecture_wireframe_uses_realized_join_boundaries_without_tessellating() {
+        use crate::{
+            operations::transforms::preview_selection_transform, selection::SelectionSession,
+        };
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let first = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 4.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        d.put_architecture(
+            root,
+            None,
+            Element::Wall(Wall {
+                start: Vec3::X * 4.,
+                end: Vec3::X * 4. + Vec3::Z * 4.,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let mut selection = SelectionSession::default();
+        let t = target(SelectionKind::Wall, first);
+        selection.select(t.clone());
+        let g = &d.scene_root_definition().unwrap().geometry;
+        let expected = g
+            .segments
+            .values()
+            .filter(|e| semantic_entity(&e.extensions).as_ref() == Some(&t.entity))
+            .map(|e| e.endpoints.map(|r| g.vertex_position(r).unwrap()))
+            .collect::<Vec<_>>();
+        let before = d.clone();
+        let evaluations = MESH_EVALUATIONS.with(|n| n.get());
+        for i in 0..100 {
+            let delta = Vec3::X * f64::from(i);
+            let edges =
+                preview_selection_transform(&d, &selection, Affine3::from_translation(delta))
+                    .unwrap();
+            assert_eq!(
+                edges,
+                expected
+                    .iter()
+                    .map(|e| e.map(|p| p + delta))
+                    .collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(evaluations, MESH_EVALUATIONS.with(|n| n.get()));
+        assert_eq!(before, d);
     }
 }

@@ -1,0 +1,23 @@
+   Compiling meshcraft-core v0.1.0 (/home/alfu64/Development/meshcraft/crates/meshcraft-core)
+   Compiling meshcraft-io v0.1.0 (/home/alfu64/Development/meshcraft/crates/meshcraft-io)
+   Compiling meshcraft-desktop v0.33.7 (/home/alfu64/Development/meshcraft/apps/desktop)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 00s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/lib.rs (target/debug/deps/meshcraft_desktop-2d3341f42d89eaef)
+
+running 1 test
+Selected 88 SelectionMeshCounts { edges: 2504, faces: 3412 }
+move preview 19.984014ms edges 5300
+move first cached preview 21.518345ms
+move 100 warm previews 23.640709ms
+move core commit 235.755177ms
+move commit 472.849895ms
+rotate preview 13.762824ms edges 5300
+rotate first cached preview 11.897146ms
+rotate 100 warm previews 17.434467ms
+rotate core commit 108.522133ms
+rotate commit 423.012493ms
+test app::tests::transform_latency_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 376 filtered out; finished in 2.13s

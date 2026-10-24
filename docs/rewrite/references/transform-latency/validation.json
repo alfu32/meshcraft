@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-24",
+  "version": "0.33.7",
+  "fixture": {
+    "sha256": "a59cb07e31991c7aaa8190532213eb27709564dbe68e7c3a3658d76451e0c2c6",
+    "bytes": 551431,
+    "source": "Unmodified private copy of user-provided demo.octd; drawing not published",
+    "logicalSelection": 88,
+    "walls": 51,
+    "slabs": 8,
+    "frames": 20,
+    "objects": 9,
+    "edges": 2504,
+    "triangles": 3412
+  },
+  "host": {
+    "cpu": "Intel Core i7-6700HQ @ 2.60GHz",
+    "display": "Private Xvfb :96; 1500x1000 application, 850x781 viewport",
+    "gpu": "Software Mesa lavapipe/llvmpipe",
+    "build": "cargo dev/test opt-level=1; dependencies opt-level=3"
+  },
+  "method": {
+    "native": "Identical frozen drawing/targets/camera, physical xdotool mouse inputs, synchronized MCP status and fresh view capture. Actual tool commands; no synthetic direct transform commit. Separate baseline 0.33.6 and fixed 0.33.7 processes. Timed gestures after compiler processes finish. Captured-frame measurements include readback and PNG encoding; not FPS or physical-GPU presentation timings.",
+    "cpu": "Opt-in transform_latency_probe; excludes loading. 100 warm previews include transformed edge allocation; no timing assertions. Smaller baseline selects 72 owners (1706 edges/2340 triangles), so CPU before/after samples are not a same-size comparison. Use native-before/after for the matched comparison.",
+    "checks": "Canonical architecture records unchanged throughout preview and after Escape; Move and Rotate change geometry; Undo and Redo restore exact records. A further native pass checks all nine object transforms, too.",
+    "scope": "Linux/X11 software GPU, bounded local samples. Multi-second architectural commit stall removed; general sub-50-ms edit goal and other platforms not qualified."
+  },
+  "checks": {
+    "passedTests": 719,
+    "core": 302,
+    "desktopLibrary": 370,
+    "cli": 5,
+    "io": 42,
+    "ignoredOptIn": 7,
+    "originalDrawingUnchanged": true,
+    "clippyWarningsDenied": true,
+    "nativeBuild": true,
+    "wasmCheck": "Passed with three pre-existing browser dead-code warnings",
+    "releaseHelperTests": 8,
+    "allNineInstanceTransformsVerified": true
+  }
+}

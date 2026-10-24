@@ -603,6 +603,47 @@ impl Document {
         self.revision = self.revision.saturating_add(1);
     }
 
+    /// Compare persistent state without cloning meshes or consulting derived caches.
+    pub(crate) fn same_authored_state(&self, other: &Self) -> bool {
+        // Explicit destructuring makes new persistent fields a compile-time audit.
+        let Self {
+            schema_version,
+            revision: _,
+            root_layout,
+            definitions,
+            child_layouts,
+            occurrence_edits,
+            model_settings,
+            extensions,
+            next_id,
+            hotspot_cache: _,
+            script_cache: _,
+            frame_classification: _,
+        } = self;
+        let Self {
+            schema_version: bs,
+            revision: _,
+            root_layout: br,
+            definitions: bd,
+            child_layouts: bl,
+            occurrence_edits: bo,
+            model_settings: bm,
+            extensions: be,
+            next_id: bn,
+            hotspot_cache: _,
+            script_cache: _,
+            frame_classification: _,
+        } = other;
+        next_id == bn
+            && schema_version == bs
+            && root_layout == br
+            && model_settings == bm
+            && extensions == be
+            && child_layouts == bl
+            && occurrence_edits == bo
+            && definitions == bd
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }

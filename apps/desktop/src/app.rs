@@ -2380,7 +2380,7 @@ impl Preferences {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct SelectionQueryKey {
     generation: u64,
     visual_revision: u64,
@@ -2390,6 +2390,10 @@ struct SelectionQueryKey {
 struct CopyAvailability {
     key: SelectionQueryKey,
     available: bool,
+}
+struct TransformWireframe {
+    key: SelectionQueryKey,
+    edges: Vec<[Vec3; 2]>,
 }
 
 pub struct MeshcraftApp {
@@ -2441,6 +2445,7 @@ pub struct MeshcraftApp {
     pending_project_save: Option<PendingProjectSave>,
     selection: SelectionSession,
     copy_availability: std::cell::RefCell<Option<CopyAvailability>>,
+    transform_wireframe: Option<TransformWireframe>,
     selection_display_policy: SelectionDisplayPolicy,
     selection_click_tracker: SelectionClickTracker,
     #[cfg(not(target_arch = "wasm32"))]
@@ -3572,6 +3577,7 @@ impl MeshcraftApp {
             pending_project_save: None,
             selection: SelectionSession::default(),
             copy_availability: Default::default(),
+            transform_wireframe: None,
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -5201,24 +5207,38 @@ impl MeshcraftApp {
         operation: impl FnOnce(&mut Document) -> Result<T, String>,
     ) -> Result<T, String> {
         self.document.persist_script_states();
-        let mut pending = self.history.begin(&self.document, label);
         let context = self.selection.context.clone();
-        let result = pending
-            .stage(|draft| {
+        let (result, _) = self
+            .history
+            .transact(&mut self.document, label, |draft| {
+                // Scene promotion only does work while imported root overrides remain.
+                // The transaction already isolates the edit and validates the result.
+                let promote_scene = matches!(context, EditContext::Document)
+                    && draft
+                        .scene_container_occurrence()
+                        .and_then(|path| {
+                            draft.resolve_occurrence(&path).map(|r| {
+                                r.edits.is_some_and(|e| {
+                                    e.geometry_replacement.is_some() || e.child_layout.is_some()
+                                })
+                            })
+                        })
+                        .unwrap_or(false);
                 let result = match &context {
                     EditContext::Occurrence(active) => draft.edit_prototype(active, operation),
-                    EditContext::Document => draft.edit_scene(operation),
+                    EditContext::Document if promote_scene => draft.edit_scene(operation),
                     _ => operation(draft),
                 }?;
                 draft.normalize_material_bindings()?;
                 Ok(result)
             })
             .map_err(|error| error.to_string())?;
-        self.history
-            .commit(&mut self.document, pending)
-            .map_err(|error| error.to_string())?;
-        let view = self.native_document_for_view();
-        self.selection.retain_valid(&view);
+        if matches!(self.selection.context, EditContext::Occurrence(_)) {
+            let view = self.native_document_for_view();
+            self.selection.retain_valid(&view);
+        } else {
+            self.selection.retain_valid(&self.document);
+        }
         Ok(result)
     }
 
@@ -8662,6 +8682,60 @@ impl MeshcraftApp {
         }
     }
 
+    fn cached_transform_wireframe(&mut self, transform: Affine3) -> Result<Vec<[Vec3; 2]>, String> {
+        if !transform.is_finite() || transform.inverse(GeometryTolerance::default()).is_none() {
+            return Err("preview transform must be finite and invertible".into());
+        }
+        // Explicit vertex edits can keep the opposite endpoint anchored.
+        if self
+            .selection
+            .selected()
+            .iter()
+            .any(|t| matches!(t.entity, SelectedEntity::Vertex(_)))
+        {
+            return modeling_transforms::preview_selection_transform(
+                &self.document,
+                &self.selection,
+                transform,
+            );
+        }
+        let key = SelectionQueryKey {
+            generation: self.document_generation,
+            visual_revision: self.document.visual_revision(),
+            selection_revision: self.selection.revision(),
+            context: self.selection.context.clone(),
+        };
+        if self
+            .transform_wireframe
+            .as_ref()
+            .is_none_or(|cache| cache.key != key)
+        {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.native_prepare_spatial_view();
+            #[cfg(not(target_arch = "wasm32"))]
+            let view = self
+                .native_edit_view
+                .as_ref()
+                .map_or(&self.document, |(_, view)| view.as_ref());
+            #[cfg(target_arch = "wasm32")]
+            let view = &self.document;
+            let edges = modeling_transforms::preview_selection_transform(
+                view,
+                &self.selection,
+                Affine3::IDENTITY,
+            )?;
+            self.transform_wireframe = Some(TransformWireframe { key, edges });
+        }
+        Ok(self
+            .transform_wireframe
+            .as_ref()
+            .unwrap()
+            .edges
+            .iter()
+            .map(|edge| edge.map(|p| transform.transform_point(p)))
+            .collect())
+    }
+
     fn commit_transform(
         &mut self,
         commit: meshcraft_core::tools::transforms::TransformCommit,
@@ -10019,7 +10093,8 @@ impl MeshcraftApp {
             }
             return point.and_then(|position| self.feedback_preview(position));
         }
-        let point_preview = || point.and_then(|position| self.feedback_preview(position));
+        let point_preview =
+            |this: &Self| point.and_then(|position| this.feedback_preview(position));
         if self.active_tool == "Paint" {
             let scope = match &self.selection.context {
                 EditContext::Document => SnapScope::Document,
@@ -10106,12 +10181,25 @@ impl MeshcraftApp {
         }
         if self.transform_tool_state.active().is_some() {
             let point = point?;
-            if let Ok(transforms) = self.numeric_copy_transforms(point, 64) {
-                let edges = modeling_transforms::preview_selection_transform(
-                    &self.document,
-                    &self.selection,
-                    Affine3::IDENTITY,
+            let cached = matches!(
+                self.transform_tool_state.active(),
+                Some(
+                    TransformTool::Move
+                        | TransformTool::Rotate
+                        | TransformTool::Rotate2
+                        | TransformTool::Mirror
                 )
+            );
+            if let Ok(transforms) = self.numeric_copy_transforms(point, 64) {
+                let edges = if cached {
+                    self.cached_transform_wireframe(Affine3::IDENTITY)
+                } else {
+                    modeling_transforms::preview_selection_transform(
+                        &self.document,
+                        &self.selection,
+                        Affine3::IDENTITY,
+                    )
+                }
                 .ok()?;
                 let capped = meshcraft_core::tools::numeric::parse(
                     &self.numeric_entry.text,
@@ -10141,7 +10229,13 @@ impl MeshcraftApp {
             let mut edges = self
                 .transform_tool_state
                 .preview(Some(point))
-                .and_then(|transform| preview(&self.document, &self.selection, transform).ok())
+                .and_then(|transform| {
+                    if cached {
+                        self.cached_transform_wireframe(transform).ok()
+                    } else {
+                        preview(&self.document, &self.selection, transform).ok()
+                    }
+                })
                 .unwrap_or_default();
             if let Some(rotation) = self.transform_tool_state.rotation_feedback(point) {
                 edges.extend(rotation.edges());
@@ -10149,12 +10243,12 @@ impl MeshcraftApp {
             if !edges.is_empty() {
                 return Some(ToolPreview::Transform { edges });
             }
-            return point_preview();
+            return point_preview(self);
         }
         if let Some(kind) = self.primitive_tool_state.active() {
             let point = point?;
             let Some(world_picks) = self.primitive_tool_state.preview_picks(point) else {
-                return point_preview();
+                return point_preview(self);
             };
             if world_picks.len() < kind.pick_count() {
                 return Some(ToolPreview::Line {
@@ -10233,7 +10327,7 @@ impl MeshcraftApp {
                 {
                     return Some(preview);
                 }
-                return point_preview();
+                return point_preview(self);
             };
             if self.active_tool == "Double Line" {
                 let (_, occurrence, inverse) = self.line_geometry_context();
@@ -10258,14 +10352,14 @@ impl MeshcraftApp {
                 )
                 .ok();
                 let Some(mesh) = mesh else {
-                    return point_preview();
+                    return point_preview(self);
                 };
                 let world_transform = self
                     .document
                     .resolve_occurrence(&occurrence)
                     .map(|resolved| resolved.world_transform);
                 let Some(world_transform) = world_transform else {
-                    return point_preview();
+                    return point_preview(self);
                 };
                 let edges = mesh
                     .segments
@@ -10299,7 +10393,7 @@ impl MeshcraftApp {
             if !edges.is_empty() {
                 return Some(ToolPreview::Transform { edges });
             }
-            return point_preview();
+            return point_preview(self);
         }
         if let (Some(reference), Some(target)) = (
             self.line_offset_tool_state.reference(),
@@ -10324,7 +10418,7 @@ impl MeshcraftApp {
             }
         }
         if self.active_tool == "Line Offset" {
-            return point_preview();
+            return point_preview(self);
         }
         if let (Some(reference), Some(displacement)) =
             (self.push_pull_reference, self.push_pull_displacement())
@@ -10360,7 +10454,7 @@ impl MeshcraftApp {
             });
         }
         if self.active_tool == "Push/Pull" {
-            return point_preview();
+            return point_preview(self);
         }
         match self.active_tool.as_str() {
             "Cuboid" => {
@@ -10376,11 +10470,12 @@ impl MeshcraftApp {
             }
             "Line" | "Construction Line" => {
                 let preview = self.drawing_tool.preview(point);
-                preview.segment.map_or_else(point_preview, |[start, end]| {
-                    Some(ToolPreview::Line { start, end })
-                })
+                preview.segment.map_or_else(
+                    || point_preview(self),
+                    |[start, end]| Some(ToolPreview::Line { start, end }),
+                )
             }
-            "Axis Guide" | "Grid Guide" => point_preview(),
+            "Axis Guide" | "Grid Guide" => point_preview(self),
             _ => None,
         }
     }
@@ -13150,6 +13245,7 @@ mod tests {
             pending_project_save: None,
             selection: SelectionSession::default(),
             copy_availability: Default::default(),
+            transform_wireframe: None,
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -13299,6 +13395,180 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual move/rotate latency probe; set MESHCRAFT_BENCH_PROJECT"]
+    fn transform_latency_probe() {
+        use meshcraft_core::{document::architecture, geometry::Aabb3};
+        let path = std::env::var("MESHCRAFT_BENCH_PROJECT").unwrap();
+        let mut app = test_app();
+        app.document = read_project(&std::fs::read(path).unwrap())
+            .unwrap()
+            .document;
+        let root = app
+            .document
+            .scene_container_occurrence()
+            .unwrap_or_else(OccurrenceRef::scene_root);
+        let g = app.document.effective_geometry(&root).unwrap();
+        let bounds = Aabb3::from_points(g.vertices.values().map(|v| v.position)).unwrap();
+        let cut = bounds.min.x + (bounds.max.x - bounds.min.x) * 0.34;
+        let mut targets = BTreeSet::new();
+        for e in g.segments.values() {
+            if e.endpoints
+                .iter()
+                .all(|r| g.vertex_position(*r).unwrap().x <= cut)
+                && let Some(entity) = architecture::semantic_entity(&e.extensions)
+            {
+                targets.insert(SelectionTarget {
+                    occurrence: root.clone(),
+                    entity,
+                });
+            }
+        }
+        for path in app.document.occurrence_refs().unwrap() {
+            if path == root || path.is_scene_root() {
+                continue;
+            }
+            let r = app.document.resolve_occurrence(&path).unwrap();
+            let Some(g) = app.document.effective_geometry(&path) else {
+                continue;
+            };
+            if !g.vertices.is_empty()
+                && g.vertices
+                    .values()
+                    .all(|v| r.world_transform.transform_point(v.position).x <= cut)
+            {
+                targets.insert(SelectionTarget {
+                    occurrence: path,
+                    entity: SelectedEntity::Occurrence,
+                });
+            }
+        }
+        if let Ok(path) = std::env::var("MESHCRAFT_BENCH_TARGETS") {
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(
+                    &targets
+                        .iter()
+                        .map(super::mcp_workflow::target_json)
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        app.selection.apply(targets, SelectionMode::Replace);
+        eprintln!(
+            "Selected {} {:?}",
+            app.selection.summary().total(),
+            app.selection.mesh_counts(&app.document)
+        );
+        for (name, transform) in [
+            ("move", Affine3::from_translation(Vec3::new(3., 0., 0.))),
+            (
+                "rotate",
+                Affine3::from_linear_translation(
+                    [[0., 0., 1.], [0., 1., 0.], [-1., 0., 0.]],
+                    Vec3::ZERO,
+                ),
+            ),
+        ] {
+            let t = std::time::Instant::now();
+            let edges = super::modeling_transforms::preview_selection_transform(
+                &app.document,
+                &app.selection,
+                transform,
+            )
+            .unwrap();
+            eprintln!("{name} preview {:?} edges {}", t.elapsed(), edges.len());
+            let t = std::time::Instant::now();
+            app.cached_transform_wireframe(transform).unwrap();
+            eprintln!("{name} first cached preview {:?}", t.elapsed());
+            let t = std::time::Instant::now();
+            for _ in 0..100 {
+                app.cached_transform_wireframe(transform).unwrap();
+            }
+            eprintln!("{name} 100 warm previews {:?}", t.elapsed());
+            let mut copy = app.document.clone();
+            let mut selection = app.selection.clone();
+            let t = std::time::Instant::now();
+            super::modeling_transforms::transform_selection(
+                &mut copy,
+                &mut selection,
+                transform,
+                false,
+            )
+            .unwrap();
+            eprintln!("{name} core commit {:?}", t.elapsed());
+            let t = std::time::Instant::now();
+            app.commit_transform(meshcraft_core::tools::transforms::TransformCommit {
+                transform,
+                copy: false,
+            })
+            .unwrap();
+            eprintln!("{name} commit {:?}", t.elapsed());
+        }
+    }
+    #[test]
+    fn rigid_transform_wireframe_is_reused_and_invalidated_by_its_source() {
+        let mut app = test_app();
+        let occurrence = app
+            .document
+            .add_cuboid("part", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        let before = app.document.clone();
+        let base = app.cached_transform_wireframe(Affine3::IDENTITY).unwrap();
+        assert!(!base.is_empty());
+        let storage = app.transform_wireframe.as_ref().unwrap().edges.as_ptr();
+        for i in 1..100 {
+            let delta = Vec3::X * f64::from(i);
+            assert_eq!(
+                app.cached_transform_wireframe(Affine3::from_translation(delta))
+                    .unwrap(),
+                base.iter()
+                    .map(|e| e.map(|p| p + delta))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                storage,
+                app.transform_wireframe.as_ref().unwrap().edges.as_ptr()
+            );
+        }
+        assert_eq!(
+            app.document, before,
+            "phantom movement must not edit the model"
+        );
+        let key = app.transform_wireframe.as_ref().unwrap().key.clone();
+        app.document_generation += 1;
+        app.cached_transform_wireframe(Affine3::IDENTITY).unwrap();
+        assert_ne!(app.transform_wireframe.as_ref().unwrap().key, key);
+        app.selection.clear();
+        assert!(
+            app.cached_transform_wireframe(Affine3::IDENTITY)
+                .unwrap()
+                .is_empty()
+        );
+        let g = app.document.effective_geometry(&occurrence).unwrap();
+        let vertex = *g.vertices.keys().next().unwrap();
+        app.selection.select(SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::Vertex(vertex),
+        });
+        let transform = Affine3::from_translation(Vec3::X * 3.);
+        assert_eq!(
+            app.cached_transform_wireframe(transform).unwrap(),
+            super::modeling_transforms::preview_selection_transform(
+                &app.document,
+                &app.selection,
+                transform
+            )
+            .unwrap()
+        );
+    }
+
     #[test]
     fn array_availability_cache_tracks_selection_document_and_context() {
         let mut app = test_app();
