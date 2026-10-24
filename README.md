@@ -15,6 +15,8 @@ settings panel, then connect to `http://127.0.0.1:8765/mcp`. It publishes live c
 scene/selection data and the complete scripting API, and supports one-shot geometry scripts.
 See the [MCP guide](docs/mcp.md).
 
+![img_1.png](docs/img_1.png)
+
 Object Prototypes include cached isometric thumbnails and editable IFC4.3 creation
 defaults. Object Instance properties retain independent IFC values, including
 script-declared metadata. The complete offline standard property/quantity catalog
@@ -54,6 +56,8 @@ External scenes can also serve as referenced prototypes, allowing reusable desig
 ## Scripted prototypes
 
 Prototypes can also define JavaScript `onCreate` and `onAnimationFrame` hooks while retaining graphically authored geometry. The object script editor provides a single monospace code editor, Ctrl+Space API help/completion, and an orbitable preview. Geometry helpers create lines, faces and primitives; generated hotspots change each instance independently. Copies retain instance properties, and Explode freezes the current generated geometry.
+
+![img_2.png](docs/img_2.png)
 
 Scripts can declare `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and `$HOTSPOT` model parameters.
 Object Properties renders shared prototype controls and independent instance controls. API v2
