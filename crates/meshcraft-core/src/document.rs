@@ -10,6 +10,7 @@ pub mod clipboard;
 pub mod derived;
 pub mod hotspots;
 pub mod ifc;
+mod insertion;
 pub mod materials;
 pub mod scripts;
 pub mod subscenes;
@@ -1591,25 +1592,31 @@ impl Document {
             return Err("mesh coordinates exceed the supported range".to_owned());
         }
 
+        // Preserve corner-first matching (including imported per-corner offsets),
+        // then raw/unreferenced vertices. Insertion order breaks distance ties in
+        // exactly the same way as the original ordered scans.
+        let mut corners = insertion::PointIndex::new(tolerance);
+        for reference in geometry
+            .segments
+            .values()
+            .flat_map(|s| s.endpoints)
+            .chain(geometry.triangles.values().flat_map(|t| t.vertices))
+        {
+            if let Some(point) = geometry.vertex_position(reference) {
+                corners.insert(point, reference.id);
+            }
+        }
+        let mut raw = insertion::PointIndex::new(tolerance);
+        for v in geometry.vertices.values() {
+            raw.insert(v.position, v.id);
+        }
         let mut vertex_refs = Vec::with_capacity(vertices.len());
         for position in &vertices {
-            let matching_ref = geometry
-                .segments
-                .values()
-                .flat_map(|segment| segment.endpoints)
-                .chain(
-                    geometry
-                        .triangles
-                        .values()
-                        .flat_map(|triangle| triangle.vertices),
-                )
-                .filter_map(|reference| {
-                    let resolved = geometry.vertex_position(reference)?;
-                    (resolved.distance(*position) <= tolerance)
-                        .then_some((resolved.distance(*position), reference.id))
-                })
-                .min_by(|left, right| left.0.total_cmp(&right.0));
-            if let Some((_, id)) = matching_ref {
+            if let Some(id) = corners
+                .nearest(*position)
+                .or_else(|| raw.nearest(*position))
+                .copied()
+            {
                 let base = geometry
                     .vertices
                     .get(&id)
@@ -1617,20 +1624,6 @@ impl Document {
                 vertex_refs.push(VertexRef {
                     id,
                     position_offset: *position - base.position,
-                });
-            } else if let Some(vertex) = geometry
-                .vertices
-                .values()
-                .filter(|vertex| vertex.position.distance(*position) <= tolerance)
-                .min_by(|left, right| {
-                    left.position
-                        .distance(*position)
-                        .total_cmp(&right.position.distance(*position))
-                })
-            {
-                vertex_refs.push(VertexRef {
-                    id: vertex.id,
-                    position_offset: *position - vertex.position,
                 });
             } else {
                 let id = VertexId(staged.allocate_id());
@@ -1642,28 +1635,33 @@ impl Document {
                         legacy_aliases: Vec::new(),
                     },
                 );
+                raw.insert(*position, id);
                 vertex_refs.push(VertexRef::new(id));
             }
         }
 
+        // Index both directions: duplicate edges remain undirected, and the
+        // lowest existing ID wins even when nearby endpoints share a bin.
+        let mut edges = insertion::PointIndex::new(tolerance);
+        for segment in geometry.segments.values() {
+            if let [Some(a), Some(b)] = segment.endpoints.map(|r| geometry.vertex_position(r)) {
+                edges.insert(a, (segment.id, b));
+                edges.insert(b, (segment.id, a));
+            }
+        }
         let mut segment_ids = Vec::with_capacity(segments.len());
         for ([start, end], color) in segments {
             let [start_point, end_point] = [vertices[start], vertices[end]];
             if start_point.distance(end_point) <= tolerance {
                 return Err("mesh insertion contains a degenerate edge".to_owned());
             }
-            let existing = geometry.segments.values().find(|segment| {
-                let [Some(a), Some(b)] = segment
-                    .endpoints
-                    .map(|reference| geometry.vertex_position(reference))
-                else {
-                    return false;
-                };
-                (a.distance(start_point) <= tolerance && b.distance(end_point) <= tolerance)
-                    || (a.distance(end_point) <= tolerance && b.distance(start_point) <= tolerance)
-            });
-            if let Some(existing) = existing {
-                segment_ids.push(existing.id);
+            let existing = edges
+                .within(start_point)
+                .filter(|(_, (_, other), _)| other.distance(end_point) <= tolerance)
+                .map(|(_, (id, _), _)| *id)
+                .min();
+            if let Some(id) = existing {
+                segment_ids.push(id);
                 continue;
             }
             let id = SegmentId(staged.allocate_id());
@@ -1677,6 +1675,10 @@ impl Document {
                     extensions: BTreeMap::new(),
                 },
             );
+            let [a, b] = [vertex_refs[start], vertex_refs[end]]
+                .map(|r| geometry.vertex_position(r).expect("inserted vertex exists"));
+            edges.insert(a, (id, b));
+            edges.insert(b, (id, a));
             segment_ids.push(id);
         }
 
@@ -4355,6 +4357,72 @@ mod tests {
         );
         assert_eq!(revision, near_miss.revision());
         assert!(near_miss.validate().is_ok());
+    }
+
+    #[test]
+    fn indexed_insertion_reuses_offset_corners_and_reversed_edges_atomically() {
+        let mut d = Document::new();
+        let color = Rgba8::new(40, 80, 120, 160);
+        let geometry = d
+            .build_geometry_bundle_raw(
+                [Vec3::X * 100., Vec3::ZERO, Vec3::Y, Vec3::Z]
+                    .into_iter()
+                    .map(|position| RawGeometryVertex {
+                        position,
+                        legacy_aliases: vec![],
+                    })
+                    .collect(),
+                vec![super::RawGeometrySegment {
+                    endpoints: [
+                        RawVertexRef {
+                            vertex: 0,
+                            position_offset: -Vec3::X * 100.,
+                        },
+                        RawVertexRef {
+                            vertex: 2,
+                            position_offset: Vec3::ZERO,
+                        },
+                    ],
+                    color,
+                    legacy_aliases: vec![],
+                    extensions: BTreeMap::new(),
+                }],
+                vec![],
+            )
+            .unwrap();
+        let corner_id = geometry.segments.values().next().unwrap().endpoints[0].id;
+        let edge = geometry.segments.values().next().unwrap().clone();
+        d.definitions
+            .get_mut(&Document::SCENE_ROOT_DEFINITION_ID)
+            .unwrap()
+            .geometry = geometry;
+        let (edges, faces) = d
+            .append_colored_indexed_mesh_to_scene_root(
+                vec![Vec3::ZERO, Vec3::Y, Vec3::Z],
+                vec![([1, 0], color), ([0, 2], color), ([2, 0], color)],
+                vec![([0, 1, 2], color)],
+            )
+            .unwrap();
+        assert_eq!(edge.id, edges[0]);
+        assert_eq!(edges[1], edges[2]);
+        let g = &d.scene_root_definition().unwrap().geometry;
+        assert_eq!(edge, *g.segments.get(&edge.id).unwrap());
+        let face = &g.triangles[&faces[0]];
+        assert_eq!(corner_id, face.vertices[0].id); // corners precede a coincident raw vertex
+        assert_eq!(Vec3::ZERO, g.vertex_position(face.vertices[0]).unwrap());
+        assert_eq!(color, face.color);
+        assert_eq!(4, g.vertices.len()); // also reused the unreferenced raw vertex at Z
+        let before = d.clone();
+        assert!(
+            d.append_colored_indexed_mesh_to_scene_root(
+                vec![Vec3::X * 200., Vec3::X * 201., Vec3::X * 202.],
+                vec![([0, 1], color)],
+                vec![([0, 1, 2], color)],
+            )
+            .is_err()
+        );
+        assert_eq!(before, d); // includes IDs/revision after a late degenerate-face failure
+        d.validate().unwrap();
     }
 
     #[test]

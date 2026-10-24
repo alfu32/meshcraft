@@ -1,0 +1,121 @@
+{
+  "version": "0.33.9",
+  "date": "2026-10-24",
+  "platform": "Linux X11/Xvfb, software Mesa, optimized-debug profile",
+  "fixture": {
+    "source": "/home/alfu64/demo.octd",
+    "frozenSha256": "3ba00aad87ce5c670e3ece9cb1f72ff1b75ae23de926d3716096ef0e76d25392",
+    "bytes": 1445030,
+    "containerVertices": 20882,
+    "containerEdges": 27320,
+    "containerTriangles": 37254
+  },
+  "beforeCommitMs": {
+    "wall": 20909.791406,
+    "sweep": 25036.05618,
+    "circle-far": 2031.239124,
+    "circle-model": 1876.149162,
+    "cuboid": 1153.696489
+  },
+  "afterAppProbe": {
+    "line": {
+      "commitMs": 1102.19046,
+      "spatialMs": 504.146472
+    },
+    "rectangle": {
+      "commitMs": 757.761211,
+      "spatialMs": 473.592399
+    },
+    "extrude": {
+      "commitMs": 1101.141588,
+      "spatialMs": 371.598773
+    },
+    "circle-far": {
+      "commitMs": 952.196791,
+      "spatialMs": 459.52086
+    },
+    "circle-model": {
+      "commitMs": 960.813157,
+      "spatialMs": 459.210206
+    },
+    "cuboid": {
+      "commitMs": 670.261077,
+      "spatialMs": 465.12084
+    },
+    "wall": {
+      "commitMs": 539.551207,
+      "spatialMs": 473.720678
+    },
+    "slab": {
+      "commitMs": 488.024748,
+      "spatialMs": 494.754752
+    },
+    "instance": {
+      "commitMs": 516.152619,
+      "spatialMs": 497.134894
+    },
+    "sweep": {
+      "commitMs": 765.509523,
+      "spatialMs": 585.419923
+    }
+  },
+  "sweep": {
+    "vertices": 504,
+    "edges": 1004,
+    "triangles": 1000
+  },
+  "nativeWorldPointReplay": {
+    "wall0": {
+      "replyMs": 1058.8119190069847,
+      "frameMs": 1524.9525350518525,
+      "undoRedo": true
+    },
+    "wall1": {
+      "replyMs": 1438.379150989931,
+      "frameMs": 1890.9943689941429,
+      "undoRedo": true
+    },
+    "wall2": {
+      "replyMs": 1593.9998590038158,
+      "frameMs": 2191.9358629966155,
+      "undoRedo": true
+    },
+    "rectangle": {
+      "replyMs": 2146.3700410095043,
+      "frameMs": 2924.825481022708
+    },
+    "extrude": {
+      "replyMs": 1542.7080780500546,
+      "frameMs": 2112.4916880507953,
+      "undoRedo": true
+    }
+  },
+  "checks": {
+    "regularTestsPassed": 726,
+    "regularTestsIgnored": 11,
+    "allTenProbeCasesUndoRedoAuthoredState": true,
+    "clippyWarningsDenied": true,
+    "wasmCheck": "passed; three existing browser dead-code warnings",
+    "releaseHelperTestsPassed": 8
+  },
+  "limits": [
+    "Commit probe excludes display presentation and measures first spatial refresh separately.",
+    "Native capture timing includes UI/render refresh, software graphics, bridge and PNG capture.",
+    "Whole-document history snapshots, native BVH refresh and CPU display metadata remain.",
+    "No incremental CPU spatial/render overlay or idle compaction is implemented.",
+    "Solidcraft numbers in the linked source notes are author-reported."
+  ],
+  "undoBudgetMiB": 256,
+  "largerFixture": {
+    "sha256": "d49ac395dc85473237d5a0a13fb34318f3a1a4343c4331f56879f3ece01785b1",
+    "bytes": 2222123,
+    "containerVertices": 26174,
+    "containerEdges": 28379,
+    "containerTriangles": 38312,
+    "wallCommitMs": 1010.477755,
+    "sweepCommitMs": 1402.533778,
+    "sweepSpatialMs": 573.232652,
+    "sweepUndoRedoAuthoredState": true,
+    "oldDefaultBudgetFailureBytes": 67227626
+  }
+}

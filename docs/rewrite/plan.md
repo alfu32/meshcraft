@@ -155,3 +155,41 @@ At each milestone, run `python3 docs/rewrite/scripts/verify_plan.py` for handoff
 JavaScriptCore native plugins are required later T47–T50, not part of this optional backlog. Still separate: Android shell/touch/SAF/lifecycle/store packaging; any Groovy/JVM compatibility bridge or developer REPL/CLI/TUI; browser plugin adapter/custom plugin entity schemas; native self-updates; optional OpenSCAD; richer semantic IFC; automatic face inference/cutting during ordinary drawing; tags/layers/material texture sampling/UV rendering/saved scenes and a dedicated eraser if desired. These are not promises that current source fully implements them. Preserve opaque data and source evidence for later decisions.
 
 User-requested material catalog/color rendering (T61/P07/C42) and scripted prototype configuration/editor (T62/P08/C43) are now active desktop scope. Full JavaScriptCore plugins remain T47–T50; the embedded object runtime shares the engine direction without requiring the full plugin manager.
+
+## Queued feature requests
+
+### #29 — Procedural materials and objects
+
+[Issue #29](https://github.com/alfu32/meshcraft/issues/29) requests GPU-generated
+visual geometry integrated into the existing document, material and object
+systems. Preserve conventional scene compatibility. Share typed parameter
+schemas/defaults/overrides, stable program resources, deterministic seeds,
+animation, conservative bounds, culling/LOD, shader diagnostics and dynamic
+inspectors. Persist definitions and instance/assignment values, while keeping
+transient generated geometry on the GPU. Generated details initially have no
+CPU meshes, baking, primitive editing, snapping, collision or mesh export;
+selection/manipulation uses the procedural owner or source surface. Detect backend
+capabilities and provide explicit fallbacks/diagnostics; geometry/tessellation
+shaders are not the required primary path. Reference deliverables are grass,
+tree and bush. The full issue remains the source for detailed acceptance.
+
+Status: queued after the current insertion-performance bugfix, not implemented.
+The existing persistent GPU mesh/instance layer is an extension point, not an
+implementation of procedural generation. This shares infrastructure with, but is
+separate from, the existing JavaScript objects that emit conventional geometry.
+
+### #30 — Implementation order: procedural materials
+
+[Issue #30](https://github.com/alfu32/meshcraft/issues/30) establishes the first
+delivery: shared resource/parameter/persistence infrastructure, procedural
+surface material assignment and instanced GPU geometry, grass reference material,
+and the corresponding inspector/diagnostics. Follow #29's compatibility and
+visual-only geometry boundaries. Status: queued; keep open until implemented.
+
+### #31 — Implementation order: procedural objects
+
+[Issue #31](https://github.com/alfu32/meshcraft/issues/31) follows #30: independently
+transformable mesh-free procedural owners, reusable definitions with instance
+parameters, bounds/culling/LOD/animation, tree and bush examples, and hierarchy
+and inspector integration. Reuse the shared material/program infrastructure.
+Status: queued; keep open until implemented.

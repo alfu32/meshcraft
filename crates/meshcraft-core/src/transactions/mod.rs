@@ -21,7 +21,9 @@ impl Default for HistoryLimits {
     fn default() -> Self {
         Self {
             max_entries: 20,
-            max_snapshot_bytes: 64 * 1024 * 1024,
+            // Two snapshots of a moderately sized imported scene can exceed 64 MiB.
+            // Keep a bounded budget that permits edits on those drawings.
+            max_snapshot_bytes: 256 * 1024 * 1024,
         }
     }
 }

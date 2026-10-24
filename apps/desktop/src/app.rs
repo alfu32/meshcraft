@@ -17275,6 +17275,226 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "manual insertion stage probe; MESHCRAFT_BENCH_PROJECT required"]
+    fn insertion_latency_probe() {
+        use super::{LineOwner, PlanarMesh, SweepProfileSegment, modeling_sweep};
+        use meshcraft_core::{
+            document::architecture::{Element, Slab, Wall},
+            tools::paths::PolylinePath,
+        };
+        use std::time::Instant;
+        fn root_definition(d: &Document) -> meshcraft_core::document::DefinitionId {
+            let root = d
+                .scene_container_occurrence()
+                .unwrap_or_else(OccurrenceRef::scene_root);
+            d.resolve_occurrence(&root).unwrap().definition.id
+        }
+        let path = std::env::var("MESHCRAFT_BENCH_PROJECT").unwrap();
+        let start = Instant::now();
+        let document = read_project(&std::fs::read(path).unwrap())
+            .unwrap()
+            .document;
+        eprintln!("load {:?}", start.elapsed());
+        let root = document
+            .scene_container_occurrence()
+            .unwrap_or_else(OccurrenceRef::scene_root);
+        let g = document.effective_geometry(&root).unwrap();
+        let bounds =
+            meshcraft_core::geometry::Aabb3::from_points(g.vertices.values().map(|v| v.position))
+                .unwrap();
+        eprintln!(
+            "root {:?}, {} vertices / {} edges / {} faces, bounds {bounds:?}",
+            root.path,
+            g.vertices.len(),
+            g.segments.len(),
+            g.triangles.len()
+        );
+        let far = bounds.max + Vec3::new(10., 0., 10.);
+        let far = Vec3::new(far.x, 0., far.z);
+        let rectangle = || PlanarMesh {
+            vertices: vec![
+                far,
+                far + Vec3::X * 5.,
+                far + (Vec3::X + Vec3::Z) * 5.,
+                far + Vec3::Z * 5.,
+            ],
+            segments: vec![[0, 1], [1, 2], [2, 3], [3, 0]],
+            triangles: vec![[0, 2, 1], [0, 3, 2]],
+        };
+        let only = std::env::var("MESHCRAFT_INSERT_CASE").ok();
+        for label in [
+            "line",
+            "rectangle",
+            "extrude",
+            "circle-far",
+            "circle-model",
+            "cuboid",
+            "wall",
+            "slab",
+            "instance",
+            "sweep",
+        ] {
+            if only.as_ref().is_some_and(|v| v != label) {
+                continue;
+            }
+            let mut app = test_app();
+            app.document = document.clone();
+            if label == "extrude" {
+                let targets = app
+                    .create_planar_shape_in_active_context(rectangle(), "Rectangle")
+                    .unwrap();
+                app.selection.apply(targets, SelectionMode::Replace);
+                app.pick_push_pull_point(far);
+            }
+            let before = app.document.clone();
+            let start = Instant::now();
+            match label {
+                "rectangle" => {
+                    app.create_planar_shape_in_active_context(rectangle(), "Rectangle")
+                        .unwrap();
+                }
+                "extrude" => {
+                    app.commit_push_pull(Vec3::Y * 3.).unwrap();
+                }
+                "line" => {
+                    app.create_line_in_active_context(far, far + Vec3::X * 3.)
+                        .unwrap();
+                }
+                "circle-far" | "circle-model" => {
+                    let center = if label == "circle-far" {
+                        far
+                    } else {
+                        Vec3::new(30., 0., 30.)
+                    };
+                    let mesh = meshcraft_core::tools::shapes::circle_mesh(
+                        center,
+                        center + Vec3::X * 3.,
+                        Vec3::Y,
+                        24,
+                    )
+                    .unwrap();
+                    app.create_planar_shape_in_active_context(mesh, "Circle")
+                        .unwrap();
+                }
+                "cuboid" => {
+                    app.create_cuboid_in_active_context(CuboidPreview {
+                        origin: far,
+                        dimensions: Vec3::new(2., 3., 2.),
+                    })
+                    .unwrap();
+                }
+                "wall" => {
+                    app.commit_document_edit("Wall", |d| {
+                        d.put_architecture(
+                            root_definition(d),
+                            None,
+                            Element::Wall(Wall {
+                                start: far,
+                                end: far + Vec3::X * 5.,
+                                ..Default::default()
+                            }),
+                        )
+                    })
+                    .unwrap();
+                }
+                "slab" => {
+                    app.commit_document_edit("Slab", |d| {
+                        d.put_architecture(
+                            root_definition(d),
+                            None,
+                            Element::Slab(Slab {
+                                profile: PolylinePath {
+                                    points: vec![
+                                        far,
+                                        far + Vec3::X * 5.,
+                                        far + (Vec3::X + Vec3::Z) * 5.,
+                                        far + Vec3::Z * 5.,
+                                    ],
+                                    closed: true,
+                                },
+                                ..Default::default()
+                            }),
+                        )
+                    })
+                    .unwrap();
+                }
+                "sweep" => {
+                    let profile = (0..4)
+                        .map(|i| {
+                            let p = [Vec3::ZERO, Vec3::Y * 3., Vec3::Y * 3. + Vec3::Z, Vec3::Z];
+                            SweepProfileSegment {
+                                endpoints: [far + p[i], far + p[(i + 1) % 4]],
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let path = (0..=125)
+                        .map(|i| {
+                            let angle = f64::from(i) * std::f64::consts::PI / 125.;
+                            far + Vec3::new(angle.sin() * 20., 0., (1. - angle.cos()) * 20.)
+                        })
+                        .collect::<Vec<_>>();
+                    let mesh = modeling_sweep::extrude_swipe(&profile, &path, false, Vec3::Y, 1e-9)
+                        .unwrap();
+                    eprintln!(
+                        "sweep incoming: {} vertices, {} edges, {} faces",
+                        mesh.vertices.len(),
+                        mesh.segments.len(),
+                        mesh.triangles.len()
+                    );
+                    let result = app.commit_sweep_mesh(
+                        LineOwner::Definition(root_definition(&app.document)),
+                        root.clone(),
+                        mesh,
+                        "Sweep",
+                    );
+                    assert_eq!(
+                        CommandCompletion::Completed,
+                        result.completion,
+                        "{result:?}"
+                    );
+                }
+                "instance" => {
+                    let def = document
+                        .occurrence_refs()
+                        .unwrap()
+                        .into_iter()
+                        .find(|p| document.is_object_occurrence(p))
+                        .and_then(|p| document.resolve_occurrence(&p).map(|r| r.definition.id))
+                        .unwrap();
+                    app.commit_document_edit("Place object", |d| {
+                        meshcraft_core::operations::objects::place_definition(
+                            d,
+                            &EditContext::Document,
+                            def,
+                            far,
+                            None,
+                            false,
+                        )
+                    })
+                    .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            eprintln!("{label}: commit {:?}", start.elapsed());
+            let start = Instant::now();
+            app.native_snap_point_on_ray(far + Vec3::Y * 10., -Vec3::Y, 0.1);
+            eprintln!("{label}: spatial {:?}", start.elapsed());
+            let authored = |d: &Document| {
+                let mut value = serde_json::to_value(d).unwrap();
+                value.as_object_mut().unwrap().remove("revision");
+                value
+            };
+            let after = authored(&app.document);
+            app.history.undo(&mut app.document).unwrap();
+            assert_eq!(authored(&before), authored(&app.document), "{label} undo");
+            app.history.redo(&mut app.document).unwrap();
+            assert_eq!(after, authored(&app.document), "{label} redo");
+            app.document.validate().unwrap();
+        }
+    }
+
     #[test]
     #[ignore = "manual latency probe; optional MESHCRAFT_BENCH_PROJECT input"]
     fn circle_construction_latency_probe() {

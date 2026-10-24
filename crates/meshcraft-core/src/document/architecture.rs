@@ -1144,7 +1144,10 @@ impl Document {
             d.domain_data.insert(field.into(), Value::Array(records));
         }
         if field == WALLS {
-            staged.rebuild_walls(definition);
+            staged.regenerate_architecture_changes(
+                self,
+                &BTreeSet::from([(definition, id.clone())]),
+            )?;
         } else {
             staged.replace_architecture_mesh(definition, field, &id, mesh)?;
         }
@@ -1396,7 +1399,7 @@ impl Document {
         }
         errors
     }
-    /// Rebuild only transformed owners and walls sharing their old/new junctions.
+    /// Rebuild only changed owners and walls sharing their old/new junctions.
     pub(crate) fn regenerate_architecture_changes(
         &mut self,
         before: &Document,
@@ -2696,6 +2699,97 @@ mod tests {
             .collect::<Vec<_>>();
         values.sort();
         values
+    }
+
+    #[test]
+    fn wall_insertion_and_parameter_edits_rebuild_only_old_and_new_junctions() {
+        let mut d = Document::new();
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let mut distant = BTreeSet::new();
+        for i in 0..24 {
+            distant.insert(
+                d.put_architecture(
+                    root,
+                    None,
+                    Element::Wall(Wall {
+                        start: Vec3::X * (100. + f64::from(i) * 10.),
+                        end: Vec3::X * (104. + f64::from(i) * 10.),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap(),
+            );
+        }
+        // A wall at each end of the future edit: both the old join and new join
+        // must be rebuilt when the edited wall moves between them.
+        for x in [0., 10.] {
+            d.put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    start: Vec3::X * x,
+                    end: Vec3::X * x + Vec3::Z * 4.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        }
+        let unchanged = d.scene_root_definition().unwrap().geometry.clone();
+        let evaluated = MESH_EVALUATIONS.with(|n| n.get());
+        let id = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 4.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        assert_eq!(3, MESH_EVALUATIONS.with(|n| n.get()) - evaluated);
+        let mut full = d.clone();
+        assert!(full.regenerate_architecture().is_empty());
+        assert_eq!(geometry_signature(&full), geometry_signature(&d));
+
+        let t = target(SelectionKind::Wall, id.clone());
+        d.add_architecture_hole(&t, Vec3::new(1., 1., 0.), Vec3::new(2., 2., 0.))
+            .unwrap();
+        let Element::Wall(mut wall) = d.architecture_element(&t).unwrap().element else {
+            panic!()
+        };
+        for auto_join in [true, false, true] {
+            wall.start = Vec3::X * 10.;
+            wall.end = Vec3::X * 14.;
+            wall.auto_join = auto_join;
+            let evaluated = MESH_EVALUATIONS.with(|n| n.get());
+            d.put_architecture(root, Some(&id), Element::Wall(wall.clone()))
+                .unwrap();
+            assert!(MESH_EVALUATIONS.with(|n| n.get()) - evaluated <= 4);
+            let mut full = d.clone();
+            assert!(full.regenerate_architecture().is_empty());
+            assert_eq!(geometry_signature(&full), geometry_signature(&d));
+            for (id, e) in &unchanged.segments {
+                if e.extensions
+                    .get(GENERATED)
+                    .and_then(|v| v.get("id"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| distant.contains(id))
+                {
+                    assert_eq!(
+                        Some(e),
+                        d.scene_root_definition().unwrap().geometry.segments.get(id)
+                    );
+                }
+            }
+        }
+        let before = d.clone();
+        wall.height = -1.;
+        assert!(
+            d.put_architecture(root, Some(&id), Element::Wall(wall))
+                .is_err()
+        );
+        assert_eq!(before, d);
+        d.validate().unwrap();
     }
 
     #[test]
