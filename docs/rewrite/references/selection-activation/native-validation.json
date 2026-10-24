@@ -1,0 +1,33 @@
+{
+  "version": "0.33.6",
+  "logicalSelectedEntities": 440,
+  "selectionToStatusMs": 296.1980539839715,
+  "selectionToCapturedFrameMs": 453.7279439973645,
+  "statusRoundTripsMs": [
+    16.52444200590253,
+    88.4952389751561,
+    82.25112099898979,
+    93.83700496982783,
+    100.64145096112043,
+    99.34854600578547
+  ],
+  "idleCpuPercent": 2.9991171529548084,
+  "idleFrameSequence": [
+    6,
+    6
+  ],
+  "panGestureThroughCapturedFrameMs": 338.70233700145036,
+  "unselectedPanGestureThroughCapturedFrameMs": 280.8593529625796,
+  "singleHandleDuringDragStatusMs": 59.255914005916566,
+  "singleHandlePhantomAndEscape": true,
+  "handlePixels": {
+    "start": [
+      702,
+      600
+    ],
+    "end": [
+      702,
+      587
+    ]
+  }
+}

@@ -1,5 +1,13 @@
 # Dashboard
 
+**0.33.6 selection activation and counts:** architecture handles appear for one
+selected entity. Copy/array button availability no longer tessellates selected
+solids and shares a revisioned result across buttons. Marquee filtering deduplicates
+resolved owners. Marquee containment uses realized facets instead of rebuilding
+owners per facet; the user's dense-model probe fell from 42.4 s to 55 ms. Selection
+edge/face totals now include generated architecture and
+effective nested instance geometry, with overlapping selections counted once.
+
 **0.33.5 selection refresh:** unfocused property inputs no longer start repeating
 cursor timers or queue frames on every paint. Architecture properties/material
 selectors and world-space controls are cached; control symbols use the batched

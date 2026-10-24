@@ -20,6 +20,7 @@ pub(super) struct Ui {
     catalog: Vec<MaterialChoice>,
     owners: Vec<meshcraft_core::document::architecture::PlacedElement>,
     any_editable: bool,
+    readonly_kinds: BTreeSet<meshcraft_core::selection::SelectionKind>,
     pub(super) payload: CommandPayload,
     handles_key: Option<CacheKey>,
     handles: Arc<Vec<Handle>>,
@@ -105,9 +106,18 @@ pub(super) fn prepare(
         shell.architecture.changed_colors.clear();
     }
     let values = shell.session.native_architecture_payload();
-    shell.architecture.any_editable = owners
-        .iter()
-        .any(|owner| shell.session.native_architecture_editable(&owner.target));
+    shell.architecture.any_editable = false;
+    shell.architecture.readonly_kinds.clear();
+    for owner in &owners {
+        if shell.session.native_architecture_editable(&owner.target) {
+            shell.architecture.any_editable = true;
+        } else {
+            shell
+                .architecture
+                .readonly_kinds
+                .insert(owner.element.kind());
+        }
+    }
     shell.architecture.owners = owners;
     shell.architecture.payload = values.clone();
     let catalog = shell
@@ -247,15 +257,12 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .child(title),
         );
-        let readonly = owners.iter().any(|owner| {
-            let matching = matches!(
-                (&owner.element, prefix),
-                (Element::Wall(_), "wall_")
-                    | (Element::Slab(_), "slab_")
-                    | (Element::Frame(_), "frame_")
-            );
-            matching && !shell.session.native_architecture_editable(&owner.target)
-        });
+        let kind = match prefix {
+            "wall_" => meshcraft_core::selection::SelectionKind::Wall,
+            "slab_" => meshcraft_core::selection::SelectionKind::Slab,
+            _ => meshcraft_core::selection::SelectionKind::Frame,
+        };
+        let readonly = shell.architecture.readonly_kinds.contains(&kind);
         if readonly {
             body = body.child(section.child(div().text_xs().child(
                 "Unlock the selected type or open its prototype to edit these properties.",
@@ -427,6 +434,9 @@ fn build_handles(
     selected: &[SelectionTarget],
     editable: impl Fn(&SelectionTarget) -> bool,
 ) -> Vec<Handle> {
+    if selected.len() != 1 {
+        return vec![];
+    }
     let mut owners = BTreeMap::new();
     for target in selected {
         let placed = document.architecture_element(target).or_else(|| {
@@ -505,6 +515,9 @@ pub(super) fn handles(shell: &mut MeshcraftShell) -> Arc<Vec<Handle>> {
         &selected,
         |t| session.native_architecture_editable(t),
     );
+    if selected.len() != 1 {
+        return shell.architecture.handles.clone();
+    }
     if let Some(drag) = shell.architecture.drag.as_ref()
         && let Some(candidate) = &drag.candidate
     {
@@ -927,6 +940,14 @@ mod cache_tests {
             );
             assert!(Arc::ptr_eq(&first, &ui.handles));
         }
+        let mut multiple = first_key.clone();
+        multiple.selection += 1;
+        let mut other = target.clone();
+        other.entity = SelectedEntity::Occurrence;
+        update_handles(&mut ui, multiple, &d, &[target.clone(), other], |_| {
+            panic!("multi-selection must skip owner/control evaluation");
+        });
+        assert!(ui.handles.is_empty());
         wall.height = 7.;
         d.put_architecture(definition, Some(&id), Element::Wall(wall))
             .unwrap();

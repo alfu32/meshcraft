@@ -24,6 +24,11 @@ mod material_surfaces;
 mod slabs;
 pub use controls::{Control, ControlPoint};
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MESH_EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct FrameClassificationCache {
     definitions: std::sync::OnceLock<BTreeSet<DefinitionId>>,
@@ -783,6 +788,8 @@ impl Element {
         }
     }
     pub fn mesh(&self) -> Result<Mesh, String> {
+        #[cfg(test)]
+        MESH_EVALUATIONS.with(|count| count.set(count.get() + 1));
         let mut mesh = Mesh::default();
         match self {
             Self::Wall(w) => return joins::wall_mesh(w, &[]),

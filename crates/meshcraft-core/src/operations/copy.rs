@@ -59,7 +59,28 @@ pub fn can_linear_array_selection(document: &Document, selection: &SelectionSess
                     .effective_geometry(&target.occurrence)
                     .is_some_and(|geometry| geometry.triangles.contains_key(&id)),
                 SelectedEntity::SemanticHandle { kind, .. } => {
-                    selected_annotation_record(document, selection, target, kind).is_some()
+                    selected_annotation_record_ref(document, selection, target, kind).is_some_and(
+                        |(field, record)| {
+                            if crate::document::architecture::field(kind).is_some() {
+                                // Availability queries run while rebuilding menus and
+                                // toolbars. Do not regenerate every selected solid to
+                                // decide whether a copy command can be enabled. Actual
+                                // operations still validate/tessellate before committing.
+                                crate::document::architecture::Element::from_value(
+                                    field,
+                                    record.clone(),
+                                )
+                                .is_ok()
+                            } else {
+                                crate::operations::objects::transform_annotation_record(
+                                    field,
+                                    record,
+                                    Affine3::IDENTITY,
+                                )
+                                .is_ok()
+                            }
+                        },
+                    )
                 }
             }
         })
@@ -80,6 +101,18 @@ fn target_in_selection_context(
 }
 
 pub(crate) fn selected_annotation_record<'a>(
+    document: &'a Document,
+    selection: &SelectionSession,
+    target: &SelectionTarget,
+    kind: SelectionKind,
+) -> Option<(&'static str, &'a Value)> {
+    let (field, record) = selected_annotation_record_ref(document, selection, target, kind)?;
+    crate::operations::objects::transform_annotation_record(field, record, Affine3::IDENTITY)
+        .ok()?;
+    Some((field, record))
+}
+
+fn selected_annotation_record_ref<'a>(
     document: &'a Document,
     selection: &SelectionSession,
     target: &SelectionTarget,
@@ -123,8 +156,6 @@ pub(crate) fn selected_annotation_record<'a>(
         return None;
     }
     let record = &records[index];
-    crate::operations::objects::transform_annotation_record(field, record, Affine3::IDENTITY)
-        .ok()?;
     Some((field, record))
 }
 
@@ -651,6 +682,46 @@ mod tests {
         (definition_id, "dimension-1".to_owned(), "text-1".to_owned())
     }
 
+    #[test]
+    fn architecture_copy_availability_does_not_tessellate_selected_solids() {
+        use crate::document::architecture::{Element, MESH_EVALUATIONS, Wall};
+        let mut d = Document::new();
+        let def = d.ensure_scene_root();
+        let id = d
+            .put_architecture(
+                def,
+                None,
+                Element::Wall(Wall {
+                    start: Vec3::ZERO,
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let mut selection = SelectionSession::default();
+        selection.select(SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Wall,
+                id,
+            },
+        });
+        let before = MESH_EVALUATIONS.with(|n| n.get());
+        for _ in 0..100 {
+            assert!(can_linear_array_selection(&d, &selection));
+        }
+        assert_eq!(
+            before,
+            MESH_EVALUATIONS.with(|n| n.get()),
+            "toolbar state queries must not rebuild solids"
+        );
+        let report = linear_array(&mut d, &mut selection, 1, Vec3::Z * 3.).unwrap();
+        assert_eq!(1, report.copies);
+        assert!(
+            MESH_EVALUATIONS.with(|n| n.get()) > before,
+            "the actual operation still validates and generates geometry"
+        );
+    }
     #[test]
     fn array_copies_selected_mesh_from_original_and_selects_only_the_results() {
         let mut document = Document::new();

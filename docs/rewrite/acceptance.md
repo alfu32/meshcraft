@@ -296,3 +296,27 @@ phantom preview isolation, Escape and one-step Undo/Redo. Selectors and numeric 
 must still follow edits and selection changes. Focus/type/blur an input: the caret
 blinks while focused and stops on blur. Programmatically updating an unfocused field
 must not start its caret timer or a permanent window repaint loop.
+
+
+### Selection activation and realized mesh counts follow-up (0.33.6)
+
+Select two or more architectural elements: no control handles are built, displayed
+or hit-tested. Select just one: its controls return and remain draggable. Verify
+this on a dense architectural drawing, including after marquee selection.
+Instrument the tessellator in tests: repeated copy/array availability queries must
+not invoke it; the actual operation must still validate and generate its geometry.
+Repeated commands reuse eligibility until document, selection or context changes.
+Record native selection-release-to-feedback and selected camera interaction timing
+on the reported drawing, rather than treating a small entity-count fixture as proof
+that a multi-second activation pause is solved. A partly contained architectural
+owner must be rejected by window selection and accepted by crossing selection.
+Containment follows effective instance geometry after overrides, rather than
+reconstructing its original parameters.
+
+Check T/S edge and face cells against effective mesh data for walls/slabs/frames,
+plain and scripted objects, nested assemblies and duplicate instances. Include
+mixed primitive/owner selection, selected parent plus child, an empty geometry
+override and root graph geometry. Generated primitives must appear in totals, and
+parent/child/primitive overlaps must not inflate selected counts. Changes to
+geometry or selection invalidate cached native statistics; pointer/camera updates
+do not trigger recounting. Logical selection membership remains unchanged.

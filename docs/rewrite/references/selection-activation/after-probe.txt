@@ -1,0 +1,15 @@
+
+running 1 test
+Marquee projection: 54.53538ms, candidates 440
+Normalize/filter/apply: 37.164633ms, selected 440
+View snapshot 110.428645ms
+Scene counts 69.787379ms
+Selection mesh SelectionMeshCounts { edges: 12520, faces: 17060 }: 12.371203ms
+Architecture properties 12.598028ms
+Script parameters 81.37µs
+Command edit.delete_selection 6.425133ms
+Command object.array_selection 6.430339ms
+All command queries 14.554151ms
+test gpui_app::tests::selection_activation_latency_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 372 filtered out; finished in 3.11s

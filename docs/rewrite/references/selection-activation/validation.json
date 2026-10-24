@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-24",
+  "version": "0.33.6",
+  "fixture": {
+    "sha256": "12330d4a0e6dae31241aa52e042e91b5e20cb77cb820466be5037948bb8f7dbd",
+    "source": "User-provided demo.octd, tested from an unchanged temporary copy; drawing not published",
+    "edges": 12520,
+    "triangles": 17060,
+    "selectedObjects": 45,
+    "selectedArchitecture": 395,
+    "logicalSelection": 440
+  },
+  "host": {
+    "cpu": "Intel Core i7-6700HQ @ 2.60GHz",
+    "logicalCpus": 8,
+    "architecture": "x86_64",
+    "display": "private Xvfb :96, 1600x1100 screen, 1500x1000 application, 850x781 viewport",
+    "gpu": "software Mesa lavapipe/llvmpipe",
+    "build": "cargo dev/test opt-level=1, dependency opt-level=3"
+  },
+  "probe": {
+    "baseline": "Same marquee algorithm as 0.33.5, measured during 0.33.6 development after availability fixes but before containment replacement",
+    "beforeMarqueeMs": 42396.349059,
+    "afterMarqueeMs": 54.53538,
+    "beforeCandidates": 440,
+    "afterCandidates": 440,
+    "afterNormalizeFilterMs": 37.164633,
+    "afterMeshCountsMs": 12.371203,
+    "afterAllCommandQueriesMs": 14.554151,
+    "samples": 1,
+    "notes": "Stage timings exclude file loading; initial view preparation is reported separately in probe logs."
+  },
+  "nativeMethod": {
+    "selection": "Physical marquee release to MCP status and then fresh viewport capture; includes capture processing, not solely presentation latency",
+    "pan": "20 physical middle-button drag updates followed by status/capture synchronization; elapsed sequence duration, not FPS",
+    "idle": "Two-second process CPU sample after settling; one core = 100%; unchanged GPU frame sequence asserted",
+    "handle": "Single height-handle drag, source record unchanged during phantom preview and after Escape; visually checked marker/wireframe movement",
+    "scope": "Local Linux/X11 software-GPU validation; no cross-platform or percentile claim"
+  },
+  "checks": {
+    "core": 298,
+    "desktopLibrary": 369,
+    "cli": 5,
+    "io": 42,
+    "passedTotal": 714,
+    "ignoredOptIn": 6,
+    "clippyWarningsDenied": true,
+    "wasmCheck": "passed; three pre-existing browser dead-code warnings",
+    "releaseHelperTests": 8,
+    "originalDrawingUnchanged": true
+  }
+}

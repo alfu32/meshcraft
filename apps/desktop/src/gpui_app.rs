@@ -1096,6 +1096,11 @@ struct MeshcraftShell {
     cached_edit_context: Option<EditContext>,
     cached_document: Arc<Document>,
     cached_scene_counts: layout::SceneCounts,
+    cached_selected_mesh: Option<(
+        Arc<Document>,
+        u64,
+        meshcraft_core::selection::SelectionMeshCounts,
+    )>,
     cursor_local: Option<(f32, f32)>,
     cursor_snap: Option<SnapResult>,
     last_pick: Option<PointerPick>,
@@ -1151,6 +1156,7 @@ impl MeshcraftShell {
             cached_edit_context: None,
             cached_document: Arc::new(session.document_snapshot()),
             cached_scene_counts: layout::SceneCounts::default(),
+            cached_selected_mesh: None,
             cursor_local: None,
             cursor_snap: None,
             last_pick: None,
@@ -1292,6 +1298,45 @@ impl MeshcraftShell {
                     )
                 });
         let architecture_handles = architecture::handles(self);
+        let selection_revision = self.session.native_selection_revision();
+        if self
+            .cached_selected_mesh
+            .as_ref()
+            .is_none_or(|(doc, revision, _)| {
+                !Arc::ptr_eq(doc, &self.cached_document) || *revision != selection_revision
+            })
+        {
+            self.cached_selected_mesh = Some((
+                self.cached_document.clone(),
+                selection_revision,
+                self.session
+                    .native_selection_mesh_counts(&self.cached_document),
+            ));
+            let status = self.session.status_text();
+            let label = if status.starts_with("Window selection:") {
+                Some("Window selection")
+            } else if status.starts_with("Crossing selection:") {
+                Some("Crossing selection")
+            } else if status.starts_with("Selected:")
+                || status
+                    .strip_prefix("Selected ")
+                    .is_some_and(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+            {
+                Some("Selected")
+            } else {
+                None
+            };
+            if let Some(label) = label {
+                let total = self.session.native_selection_summary().total();
+                let mesh = &self.cached_selected_mesh.as_ref().unwrap().2;
+                self.session.set_native_status(format!(
+                    "{label}: {total} {} · {} edges · {} faces.",
+                    if total == 1 { "entity" } else { "entities" },
+                    mesh.edges,
+                    mesh.faces,
+                ));
+            }
+        }
         self.bridge.publish_scene(RenderScene {
             architecture_handles,
             control_scale: self.layout.scale,
@@ -2114,6 +2159,7 @@ fn selection_region_in_context(
         start.1.max(end.1),
     ];
     let mut selected = Vec::new();
+    let mut contained_owners = BTreeMap::<SelectionTarget, bool>::new();
     let Ok(occurrences) = document.scene_geometry_refs() else {
         return selected;
     };
@@ -2171,7 +2217,14 @@ fn selection_region_in_context(
             continue; // A closed instance is atomic even when the region crosses only part of it.
         }
         for segment in geometry.segments.values() {
-            let [Some(a), Some(b)] = segment.endpoints.map(|reference| {
+            let target = SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: meshcraft_core::document::architecture::semantic_entity(
+                    &segment.extensions,
+                )
+                .unwrap_or(SelectedEntity::Segment(segment.id)),
+            };
+            let points = segment.endpoints.map(|reference| {
                 geometry.vertex_position(reference).and_then(|point| {
                     project_point(
                         camera,
@@ -2179,7 +2232,9 @@ fn selection_region_in_context(
                         resolved.world_transform.transform_point(point),
                     )
                 })
-            }) else {
+            });
+            accumulate_owner_containment(&mut contained_owners, &target, &points, region, crossing);
+            let [Some(a), Some(b)] = points else {
                 continue;
             };
             let hit = if crossing {
@@ -2188,30 +2243,34 @@ fn selection_region_in_context(
                 rect_contains(region, a.0, a.1) && rect_contains(region, b.0, b.1)
             };
             if hit {
-                selected.push(SelectionTarget {
-                    occurrence: occurrence.clone(),
-                    entity: meshcraft_core::document::architecture::semantic_entity(
-                        &segment.extensions,
-                    )
-                    .unwrap_or(SelectedEntity::Segment(segment.id)),
-                });
+                selected.push(target);
             }
         }
         for triangle in geometry.triangles.values() {
-            let Some(points) = triangle
-                .vertices
-                .map(|reference| {
-                    geometry.vertex_position(reference).and_then(|point| {
-                        project_point(
-                            camera,
-                            size,
-                            resolved.world_transform.transform_point(point),
-                        )
-                    })
+            let target = SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: meshcraft_core::document::architecture::semantic_entity(
+                    &triangle.extensions,
+                )
+                .unwrap_or(SelectedEntity::Triangle(triangle.id)),
+            };
+            let projected = triangle.vertices.map(|reference| {
+                geometry.vertex_position(reference).and_then(|point| {
+                    project_point(
+                        camera,
+                        size,
+                        resolved.world_transform.transform_point(point),
+                    )
                 })
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-            else {
+            });
+            accumulate_owner_containment(
+                &mut contained_owners,
+                &target,
+                &projected,
+                region,
+                crossing,
+            );
+            let Some(points) = projected.into_iter().collect::<Option<Vec<_>>>() else {
                 continue;
             };
             let hit = if crossing {
@@ -2222,13 +2281,7 @@ fn selection_region_in_context(
                     .all(|point| rect_contains(region, point.0, point.1))
             };
             if hit {
-                selected.push(SelectionTarget {
-                    occurrence: occurrence.clone(),
-                    entity: meshcraft_core::document::architecture::semantic_entity(
-                        &triangle.extensions,
-                    )
-                    .unwrap_or(SelectedEntity::Triangle(triangle.id)),
-                });
+                selected.push(target);
             }
         }
     }
@@ -2286,20 +2339,34 @@ fn selection_region_in_context(
             });
         }
     }
-    selected.retain(|target| {
-        crossing
-            || document.architecture_element(target).is_none_or(|e| {
-                document.architecture_mesh(target).is_ok_and(|mesh| {
-                    mesh.points.iter().all(|p| {
-                        project_point(camera, size, e.transform.transform_point(*p))
-                            .is_some_and(|(x, y)| rect_contains(region, x, y))
-                    })
-                })
-            })
-    });
     selected.sort();
     selected.dedup();
+    selected.retain(|target| contained_owners.get(target).copied().unwrap_or(true));
     selected
+}
+
+// Accumulate containment from realized facets once. Re-tessellating an owner for
+// every matching facet makes marquee selection quadratic in generated geometry.
+fn accumulate_owner_containment(
+    owners: &mut BTreeMap<SelectionTarget, bool>,
+    target: &SelectionTarget,
+    points: &[Option<(f32, f32)>],
+    region: [f32; 4],
+    crossing: bool,
+) {
+    if crossing
+        || !matches!(target.entity, SelectedEntity::SemanticHandle { kind, .. }
+        if meshcraft_core::document::architecture::field(kind).is_some())
+    {
+        return;
+    }
+    let contained = points
+        .iter()
+        .all(|p| p.is_some_and(|(x, y)| rect_contains(region, x, y)));
+    owners
+        .entry(target.clone())
+        .and_modify(|inside| *inside &= contained)
+        .or_insert(contained);
 }
 
 fn project_point(camera: OrbitCamera, size: (f32, f32), point: Vec3) -> Option<(f32, f32)> {
@@ -3474,6 +3541,67 @@ fn wheel_zoom_steps(steps: f32, modifiers: gpui::Modifiers) -> f32 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    #[ignore = "manual selection latency probe; set MESHCRAFT_BENCH_PROJECT"]
+    fn selection_activation_latency_probe() {
+        use super::*;
+        let path =
+            std::env::var("MESHCRAFT_BENCH_PROJECT").expect("MESHCRAFT_BENCH_PROJECT required");
+        let document = meshcraft_io::project::read_project(&std::fs::read(path).unwrap())
+            .unwrap()
+            .document;
+        let mut camera = OrbitCamera::default();
+        camera.fit(&document);
+        let start = Instant::now();
+        let targets = selection_region_in_context(
+            &document,
+            camera,
+            (850., 781.),
+            (0., 0.),
+            (850., 781.),
+            false,
+            &EditContext::Document,
+        );
+        eprintln!(
+            "Marquee projection: {:?}, candidates {}",
+            start.elapsed(),
+            targets.len()
+        );
+        let mut app = MeshcraftApp::new_native_session(document, String::new(), None);
+        let start = Instant::now();
+        app.apply_native_selection_region(targets, false, SelectionMode::Replace);
+        eprintln!(
+            "Normalize/filter/apply: {:?}, selected {}",
+            start.elapsed(),
+            app.native_selection_summary().total()
+        );
+        let start = Instant::now();
+        let view = app.native_view_snapshot();
+        eprintln!("View snapshot {:?}", start.elapsed());
+        let start = Instant::now();
+        std::hint::black_box(layout::SceneCounts::from_document(&view));
+        eprintln!("Scene counts {:?}", start.elapsed());
+        let start = Instant::now();
+        let counts = app.native_selection_mesh_counts(&view);
+        eprintln!("Selection mesh {:?}: {:?}", counts, start.elapsed());
+        let start = Instant::now();
+        std::hint::black_box(app.native_selected_architectures());
+        std::hint::black_box(app.native_architecture_payload());
+        eprintln!("Architecture properties {:?}", start.elapsed());
+        let start = Instant::now();
+        std::hint::black_box(app.native_script_parameters());
+        eprintln!("Script parameters {:?}", start.elapsed());
+        let all = Instant::now();
+        for c in MeshcraftApp::command_catalog() {
+            let start = Instant::now();
+            std::hint::black_box(app.query_command_state(c.id.as_str()));
+            if start.elapsed().as_micros() > 500 {
+                eprintln!("Command {} {:?}", c.id.as_str(), start.elapsed());
+            }
+        }
+        eprintln!("All command queries {:?}", all.elapsed());
+    }
     #[test]
     fn unchanged_selected_scene_does_not_schedule_another_gpu_frame() {
         use super::*;
@@ -3509,6 +3637,125 @@ mod tests {
     use image::{Frame, ImageBuffer};
     use std::sync::Arc;
 
+    #[test]
+    fn architectural_marquee_uses_effective_geometry_instead_of_rebuilding_parameters() {
+        use super::*;
+        use meshcraft_core::document::{
+            DefinitionKind, InstanceEdits,
+            architecture::{Element, Frame},
+        };
+        let mut d = Document::new();
+        let def = d.add_definition("Frame", DefinitionKind::Architecture);
+        d.put_architecture(
+            def,
+            None,
+            Element::Frame(Frame {
+                contour: vec![
+                    Vec3::new(-2., 0., 0.),
+                    Vec3::new(2., 0., 0.),
+                    Vec3::new(2., 2., 0.),
+                    Vec3::new(-2., 2., 0.),
+                ],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let occurrence = meshcraft_core::operations::objects::place_definition(
+            &mut d,
+            &EditContext::Document,
+            def,
+            Vec3::ZERO,
+            None,
+            false,
+        )
+        .unwrap();
+        let mut geometry = d.effective_geometry(&occurrence).unwrap().clone();
+        for vertex in geometry.vertices.values_mut() {
+            vertex.position.x += 6.;
+        }
+        d.set_occurrence_edits(
+            occurrence,
+            InstanceEdits {
+                geometry_replacement: Some(geometry),
+                ..Default::default()
+            },
+        );
+        let camera = OrbitCamera {
+            eye: Some(Vec3::new(4., 1., 14.)),
+            target: Vec3::new(4., 1., 0.),
+            ..Default::default()
+        };
+        let hits = selection_region_in_context(
+            &d,
+            camera,
+            (800., 600.),
+            (380., 100.),
+            (700., 500.),
+            false,
+            &EditContext::Document,
+        );
+        assert_eq!(
+            1,
+            hits.len(),
+            "window contains the effective frame, not its original parameter mesh"
+        );
+    }
+    #[test]
+    fn architectural_window_selection_requires_the_whole_realized_owner() {
+        use super::*;
+        use meshcraft_core::document::architecture::{Element, Frame};
+        let mut d = Document::new();
+        let def = d.ensure_scene_root();
+        d.put_architecture(
+            def,
+            None,
+            Element::Frame(Frame {
+                contour: vec![
+                    Vec3::new(-2., 0., 0.),
+                    Vec3::new(2., 0., 0.),
+                    Vec3::new(2., 2., 0.),
+                    Vec3::new(-2., 2., 0.),
+                ],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let camera = OrbitCamera {
+            eye: Some(Vec3::new(0., 1., 14.)),
+            target: Vec3::new(0., 1., 0.),
+            ..Default::default()
+        };
+        let region = |crossing| {
+            selection_region_in_context(
+                &d,
+                camera,
+                (800., 600.),
+                (0., 0.),
+                (400., 600.),
+                crossing,
+                &EditContext::Document,
+            )
+        };
+        assert!(
+            region(false).is_empty(),
+            "a contained edge cannot select a partly contained owner"
+        );
+        assert_eq!(
+            1,
+            region(true).len(),
+            "crossing a facet selects its owner once"
+        );
+        let all = selection_region_in_context(
+            &d,
+            camera,
+            (800., 600.),
+            (0., 0.),
+            (800., 600.),
+            false,
+            &EditContext::Document,
+        );
+        assert_eq!(1, all.len());
+    }
     #[test]
     fn frame_picking_and_both_marquee_directions_share_canonical_entity_targets() {
         use super::*;

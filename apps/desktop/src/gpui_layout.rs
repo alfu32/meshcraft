@@ -71,16 +71,8 @@ impl SceneCounts {
                 counts.objects += 1;
             }
             if let Some(geometry) = document.effective_geometry(&occurrence) {
-                counts.edges += geometry
-                    .segments
-                    .values()
-                    .filter(|e| !meshcraft_core::document::architecture::generated(&e.extensions))
-                    .count();
-                counts.faces += geometry
-                    .triangles
-                    .values()
-                    .filter(|e| !meshcraft_core::document::architecture::generated(&e.extensions))
-                    .count();
+                counts.edges += geometry.segments.len();
+                counts.faces += geometry.triangles.len();
             }
         }
         counts
@@ -692,6 +684,11 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .iter()
                 .map(|k| summary.counts_by_kind.get(k).copied().unwrap_or(0))
                 .sum();
+            let selected = match (key, self.shell.cached_selected_mesh.as_ref()) {
+                ("edge", Some((_, _, mesh))) => mesh.edges,
+                ("face", Some((_, _, mesh))) => mesh.faces,
+                _ => selected,
+            };
             let mut row = div()
                 .flex()
                 .items_center()
@@ -2110,4 +2107,37 @@ pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
         "help" => (15, "Help / About"),
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod count_tests {
+    use super::*;
+    use meshcraft_core::{
+        document::architecture::{Element, Wall},
+        geometry::Vec3,
+    };
+    #[test]
+    fn totals_include_generated_architecture_and_each_placed_instance() {
+        let mut d = Document::new();
+        let def = d.ensure_scene_root();
+        d.put_architecture(
+            def,
+            None,
+            Element::Wall(Wall {
+                start: Vec3::ZERO,
+                end: Vec3::X * 5.,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let cube = d
+            .add_cuboid("Object", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        d.copy_root_occurrence(&cube, Vec3::Z * 3.).unwrap();
+        let counts = SceneCounts::from_document(&d);
+        assert_eq!(40, counts.edges);
+        assert_eq!(44, counts.faces);
+        assert_eq!(2, counts.objects);
+        assert_eq!(Some(&1), counts.semantic.get(&SelectionKind::Wall));
+    }
 }

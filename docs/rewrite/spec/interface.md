@@ -236,6 +236,25 @@ T00 records fixed test hardware, fixture sizes, cold/warm load, picking percenti
 
 Source: `K/model/{AsyncSpatialIndexing,SpatialHash3D}.kt`, `K/perf/PerfStats.kt`, render/chunk paths and May 4 history. Acceptance: C26, C31.
 
+**Selection activation and counts follow-up (0.33.6).** Show architectural control
+handles only for exactly one selected entity; multi-selection must skip control
+construction and hit-testing. Toolbar/menu availability queries must not tessellate
+architecture. Share their copy/array eligibility result across commands, keyed by
+document generation/visual revision, selection revision and edit context; operations
+still validate their transforms and geometry before committing. Marquee selection
+checks editability once per normalized owner while preserving first-seen order.
+Window containment must use the already realized segment/triangle corners, including
+instance geometry overrides; it must not regenerate each owner's parametric mesh
+for every intersecting facet. Crossing selects an owner when any facet intersects;
+window selection requires all its realized facets to be inside.
+
+Selection table edge/face totals include generated architecture and each placed
+instance's effective mesh, including scripted output. The selected edge/face cells
+include primitives covered by selected architectural owners or nested instances.
+Overlapping parent/child/primitive selections count each placed primitive once;
+separate instances count separately. Logical object/architecture counts remain
+entity counts. Cache native mesh statistics across pointer/camera/UI-only updates.
+
 **Selection refresh follow-up (0.33.5).** An unchanged selection must settle without
 continuous UI or viewport redraw. Synchronize architecture fields/material selectors
 only when their binding changes; reuse decoded properties and world-space controls

@@ -2380,6 +2380,18 @@ impl Preferences {
     }
 }
 
+#[derive(PartialEq)]
+struct SelectionQueryKey {
+    generation: u64,
+    visual_revision: u64,
+    selection_revision: u64,
+    context: EditContext,
+}
+struct CopyAvailability {
+    key: SelectionQueryKey,
+    available: bool,
+}
+
 pub struct MeshcraftApp {
     preferences: Preferences,
     #[cfg(not(target_arch = "wasm32"))]
@@ -2428,6 +2440,7 @@ pub struct MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pending_project_save: Option<PendingProjectSave>,
     selection: SelectionSession,
+    copy_availability: std::cell::RefCell<Option<CopyAvailability>>,
     selection_display_policy: SelectionDisplayPolicy,
     selection_click_tracker: SelectionClickTracker,
     #[cfg(not(target_arch = "wasm32"))]
@@ -2883,9 +2896,13 @@ impl MeshcraftApp {
         crossing: bool,
         mode: SelectionMode,
     ) {
+        // Many generated facets resolve to the same architectural owner. Keep
+        // their first occurrence and check editability only once per owner.
+        let mut seen = BTreeSet::new();
         let targets = targets
             .into_iter()
             .map(|target| self.native_normalize_selection_target(target))
+            .filter(|target| seen.insert(target.clone()))
             .filter(|target| self.native_target_editable(target))
             .collect::<Vec<_>>();
         self.selection.apply(targets, mode);
@@ -3017,6 +3034,14 @@ impl MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn native_selection_summary(&self) -> meshcraft_core::selection::SelectionSummary {
         self.selection.summary()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_selection_mesh_counts(
+        &self,
+        view: &Document,
+    ) -> meshcraft_core::selection::SelectionMeshCounts {
+        self.selection.mesh_counts(view)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3546,6 +3571,7 @@ impl MeshcraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             pending_project_save: None,
             selection: SelectionSession::default(),
+            copy_availability: Default::default(),
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -7729,6 +7755,23 @@ impl MeshcraftApp {
         }
     }
 
+    fn selection_can_array(&self) -> bool {
+        let key = SelectionQueryKey {
+            generation: self.document_generation,
+            visual_revision: self.document.visual_revision(),
+            selection_revision: self.selection.revision(),
+            context: self.selection.context.clone(),
+        };
+        if let Some(cached) = self.copy_availability.borrow().as_ref()
+            && cached.key == key
+        {
+            return cached.available;
+        }
+        let available = modeling_copy::can_linear_array_selection(&self.document, &self.selection);
+        *self.copy_availability.borrow_mut() = Some(CopyAvailability { key, available });
+        available
+    }
+
     pub fn query_command_state(&self, id: &str) -> CommandState {
         let Some(command) = shell_commands().get(id) else {
             return CommandState::disabled(format!("unknown command `{id}`"));
@@ -8149,7 +8192,7 @@ impl MeshcraftApp {
                 | "tool.builtin.helical_array"
                 | "tool.builtin.rotational_array_equalized"
                 | "tool.builtin.helical_array_equalized"
-        ) && !modeling_copy::can_linear_array_selection(&self.document, &self.selection)
+        ) && !self.selection_can_array()
         {
             return CommandState::disabled(
                 "select supported objects, mesh entities, dimensions, or text first",
@@ -8219,10 +8262,7 @@ impl MeshcraftApp {
             }
             CommandStateQuery::SelectionAvailable
                 if command.descriptor.id.as_str() == "object.array_selection"
-                    && !modeling_copy::can_linear_array_selection(
-                        &self.document,
-                        &self.selection,
-                    ) =>
+                    && !self.selection_can_array() =>
             {
                 CommandState::disabled(
                     "select supported objects, mesh entities, dimensions, or text first",
@@ -11497,7 +11537,7 @@ impl MeshcraftApp {
     fn show_selection_panel(&mut self, ui: &mut egui::Ui) {
         let root_objects = self.top_level_occurrences();
         let mut totals = BTreeMap::new();
-        for occurrence in self.document.occurrence_refs().unwrap_or_default() {
+        for occurrence in self.document.scene_geometry_refs().unwrap_or_default() {
             if let Some(geometry) = self
                 .document
                 .geometry_in_context(&occurrence, &self.selection.context)
@@ -11509,6 +11549,7 @@ impl MeshcraftApp {
         }
         *totals.entry(SelectionKind::Object).or_insert(0) = root_objects.len();
         let summary = self.selection.summary();
+        let mesh = self.selection.mesh_counts(&self.document);
         ui.horizontal(|ui| {
             ui.weak("Type");
             ui.add_space(36.0);
@@ -11538,7 +11579,11 @@ impl MeshcraftApp {
             let mut unlocked = state.unlocked;
             let mut wireframe = state.wireframe;
             let total = totals.get(&kind).copied().unwrap_or(0);
-            let selected = summary.count(kind);
+            let selected = match kind {
+                SelectionKind::Edge => mesh.edges,
+                SelectionKind::Face => mesh.faces,
+                _ => summary.count(kind),
+            };
             ui.horizontal(|ui| {
                 ui.add_sized([85.0, 18.0], egui::Label::new(label));
                 ui.add_sized([30.0, 18.0], egui::Label::new(total.to_string()));
@@ -13104,6 +13149,7 @@ mod tests {
             pending_project_load: None,
             pending_project_save: None,
             selection: SelectionSession::default(),
+            copy_availability: Default::default(),
             selection_display_policy: SelectionDisplayPolicy::default(),
             selection_click_tracker: SelectionClickTracker::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -13253,6 +13299,47 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn array_availability_cache_tracks_selection_document_and_context() {
+        let mut app = test_app();
+        assert!(!app.selection_can_array());
+        let p = app
+            .document
+            .add_cuboid("Part", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let def = app.document.resolve_occurrence(&p).unwrap().definition.id;
+        let edge = *app
+            .document
+            .effective_geometry(&p)
+            .unwrap()
+            .segments
+            .keys()
+            .next()
+            .unwrap();
+        let target = SelectionTarget {
+            occurrence: p,
+            entity: SelectedEntity::Segment(edge),
+        };
+        app.selection.select(target.clone());
+        assert!(app.selection_can_array());
+        for _ in 0..100 {
+            assert!(app.selection_can_array());
+        }
+        app.selection.set_context(EditContext::Definition(
+            meshcraft_core::document::DefinitionId(def.0 + 1000),
+        ));
+        app.selection.select(target.clone());
+        assert!(!app.selection_can_array());
+        app.selection.set_context(EditContext::Definition(def));
+        app.selection.select(target);
+        assert!(app.selection_can_array());
+        app.document
+            .replace_definition_geometry_raw(def, vec![], vec![], vec![])
+            .unwrap();
+        assert!(!app.selection_can_array());
+        app.selection.clear();
+        assert!(!app.selection_can_array());
+    }
     #[test]
     fn egui_workspace_renders_full_chrome_and_a_viewport() {
         let mut app = test_app();

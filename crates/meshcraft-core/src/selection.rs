@@ -480,6 +480,73 @@ impl SelectionSession {
         summary
     }
 
+    /// Realized mesh covered by the selection, including nested instances and
+    /// generated architecture. Counts each placed primitive once even when its
+    /// owner, a parent instance and the primitive itself are selected together.
+    pub fn mesh_counts(&self, document: &Document) -> SelectionMeshCounts {
+        let mut counts = SelectionMeshCounts::default();
+        if self.selected.is_empty() {
+            return counts;
+        }
+        let mut exact = BTreeMap::<&OccurrenceRef, BTreeSet<&SelectedEntity>>::new();
+        let mut objects = BTreeSet::new();
+        for target in &self.selected {
+            exact
+                .entry(&target.occurrence)
+                .or_default()
+                .insert(&target.entity);
+            if target.entity == SelectedEntity::Occurrence {
+                objects.insert(&target.occurrence);
+            }
+        }
+        let occurrences = if objects.is_empty() {
+            exact.keys().map(|p| (*p).clone()).collect()
+        } else {
+            document.scene_geometry_refs().unwrap_or_default()
+        };
+        for occurrence in occurrences {
+            let mut parent = occurrence.clone();
+            let whole = loop {
+                if objects.contains(&parent) {
+                    break true;
+                }
+                if parent.path.pop().is_none() {
+                    break false;
+                }
+            };
+            let selected = exact.get(&occurrence);
+            if !whole && selected.is_none() {
+                continue;
+            }
+            let Some(geometry) = document.effective_geometry(&occurrence) else {
+                continue;
+            };
+            if whole {
+                counts.edges += geometry.segments.len();
+                counts.faces += geometry.triangles.len();
+                continue;
+            }
+            let selected = selected.unwrap();
+            let contains =
+                |entity: SelectedEntity, extensions: &BTreeMap<String, serde_json::Value>| {
+                    selected.contains(&entity)
+                        || crate::document::architecture::semantic_entity(extensions)
+                            .is_some_and(|owner| selected.contains(&owner))
+                };
+            counts.edges += geometry
+                .segments
+                .values()
+                .filter(|e| contains(SelectedEntity::Segment(e.id), &e.extensions))
+                .count();
+            counts.faces += geometry
+                .triangles
+                .values()
+                .filter(|f| contains(SelectedEntity::Triangle(f.id), &f.extensions))
+                .count();
+        }
+        counts
+    }
+
     pub fn deselect(&mut self, target: &SelectionTarget) -> bool {
         if !self.selected.remove(target) {
             return false;
@@ -604,6 +671,12 @@ impl SelectionSession {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SelectionMeshCounts {
+    pub edges: usize,
+    pub faces: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectionSummary {
     pub vertices: usize,
     pub edges: usize,
@@ -683,6 +756,160 @@ mod tests {
     use crate::document::{DefinitionKind, Document, OccurrenceRef};
     use crate::geometry::{Affine3, Vec2, Vec3};
 
+    #[test]
+    fn mesh_counts_include_architecture_without_counting_overlapping_targets_twice() {
+        use crate::document::architecture::{Element, Wall};
+        let mut d = Document::new();
+        let def = d.ensure_scene_root();
+        let id = d
+            .put_architecture(
+                def,
+                None,
+                Element::Wall(Wall {
+                    start: Vec3::ZERO,
+                    end: Vec3::X * 5.,
+                    height: 3.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        d.put_architecture(
+            def,
+            None,
+            Element::Wall(Wall {
+                start: Vec3::Z * 4.,
+                end: Vec3::X * 5. + Vec3::Z * 4.,
+                height: 3.,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let occurrence = OccurrenceRef::scene_root();
+        let mut selection = SelectionSession::default();
+        assert_eq!(
+            super::SelectionMeshCounts::default(),
+            selection.mesh_counts(&d)
+        );
+        selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Wall,
+                id,
+            },
+        });
+        assert_eq!(
+            super::SelectionMeshCounts {
+                edges: 16,
+                faces: 20
+            },
+            selection.mesh_counts(&d)
+        );
+        let segment = *d
+            .effective_geometry(&occurrence)
+            .unwrap()
+            .segments
+            .keys()
+            .next()
+            .unwrap();
+        selection.select(SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Segment(segment),
+        });
+        assert_eq!(
+            super::SelectionMeshCounts {
+                edges: 16,
+                faces: 20
+            },
+            selection.mesh_counts(&d)
+        );
+        selection.select(SelectionTarget {
+            occurrence,
+            entity: SelectedEntity::Occurrence,
+        });
+        assert_eq!(
+            super::SelectionMeshCounts {
+                edges: 32,
+                faces: 40
+            },
+            selection.mesh_counts(&d)
+        );
+    }
+
+    #[test]
+    fn mesh_counts_cover_nested_placements_and_effective_instance_geometry() {
+        use crate::document::{GeometryBundle, InstanceEdits};
+        let mut d = Document::new();
+        let cube = d
+            .add_cuboid("Mesh", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let cube_def = d.resolve_occurrence(&cube).unwrap().definition.id;
+        let parent_def = d.add_definition("Assembly", DefinitionKind::Mesh);
+        let layout = d.add_child_layout();
+        let child_entry = d
+            .add_layout_entry(layout, cube_def, Affine3::IDENTITY)
+            .unwrap();
+        d.set_default_child_layout(parent_def, Some(layout));
+        let p = OccurrenceRef::root(
+            d.add_layout_entry(d.root_layout(), parent_def, Affine3::IDENTITY)
+                .unwrap(),
+        );
+        let q = OccurrenceRef::root(
+            d.add_layout_entry(
+                d.root_layout(),
+                parent_def,
+                Affine3 {
+                    translation: Vec3::X * 3.,
+                    ..Affine3::IDENTITY
+                },
+            )
+            .unwrap(),
+        );
+        let mut child = p.clone();
+        child.path.push(child_entry);
+        let mut selection = SelectionSession::default();
+        for occurrence in [&p, &q, &child] {
+            selection.select(SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Occurrence,
+            });
+        }
+        let geometry = d.effective_geometry(&cube).unwrap();
+        let edge = *geometry.segments.keys().next().unwrap();
+        let face = *geometry.triangles.keys().next().unwrap();
+        selection.select(SelectionTarget {
+            occurrence: cube.clone(),
+            entity: SelectedEntity::Segment(edge),
+        });
+        selection.select(SelectionTarget {
+            occurrence: cube,
+            entity: SelectedEntity::Triangle(face),
+        });
+        assert_eq!(
+            super::SelectionMeshCounts {
+                edges: 25,
+                faces: 25
+            },
+            selection.mesh_counts(&d)
+        );
+        let mut other_child = q;
+        other_child.path.push(child_entry);
+        d.set_occurrence_edits(
+            other_child,
+            InstanceEdits {
+                geometry_replacement: Some(GeometryBundle::default()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            super::SelectionMeshCounts {
+                edges: 13,
+                faces: 13
+            },
+            selection.mesh_counts(&d)
+        );
+        // Logical selection membership still counts entities, not derived facets.
+        assert_eq!(5, selection.summary().total());
+    }
     #[test]
     fn ordered_selection_survives_add_remove_reorder_and_stale_target_cleanup() {
         let mut document = Document::new();
