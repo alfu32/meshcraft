@@ -1,6 +1,7 @@
 #version 330
 in vec3 worldPosition;
 in vec4 color;
+flat in float faceOrientation;
 uniform mat4 lightVP;
 uniform sampler2D shadowMap;
 uniform vec3 towardLight;
@@ -29,11 +30,11 @@ float visibility(vec3 normal) {
     return 1.0 - shadowStrength * occlusion / 9.0;
 }
 void main() {
-    // Screen derivatives give a flat face normal, also for immediate-mode triangles.
+    // Flat normals from world-position derivatives also support shared indexed meshes.
     vec3 normal = normalize(cross(dFdx(worldPosition), dFdy(worldPosition)));
     float diffuse = max(dot(normal, towardLight), 0.0);
     float visible = visibility(normal);
-    vec3 tint = gl_FrontFacing ? color.rgb : color.rgb * vec3(0.76, 0.79, 0.87);
+    vec3 tint = (gl_FrontFacing == (faceOrientation > 0.0)) ? color.rgb : color.rgb * vec3(0.76, 0.79, 0.87);
     float shine = diffuse > 0.0 ? pow(max(dot(normalize(eye-worldPosition), reflect(-towardLight, normal)), 0.0), 32.0) : 0.0;
     vec3 lit = tint * (ambient + directional * diffuse * visible) + vec3(specular * shine * visible * 0.2);
     finalColor = vec4(clamp(lit, 0.0, 1.0), color.a);

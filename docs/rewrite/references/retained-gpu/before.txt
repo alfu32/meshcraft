@@ -1,0 +1,24 @@
+
+running 4 tests
+test gpui_app::lighting::tests::gpu_light_camera_casts_shadows_and_black_lines_survive_composition ... analytic ground shadow alignment IoU: 0.919
+selection frame probe at 1280x800: none, 0 targets, 52.98 ms/frame (software GPU including readback)
+selection frame probe at 1280x800: all faces and edges, 29580 targets, 55.33 ms/frame (software GPU including readback)
+shadowed receiver pixels: 4663 (ground 2806, entity 1857); image: /tmp/meshcraft-lighting-probe.png
+ok
+test gpui_app::lighting::tests::retained_geometry_throughput_probe ... first prepare 1.53657761s
+50 instances, 1000000 triangles, 20000 edges: 270.263 ms/frame including GPU/readback
+ok
+test gpui_app::placement::tests::placement_gpu_quads_follow_transforms_and_reuse_the_uploaded_mesh ... ok
+test gpui_app::tests::selection_activation_latency_probe ... Marquee projection: 43.095004ms, candidates 440
+Normalize/filter/apply: 31.521037ms, selected 440
+View snapshot 22.369127ms
+Scene counts 33.363668ms
+Selection mesh SelectionMeshCounts { edges: 12520, faces: 17060 }: 10.898454ms
+Architecture properties 12.778633ms
+Script parameters 57.71µs
+Command edit.delete_selection 5.641268ms
+Command object.array_selection 6.433383ms
+All command queries 13.276876ms
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 374 filtered out; finished in 6.78s

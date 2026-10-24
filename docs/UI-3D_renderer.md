@@ -41,3 +41,21 @@ The upstream GPUI project is pre-1.0 and documents ongoing API changes in its [R
 raylib batches stable scene geometry by material/domain and updates only changed revisions. Preserve front/back face tinting (back faces slightly darker and bluer), shadow-map shadows from solid geometry onto other entities and the ground, and exclude authored lines, selection/preview overlays and the construction grid from the shadow pass. Render selection/window feedback, guide axes, oriented cursor, staged geometry previews, measurements and annotation text in dedicated overlay paths. Keep sorting/picking data separate from translucent and screen-space feedback.
 
 The user-provided recordings (`docs/Screencast From 2026-10-19 10-42-51.mp4` and `docs/Screencast From 2026-10-19 10-47-07.mp4`, intentionally ignored by Git) show dense copies/arrays being inspected with orbit, zoom, selection and display changes; the later recording also shows the legacy app becoming unresponsive during a large array operation. Use this workflow as the stress scenario. Measure command latency, pointer-to-feedback latency, frame time, pick/window-select time, memory and idle CPU on fixed scenes; never treat a frozen or stale viewport as acceptable feedback.
+
+## Retained native geometry (0.33.8)
+
+The raylib worker owns persistent, indexed OpenGL face buffers and shader-expanded
+line buffers, grouped by effective local-space display geometry. Identical
+prototype/architecture variants share mesh buffers and have separate instance
+transforms/style flags. Geometry equality is verified after hashing; transformed
+copies retain geometry, while changed variants replace only their live group.
+Opaque buffers also feed the shadow pass. Selection/preview feedback has separate
+buffers and does not regenerate model geometry. Index/line chunks bound resource
+sizes and preserve primitive boundaries. GPU resources remain on the context
+thread through destruction.
+
+See the [source review and scope](rewrite/handoffs/gpu-renderer-analysis.md) and
+[T59 implementation/validation](rewrite/handoffs/T59.md). The offscreen GPUI
+readback bridge and CPU picking/display metadata remain; shared-texture interop,
+view culling, display LOD and fully incremental CPU scene preparation require
+separate profiling and work.

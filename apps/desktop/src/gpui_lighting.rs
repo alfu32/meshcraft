@@ -1,4 +1,4 @@
-//! One batched solid pass and a cached light-camera depth pass; helpers never cast shadows.
+//! Retained/instanced model passes and a cached light-camera depth pass; helpers never cast shadows.
 use super::*;
 use raylib::prelude::{RaylibShader, RaylibShaderModeExt, Shader};
 
@@ -30,7 +30,7 @@ impl Default for Lighting {
     }
 }
 impl Lighting {
-    fn direction(self) -> Vec3 {
+    pub(super) fn direction(self) -> Vec3 {
         let (az, el) = (
             self.azimuth.to_radians() as f64,
             self.elevation.to_radians() as f64,
@@ -45,7 +45,7 @@ struct Face {
     wireframe: bool,
     selected: bool,
 }
-fn face_outlines(faces: &[Face]) -> Vec<([Vec3; 2], bool, Rgba8)> {
+fn face_outlines<'a>(faces: impl IntoIterator<Item = &'a Face>) -> Vec<([Vec3; 2], bool, Rgba8)> {
     let mut outlines =
         BTreeMap::<([u64; 3], [u64; 3]), ([Vec3; 2], usize, bool, bool, Rgba8)>::new();
     let key = |p: Vec3| [p.x, p.y, p.z].map(|v| if v == 0. { 0 } else { v.to_bits() });
@@ -161,6 +161,7 @@ fn selection_box(points: &[Vec3]) -> Vec<[Vec3; 2]> {
 
 pub(super) struct Renderer {
     pub(super) placement: placement::Renderer,
+    pub(super) gpu: gpu_mesh::Scene,
     depth: Shader,
     lit: Shader,
     map: RenderTexture2D,
@@ -177,6 +178,8 @@ pub(super) struct Renderer {
     pub(super) selection: SelectionIndex,
     outlines: Vec<([Vec3; 2], bool, Rgba8)>,
     selection_box: Vec<[Vec3; 2]>,
+    direction_edges: Vec<[Vec3; 2]>,
+    selected_points: Vec<Vec3>,
     handle_context: Option<EditContext>,
 }
 impl Renderer {
@@ -184,7 +187,7 @@ impl Renderer {
         let vertex = include_str!("../../../assets/shaders/scene.vs");
         let depth = rl.load_shader_from_memory(
             thread,
-            Some(vertex),
+            Some(include_str!("../../../assets/shaders/mesh.vs")),
             Some(include_str!("../../../assets/shaders/shadow.fs")),
         );
         let lit = rl.load_shader_from_memory(
@@ -194,6 +197,7 @@ impl Renderer {
         );
         Self {
             placement: placement::Renderer::new(rl, thread),
+            gpu: gpu_mesh::Scene::new(rl, thread),
             depth,
             lit,
             map: rl
@@ -212,6 +216,8 @@ impl Renderer {
             selection: SelectionIndex::default(),
             outlines: Vec::new(),
             selection_box: Vec::new(),
+            direction_edges: vec![],
+            selected_points: vec![],
             handle_context: None,
         }
     }
@@ -231,10 +237,10 @@ impl Renderer {
             self.rebuild(&scene.document, &scene.display_policy);
             self.last_light = None;
         }
-        if changed
+        let feedback_changed = changed
             || self.last_selection != scene.selection
-            || self.handle_context.as_ref() != Some(&scene.edit_context)
-        {
+            || self.handle_context.as_ref() != Some(&scene.edit_context);
+        if feedback_changed {
             self.update_selection(&scene.selection);
             self.handles =
                 hotspots::handles(&scene.document, &scene.edit_context, &scene.selection);
@@ -252,6 +258,32 @@ impl Renderer {
             });
             self.handle_context = Some(scene.edit_context.clone());
         }
+        let partial = if feedback_changed {
+            self.edges
+                .iter()
+                .filter(|e| {
+                    e.selected
+                        && matches!(e.target.entity, SelectedEntity::Segment(_))
+                        && !self.selection.contains(&SelectionTarget {
+                            occurrence: e.target.occurrence.clone(),
+                            entity: SelectedEntity::Occurrence,
+                        })
+                })
+                .map(|e| (e.points, e.color))
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+        self.gpu.prepare(
+            scene,
+            &self.selection,
+            changed,
+            feedback_changed.then_some(gpu_mesh::Feedback {
+                outlines: &self.outlines,
+                partial: &partial,
+                bounds: &self.selection_box,
+            }),
+        );
         let direction = scene.lighting.direction();
         let light = (scene.lighting.azimuth, scene.lighting.elevation);
         if !scene.lighting.shadows || (!changed && self.last_light == Some(light)) {
@@ -277,7 +309,7 @@ impl Renderer {
         {
             let mut drawing = rl.begin_texture_mode(thread, &mut self.map);
             drawing.clear_background(Color::WHITE);
-            let mut view = drawing.begin_mode3D(camera);
+            let _view = drawing.begin_mode3D(camera);
             // Both sides cast, including open planar meshes. No guides/lines/preview here.
             unsafe {
                 raylib::ffi::rlDisableBackfaceCulling();
@@ -286,13 +318,7 @@ impl Renderer {
                     raylib::ffi::rlGetMatrixProjection(),
                 );
             }
-            let mut pass = view.begin_shader_mode(&mut self.depth);
-            for face in &self.faces {
-                if face.color.alpha == 255 && !face.wireframe {
-                    triangle(&mut pass, face.points, Color::WHITE);
-                }
-            }
-            drop(pass);
+            self.gpu.draw_shadow(&mut self.depth);
             unsafe {
                 raylib::ffi::rlEnableBackfaceCulling();
             }
@@ -302,6 +328,7 @@ impl Renderer {
         }
         self.lit
             .set_shader_value_matrix(self.lit.get_shader_location("lightVP"), light_vp);
+        self.gpu.set_light_matrix(light_vp);
     }
     fn rebuild(
         &mut self,
@@ -422,7 +449,13 @@ impl Renderer {
         for face in &mut self.faces {
             face.selected = self.selection.contains(&face.target);
         }
-        self.outlines = face_outlines(&self.faces);
+        // Whole-object wireframes live in the shared local-space GPU line mesh.
+        // Only explicitly selected faces need an additional boundary overlay.
+        self.outlines = face_outlines(
+            self.faces
+                .iter()
+                .filter(|f| !f.wireframe || self.selection.exact.contains(&f.target)),
+        );
         for edge in &mut self.edges {
             edge.selected = self.selection.contains(&edge.target);
         }
@@ -447,6 +480,21 @@ impl Renderer {
             }
         }
         self.selection_box = selection_box(&points);
+        self.direction_edges = self
+            .edges
+            .iter()
+            .filter(|e| {
+                matches!(e.target.entity, SelectedEntity::Segment(_))
+                    && self.selection.exact.contains(&e.target)
+            })
+            .map(|e| e.points)
+            .collect();
+        self.selected_points = self
+            .vertices
+            .iter()
+            .filter(|v| v.selected)
+            .map(|v| v.point)
+            .collect();
     }
 
     pub fn draw(
@@ -454,8 +502,9 @@ impl Renderer {
         view: &mut (impl RaylibDraw3D + RaylibDraw),
         scene: &RenderScene,
         camera: OrbitCamera,
-        height: f32,
+        size: (f32, f32),
     ) {
+        let height = size.1;
         let eye = camera.position();
         let settings = scene.lighting;
         let shader = &mut self.lit;
@@ -503,104 +552,24 @@ impl Renderer {
                 raylib::ffi::rlDrawRenderBatchActive();
                 raylib::ffi::rlDisableBackfaceCulling();
             }
-            for face in &self.faces {
-                if face.wireframe {
-                    continue;
-                }
-                let color = if external(&scene.edit_context, &scene.document, &face.target) {
-                    Color::new(188, 201, 212, 255)
-                } else {
-                    ray_color(face.color)
-                };
-                triangle(&mut pass, face.points, color);
-            }
         }
-        unsafe {
-            raylib::ffi::rlEnableBackfaceCulling();
-            raylib::ffi::rlActiveTextureSlot(1);
-            raylib::ffi::rlDisableTexture();
-            raylib::ffi::rlActiveTextureSlot(0);
-        }
-        unsafe {
-            raylib::ffi::rlDisableBackfaceCulling();
-        }
-        for (edge, selected, color) in &self.outlines {
-            stroke(
-                view,
-                *edge,
-                if *selected {
-                    Color::new(240, 116, 43, 255)
-                } else if scene.black_model_lines {
-                    Color::BLACK
-                } else {
-                    ray_color(*color)
-                },
-                if *selected {
-                    scene.thick_line_width
-                } else {
-                    scene.normal_line_width
-                },
-                camera,
-                height,
-            );
-        }
-        unsafe {
-            raylib::ffi::rlDisableBackfaceCulling();
-        }
-        for edge in &self.edges {
-            let selected = edge.selected;
-            stroke(
-                view,
-                edge.points,
-                if selected {
-                    Color::new(245, 128, 46, 255)
-                } else if external(&scene.edit_context, &scene.document, &edge.target) {
-                    Color::new(130, 147, 161, 255)
-                } else if scene.black_model_lines {
-                    Color::BLACK
-                } else {
-                    ray_color(edge.color)
-                },
-                if selected {
-                    scene.thick_line_width
-                } else {
-                    scene.normal_line_width
-                },
-                camera,
-                height,
-            );
-        }
+        self.gpu.draw_surfaces(scene, camera, self.map.texture().id);
+        self.gpu.draw_lines(scene, size);
         // Draw direction feedback together above the surface, including coplanar model edges.
         unsafe {
             raylib::ffi::rlDrawRenderBatchActive();
             raylib::ffi::rlDisableDepthTest();
         }
-        for edge in &self.selection_box {
-            stroke(
-                view,
-                *edge,
-                Color::new(45, 128, 245, 255),
-                1.5,
-                camera,
-                height,
-            );
-        }
-        for edge in &self.edges {
-            if matches!(edge.target.entity, SelectedEntity::Segment(_))
-                && self.selection.exact.contains(&edge.target)
-            {
-                direction_arrow(view, edge.points, scene.thick_line_width, camera, height);
-            }
+        for edge in &self.direction_edges {
+            direction_arrow(view, *edge, scene.thick_line_width, camera, height);
         }
         unsafe {
             raylib::ffi::rlDrawRenderBatchActive();
             raylib::ffi::rlEnableDepthTest();
             raylib::ffi::rlEnableBackfaceCulling();
         }
-        for vertex in &self.vertices {
-            if vertex.selected {
-                view.draw_sphere(ray_vec3(vertex.point), 0.06, Color::new(227, 57, 49, 255));
-            }
+        for point in &self.selected_points {
+            view.draw_sphere(ray_vec3(*point), 0.06, Color::new(227, 57, 49, 255));
         }
     }
 }
@@ -709,7 +678,11 @@ fn triangle(view: &mut impl RaylibDraw3D, [a, b, c]: [Vec3; 3], color: Color) {
     view.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), color);
 }
 
-fn external(context: &EditContext, document: &Document, target: &SelectionTarget) -> bool {
+pub(super) fn external(
+    context: &EditContext,
+    document: &Document,
+    target: &SelectionTarget,
+) -> bool {
     match context {
         EditContext::Document => false,
         EditContext::Occurrence(active) => !target.occurrence.path.starts_with(&active.path),
@@ -1089,6 +1062,7 @@ mod tests {
             camera.fit(&bench.document);
             let mut target = rl.load_render_texture(&thread, 1280, 800).unwrap();
             renderer.prepare(&mut rl, &thread, &bench);
+            println!("dense model retained GPU cache {:?}", renderer.gpu.stats);
             let all = renderer
                 .faces
                 .iter()
@@ -1136,6 +1110,147 @@ mod tests {
         rgba.save("/tmp/meshcraft-lighting-probe.png").unwrap();
         println!(
             "shadowed receiver pixels: {darkened} (ground {ground_pixels}, entity {entity_pixels}); image: /tmp/meshcraft-lighting-probe.png"
+        );
+    }
+    #[test]
+    #[ignore = "manual GPU throughput probe; requires an isolated X11/OpenGL display"]
+    fn retained_geometry_throughput_probe() {
+        use meshcraft_core::document::{
+            DefinitionKind, RawGeometrySegment, RawGeometryTriangle, RawGeometryVertex,
+            RawVertexRef,
+        };
+        let (mut rl, thread) = raylib::init()
+            .size(960, 640)
+            .hidden()
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut renderer = Renderer::new(&mut rl, &thread);
+        let n: usize = std::env::var("MESHCRAFT_GPU_GRID")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let copies: usize = std::env::var("MESHCRAFT_GPU_COPIES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50);
+        let mut d = Document::new();
+        let def = d.add_definition("shared grid", DefinitionKind::Mesh);
+        let vertices = (0..=n)
+            .flat_map(|z| {
+                (0..=n).map(move |x| RawGeometryVertex {
+                    position: Vec3::new(x as f64, 2., z as f64),
+                    legacy_aliases: vec![],
+                })
+            })
+            .collect();
+        let reference = |vertex| RawVertexRef {
+            vertex,
+            position_offset: Vec3::ZERO,
+        };
+        let mut faces = vec![];
+        for z in 0..n {
+            for x in 0..n {
+                let a = z * (n + 1) + x;
+                let b = a + 1;
+                let c = a + n + 1;
+                let e = c + 1;
+                for tri in [[a, c, b], [b, c, e]] {
+                    faces.push(RawGeometryTriangle {
+                        vertices: tri.map(reference),
+                        color: Rgba8::WHITE,
+                        legacy_aliases: vec![],
+                        extensions: BTreeMap::new(),
+                    });
+                }
+            }
+        }
+        let edges = (0..n)
+            .flat_map(|i| {
+                [
+                    [i, i + 1],
+                    [i * (n + 1), (i + 1) * (n + 1)],
+                    [n * (n + 1) + i, n * (n + 1) + i + 1],
+                    [i * (n + 1) + n, (i + 1) * (n + 1) + n],
+                ]
+            })
+            .map(|e| RawGeometrySegment {
+                endpoints: e.map(reference),
+                color: Rgba8::BLACK,
+                legacy_aliases: vec![],
+                extensions: BTreeMap::new(),
+            })
+            .collect();
+        d.replace_definition_geometry_raw(def, vertices, edges, faces)
+            .unwrap();
+        let columns = (copies as f64).sqrt().ceil() as usize;
+        for i in 0..copies {
+            meshcraft_core::operations::objects::place_definition(
+                &mut d,
+                &EditContext::Document,
+                def,
+                Vec3::new(
+                    (i % columns) as f64 * n as f64 * 1.1,
+                    0.,
+                    (i / columns) as f64 * n as f64 * 1.1,
+                ),
+                None,
+                false,
+            )
+            .unwrap();
+        }
+        let mut scene = RenderScene {
+            document: Arc::new(d),
+            grid_visible: false,
+            ..Default::default()
+        };
+        scene.lighting.shadows = false;
+        let mut camera = OrbitCamera::default();
+        camera.fit(&scene.document);
+        let mut target = rl.load_render_texture(&thread, 960, 640).unwrap();
+        let start = Instant::now();
+        renderer.prepare(&mut rl, &thread, &scene);
+        println!("first prepare {:?}", start.elapsed());
+        for _ in 0..2 {
+            draw_offscreen_scene(
+                &mut rl,
+                &thread,
+                &mut target,
+                camera,
+                &scene,
+                0,
+                &mut renderer,
+            );
+            std::hint::black_box(copy_target_to_gpui_image(&target).unwrap());
+        }
+        let start = Instant::now();
+        let mut submitted = Duration::ZERO;
+        for i in 0..6 {
+            let begin = Instant::now();
+            camera.yaw += 0.025;
+            renderer.prepare(&mut rl, &thread, &scene);
+            draw_offscreen_scene(
+                &mut rl,
+                &thread,
+                &mut target,
+                camera,
+                &scene,
+                i,
+                &mut renderer,
+            );
+            submitted += begin.elapsed();
+            std::hint::black_box(copy_target_to_gpui_image(&target).unwrap());
+        }
+        println!(
+            "Draw submission elapsed {:.3} ms/frame (includes driver waits); GPU cache {:?}",
+            submitted.as_secs_f64() * 1000. / 6.,
+            renderer.gpu.stats
+        );
+        println!(
+            "{} instances, {} triangles, {} edges: {:.3} ms/frame including GPU/readback",
+            copies,
+            copies * n * n * 2,
+            copies * n * 4,
+            start.elapsed().as_secs_f64() * 1000. / 6.
         );
     }
 }

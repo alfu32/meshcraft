@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-24",
+  "version": "0.33.8",
+  "baseline": "0.33.7 renderer with the same opt-in throughput fixture added before production renderer changes",
+  "host": {
+    "cpu": "Intel Core i7-6700HQ @ 2.60GHz",
+    "gpu": "Mesa software OpenGL (llvmpipe); native GPUI uses software Vulkan",
+    "display": "private Xvfb :96",
+    "build": "cargo dev/test opt-level=1; dependencies opt-level=3"
+  },
+  "method": {
+    "frames": "Six warmed camera-motion frames, including GPU completion/readback and BGRA conversion. Not hardware-GPU qualification or UI presentation FPS. Shadows/grid disabled in throughput samples. Draw submission elapsed can include driver waits.",
+    "synthetic": "Generated 100x100-cell shared mesh, 50 placements, one million triangles and 20,000 boundary segments; no external fixture required.",
+    "drawing": "User-provided demo.octd from an immutable private copy; drawing not published. 12,520 edges/17,060 triangles; 440 semantic/object placements. Selection probe passes 29,580 raw targets to the renderer.",
+    "native": "Physical Move/Rotate inputs on 88 logical targets, 2,504 edges/3,412 triangles; canonical records and all nine selected object transforms checked for phantom non-mutation, commit, Undo, Redo and Escape.",
+    "originalSha256": "a59cb07e31991c7aaa8190532213eb27709564dbe68e7c3a3658d76451e0c2c6"
+  },
+  "measurements": {
+    "millionTrianglesMs": {
+      "before": 270.263,
+      "after": 125.065
+    },
+    "millionFirstPrepareMs": {
+      "before": 1536.578,
+      "after": 1594.751
+    },
+    "drawingUnselectedMs": {
+      "before": 52.98,
+      "after": 27.37
+    },
+    "drawingSelectedMs": {
+      "before": 55.33,
+      "after": 34.12
+    }
+  },
+  "sharing": {
+    "synthetic": {
+      "groups": 1,
+      "instances": 50,
+      "indexedVertices": 10201,
+      "indices": 60000,
+      "lineSegments": 400,
+      "modelGeometryUploads": 1,
+      "instanceUploads": 1
+    },
+    "drawing": {
+      "groups": 71,
+      "instances": 440,
+      "indexedVertices": 1788,
+      "surfaceCorners": 7518,
+      "lineSegments": 1882
+    },
+    "notes": "Group count is not VBO count; each group can have face/index/line/instance buffers and chunks. Upload counters are cumulative; the dense fixture reused a renderer after other regression cases."
+  },
+  "checks": {
+    "regularPassed": 723,
+    "core": 302,
+    "desktopLibrary": 374,
+    "cli": 5,
+    "io": 42,
+    "ignoredOptIn": 10,
+    "explicitPassed": 6,
+    "explicitBreakdown": "Five OpenGL checks/probes and one dense marquee CPU probe",
+    "strictClippy": true,
+    "nativeBuild": true,
+    "wasm": "Passed with three pre-existing browser dead-code warnings",
+    "releaseHelpers": 8,
+    "originalDrawingUnchanged": true,
+    "sharedWireframes": true,
+    "finalGpuRecheckPassed": 6
+  },
+  "limits": [
+    "CPU world-space display metadata and its initial preparation still remain.",
+    "GPU-to-CPU-to-GPUI image transfer still remains.",
+    "No frustum culling, display LOD, complete CPU scene-delta update or shadow atlas is claimed.",
+    "Transparent geometry uses an opaque-first blend pass; general order-independent transparency is not implemented.",
+    "Windows/macOS/physical GPU runs were not performed."
+  ]
+}

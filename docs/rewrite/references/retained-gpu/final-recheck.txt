@@ -1,0 +1,29 @@
+
+running 6 tests
+test gpui_app::gpu_mesh::tests::gpu_buffers_survive_navigation_selection_and_transform_only_edits ... GPU geometry/instance upload counters and resource lifetime verified
+ok
+test gpui_app::gpu_mesh::tests::gpu_lines_match_screen_projection_and_clip_at_the_near_plane ... ok
+test gpui_app::lighting::tests::gpu_light_camera_casts_shadows_and_black_lines_survive_composition ... analytic ground shadow alignment IoU: 0.919
+dense model retained GPU cache Stats { geometry_uploads: 85, instance_uploads: 85, feedback_uploads: 1, groups: 71, instances: 440, surface_vertices: 7518, indexed_vertices: 1788, line_segments: 1882 }
+selection frame probe at 1280x800: none, 0 targets, 36.64 ms/frame (software GPU including readback)
+selection frame probe at 1280x800: all faces and edges, 29580 targets, 41.06 ms/frame (software GPU including readback)
+shadowed receiver pixels: 4663 (ground 2806, entity 1857); image: /tmp/meshcraft-lighting-probe.png
+ok
+test gpui_app::lighting::tests::retained_geometry_throughput_probe ... first prepare 1.699774759s
+Draw submission elapsed 125.329 ms/frame (includes driver waits); GPU cache Stats { geometry_uploads: 1, instance_uploads: 1, feedback_uploads: 0, groups: 1, instances: 50, surface_vertices: 60000, indexed_vertices: 10201, line_segments: 400 }
+50 instances, 1000000 triangles, 20000 edges: 133.285 ms/frame including GPU/readback
+ok
+test gpui_app::placement::tests::placement_gpu_quads_follow_transforms_and_reuse_the_uploaded_mesh ... ok
+test gpui_app::tests::selection_activation_latency_probe ... Marquee projection: 43.028875ms, candidates 440
+Normalize/filter/apply: 31.374738ms, selected 440
+View snapshot 31.22654ms
+Scene counts 68.019971ms
+Selection mesh SelectionMeshCounts { edges: 12520, faces: 17060 }: 16.05435ms
+Architecture properties 17.823879ms
+Script parameters 57.984µs
+Command edit.delete_selection 6.700774ms
+Command object.array_selection 6.205991ms
+All command queries 14.318707ms
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 378 filtered out; finished in 6.98s

@@ -22,6 +22,8 @@ mod architecture;
 mod automation;
 #[path = "gpui_files.rs"]
 mod files;
+#[path = "gpui_gpu_mesh.rs"]
+mod gpu_mesh;
 #[path = "gpui_helpers.rs"]
 mod helpers;
 #[path = "gpui_hotspots.rs"]
@@ -614,7 +616,7 @@ fn draw_offscreen_scene(
     drawing.clear_background(Color::new(224, 236, 247, 255));
     {
         let mut view = drawing.begin_mode3D(camera);
-        lighting.draw(&mut view, scene_data, orbit, target_height);
+        lighting.draw(&mut view, scene_data, orbit, (target_width, target_height));
         annotations::draw(
             &mut view,
             scene_data,
@@ -653,8 +655,9 @@ fn draw_offscreen_scene(
                 scene_data
                     .thick_line_width
                     .max(scene_data.normal_line_width),
-                orbit,
-                target_height,
+                (target_width, target_height),
+                &mut lighting.gpu,
+                1,
             );
         }
         if let Some(ToolPreview::Placement { transform, .. }) = scene_data.preview.as_ref() {
@@ -673,8 +676,9 @@ fn draw_offscreen_scene(
                 scene_data
                     .thick_line_width
                     .max(scene_data.normal_line_width),
-                orbit,
-                target_height,
+                (target_width, target_height),
+                &mut lighting.gpu,
+                0,
             );
         }
         helpers::draw_camera_target(&mut view, orbit, target_height);
@@ -817,8 +821,9 @@ fn draw_preview(
     scene: &mut impl RaylibDraw3D,
     preview: &ToolPreview,
     width: f32,
-    camera: OrbitCamera,
-    height: f32,
+    size: (f32, f32),
+    gpu: &mut gpu_mesh::Scene,
+    slot: usize,
 ) {
     let mut edges = Vec::<[Vec3; 2]>::new();
     let mut triangles = Vec::<([Vec3; 3], Rgba8)>::new();
@@ -943,10 +948,7 @@ fn draw_preview(
     for ([a, b, c], face_color) in triangles {
         scene.draw_triangle3D(ray_vec3(a), ray_vec3(b), ray_vec3(c), ray_color(face_color));
     }
-    let color = Color::new(235, 118, 38, 255);
-    for [a, b] in edges {
-        lighting::stroke(scene, [a, b], color, width, camera, height);
-    }
+    gpu.draw_feedback(&edges, width, size, slot);
     unsafe {
         raylib::ffi::rlDrawRenderBatchActive();
         raylib::ffi::rlEnableBackfaceCulling();
