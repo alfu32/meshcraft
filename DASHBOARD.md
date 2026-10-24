@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.35.0 shader presets:** Water, Brick and Wood join the material library.
+Independent procedural Tree prototypes/instances generate branches and foliage
+on the GPU, with seeded shape, wind, bounded detail and editable settings.
+Bounds support selection and manipulation; copy/paste, Undo/Redo and schema-17
+save/reopen retain instance values. See the [preset guide and example](docs/procedural-presets.md)
+and [T64 validation](docs/rewrite/handoffs/T64.md).
+
 **0.33.6 selection activation and counts:** architecture handles appear for one
 selected entity. Copy/array button availability no longer tessellates selected
 solids and shares a revisioned result across buttons. Marquee filtering deduplicates

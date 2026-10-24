@@ -1587,6 +1587,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 &format!("Hotspots> {label}"), "Hotspots", "object prototype instance hotspot", Some("hotspot"), ShellAction::HotspotAction(suffix));
         }
         for (id, label, action) in [
+            ("new_water","New Procedural Water Material",ShellAction::OpenPanel("material_editor_water")),
+            ("new_brick","New Procedural Brick Material",ShellAction::OpenPanel("material_editor_brick")),
+            ("new_wood","New Procedural Wood Material",ShellAction::OpenPanel("material_editor_wood")),
             ("new_grass", "New Procedural Grass Material", ShellAction::OpenPanel("material_editor_grass")),
             ("new", "New Material", ShellAction::OpenPanel("material_editor_new")),
             ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
@@ -1598,7 +1601,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
-        for (id,name,panel) in [("script.new","Objects> New Scripted Object","script_new"),("script.edit","Objects> Edit Prototype Script","script_edit")] {
+        register_shell_command(&mut registry,"object.configure_procedural","Objects> Configure Procedural Object","Objects","tree gpu parameters prototype instance",Some("object"),ShellAction::MaterialAction("object"));
+        for (id,name,panel) in [("object.new_tree","Objects> New Procedural Tree","tree_new"),("object.edit_tree","Objects> Edit Procedural Tree","tree_edit"),("script.new","Objects> New Scripted Object","script_new"),("script.edit","Objects> Edit Prototype Script","script_edit")] {
             register_shell_command(&mut registry,id,name,"Objects","javascript script prototype editor preview",Some("object"),ShellAction::OpenPanel(panel));
         }
         for (toolbar_id, label) in LEGACY_TOOLBARS {
@@ -2053,6 +2057,11 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
         "material.parameters" => &[
             ("id", CommandValueType::String),
             ("parameters", CommandValueType::Object),
+        ],
+        "object.configure_procedural" => &[
+            ("definition_id", CommandValueType::Integer),
+            ("instance_path", CommandValueType::Array),
+            ("settings", CommandValueType::Object),
         ],
         "material.save" => &[("material", CommandValueType::Object)],
         "hotspot.add" => &[("position", CommandValueType::Object)],
@@ -6521,6 +6530,53 @@ impl MeshcraftApp {
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
             ShellAction::MaterialAction(action) => {
+                if action == "object" {
+                    let result = (|| {
+                        let definition = payload
+                            .values
+                            .get("definition_id")
+                            .map(|v| {
+                                v.as_u64()
+                                    .map(DefinitionId)
+                                    .ok_or("definition_id must be an unsigned integer")
+                            })
+                            .transpose()?;
+                        let instance = payload
+                            .values
+                            .get("instance_path")
+                            .map(|v| {
+                                serde_json::from_value::<Vec<LayoutEntryId>>(v.clone())
+                                    .map(|path| OccurrenceRef { path })
+                                    .map_err(|_| "instance_path must be an array of numeric IDs")
+                            })
+                            .transpose()?;
+                        let definition = definition.or_else(|| {
+                            instance.as_ref().and_then(|p| {
+                                self.document.resolve_occurrence(p).map(|r| r.definition.id)
+                            })
+                        });
+                        let settings = if let Some(v) = payload.values.get("settings") {
+                            serde_json::from_value(v.clone())
+                                .map_err(|_| "Invalid procedural object settings")?
+                        } else {
+                            let mut m = meshcraft_core::document::materials::Material::default();
+                            meshcraft_core::document::procedural::apply_preset(
+                                &mut m,
+                                meshcraft_core::document::procedural::TREE,
+                            );
+                            m
+                        };
+                        self.save_native_procedural_object(definition, instance, settings)
+                    })();
+                    return match result {
+                        Ok(id) => {
+                            let mut r = CommandResult::completed();
+                            r.outputs.insert("definition_id".into(), json!(id.0));
+                            r
+                        }
+                        Err(e) => CommandResult::failed(e),
+                    };
+                }
                 let result = match action {
                     "program" => serde_json::from_value(
                         payload
@@ -6999,6 +7055,10 @@ impl MeshcraftApp {
                     .into_iter()
                     .next()
                     .expect("one selection was checked");
+                if self.document.procedural_object(&occurrence).is_some() {
+                    self.open_panels(&["tree_edit"]);
+                    return CommandResult::completed();
+                }
                 if !self
                     .selection
                     .set_context(EditContext::Occurrence(occurrence.clone()))

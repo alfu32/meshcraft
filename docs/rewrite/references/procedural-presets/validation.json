@@ -1,0 +1,67 @@
+{
+  "version": "0.35.0",
+  "treeCount": 2,
+  "authoredTreeTriangles": 0,
+  "copyPaste": true,
+  "instanceIsolation": true,
+  "undoRedo": true,
+  "saveReopen": true,
+  "draftCancel": true,
+  "doubleClickEditsParameters": true,
+  "windAdvancesWithoutDocumentEdits": true,
+  "zeroAnimationIdle": true,
+  "waterAnimationChangesPixelsWithoutDocumentEdits": true,
+  "capture": {
+    "includes": "3D viewport only; GPUI labels/panels are separate",
+    "width": 850,
+    "height": 781,
+    "procedural": {
+      "diagnostics": [],
+      "candidateInstances": 6647,
+      "drawCalls": 7
+    },
+    "frameSequence": 22,
+    "fresh": true,
+    "revision": 15,
+    "generation": 0
+  },
+  "regularTests": {
+    "core": 312,
+    "desktop": 377,
+    "cli": 5,
+    "io": 42,
+    "ignored": 14
+  },
+  "gpuChecks": 7,
+  "strictClippy": true,
+  "nativeBuild": true,
+  "wasmCheck": {
+    "passed": true,
+    "existingWarnings": 3
+  },
+  "planValidation": true,
+  "releaseHelperTests": 8,
+  "backend": "Linux x86_64, private Xvfb, software Mesa/OpenGL 3.3",
+  "qualifiedPlatforms": [
+    "Linux x86_64"
+  ],
+  "unqualifiedPlatforms": [
+    "Windows",
+    "macOS",
+    "hardware GPU drivers"
+  ],
+  "example": {
+    "path": "examples/procedural-presets.octd",
+    "sha256": "b4b494b518dee463cb6226862287575220d1abcdd09c23522255cf320727d060"
+  },
+  "screenshots": {
+    "brick.png": "03f1f6d0e5d21c2bbc63f843ec71bc685bff02749c506e2655fa1390ea315b88",
+    "instance-editor.png": "9ad8126dbb9d3ceeb7661657a04a8d12547d2ebc7fa6140946aa659239fb83e6",
+    "reopened.png": "19bdb836c239002ffabc8b6e7368ad87847e82319bf94a5673da4efd1ca63516",
+    "tree-editor.png": "00b1f46147abbf84e92a809c58b18ceb04bd2b5195608b3836c776544f015c3d",
+    "tree.png": "f5b7dd64fa70e9a295ce5de64ae80fc02985260f06699279761e68f98b4db9db",
+    "water-editor.png": "401756e54d129f2da2ddb3e9f8f1ecbff871e4b1ccd8b6d38b6e8db4013dc185",
+    "water.png": "b5ed22b29aaab3e3b965ca7f587c893c51e334bf6b95c8660998874a024caeab",
+    "wood.png": "2371be01a9e9c7f48fffef21e80f0111ad2cf5ffca2d1a7115e5cea2b4b5ae10"
+  }
+}

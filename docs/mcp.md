@@ -313,3 +313,22 @@ queries, snapping, mesh export and Explode operate on the authored source mesh.
 The native path uses OpenGL 3.3 instancing; compute/mesh shader declarations fall
 back explicitly. Candidate limits and LOD bound work; a domain with more triangles
 than its candidate budget needs a larger budget or a simpler distribution mesh.
+
+
+Additional built-ins are `meshcraft.water.v1`, `meshcraft.brick.v1` and
+`meshcraft.wood.v1`. Inspect their parameter schemas in `meshcraft_scene`.
+Water uses `surface_grid` generation (bounded GPU subdivision), while brick/wood
+shade existing triangles with local-coordinate patterns and optional shading
+relief. `localPosition`/`sourceNormal` and optional
+`vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv)` extend fragment
+hooks without changing older programs.
+
+`object.configure_procedural` creates or updates an independent tree owner with
+`settings` shaped like Material and `procedural.program="meshcraft.tree.v1"`.
+Omit its optional IDs to create a prototype and start insertion (returns
+`definition_id`); supply `definition_id` for shared defaults or `instance_path`
+for private occurrence settings. `meshcraft_scene` reports each owner's
+`proceduralObject`, classification and conservative bounds. Trees have no CPU
+mesh triangles. Select/copy/transform their occurrence targets; generated leaves
+and branches cannot be individually snapped, exported or Explode-baked.
+See [preset workflow and limitations](procedural-presets.md).

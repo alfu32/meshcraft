@@ -67,3 +67,29 @@ the dialog open; Cancel/Escape discards only edits not yet applied. The program
 editor has its own explicit Save action. Idle animation runs only while a used,
 visible program requests it. Compute/mesh shader generation is a later #29 phase;
 independent procedural objects and tree/bush examples belong to #31.
+
+
+### Shader preset and procedural owner extension — #29/#31, T64
+
+Include Water, Brick and Wood material creation actions beside Grass. Water uses
+GPU subdivision of the source triangles, animated wave displacement/normals,
+transparent color, Fresnel sky approximation and editable wave/offset/detail
+controls. Brick uses local model coordinates for running-bond courses, mortar,
+seeded variation and shading relief. Wood uses local solid coordinates for growth
+rings, fibers, adjustable longitudinal axis and shading relief. These patterns
+must follow object transforms, stay continuous across coplanar source triangles,
+and preserve source topology. Relief is shading, not geometric displacement.
+
+New Tree in Object Prototypes creates a reusable independent procedural owner,
+with no authored vertices/lines/faces. The GPU generates tapered branch cylinders
+and cutout leaf cards. Height, crown/trunk dimensions, branching, foliage, seed,
+wind, colors, LOD and work budget are editable at prototype or instance scope.
+Existing instances inherit prototype defaults until given private settings;
+copying preserves private settings. Ordinary object transforms, hierarchy,
+visibility, owner/bounds selection, wireframe placement/transform feedback,
+copy/paste, history and project persistence apply. Procedural leaves/branches are
+not individual CPU pick/snap targets, mesh-exportable or Explode-baked geometry.
+Bounds remain selectable/visible with diagnostics if the program is unavailable.
+Reuse the shared program/resource/parameter machinery; mesh shaders and compute
+remain later work. The tree deliverable is a slice of #31, which also asks for a
+bush and broader source-domain/LOD qualification.

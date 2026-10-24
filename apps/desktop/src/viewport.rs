@@ -2791,6 +2791,17 @@ impl Viewport {
                         consider_ray_selection_hit(&mut nearest, depth, 2, target.clone());
                     }
                 }
+                // A mesh-free owner's bounds are its actual picking representation,
+                // so compare its depth with model faces instead of treating it as
+                // the ordinary mesh-object fallback after all primitive hits.
+                NativeSpatialPrimitive::Occurrence
+                    if document.procedural_object(&target.occurrence).is_some()
+                        && policy.can_select(SelectionKind::Object) =>
+                {
+                    if let Some(depth) = ray_aabb_distance(ray_origin, direction, item.bounds) {
+                        consider_ray_selection_hit(&mut nearest, depth, 3, target.clone());
+                    }
+                }
                 NativeSpatialPrimitive::Vertex(_)
                 | NativeSpatialPrimitive::Segment(_)
                 | NativeSpatialPrimitive::Triangle(_)

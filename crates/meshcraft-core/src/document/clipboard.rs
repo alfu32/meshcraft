@@ -419,6 +419,18 @@ fn selection_wireframe(
         let Some(resolved) = document.resolve_occurrence(&occurrence) else {
             continue;
         };
+        if selected(&occurrence, SelectedEntity::Occurrence)
+            && let Some(b) = document.procedural_object_world_bounds(&occurrence)
+        {
+            let p = super::procedural::bounds_corners(b);
+            for i in 0..8 {
+                for bit in [1, 2, 4] {
+                    if i & bit == 0 {
+                        edges.push([p[i], p[i | bit]]);
+                    }
+                }
+            }
+        }
         let geometry = selection.map_or_else(
             || document.effective_geometry(&occurrence),
             |s| document.geometry_in_context(&occurrence, &s.context),

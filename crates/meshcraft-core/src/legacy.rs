@@ -395,6 +395,7 @@ pub fn import_current_value(snapshot: &Value) -> ImportResult<Document> {
                 values: child.preserved_fields.clone(),
                 ..InstanceEdits::default()
             };
+            restore_procedural_object_settings(&mut defaults);
             let child_layout = variants[&child.layout_key].id;
             if default_layouts.get(&child.prototype_id) != Some(&child_layout) {
                 defaults.child_layout = Some(child_layout);
@@ -2009,6 +2010,15 @@ fn collect_default_layouts(
     Ok(())
 }
 
+// Schema 17 flattens instance values/extensions into one object. Restore this
+// known record to its native extension slot for ordinary and template placements.
+fn restore_procedural_object_settings(edits: &mut InstanceEdits) {
+    let key = crate::document::procedural::OBJECT_KEY;
+    if let Some(settings) = edits.values.remove(key) {
+        edits.extensions.insert(key.into(), settings);
+    }
+}
+
 fn apply_instance_edits(
     document: &mut Document,
     instance: &LegacyInstance,
@@ -2038,6 +2048,7 @@ fn apply_instance_edits(
     }
     edits.hotspot_positions = instance.hotspot_positions.clone();
     edits.values = instance.preserved_fields.clone();
+    restore_procedural_object_settings(&mut edits);
     if let Some(geometry) = &instance.geometry_override {
         let (vertices, segments, triangles) = geometry.clone().into_parts();
         edits.geometry_replacement =

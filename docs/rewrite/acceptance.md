@@ -247,6 +247,16 @@ stop with zero wind or no visible animated assignments. Review parameter forms,
 program editing, Apply/Cancel/Escape and MCP program/schema discovery. Record
 backend/platform limits explicitly.
 
+For #29/#31/T64, render Water, Brick and Wood on ordinary surfaces and inspect
+wave motion/transparency, continuous running bond/mortar, longitudinal wood grain
+and end grain. Change parameters and transform sources without adding CPU
+triangles. Create a Tree prototype, place/copy instances, change one instance's
+seed/size and preserve the sibling. Verify bounds picking/window selection,
+wireframe feedback, prototype inheritance, copy/paste, project save/reopen and
+history; generated branches/leaves remain GPU-only. Verify zero wind/speed idle,
+frustum rejection, bounded foliage/subdivision work, shadows, compile failure
+fallback and API/schema discovery. Record native backend limitations explicitly.
+
 ## C43 — Scripted object hooks, preview and instance values
 
 Create or script an existing prototype and retain its authored geometry. Preview a valid `onCreate`/`onAnimationFrame` pair in one monospace script, with shared top-level helpers/constants, materials and helper-generated faces/lines. Ctrl+Space shows a scrollable documented API list; typing filters, arrows navigate, Enter/Tab inserts, and Escape dismisses completion before the editor. Verify independent preview orbit/pan/zoom, editor focus, diagnostics and Cancel isolation. Save, place two instances, drag scripted hotspots, copy an adjusted instance and confirm independent values. Edit graphical geometry in the prototype and include it through `this.geometry`. Save/load, undo/redo script changes, stable IDs and query-only model data. Explode an adjusted instance and compare its current issued world geometry; it must survive without scripts. Test syntax errors, thrown errors, invalid/duplicate IDs, nonfinite coordinates, excessive output, infinite loops, runtime shutdown and all packaged native engine providers. A failed script cannot hang or mutate other model content.

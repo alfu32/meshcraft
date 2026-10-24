@@ -11,6 +11,9 @@ uniform float time;
 uniform float density;
 uniform vec4 baseColor;
 out vec3 worldPosition;
+out vec3 localPosition;
+out vec3 sourceNormal;
+/*TREE*/
 out vec4 color;
 out vec2 proceduralUv;
 out vec2 materialUv;
@@ -25,6 +28,8 @@ void main() {
     vec3 position;
     vec2 uv = vec2(0.0);
     color = baseColor;
+    sourceNormal=normal;localPosition=domainA;
+    /*TREE_BRANCH*/
     if (generation == 1) {
         uint candidate = uint(gl_InstanceID % bladesPerTriangle);
         uint key = hash(uint(domainSeed.x) | (uint(domainSeed.y) << 16u)) ^ hash(candidate) ^ uint(u_seed);
@@ -51,9 +56,18 @@ void main() {
         color.rgb*=0.65+0.35*uv.y;
     } else {
         position=gl_VertexID==0?domainA:(gl_VertexID==1?domainB:domainC);
+        if(generation==3) {
+            int n=int(round(sqrt(float(bladesPerTriangle)))),k=gl_InstanceID%bladesPerTriangle,row=0;
+            for(int i=0;i<64;i++){int cells=2*(n-i)-1;if(k<cells){row=i;break;}k-=cells;}
+            int col=k/2;bool flip=(k%2)==1;vec2 q=vec2(row,col);
+            if(!flip)q+=gl_VertexID==0?vec2(0):gl_VertexID==1?vec2(1,0):vec2(0,1);
+            else q+=gl_VertexID==0?vec2(1,0):gl_VertexID==1?vec2(1,1):vec2(0,1);
+            q/=float(n);position=domainA+(domainB-domainA)*q.x+(domainC-domainA)*q.y;
+        }
         uv=gl_VertexID==0?vec2(0,0):(gl_VertexID==1?vec2(1,0):vec2(0,1));
         vec3 tangent=normalize(domainB-domainA);materialUv=vec2(dot(position-domainA,tangent),dot(position-domainA,cross(normal,tangent)));
     }
+    localPosition=position;
     proceduralVertex(position,normal,uv);
     worldPosition=(model*vec4(position,1.0)).xyz;
     proceduralUv=uv;

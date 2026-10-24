@@ -64,6 +64,16 @@ impl MeshcraftApp {
                         .entry(if ka <= kb { (ka, kb) } else { (kb, ka) })
                         .or_insert([a, b]);
                 };
+                if let Some(b) = draft.procedural_object_world_bounds(&path) {
+                    let p = meshcraft_core::document::procedural::bounds_corners(b);
+                    for i in 0..8 {
+                        for bit in [1, 2, 4] {
+                            if i & bit == 0 {
+                                insert([p[i], p[i | bit]]);
+                            }
+                        }
+                    }
+                }
                 for segment in g.segments.values() {
                     if let [Some(a), Some(b)] = segment.endpoints.map(world) {
                         insert([a, b]);

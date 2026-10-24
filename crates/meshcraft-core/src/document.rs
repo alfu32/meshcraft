@@ -2623,6 +2623,7 @@ impl Document {
         self.model_settings.validate()?;
         self.validate_materials()?;
         self.validate_procedural_materials()?;
+        self.validate_procedural_objects()?;
         if !self.child_layouts.contains_key(&self.root_layout) {
             return Err("root child layout is missing".to_owned());
         }

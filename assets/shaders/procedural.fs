@@ -1,5 +1,8 @@
 #version 330
 in vec3 worldPosition;
+in vec3 localPosition;
+in vec3 sourceNormal;
+/*TREE_INPUTS*/
 in vec4 color;
 in vec2 proceduralUv;
 in vec2 materialUv;
@@ -42,7 +45,8 @@ float visibility(vec3 normal) {
     return 1.0-shadowStrength*occlusion/9.0;
 }
 void main() {
-    vec3 normal=generation==0?normalize(proceduralNormal):normalize(cross(dFdx(worldPosition),dFdy(worldPosition)));
+    vec3 normal=generation!=1?normalize(proceduralNormal):normalize(cross(dFdx(worldPosition),dFdy(worldPosition)));
+    normal=proceduralShadingNormal(normal,worldPosition,proceduralUv);
     vec4 c=proceduralColor(color,worldPosition,normal,proceduralUv);
     if(hasBaseTexture!=0) c*=texture(baseTexture,materialUv/max(textureSizes,vec2(0.0001)));
     if(c.a<0.01) discard;

@@ -208,8 +208,17 @@ impl OrbitCamera {
             let Some(geometry) = document.effective_geometry(&occurrence) else {
                 continue;
             };
-            for vertex in geometry.vertices.values() {
-                let point = resolved.world_transform.transform_point(vertex.position);
+            for point in geometry
+                .vertices
+                .values()
+                .map(|v| resolved.world_transform.transform_point(v.position))
+                .chain(
+                    document
+                        .procedural_object_world_bounds(&occurrence)
+                        .into_iter()
+                        .flat_map(meshcraft_core::document::procedural::bounds_corners),
+                )
+            {
                 minimum.x = minimum.x.min(point.x);
                 minimum.y = minimum.y.min(point.y);
                 minimum.z = minimum.z.min(point.z);
@@ -2795,6 +2804,19 @@ impl Render for MeshcraftShell {
         if let Some(panel) = self.session.native_take_panel_focus() {
             if panel == "script_new" || panel == "script_edit" {
                 scripts::edit(self, panel == "script_new", window, cx);
+            }
+            if panel == "tree_new" || panel == "tree_edit" {
+                materials::edit_tree(self, panel == "tree_new", panel == "tree_edit", window, cx);
+            }
+            if let Some(id) = match panel.as_str() {
+                "material_editor_water" => Some(meshcraft_core::document::procedural::WATER),
+                "material_editor_brick" => Some(meshcraft_core::document::procedural::BRICK),
+                "material_editor_wood" => Some(meshcraft_core::document::procedural::WOOD),
+                _ => None,
+            } {
+                let mut material = self.cached_document.next_material();
+                meshcraft_core::document::procedural::apply_preset(&mut material, id);
+                materials::edit(self, material, window, cx);
             }
             if panel == "material_editor_grass" {
                 let mut material = self.cached_document.next_material();

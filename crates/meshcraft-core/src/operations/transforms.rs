@@ -1031,6 +1031,17 @@ fn preview_transform_internal(
             let Some(resolved) = document.resolve_occurrence(&occurrence) else {
                 continue;
             };
+            if let Some(b) = document.procedural_object_world_bounds(&occurrence) {
+                let p = crate::document::procedural::bounds_corners(b)
+                    .map(|p| world_transform.transform_point(p));
+                for i in 0..8 {
+                    for bit in [1, 2, 4] {
+                        if i & bit == 0 {
+                            edges.push([p[i], p[i | bit]]);
+                        }
+                    }
+                }
+            }
             if let Some(geometry) = document.geometry_in_context(&occurrence, &selection.context) {
                 let vertex_ids = geometry.vertices.keys().copied().collect::<BTreeSet<_>>();
                 let Some(inverse) = resolved

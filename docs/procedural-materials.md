@@ -1,7 +1,7 @@
 # Procedural materials (#30)
 
 Procedural materials add GPU-generated surface details to ordinary Meshcraft
-geometry. Grass is included; custom programs can deform/shade a surface or
+geometry. Grass, Water, Brick and Wood are included; custom programs can deform/shade a surface or
 customize generated strips. Definitions, settings and source surfaces are saved;
 generated blades never become editable mesh triangles.
 
@@ -107,3 +107,5 @@ objects (tree/bush) are later work under #29/#31. Generated details are visual-o
 The [MCP guide](mcp.md#procedural-materials-30) documents program/material/assignment
 commands and their discovery schemas. [T63 validation](rewrite/handoffs/T63.md)
 records tested behavior and platform limits.
+
+See [Shader presets and tree objects](procedural-presets.md) for the additional creation actions, controls and limitations.

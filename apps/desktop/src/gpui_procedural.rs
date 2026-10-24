@@ -1,11 +1,11 @@
-//! GPU-only surface/blade generation. CPU buffers contain only distribution triangles.
+//! GPU surfaces, blades and trees. CPU buffers contain source domains or owner bounds.
 #[path = "gpui_procedural_shader.rs"]
 mod shader_compiler;
 use super::*;
 use meshcraft_core::{
     document::{
         materials::{Material, material_id},
-        procedural::{GRASS, OVERRIDES_KEY, Program},
+        procedural::{OVERRIDES_KEY, Program},
     },
     geometry::{Aabb3, Affine3},
 };
@@ -105,6 +105,7 @@ pub(super) struct Renderer {
     pub candidates: usize,
     pub draw_calls: usize,
     pub domain_uploads: usize,
+    wire_boxes: Vec<Aabb3>,
     light: Option<raylib::ffi::Matrix>,
     epoch: Option<Instant>,
     time: f32,
@@ -147,10 +148,14 @@ fn shader_sources(p: &Program) -> (String, String) {
     (
         include_str!("../../../assets/shaders/procedural.vs")
             .replace("/*PARAMETERS*/", &declarations)
-            .replace("/*VERTEX*/", &p.vertex),
+            .replace("/*VERTEX*/", &p.vertex)
+            .replace("/*TREE*/",if p.generation=="tree" {"uniform int treeBranches; uniform int treeLeafCount; flat out float treePart; flat out float treeKey; void treeVertex(out vec3 p,out vec3 normal,out vec2 uv);"}else{""})
+            .replace("/*TREE_BRANCH*/",if p.generation=="tree" {"if(generation==2){treeVertex(position,normal,uv);}else"}else{""})
+            + &if p.generation=="tree" {include_str!("../../../assets/shaders/procedural_tree.glsl").replace("uniform int treeBranches;", "").replace("uniform int treeLeafCount;", "").replace("flat out float treePart;", "").replace("flat out float treeKey;", "")}else{String::new()},
         include_str!("../../../assets/shaders/procedural.fs")
             .replace("/*PARAMETERS*/", &declarations)
-            .replace("/*FRAGMENT*/", &p.fragment),
+            .replace("/*TREE_INPUTS*/",if p.generation=="tree" {"flat in float treePart; flat in float treeKey;"}else{""})
+            .replace("/*FRAGMENT*/", &format!("{}\n{}",if p.fragment.contains("vec3 proceduralShadingNormal("){""}else{"vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){return n;}"},p.fragment)),
     )
 }
 fn matrix(m: Affine3) -> raylib::ffi::Matrix {
@@ -178,6 +183,21 @@ fn matrix(m: Affine3) -> raylib::ffi::Matrix {
 fn num(values: &BTreeMap<String, Value>, key: &str, default: f64) -> f64 {
     values.get(key).and_then(Value::as_f64).unwrap_or(default)
 }
+fn tree_branch_count(values: &BTreeMap<String, Value>) -> usize {
+    let b = num(values, "branches", 8.).clamp(2., 12.) as usize;
+    let levels = num(values, "levels", 3.).clamp(1., 4.) as u32;
+    1 + b * (3usize.pow(levels) - 1) / 2
+}
+fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
+    match p.id.as_str() {
+        meshcraft_core::document::procedural::GRASS
+        | meshcraft_core::document::procedural::TREE => num(values, "wind", 0.) > 0.,
+        meshcraft_core::document::procedural::WATER => {
+            num(values, "amplitude", 0.) > 0. && num(values, "speed", 0.) > 0.
+        }
+        _ => true,
+    }
+}
 impl Renderer {
     pub fn prepare(
         &mut self,
@@ -186,11 +206,18 @@ impl Renderer {
         scene: &RenderScene,
     ) {
         self.surface_materials.clear();
+        self.wire_boxes.clear();
         self.diagnostics.clear();
         self.batches.clear();
         self.animated = false;
         let programs = scene.document.procedural_programs();
-        let materials = scene.document.materials();
+        let mut materials = scene.document.materials();
+        for path in scene.document.scene_geometry_refs().unwrap_or_default() {
+            if let Some(mut settings) = scene.document.procedural_object(&path) {
+                settings.id = format!("$object:{:?}", path.path);
+                materials.push(settings);
+            }
+        }
         let mut compiled = HashMap::new();
         let mut active_programs = BTreeSet::new();
         for m in &materials {
@@ -255,6 +282,18 @@ impl Renderer {
             {
                 continue;
             }
+            if scene.document.procedural_object(&occurrence).is_some() {
+                let key = format!("$object:{:?}", occurrence.path);
+                if (!compiled.contains_key(&key)
+                    || scene
+                        .display_policy
+                        .state(meshcraft_core::selection::SelectionKind::Object)
+                        .wireframe)
+                    && let Some(b) = scene.document.procedural_object_world_bounds(&occurrence)
+                {
+                    self.wire_boxes.push(b);
+                }
+            }
             if scene.document.is_object_occurrence(&occurrence)
                 && scene
                     .display_policy
@@ -269,6 +308,55 @@ impl Renderer {
             ) else {
                 continue;
             };
+            if let Some(mut settings) = scene.document.procedural_object(&occurrence) {
+                settings.id = format!("$object:{:?}", occurrence.path);
+                if let Some(&compiled_index) = compiled.get(&settings.id) {
+                    let config = settings.procedural.as_ref().unwrap();
+                    let p = programs.iter().find(|p| p.id == config.program).unwrap();
+                    if let (Ok(values), Some(b)) = (
+                        p.resolve(&config.parameters, &BTreeMap::new()),
+                        scene.document.procedural_object_local_bounds(&occurrence),
+                    ) {
+                        let data = vec![Domain {
+                            a: [b.min.x as f32, b.min.y as f32, b.min.z as f32],
+                            b: [b.max.x as f32, b.max.y as f32, b.max.z as f32],
+                            c: [0., 0., 0.],
+                            seed: [0., 0.],
+                        }];
+                        let domain = self
+                            .domains
+                            .iter()
+                            .position(|d| d.data == data)
+                            .unwrap_or_else(|| {
+                                let gpu = old
+                                    .iter()
+                                    .position(|d| d.data == data)
+                                    .map(|i| old.swap_remove(i))
+                                    .unwrap_or_else(|| {
+                                        self.domain_uploads += 1;
+                                        DomainGpu::new(data)
+                                    });
+                                self.domains.push(gpu);
+                                self.domains.len() - 1
+                            });
+                        self.batches.push(Batch {
+                            domain,
+                            program: compiled_index,
+                            material: settings,
+                            values,
+                            placements: vec![(
+                                SelectionTarget {
+                                    occurrence: occurrence.clone(),
+                                    entity: SelectedEntity::Occurrence,
+                                },
+                                r.world_transform,
+                            )],
+                            expansion: 0.,
+                        });
+                    }
+                }
+                continue;
+            }
             let source_key = g as *const _ as usize;
             if let Some(keys) = local_cache.get(&source_key) {
                 for (id, key) in keys {
@@ -324,9 +412,12 @@ impl Renderer {
                     ));
                     continue;
                 };
-                if program.generation == "surface" {
+                if matches!(program.generation.as_str(), "surface" | "surface_grid") {
                     self.surface_materials
                         .insert(surface_key(id, &face.extensions));
+                }
+                if program.generation == "tree" {
+                    continue;
                 }
                 let key = (id.to_owned(), serde_json::to_string(&values).unwrap());
                 let entry = local.entry(key).or_insert_with(|| (vec![], values));
@@ -383,7 +474,7 @@ impl Renderer {
             let material = materials.iter().find(|m| m.id == id).unwrap().clone();
             let config = material.procedural.as_ref().unwrap();
             let p = programs.iter().find(|p| p.id == config.program).unwrap();
-            self.animated |= p.animated && (p.id != GRASS || num(&values, "wind", 0.) > 0.);
+            self.animated |= p.animated && animation_active(p, &values);
             for parameter in p.parameters.iter().filter(|p| p.kind == "texture") {
                 let path = values
                     .get(&parameter.id)
@@ -429,6 +520,8 @@ impl Renderer {
                         * 1.3
                         * (1. + num(&values, "curvature", 0.).abs() + num(&values, "wind", 0.))
                         + num(&values, "width", 0.)
+                } else if p.generation == "surface_grid" {
+                    num(&values, "amplitude", 0.) * 1.35 + num(&values, "offset", 0.).abs()
                 } else {
                     0.
                 };
@@ -515,6 +608,24 @@ impl Renderer {
             self.candidates = 0;
             self.draw_calls = 0;
         }
+        if !depth && !translucent {
+            for b in &self.wire_boxes {
+                let p = meshcraft_core::document::procedural::bounds_corners(*b);
+                for i in 0..8 {
+                    for bit in [1, 2, 4] {
+                        if i & bit == 0 {
+                            unsafe {
+                                raylib::ffi::DrawLine3D(
+                                    ray_vec3(p[i]),
+                                    ray_vec3(p[i | bit]),
+                                    Color::new(80, 180, 255, 255),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let vp = unsafe {
             raylib::ffi::MatrixMultiply(
                 raylib::ffi::rlGetMatrixModelview(),
@@ -537,7 +648,12 @@ impl Renderer {
             shader.set_shader_value(shader.get_shader_location("depthPass"), i32::from(depth));
             shader.set_shader_value(
                 shader.get_shader_location("generation"),
-                i32::from(program.generation == "blades"),
+                match program.generation.as_str() {
+                    "blades" => 1,
+                    "tree" => 2,
+                    "surface_grid" => 3,
+                    _ => 0,
+                },
             );
             shader.set_shader_value(
                 shader.get_shader_location("towardLight"),
@@ -662,8 +778,9 @@ impl Renderer {
                         + cols[1].cross(cols[2]).length_squared()
                         + cols[2].cross(cols[0]).length_squared())
                     .sqrt();
-                if program.generation == "blades"
-                    && (density <= 0. || domain.data.len() > config.max_instances as usize)
+                if (program.generation == "blades" && density <= 0.)
+                    || matches!(program.generation.as_str(), "blades" | "surface_grid")
+                        && domain.data.len() > config.max_instances as usize
                 {
                     continue;
                 }
@@ -671,6 +788,27 @@ impl Renderer {
                     ((max_area * density).ceil() as usize)
                         .min(config.max_instances as usize / domain.data.len())
                         .max(1)
+                } else if program.generation == "surface_grid" {
+                    let n = (num(&batch.values, "resolution", 16.) * lod.sqrt())
+                        .ceil()
+                        .clamp(1., 64.) as usize;
+                    let max = (config.max_instances as usize / domain.data.len()).max(1);
+                    let n = n.min((max as f64).sqrt() as usize).max(1);
+                    n * n
+                } else if program.generation == "tree" {
+                    let branches = tree_branch_count(&batch.values);
+                    let leaves = (num(&batch.values, "leaves", 3500.) * lod) as usize;
+                    let leaves =
+                        leaves.min((config.max_instances as usize).saturating_sub(branches));
+                    shader.set_shader_value(
+                        shader.get_shader_location("treeBranches"),
+                        branches as i32,
+                    );
+                    shader.set_shader_value(
+                        shader.get_shader_location("treeLeafCount"),
+                        leaves as i32,
+                    );
+                    (branches + leaves).min(config.max_instances as usize)
                 } else {
                     1
                 };
@@ -698,15 +836,25 @@ impl Renderer {
                     for i in 0..4 {
                         raylib::ffi::rlSetVertexAttributeDivisor(i, per as i32);
                     }
-                    raylib::ffi::rlDrawVertexArrayInstanced(
-                        0,
-                        if program.generation == "blades" {
-                            18
-                        } else {
-                            3
-                        },
-                        (domain.data.len() * per) as i32,
-                    );
+                    if program.generation == "tree" {
+                        let branches = tree_branch_count(&batch.values).min(per);
+                        shader.set_shader_value(shader.get_shader_location("treePass"), 0i32);
+                        raylib::ffi::rlDrawVertexArrayInstanced(0, 48, branches as i32);
+                        if per > branches {
+                            shader.set_shader_value(shader.get_shader_location("treePass"), 1i32);
+                            raylib::ffi::rlDrawVertexArrayInstanced(0, 6, (per - branches) as i32);
+                        }
+                    } else {
+                        raylib::ffi::rlDrawVertexArrayInstanced(
+                            0,
+                            if program.generation == "blades" {
+                                18
+                            } else {
+                                3
+                            },
+                            (domain.data.len() * per) as i32,
+                        );
+                    }
                     raylib::ffi::rlDisableVertexArray();
                     raylib::ffi::rlEnableDepthMask();
                 }
@@ -729,10 +877,14 @@ impl Renderer {
                     }
                 }
                 if !depth {
-                    self.animated |= program.animated
-                        && (program.id != GRASS || num(&batch.values, "wind", 0.) > 0.);
+                    self.animated |= program.animated && animation_active(program, &batch.values);
                     self.candidates += domain.data.len() * per;
-                    self.draw_calls += 1;
+                    self.draw_calls +=
+                        if program.generation == "tree" && per > tree_branch_count(&batch.values) {
+                            2
+                        } else {
+                            1
+                        };
                 }
             }
         }
@@ -908,6 +1060,126 @@ mod tests {
         );
         assign_material(&mut d, &selection, "grass").unwrap();
         d
+    }
+    #[test]
+    #[ignore = "requires private X11/OpenGL 3.3; renders all shader presets"]
+    fn procedural_presets_gpu_tree_water_brick_wood() {
+        use meshcraft_core::document::procedural::{self, BRICK, TREE, WATER, WOOD};
+        let (mut rl, thread) = raylib::init()
+            .size(640, 480)
+            .hidden()
+            .title("procedural presets")
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut texture = rl.load_render_texture(&thread, 640, 480).unwrap();
+        let mut renderer = lighting::Renderer::new(&mut rl, &thread);
+        let mut results = Vec::new();
+        for id in [BRICK, WOOD, WATER, TREE] {
+            let mut d = if id == TREE {
+                Document::new()
+            } else {
+                drawing()
+            };
+            if id == TREE {
+                let def = d.create_procedural_tree().unwrap();
+                let path = meshcraft_core::operations::objects::place_definition(
+                    &mut d,
+                    &meshcraft_core::selection::EditContext::Document,
+                    def,
+                    Vec3::ZERO,
+                    None,
+                    false,
+                )
+                .unwrap();
+                let mut settings = d.procedural_object(&path).unwrap();
+                settings
+                    .procedural
+                    .as_mut()
+                    .unwrap()
+                    .parameters
+                    .insert("wind".into(), json!(0.));
+                d.set_procedural_object(def, None, settings).unwrap();
+            } else {
+                let mut m = d.materials().into_iter().find(|m| m.id == "grass").unwrap();
+                procedural::apply_preset(&mut m, id);
+                if id == WATER {
+                    m.procedural
+                        .as_mut()
+                        .unwrap()
+                        .parameters
+                        .insert("speed".into(), json!(0.));
+                }
+                d.put_material(m).unwrap();
+            }
+            let before = serde_json::to_value(&d).unwrap();
+            let scene = RenderScene {
+                document: Arc::new(d),
+                grid_visible: false,
+                guides_visible: false,
+                ..Default::default()
+            };
+            let camera = OrbitCamera {
+                target: if id == TREE { Vec3::Y * 3. } else { Vec3::ZERO },
+                distance: if id == TREE { 12. } else { 14. },
+                yaw: 0.7,
+                pitch: 0.5,
+                ..Default::default()
+            };
+            renderer.prepare(&mut rl, &thread, &scene);
+            assert!(
+                renderer.gpu.procedural.diagnostics.is_empty(),
+                "{id}: {:?}",
+                renderer.gpu.procedural.diagnostics
+            );
+            draw_offscreen_scene(
+                &mut rl,
+                &thread,
+                &mut texture,
+                camera,
+                &scene,
+                0,
+                &mut renderer,
+            );
+            let image = copy_target_to_gpui_image(&texture).unwrap();
+            let colored = image
+                .pixels()
+                .filter(|p| {
+                    p[0].max(p[1]).max(p[2]) - p[0].min(p[1]).min(p[2]) > 35
+                        && p[0].min(p[1]).min(p[2]) < 100
+                })
+                .count();
+            assert!(
+                colored > 300,
+                "{id} should render distinct colored pixels, got {colored}"
+            );
+            assert!(renderer.gpu.procedural.candidates > 0, "{id}");
+            assert!(
+                !renderer.gpu.procedural.animated,
+                "zero animation parameters must allow idle"
+            );
+            assert_eq!(
+                before,
+                serde_json::to_value(scene.document.as_ref()).unwrap()
+            );
+            if let Ok(dir) = std::env::var("MESHCRAFT_PRESET_EVIDENCE") {
+                std::fs::create_dir_all(&dir).unwrap();
+                let mut png = image.clone();
+                for pixel in png.pixels_mut() {
+                    pixel.0.swap(0, 2);
+                }
+                png.save(format!(
+                    "{dir}/{}.png",
+                    id.trim_start_matches("meshcraft.").trim_end_matches(".v1")
+                ))
+                .unwrap();
+            }
+            results.push(image);
+        }
+        for a in 0..results.len() {
+            for b in a + 1..results.len() {
+                assert_ne!(results[a], results[b]);
+            }
+        }
     }
     #[test]
     fn source_contract_and_conservative_frustum_bounds() {

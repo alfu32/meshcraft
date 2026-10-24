@@ -173,7 +173,7 @@ capabilities and provide explicit fallbacks/diagnostics; geometry/tessellation
 shaders are not the required primary path. Reference deliverables are grass,
 tree and bush. The full issue remains the source for detailed acceptance.
 
-Status: shared/material infrastructure implemented in T63 (#30); procedural objects remain queued as #31.
+Status: shared/material infrastructure implemented in T63 (#30); tree procedural owners and three further material presets are implemented in T64; the remaining #31 scope stays open.
 The existing persistent GPU mesh/instance layer is an extension point, not an
 implementation of procedural generation. This shares infrastructure with, but is
 separate from, the existing JavaScript objects that emit conventional geometry.
@@ -192,4 +192,4 @@ visual-only geometry boundaries. Status: implemented in 0.34.0 as T63/P07/C42; s
 transformable mesh-free procedural owners, reusable definitions with instance
 parameters, bounds/culling/LOD/animation, tree and bush examples, and hierarchy
 and inspector integration. Reuse the shared material/program infrastructure.
-Status: queued; keep open until implemented.
+Status: tree/independent-owner slice implemented in T64; keep #31 open for the remaining bush/source-domain and broader qualification work.

@@ -3083,6 +3083,46 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T64",
+      "title": "#29/#31 Add shader tree objects and water, brick and wood material presets",
+      "phase": "desktop",
+      "dependencies": [
+        "T63"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C42"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/procedural.rs",
+        "crates/meshcraft-core/src/document/procedural/objects.rs",
+        "apps/desktop/src/gpui_procedural.rs",
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/viewport.rs",
+        "crates/meshcraft-core/src/legacy.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/procedural-presets.md"
+      ],
+      "slices": [
+        "Add built-in water, brick and wood programs with typed editable parameters, local-coordinate patterns, GPU water subdivision and shading relief.",
+        "Add mesh-free tree prototype/instance owners using shared programs and parameters, deterministic GPU branches/leaves, wind, bounds, LOD and ordinary object manipulation.",
+        "Qualify rendering, native creation/editing, copy, persistence, history, material imports, fallback diagnostics and API discovery."
+      ],
+      "done": [
+        "C42 extension and current four-preset user request pass with recorded headless/native GPU evidence; remaining #31 work remains explicitly tracked."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

@@ -215,13 +215,17 @@ impl Document {
             }
         }
         if material.procedural.is_some()
-            && self.materials().iter().any(|m| {
-                m.id != material.id
-                    && m.procedural
-                        .as_ref()
-                        .and_then(|p| p.base_material.as_deref())
-                        == Some(material.id.as_str())
-            })
+            && self
+                .procedural_object_settings()
+                .iter()
+                .chain(self.materials().iter())
+                .any(|m| {
+                    m.id != material.id
+                        && m.procedural
+                            .as_ref()
+                            .and_then(|p| p.base_material.as_deref())
+                            == Some(material.id.as_str())
+                })
         {
             return Err("A referenced base material must remain conventional".into());
         }
@@ -334,12 +338,17 @@ impl Document {
         {
             return true;
         }
-        if self.materials().iter().any(|m| {
-            m.procedural
-                .as_ref()
-                .and_then(|p| p.base_material.as_deref())
-                == Some(id)
-        }) {
+        if self
+            .procedural_object_settings()
+            .iter()
+            .chain(self.materials().iter())
+            .any(|m| {
+                m.procedural
+                    .as_ref()
+                    .and_then(|p| p.base_material.as_deref())
+                    == Some(id)
+            })
+        {
             return true;
         }
         let color = self.material_colors().get(id).copied();
@@ -432,7 +441,7 @@ impl Document {
         for mut p in source
             .procedural_programs()
             .into_iter()
-            .filter(|p| p.id != super::procedural::GRASS)
+            .filter(|p| !super::procedural::is_builtin(&p.id))
         {
             let old = p.id.clone();
             if self

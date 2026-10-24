@@ -7,8 +7,9 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectItem, SelectState},
 };
 use meshcraft_core::document::{
+    DefinitionId, OccurrenceRef,
     materials::{Material, ShadingType},
-    procedural::{GRASS, Parameter, ProceduralMaterial, Program},
+    procedural::{self, Parameter, ProceduralMaterial, Program},
 };
 
 #[derive(Default)]
@@ -37,7 +38,13 @@ type ParameterField = (
     Entity<InputState>,
     Option<Entity<SelectState<Vec<ParameterChoice>>>>,
 );
+#[derive(Clone)]
+struct ObjectEdit {
+    definition: Option<DefinitionId>,
+    instance: Option<OccurrenceRef>,
+}
 pub(super) struct Editor {
+    object: Option<ObjectEdit>,
     material: Material,
     name: Entity<InputState>,
     color: Entity<InputState>,
@@ -72,6 +79,13 @@ pub(super) fn edit(
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
+    let is_object = material.procedural.as_ref().is_some_and(|c| {
+        shell
+            .cached_document
+            .procedural_programs()
+            .iter()
+            .any(|p| p.id == c.program && p.generation == "tree")
+    });
     let name = cx.new(|cx| InputState::new(window, cx).default_value(material.name.clone()));
     let color = cx.new(|cx| InputState::new(window, cx).default_value(hex(material.color)));
     let picker = cx.new(|cx| {
@@ -140,15 +154,21 @@ pub(super) fn edit(
     let roughness =
         cx.new(|cx| InputState::new(window, cx).default_value(pbr.roughness.to_string()));
     let metallic = cx.new(|cx| InputState::new(window, cx).default_value(pbr.metallic.to_string()));
-    let ids = std::iter::once("Conventional".to_owned())
-        .chain(
-            shell
-                .cached_document
-                .procedural_programs()
-                .into_iter()
-                .map(|p| p.id),
-        )
-        .collect::<Vec<_>>();
+    let ids = (if is_object {
+        None
+    } else {
+        Some("Conventional".to_owned())
+    })
+    .into_iter()
+    .chain(
+        shell
+            .cached_document
+            .procedural_programs()
+            .into_iter()
+            .filter(|p| (p.generation == "tree") == is_object)
+            .map(|p| p.id),
+    )
+    .collect::<Vec<_>>();
     let selected = material
         .procedural
         .as_ref()
@@ -215,6 +235,7 @@ pub(super) fn edit(
     shell.open_menu = None;
     shell.command_palette_open = false;
     shell.materials.editor = Some(Editor {
+        object: None,
         material,
         name: name.clone(),
         color,
@@ -274,6 +295,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             .child(Button::new("material/grass").small().label("New Grass").on_click(cx.listener(|this,_,window,cx| {
                 let mut material=this.cached_document.next_material();material.name="Grass".into();material.color=Rgba8::new(65,130,35,255);material.procedural=Some(ProceduralMaterial::default());edit(this,material,window,cx);
             })))
+            .children([(procedural::WATER,"New Water"),(procedural::BRICK,"New Brick"),(procedural::WOOD,"New Wood")].into_iter().map(|(id,label)|Button::new(SharedString::from(format!("material/{id}"))).small().label(label).on_click(cx.listener(move|this,_,window,cx|{let mut m=this.cached_document.next_material();procedural::apply_preset(&mut m,id);edit(this,m,window,cx);}))))
             .child(Button::new("material/program").small().label("New Shader").on_click(cx.listener(|this,_,window,cx|open_program(this,Program {id:format!("custom.surface.{}",this.cached_document.procedural_programs().len()),name:"Custom surface".into(),..Default::default()},window,cx))))
             .child(Button::new("material/new").small().label("New Material").on_click(cx.listener(|this,_,window,cx| {let material=this.cached_document.next_material(); edit(this,material,window,cx);})))
             .child(Button::new("material/edit").small().label("Edit").on_click(cx.listener(move |this,_,window,cx| edit(this,selected_material.clone(),window,cx))))
@@ -337,7 +359,11 @@ pub(super) fn overlay(
                     .border_1()
                     .border_color(rgb(0x60768a))
                     .rounded_lg()
-                    .child(div().text_lg().child("Material Editor"))
+                    .child(div().text_lg().child(if editor.object.is_some() {
+                        "Procedural Object Editor"
+                    } else {
+                        "Material Editor"
+                    }))
                     .child(field("Name", &editor.name))
                     .child(
                         div()
@@ -539,6 +565,17 @@ fn save(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> Result<(), 
             .value()
             .parse()
             .map_err(|_| "Metallic must be a number")?;
+    }
+    if let Some(object) = editor.object.clone() {
+        let id = shell.session.save_native_procedural_object(
+            object.definition,
+            object.instance,
+            material,
+        )?;
+        if let Some(e) = shell.materials.editor.as_mut() {
+            e.object.as_mut().unwrap().definition = Some(id);
+        }
+        return Ok(());
     }
     let id = material.id.clone();
     shell.session.save_native_material(material)?;
@@ -758,65 +795,70 @@ fn procedural_fields(
                     .label("Edit Program / Parameter Schema")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let mut p = p.clone();
-                        if p.id == GRASS {
-                            p.id = "custom.grass".into();
-                            p.name = "Custom grass".into();
+                        if procedural::is_builtin(&p.id) {
+                            p.id = format!("custom.{}", p.name.to_lowercase());
+                            p.name = format!("Custom {}", p.name);
                         }
                         open_program(this, p, window, cx);
                     })),
             )
         })
-        .child(
-            div()
-                .flex()
-                .gap(px(5.))
-                .flex_wrap()
-                .child(
-                    Button::new("procedural/read-overrides")
-                        .small()
-                        .label("Read Selection Values")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if let Err(error) = read_selection_values(this, window, cx)
-                                && let Some(e) = this.materials.editor.as_mut()
-                            {
-                                e.error = Some(error);
-                            }
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("procedural/apply-overrides")
-                        .small()
-                        .label("Apply Values to Selection")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let result = (|| {
-                                let e = this.materials.editor.as_ref().unwrap();
-                                let values = read_parameter_fields(e, cx)?;
-                                this.session
-                                    .assign_native_material_parameters(&e.material.id, Some(values))
-                            })();
-                            if let Some(e) = this.materials.editor.as_mut() {
-                                e.error = result.err();
-                            }
-                            this.refresh_scene();
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("procedural/reset-overrides")
-                        .small()
-                        .label("Reset Selection Overrides")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let id = this.materials.editor.as_ref().unwrap().material.id.clone();
-                            let result = this.session.assign_native_material(&id);
-                            if let Some(e) = this.materials.editor.as_mut() {
-                                e.error = result.err();
-                            }
-                            this.refresh_scene();
-                            cx.notify();
-                        })),
-                ),
-        )
+        .when(editor.object.is_none(), |row| {
+            row.child(
+                div()
+                    .flex()
+                    .gap(px(5.))
+                    .flex_wrap()
+                    .child(
+                        Button::new("procedural/read-overrides")
+                            .small()
+                            .label("Read Selection Values")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if let Err(error) = read_selection_values(this, window, cx)
+                                    && let Some(e) = this.materials.editor.as_mut()
+                                {
+                                    e.error = Some(error);
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("procedural/apply-overrides")
+                            .small()
+                            .label("Apply Values to Selection")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let result = (|| {
+                                    let e = this.materials.editor.as_ref().unwrap();
+                                    let values = read_parameter_fields(e, cx)?;
+                                    this.session.assign_native_material_parameters(
+                                        &e.material.id,
+                                        Some(values),
+                                    )
+                                })();
+                                if let Some(e) = this.materials.editor.as_mut() {
+                                    e.error = result.err();
+                                }
+                                this.refresh_scene();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("procedural/reset-overrides")
+                            .small()
+                            .label("Reset Selection Overrides")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let id =
+                                    this.materials.editor.as_ref().unwrap().material.id.clone();
+                                let result = this.session.assign_native_material(&id);
+                                if let Some(e) = this.materials.editor.as_mut() {
+                                    e.error = result.err();
+                                }
+                                this.refresh_scene();
+                                cx.notify();
+                            })),
+                    ),
+            )
+        })
         .children(
             shell
                 .bridge
@@ -888,7 +930,7 @@ fn program_overlay(
                         let metadata=value.as_object_mut().ok_or("Program metadata must be an object")?;
                         metadata.insert("vertex".into(),json!(editor.vertex.read(cx).value().to_string()));metadata.insert("fragment".into(),json!(editor.fragment.read(cx).value().to_string()));
                         let p:Program=serde_json::from_value(value).map_err(|e|e.to_string())?;let id=p.id.clone();this.session.save_native_procedural_program(p)?;Ok::<_,String>(id)})();
-                    match result {Ok(id)=>{this.materials.program_editor=None;this.refresh_scene();if let Some(e)=this.materials.editor.as_ref(){let mut m=e.material.clone();m.procedural=Some(ProceduralMaterial {program:id,..Default::default()});edit(this,m,window,cx);}},Err(e)=>{this.materials.program_editor.as_mut().unwrap().error=Some(e);}}
+                    match result {Ok(id)=>{this.materials.program_editor=None;this.refresh_scene();if let Some(e)=this.materials.editor.as_ref(){let object=e.object.clone();let mut m=e.material.clone();m.procedural=Some(ProceduralMaterial {program:id,..Default::default()});edit(this,m,window,cx);this.materials.editor.as_mut().unwrap().object=object;}},Err(e)=>{this.materials.program_editor.as_mut().unwrap().error=Some(e);}}
                     cx.notify();
                 }))))) .into_any_element())
 }
@@ -992,4 +1034,58 @@ pub(super) fn capture_key(
         cx.notify();
     }
     true
+}
+
+/// Same typed editor for shared prototype defaults and private instance settings.
+pub(super) fn edit_tree(
+    shell: &mut MeshcraftShell,
+    new: bool,
+    instance: bool,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let path = if instance {
+        shell
+            .session
+            .native_selection_targets()
+            .into_iter()
+            .find(|t| matches!(t.entity, SelectedEntity::Occurrence))
+            .map(|t| t.occurrence)
+    } else {
+        None
+    };
+    let definition = if new {
+        None
+    } else {
+        path.as_ref()
+            .and_then(|p| {
+                shell
+                    .cached_document
+                    .resolve_occurrence(p)
+                    .map(|r| r.definition.id)
+            })
+            .or_else(|| shell.session.native_selected_prototype())
+    };
+    let settings = if new {
+        let mut m = Material::default();
+        procedural::apply_preset(&mut m, procedural::TREE);
+        Some(m)
+    } else {
+        path.as_ref()
+            .and_then(|p| shell.cached_document.procedural_object(p))
+            .or_else(|| {
+                definition.and_then(|id| shell.cached_document.procedural_object_definition(id))
+            })
+    };
+    if let Some(m) = settings {
+        edit(shell, m, window, cx);
+        shell.materials.editor.as_mut().unwrap().object = Some(ObjectEdit {
+            definition,
+            instance: path,
+        });
+    } else {
+        shell
+            .session
+            .set_native_status("Select a procedural tree first".into());
+    }
 }

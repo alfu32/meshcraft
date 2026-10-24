@@ -279,6 +279,10 @@ impl Renderer {
         }
         self.gpu.procedural.tick();
         if changed && let Some(b) = self.gpu.procedural.bounds() {
+            if self.vertices.is_empty() {
+                self.center = (b.min + b.max) * 0.5;
+                self.radius = 6.;
+            }
             self.radius = self
                 .radius
                 .max(self.center.distance(b.min))
@@ -490,6 +494,15 @@ impl Renderer {
             vertex.selected = self.selection.exact.contains(&vertex.target);
             if vertex.selected {
                 points.push(vertex.point);
+            }
+        }
+        if let Some(document) = &self.document {
+            for target in targets {
+                if matches!(target.entity, SelectedEntity::Occurrence)
+                    && let Some(b) = document.procedural_object_world_bounds(&target.occurrence)
+                {
+                    points.extend(meshcraft_core::document::procedural::bounds_corners(b));
+                }
             }
         }
         self.selection_box = selection_box(&points);

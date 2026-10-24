@@ -351,6 +351,19 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                         .flex()
                         .flex_wrap()
                         .gap(px(4.))
+                        .child(Button::new("tree/new").label("New Tree").small().on_click(
+                            self.cx.listener(|this, _, window, cx| {
+                                super::materials::edit_tree(this, true, false, window, cx)
+                            }),
+                        ))
+                        .child(
+                            Button::new("tree/edit")
+                                .label("Edit Tree")
+                                .small()
+                                .on_click(self.cx.listener(|this, _, window, cx| {
+                                    super::materials::edit_tree(this, false, false, window, cx)
+                                })),
+                        )
                         .child(
                             Button::new("scripts/new")
                                 .label("New Scripted Object")
@@ -1715,6 +1728,14 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_selection()),
                 )
                 .child(setting_field("Object name", "", bindings))
+                .child(
+                    Button::new("tree/instance")
+                        .label("Edit Procedural Tree")
+                        .small()
+                        .on_click(bindings.cx.listener(|this, _, window, cx| {
+                            super::materials::edit_tree(this, false, true, window, cx)
+                        })),
+                )
                 .child(super::parameters::panel(bindings.shell, bindings.cx))
                 .child(super::ifc::panel(bindings.shell, false, bindings.cx))
                 .child(command_row(

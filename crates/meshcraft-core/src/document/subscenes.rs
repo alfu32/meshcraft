@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Default)]
 struct Ids {
+    programs: BTreeMap<String, String>,
     materials: BTreeMap<String, String>,
     definitions: BTreeMap<DefinitionId, DefinitionId>,
     layouts: BTreeMap<ChildLayoutId, ChildLayoutId>,
@@ -102,6 +103,15 @@ impl Document {
             materials: draft.merge_materials(source)?,
             ..Ids::default()
         };
+        for source_program in source.procedural_programs() {
+            if let Some(p) = draft.procedural_programs().iter().find(|p| {
+                let mut candidate = (*p).clone();
+                candidate.id = source_program.id.clone();
+                candidate == source_program
+            }) {
+                ids.programs.insert(source_program.id, p.id.clone());
+            }
+        }
         let root = replace.unwrap_or_else(|| DefinitionId(draft.allocate_id()));
         ids.definitions.insert(Self::SCENE_ROOT_DEFINITION_ID, root);
         let reused = reuse
@@ -246,6 +256,7 @@ impl Document {
                     remap_surfaces(value, &ids.materials);
                 }
             }
+            remap_procedural_object(&mut copy.extensions, &ids)?;
             remap_hotspot_ids(&mut copy, &ids)?;
             draft.definitions.insert(copy.id, copy);
         }
@@ -474,6 +485,7 @@ fn remap_edits(
     if let Some(geometry) = edits.geometry_replacement.as_ref() {
         copy.geometry_replacement = Some(remap_geometry(geometry, ids, document));
     }
+    remap_procedural_object(&mut copy.extensions, ids)?;
     copy.child_layout = edits.child_layout.map(|id| ids.layouts[&id]);
     Ok(copy)
 }
@@ -1024,4 +1036,23 @@ fn remap_material(extensions: &mut BTreeMap<String, Value>, ids: &BTreeMap<Strin
     {
         extensions.insert(materials::MATERIAL_KEY.into(), Value::String(id));
     }
+}
+
+fn remap_procedural_object(ext: &mut BTreeMap<String, Value>, ids: &Ids) -> Result<(), String> {
+    if let Some(raw) = ext.get_mut(super::procedural::OBJECT_KEY) {
+        let mut settings: super::materials::Material =
+            serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
+        if let Some(c) = &mut settings.procedural {
+            if let Some(base) = c.base_material.as_mut()
+                && let Some(new) = ids.materials.get(base)
+            {
+                *base = new.clone();
+            }
+            if let Some(new) = ids.programs.get(&c.program) {
+                c.program = new.clone();
+            }
+        }
+        *raw = serde_json::to_value(settings).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

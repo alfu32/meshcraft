@@ -171,9 +171,20 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
                 spec["enum"] = json!(["visible", "editable", "wireframe"]);
             }
         }
+        if command.id.as_str() == "object.configure_procedural" {
+            spec["description"] = json!(match name {
+                "definition_id" =>
+                    "Existing procedural prototype ID; omit to create a tree prototype and start placement.",
+                "instance_path" =>
+                    "Optional numeric occurrence path. Supplied settings become a private instance override; omit to change prototype defaults.",
+                "settings" =>
+                    "Full Material-shaped shader settings record (name/color/pbr/procedural). procedural.program=meshcraft.tree.v1, parameters use the tree schema in meshcraft_scene.proceduralPrograms. No mesh triangles are generated on the CPU.",
+                _ => "",
+            });
+        }
         if command.id.as_str() == "material.program" && name == "program" {
             spec["description"] = json!(
-                "Procedural Program: id, name, generation=surface|blades, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds. See meshcraft_scene.proceduralPrograms for builtins."
+                "Procedural Program: id, name, generation=surface|blades|surface_grid|tree, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds; localPosition/sourceNormal varyings anchor material patterns. Optional vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv) changes shading relief. tree programs belong to independent objects; surface_grid subdivides on the GPU. See meshcraft_scene.proceduralPrograms for builtins."
             );
         }
         if command.id.as_str() == "material.save" && name == "material" {
@@ -234,10 +245,10 @@ impl MeshcraftApp {
         let objects=paths.iter().skip(offset).take(limit).filter_map(|p| {
             let r=self.document.resolve_occurrence(p)?;
             let g=self.document.effective_geometry(p)?;
-            let bounds=meshcraft_core::geometry::Aabb3::from_points(g.vertices.values().map(|v|r.world_transform.transform_point(v.position)));
-            Some(json!({"path":p.path,"is_scene_root":p.is_scene_root()||self.document.scene_container_occurrence().as_ref()==Some(p),"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"classification":if self.document.frame_target_for_occurrence(p).is_some(){"frame"}else if self.document.is_object_occurrence(p){"object"}else{"scene"},"target":target_json(&self.document.frame_target_for_occurrence(p).unwrap_or(SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence}))}))
+            let bounds=self.document.procedural_object_world_bounds(p).or_else(||meshcraft_core::geometry::Aabb3::from_points(g.vertices.values().map(|v|r.world_transform.transform_point(v.position))));
+            Some(json!({"path":p.path,"is_scene_root":p.is_scene_root()||self.document.scene_container_occurrence().as_ref()==Some(p),"definition_id":r.definition.id,"name":r.definition.name,"transform":r.world_transform,"bounds":bounds,"counts":{"vertices":g.vertices.len(),"segments":g.segments.len(),"triangles":g.triangles.len()},"proceduralObject":self.document.procedural_object(p),"classification":if self.document.procedural_object(p).is_some(){"procedural_object"}else if self.document.frame_target_for_occurrence(p).is_some(){"frame"}else if self.document.is_object_occurrence(p){"object"}else{"scene"},"target":target_json(&self.document.frame_target_for_occurrence(p).unwrap_or(SelectionTarget {occurrence:p.clone(),entity:SelectedEntity::Occurrence}))}))
         }).collect::<Vec<_>>();
-        let prototypes=self.document.definitions().filter(|d|!self.document.is_frame_definition(d.id)).map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some()})).collect::<Vec<_>>();
+        let prototypes=self.document.definitions().filter(|d|!self.document.is_frame_definition(d.id)).map(|d|json!({"id":d.id,"name":d.name,"kind":d.kind,"frame":d.frame,"childLayout":d.default_child_layout,"scripted":self.document.script(d.id).is_some(),"proceduralObject":self.document.procedural_object_definition(d.id)})).collect::<Vec<_>>();
         Ok(
             json!({"objects":objects,"total":paths.len(),"offset":offset,"nextOffset":if offset.saturating_add(limit)<paths.len(){Some(offset+limit)}else{None},"prototypes":prototypes,"materials":self.document.materials(),"proceduralPrograms":self.document.procedural_programs(),"settings":self.document.model_settings(),"status":self.mcp_status()}),
         )

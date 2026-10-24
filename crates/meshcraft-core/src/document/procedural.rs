@@ -2,6 +2,10 @@
 //! Only definitions/settings are authored; generated geometry never enters the mesh graph.
 use super::*;
 
+mod objects;
+pub use objects::*;
+mod presets;
+pub use presets::*;
 pub const PROGRAMS_KEY: &str = "k3d.meshcraftProceduralPrograms";
 pub const OVERRIDES_KEY: &str = "k3d.meshcraftProceduralParameters";
 pub const GRASS: &str = "meshcraft.grass.v1";
@@ -90,7 +94,7 @@ impl Parameter {
 pub struct Program {
     pub id: String,
     pub name: String,
-    /// "surface" deforms/shades its source; "blades" emits strips on that source.
+    /// Surface shading, GPU-subdivided surface_grid, distributed blades, or an independent tree.
     pub generation: String,
     pub backend: String,
     pub parameters: Vec<Parameter>,
@@ -180,7 +184,10 @@ impl Program {
     }
     pub fn supported(&self) -> bool {
         self.backend == "vertex_instancing_gl33"
-            && matches!(self.generation.as_str(), "surface" | "blades")
+            && matches!(
+                self.generation.as_str(),
+                "surface" | "blades" | "surface_grid" | "tree"
+            )
             && self.parameters.iter().all(|p| {
                 matches!(
                     p.kind.as_str(),
@@ -329,7 +336,7 @@ pub fn grass_program() -> Program {
 }
 impl Document {
     pub fn procedural_programs(&self) -> Vec<Program> {
-        let mut programs = vec![grass_program()];
+        let mut programs = builtin_programs();
         if let Some(values) = self.extensions.get(PROGRAMS_KEY).and_then(Value::as_array) {
             programs.extend(
                 values
@@ -341,14 +348,14 @@ impl Document {
     }
     pub fn put_procedural_program(&mut self, program: Program) -> Result<(), String> {
         program.validate()?;
-        if program.id == GRASS {
+        if is_builtin(&program.id) {
             return Err("Built-in programs are read-only; save under a new ID".into());
         }
         let mut candidate = self.clone();
         let mut programs = candidate
             .procedural_programs()
             .into_iter()
-            .filter(|p| p.id != GRASS && p.id != program.id)
+            .filter(|p| !is_builtin(&p.id) && p.id != program.id)
             .collect::<Vec<_>>();
         programs.push(program);
         candidate.extensions.insert(
@@ -356,6 +363,7 @@ impl Document {
             serde_json::to_value(programs).map_err(|e| e.to_string())?,
         );
         candidate.validate_procedural_materials()?;
+        candidate.validate_procedural_objects()?;
         candidate.bump_revision();
         *self = candidate;
         Ok(())

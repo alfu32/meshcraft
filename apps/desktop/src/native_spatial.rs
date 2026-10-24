@@ -56,7 +56,7 @@ impl NativeSpatialIndex {
             ) else {
                 continue;
             };
-            let mut occurrence_bounds = None;
+            let mut occurrence_bounds = document.procedural_object_world_bounds(&occurrence);
             for (id, vertex) in &geometry.vertices {
                 let point = resolved.world_transform.transform_point(vertex.position);
                 let Some(bounds) = point_bounds(point) else {

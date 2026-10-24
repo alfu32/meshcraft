@@ -255,10 +255,14 @@ fn build_index(document: &Document) -> Result<DerivedDocumentIndex, String> {
             .entry(geometry.id)
             .or_default()
             .push(occurrence.clone());
-        let local_bounds = index
-            .geometries
-            .get(&geometry.id)
-            .and_then(|data| data.bounds);
+        let local_bounds = document
+            .procedural_object_local_bounds(&occurrence)
+            .or_else(|| {
+                index
+                    .geometries
+                    .get(&geometry.id)
+                    .and_then(|data| data.bounds)
+            });
         if let Some(bounds) =
             local_bounds.and_then(|bounds| transform_bounds(bounds, resolved.world_transform))
         {
@@ -288,7 +292,9 @@ fn insert_geometry_index(
 fn direct_world_bounds(document: &Document, occurrence: &OccurrenceRef) -> Option<Aabb3> {
     let resolved = document.resolve_occurrence(occurrence)?;
     let geometry = document.effective_geometry(occurrence)?;
-    let local = GeometryDerivedIndex::build(geometry).ok()?.bounds?;
+    let local = document
+        .procedural_object_local_bounds(occurrence)
+        .or_else(|| GeometryDerivedIndex::build(geometry).ok()?.bounds)?;
     transform_bounds(local, resolved.world_transform)
 }
 

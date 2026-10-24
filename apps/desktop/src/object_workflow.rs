@@ -749,6 +749,27 @@ pub(super) struct ObjectImportJob {
     receiver: std::sync::mpsc::Receiver<Result<Document, String>>,
 }
 impl MeshcraftApp {
+    pub fn save_native_procedural_object(
+        &mut self,
+        definition: Option<DefinitionId>,
+        instance: Option<OccurrenceRef>,
+        settings: meshcraft_core::document::materials::Material,
+    ) -> Result<DefinitionId, String> {
+        let create = definition.is_none();
+        let id = self.commit_global_document_edit("Configure procedural object", |d| {
+            let id = match definition {
+                Some(id) => id,
+                None => d.create_procedural_tree()?,
+            };
+            d.set_procedural_object(id, instance.as_ref(), settings)?;
+            Ok(id)
+        })?;
+        if create {
+            self.select_native_prototype(id);
+            self.begin_placing_definition(id);
+        }
+        Ok(id)
+    }
     pub fn select_native_prototype(&mut self, id: DefinitionId) {
         if self.document.definition(id).is_some() && !self.document.is_frame_definition(id) {
             self.object_browser_selection = Some(id);
@@ -958,6 +979,128 @@ impl MeshcraftApp {
 mod tests {
     use super::*;
 
+    #[test]
+    fn procedural_tree_command_history_project_and_bounds_picking() {
+        let mut app = MeshcraftApp::new_native_session(Document::new(), String::new(), None);
+        let created =
+            app.dispatch_command("object.configure_procedural", &CommandPayload::default());
+        assert!(
+            created.result.completion == meshcraft_core::commands::CommandCompletion::Completed,
+            "{created:?}"
+        );
+        let id = DefinitionId(created.result.outputs["definition_id"].as_u64().unwrap());
+        let path = app
+            .commit_document_edit("Place tree", |d| {
+                modeling_objects::place_definition(
+                    d,
+                    &EditContext::Document,
+                    id,
+                    Vec3::ZERO,
+                    None,
+                    false,
+                )
+            })
+            .unwrap();
+
+        let mut background = app.document.clone();
+        background
+            .add_cuboid(
+                "Wall behind tree",
+                Vec3::new(10., 8., 1.),
+                Vec3::new(-5., 0., -8.),
+            )
+            .unwrap();
+        let hit = app.viewport.pick_selection_target_on_ray(
+            &background,
+            Vec3::new(0., 3., 20.),
+            -Vec3::Z,
+            0.05,
+            SnapScope::Document,
+            &app.selection_display_policy,
+        );
+        assert_eq!(
+            hit,
+            Some(SelectionTarget {
+                occurrence: path.clone(),
+                entity: SelectedEntity::Occurrence
+            })
+        );
+        let mut authored = app.document.clone();
+        let mut settings = authored.procedural_object(&path).unwrap();
+        settings
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("height".into(), json!(9.));
+        authored
+            .set_procedural_object(id, Some(&path), settings)
+            .unwrap();
+        let bounds = authored.procedural_object_world_bounds(&path).unwrap();
+        let bytes = meshcraft_io::project::write_project(&authored, None).unwrap();
+        let mut restored = meshcraft_io::project::read_project(&bytes)
+            .unwrap()
+            .document;
+        let tree = restored
+            .scene_geometry_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| restored.procedural_object(p).is_some())
+            .expect("tree survives legacy project IO");
+        assert_eq!(restored.procedural_object_world_bounds(&tree), Some(bounds));
+        assert_eq!(
+            restored
+                .procedural_object(&tree)
+                .unwrap()
+                .procedural
+                .unwrap()
+                .parameters["height"],
+            json!(9.)
+        );
+        let id = restored.resolve_occurrence(&tree).unwrap().definition.id;
+        let mut settings = restored.procedural_object(&tree).unwrap();
+        settings
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("height".into(), json!(11.));
+        restored
+            .set_procedural_object(id, Some(&tree), settings)
+            .unwrap();
+        let again = meshcraft_io::project::read_project(
+            &meshcraft_io::project::write_project(&restored, None).unwrap(),
+        )
+        .unwrap()
+        .document;
+        let tree_again = again
+            .scene_geometry_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| again.procedural_object(p).is_some())
+            .unwrap();
+        assert_eq!(
+            again
+                .procedural_object(&tree_again)
+                .unwrap()
+                .procedural
+                .unwrap()
+                .parameters["height"],
+            json!(11.)
+        );
+
+        assert!(
+            restored
+                .effective_geometry(&tree)
+                .unwrap()
+                .triangles
+                .is_empty()
+        );
+        app.dispatch_command("edit.undo", &CommandPayload::default());
+        assert!(app.document.resolve_occurrence(&path).is_none());
+        app.dispatch_command("edit.redo", &CommandPayload::default());
+        assert!(app.document.resolve_occurrence(&path).is_some());
+    }
     #[test]
     fn prototype_delete_warning_cancel_and_confirmation_work_after_later_edits() {
         let mut app = super::super::tests::test_app();
