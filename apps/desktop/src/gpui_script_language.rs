@@ -73,7 +73,7 @@ pub(super) fn register() {
 
 /// The component's minimal default theme only colors JSON categories.
 /// Supply the JavaScript/API categories as well, preserving editor chrome.
-pub(super) fn theme(base: &HighlightTheme) -> HighlightTheme {
+pub(crate) fn theme(base: &HighlightTheme) -> HighlightTheme {
     let mut theme = base.clone();
     for (slot, color) in [
         (&mut theme.style.syntax.keyword, "#c792ea"),

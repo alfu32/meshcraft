@@ -5,7 +5,7 @@ use meshcraft_core::document::{DefinitionId, scripts::ScriptDefinition};
 #[path = "gpui_script_api.rs"]
 mod api;
 #[path = "gpui_script_language.rs"]
-mod language;
+pub(super) mod language;
 
 #[derive(Default)]
 pub(super) struct ScriptsUi {

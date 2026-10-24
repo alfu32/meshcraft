@@ -1,6 +1,6 @@
 [package]
 name = "meshcraft-desktop"
-version = "0.36.0"
+version = "0.37.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -25,6 +25,7 @@ gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "
 gpui-component = { version = "=0.5.1", default-features = false }
 tree-sitter = "=0.25.10"
 tree-sitter-javascript = "=0.25.0"
+tree-sitter-glsl = "=0.2.0"
 ropey = "=2.0.0-beta.1"
 lsp-types = "=0.97.0"
 anyhow = "=1.0.104"

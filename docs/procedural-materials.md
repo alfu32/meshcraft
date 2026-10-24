@@ -60,12 +60,23 @@ directory. Missing textures use a white fallback with a diagnostic.
 ## Custom programs
 
 Use **New Shader**, or **Edit Program / Parameter Schema** in the material editor.
-The program editor separates JSON metadata/parameter declarations from monospace
-vertex and fragment source fields. Saving a built-in edit creates a custom
-program ID; the built-in grass definition remains unchanged. Choose the saved
-program in the material's Program list and apply/save that material.
+The shader editor fills the same area as the object script editor. The left half
+has three monospace code tabs: **Definition · JSON**, **Vertex · GLSL** and
+**Fragment · GLSL**, each with syntax highlighting. Switching tabs preserves your
+text and editing position. The right half renders your draft on the GPU. Surface
+shaders use a cube; Water, Grass and Foliage use a plane; tree programs preview
+an independent tree.
 
-![Program editor](rewrite/references/procedural-materials/program-editor.png)
+Changes preview after a short typing pause; **Preview** refreshes immediately.
+Right-drag orbits, middle-drag or Shift+right-drag pans, and the wheel zooms. These
+controls affect only the preview camera. JSON/schema errors and GPU compile/link
+logs appear below the panes. Correct the draft before **Save Program**.
+**Cancel** or Escape closes without changing the drawing; the ordinary viewport
+returns. Saving a built-in edit creates a custom program ID and preserves the
+built-in definition. Compatible material values survive program edits; new fields
+use their defaults. Choose the saved program and apply/save the material separately.
+
+![Shader editor with GLSL tab and GPU preview](rewrite/references/shader-editor/fragment-preview.png)
 
 For example, declare a floating-point parameter in the metadata:
 
@@ -92,8 +103,8 @@ seconds. Vertex positions/normals are local; fragment positions/normals are worl
 space. Metadata supplies defaults, descriptions, units, range/step and enum
 choices. Parameter kinds include float, signed/unsigned integer, seed, Boolean,
 vectors, RGBA color, matrix, texture path and enum. Boolean controls and enum
-choices render as checkboxes/selectors; vectors, colors and matrices accept JSON
-arrays. Texture parameters bind samplers. Program authors must declare enough
+choices render as checkboxes/selectors; colors use HSL/RGB/opacity pickers;
+vectors and matrices accept JSON arrays. Texture parameters bind samplers. Program authors must declare enough
 bounds expansion for custom deformation, and `transparent:true` for blended
 fragment alpha. Program Save is a separate explicit document edit; cancelling a
 material draft does not undo a program or material already applied/saved.
@@ -101,8 +112,9 @@ material draft does not undo a program or material already applied/saved.
 Compiler/linker logs appear in the Materials panel/editor and in MCP capture
 results. Missing programs, unsupported backends and failed shaders preserve the
 source's conventional fallback appearance. The native renderer uses OpenGL 3.3
-vertex instancing. Compute/mesh shader generation and independent procedural
-objects (tree/bush) are later work under #29/#31. Generated details are visual-only.
+vertex instancing. Independent Tree owners are available; compute/mesh shaders
+and the remaining bush/source-domain work stay tracked under #29/#31. Generated
+details are visual-only.
 
 The [MCP guide](mcp.md#procedural-materials-30) documents program/material/assignment
 commands and their discovery schemas. [T63 validation](rewrite/handoffs/T63.md)

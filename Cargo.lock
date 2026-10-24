@@ -4313,7 +4313,7 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.36.0"
+version = "0.37.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -4336,6 +4336,7 @@ dependencies = [
  "serde_json",
  "socket2",
  "tree-sitter",
+ "tree-sitter-glsl",
  "tree-sitter-javascript",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -7752,6 +7753,16 @@ dependencies = [
  "regex-syntax",
  "serde_json",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-glsl"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df0ee57cbf4c2b35d3a7f17a01bf33c0ef2e85987cb85e516ac8c6904c4e62ac"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 

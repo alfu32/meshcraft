@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.37.0 shader editor:** a full-window editor with equal code/preview panes,
+three highlighted JSON/GLSL tabs, live GPU preview and independent orbit/pan/zoom.
+Draft errors stay local; Save/Cancel and program Undo/Redo are qualified.
+See the [guide](docs/procedural-materials.md#custom-programs) and
+[T66 evidence](docs/rewrite/handoffs/T66.md).
+
 **0.36.0 foliage and shader colors:** shader material/object color parameters
 use the HSL/RGB/swatch picker with opacity. Foliage scatters broad curled leaves
 on and beyond source surfaces using GPU instancing, with seed, wind, bounds,

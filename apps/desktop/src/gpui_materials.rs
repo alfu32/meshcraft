@@ -1,5 +1,7 @@
 //! Draft material editor and project material list, rendered entirely in GPUI.
 use super::*;
+#[path = "gpui_shader_editor.rs"]
+mod shader_editor;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::{
     Colorize,
@@ -16,7 +18,7 @@ use meshcraft_core::document::{
 pub(super) struct MaterialsUi {
     pub selected: Option<String>,
     pub editor: Option<Editor>,
-    program_editor: Option<ProgramEditor>,
+    program_editor: Option<shader_editor::Editor>,
 }
 
 #[derive(Clone)]
@@ -948,70 +950,22 @@ fn procedural_fields(
         )
         .into_any_element()
 }
-struct ProgramEditor {
-    code: Entity<InputState>,
-    vertex: Entity<InputState>,
-    fragment: Entity<InputState>,
-    error: Option<String>,
-}
 fn open_program(
     shell: &mut MeshcraftShell,
     program: Program,
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
-    let mut metadata = serde_json::to_value(&program).unwrap();
-    metadata.as_object_mut().unwrap().remove("vertex");
-    metadata.as_object_mut().unwrap().remove("fragment");
-    let vertex = cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
-            .default_value(program.vertex.clone())
-    });
-    let fragment = cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
-            .default_value(program.fragment.clone())
-    });
-    let code = cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
-            .default_value(serde_json::to_string_pretty(&metadata).unwrap())
-    });
-    shell.materials.program_editor = Some(ProgramEditor {
-        code: code.clone(),
-        vertex,
-        fragment,
-        error: None,
-    });
-    code.update(cx, |s, cx| s.focus(window, cx));
-    cx.notify();
+    shader_editor::open(shell, program, window, cx);
 }
 fn program_overlay(
     shell: &MeshcraftShell,
     cx: &mut Context<MeshcraftShell>,
 ) -> Option<gpui::AnyElement> {
-    let editor = shell.materials.program_editor.as_ref()?;
-    Some(div().absolute().inset_0().flex().items_center().justify_center().bg(gpui::rgba(0x00000080)).occlude()
-        .child(div().w(px(850.)).p(px(16.)).bg(rgb(0x202832)).flex().flex_col().gap(px(8.))
-            .child("Procedural Program · JSON definition / GLSL functions")
-            .child(div().text_sm().child("vertex: void proceduralVertex(inout vec3 position, inout vec3 normal, vec2 uv)\nfragment: vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv)\nParameters are uniforms u_<id>; time is seconds. Sources use GLSL 330."))
-            .child(div().h(px(180.)).font_family(cx.global::<Theme>().mono_font_family.clone()).child(Input::new(&editor.code).h_full()))
-            .child(div().flex().gap(px(10.)).font_family(cx.global::<Theme>().mono_font_family.clone())
-                .child(div().flex_1().child("Vertex function (GLSL)").child(div().h(px(210.)).child(Input::new(&editor.vertex).h_full())))
-                .child(div().flex_1().child("Fragment function (GLSL)").child(div().h(px(210.)).child(Input::new(&editor.fragment).h_full()))))
-            .when_some(editor.error.clone(),|row,e|row.child(div().text_color(rgb(0xff9999)).child(e)))
-            .child(div().flex().gap(px(8.))
-                .child(Button::new("program/cancel").label("Cancel").on_click(cx.listener(|this,_,_,cx|{this.materials.program_editor=None;cx.notify();})))
-                .child(Button::new("program/save").label("Save Program").primary().on_click(cx.listener(|this,_,window,cx| {
-                    let code=this.materials.program_editor.as_ref().unwrap().code.read(cx).value().to_string();
-                    let result=(|| {let editor=this.materials.program_editor.as_ref().unwrap();let mut value=serde_json::from_str::<Value>(&code).map_err(|e|e.to_string())?;
-                        let metadata=value.as_object_mut().ok_or("Program metadata must be an object")?;
-                        metadata.insert("vertex".into(),json!(editor.vertex.read(cx).value().to_string()));metadata.insert("fragment".into(),json!(editor.fragment.read(cx).value().to_string()));
-                        let p:Program=serde_json::from_value(value).map_err(|e|e.to_string())?;let id=p.id.clone();this.session.save_native_procedural_program(p)?;Ok::<_,String>(id)})();
-                    match result {Ok(id)=>{this.materials.program_editor=None;this.refresh_scene();if let Some(e)=this.materials.editor.as_ref(){let object=e.object.clone();let mut m=e.material.clone();m.procedural=Some(ProceduralMaterial {program:id,..Default::default()});edit(this,m,window,cx);this.materials.editor.as_mut().unwrap().object=object;}},Err(e)=>{this.materials.program_editor.as_mut().unwrap().error=Some(e);}}
-                    cx.notify();
-                }))))) .into_any_element())
+    shader_editor::overlay(shell, cx)
+}
+pub(super) fn tick(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> bool {
+    shader_editor::tick(shell, cx)
 }
 
 fn read_selection_values(
@@ -1119,10 +1073,8 @@ pub(super) fn capture_key(
         return false;
     }
     if event.keystroke.key == "escape" {
-        shell.materials.program_editor = None;
-        window.focus(&shell.focus);
+        shader_editor::close(shell, window, cx);
         cx.stop_propagation();
-        cx.notify();
     }
     true
 }

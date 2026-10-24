@@ -193,3 +193,11 @@ transformable mesh-free procedural owners, reusable definitions with instance
 parameters, bounds/culling/LOD/animation, tree and bush examples, and hierarchy
 and inspector integration. Reuse the shared material/program infrastructure.
 Status: tree/independent-owner slice implemented in T64; keep #31 open for the remaining bush/source-domain and broader qualification work.
+
+### #29/#30 — Shader editor layout and live preview
+
+T66 expands the procedural program editor to the object editor's full-window
+layout, with equal code/preview panes, three JSON/GLSL tabs, native syntax
+highlighting and an isolated GPU preview with independent camera navigation.
+Draft evaluation is debounced; schema/compiler errors stay visible, and Cancel
+restores the drawing unchanged. See [P07](spec/materials.md) and C42.

@@ -265,6 +265,15 @@ check seeded output/wind, alpha shadows, bounds, culling/LOD and candidate limit
 Source geometry and source GPU buffers must survive parameter edits unchanged.
 Save/reopen foliage and color overrides without converting model/API color arrays.
 
+For #29/#30/T66, open New Shader and Edit Program. Compare its full-window footprint
+with the object script editor and check equal-width code/preview panes. Switch
+Definition/Vertex/Fragment tabs, retain unsaved text/cursor state and inspect JSON/GLSL
+highlighting. Orbit/pan/zoom the preview independently. Exercise live draft refresh,
+all built-in generation modes, invalid JSON, shader compilation errors and recovery.
+Cancel/Escape must preserve the drawing revision, selection, camera and history;
+Save updates only the intended program and retains matching material values. Closing
+either way restores the ordinary viewport.
+
 ## C43 — Scripted object hooks, preview and instance values
 
 Create or script an existing prototype and retain its authored geometry. Preview a valid `onCreate`/`onAnimationFrame` pair in one monospace script, with shared top-level helpers/constants, materials and helper-generated faces/lines. Ctrl+Space shows a scrollable documented API list; typing filters, arrows navigate, Enter/Tab inserts, and Escape dismisses completion before the editor. Verify independent preview orbit/pan/zoom, editor focus, diagnostics and Cancel isolation. Save, place two instances, drag scripted hotspots, copy an adjusted instance and confirm independent values. Edit graphical geometry in the prototype and include it through `this.geometry`. Save/load, undo/redo script changes, stable IDs and query-only model data. Explode an adjusted instance and compare its current issued world geometry; it must survive without scripts. Test syntax errors, thrown errors, invalid/duplicate IDs, nonfinite coordinates, excessive output, infinite loops, runtime shutdown and all packaged native engine providers. A failed script cannot hang or mutate other model content.

@@ -1,0 +1,132 @@
+{
+  "version": "0.37.0",
+  "platform": "Linux x86_64, private Xvfb :96, software Mesa/OpenGL 3.3",
+  "scope": "Native GPUI, real shader compilation and GPU preview; separate configuration, no user drawing edited",
+  "layout": {
+    "codeWidth": 720,
+    "previewWidth": 720,
+    "gap": 12,
+    "window": [
+      1500,
+      1000
+    ],
+    "objectEditorFootprintMatched": true
+  },
+  "checks": {
+    "jsonAndGlslHighlighting": true,
+    "allThreeTabsRetainText": true,
+    "uniformColorAndVertexEditsPreview": true,
+    "invalidJsonLocalError": true,
+    "invalidGlslCompilerLogAndSaveDisabled": true,
+    "validGlslRecovers": true,
+    "independentOrbitPanZoom": true,
+    "previewDoesNotEditModel": true,
+    "escapeRestoresParentAndViewport": true,
+    "saveAllThreeParts": true,
+    "programUndoRedo": true,
+    "newShaderAndEditProgram": true,
+    "surfaceFoliageTreePreviews": true
+  },
+  "before": {
+    "prototypeDeletion": null,
+    "pendingDialog": null,
+    "version": "0.37.0",
+    "revision": 0,
+    "generation": 0,
+    "activeTool": "Select",
+    "numericInput": "",
+    "toolInstructions": "",
+    "status": "Opened the requested inspector panel.",
+    "editContext": {
+      "kind": "document"
+    },
+    "selection": [],
+    "projectPath": null,
+    "unsavedChanges": false,
+    "clipboard": {
+      "available": false,
+      "bytes": 0
+    },
+    "server": {
+      "running": true,
+      "port": 18766,
+      "configuredPort": 18766
+    },
+    "camera": {
+      "position": {
+        "x": 9.365073204040527,
+        "y": 7.042073607444763,
+        "z": 9.365073204040527
+      },
+      "target": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 45.0
+    },
+    "scriptErrors": []
+  },
+  "afterPreview": {
+    "prototypeDeletion": null,
+    "pendingDialog": null,
+    "version": "0.37.0",
+    "revision": 0,
+    "generation": 0,
+    "activeTool": "Select",
+    "numericInput": "",
+    "toolInstructions": "",
+    "status": "Opened the requested inspector panel.",
+    "editContext": {
+      "kind": "document"
+    },
+    "selection": [],
+    "projectPath": null,
+    "unsavedChanges": false,
+    "clipboard": {
+      "available": false,
+      "bytes": 0
+    },
+    "server": {
+      "running": true,
+      "port": 18766,
+      "configuredPort": 18766
+    },
+    "camera": {
+      "position": {
+        "x": 9.365073204040527,
+        "y": 7.042073607444763,
+        "z": 9.365073204040527
+      },
+      "target": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 45.0
+    },
+    "scriptErrors": []
+  },
+  "savedProgram": {
+    "id": "custom.saved-editor",
+    "name": "Saved Editor",
+    "generation": "surface",
+    "backend": "vertex_instancing_gl33",
+    "parameters": [],
+    "vertex": "void proceduralVertex(inout vec3 position, inout vec3 normal, vec2 uv) { position.x += 0.1; }",
+    "fragment": "vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv) { return vec4(0.15, 0.4, 0.9, 1.0); }",
+    "boundsExpansion": 0.0,
+    "animated": false,
+    "transparent": false
+  },
+  "regularTests": 740,
+  "gpuPresetTest": "procedural_presets_gpu_tree_water_brick_wood_foliage: passed",
+  "limitations": [
+    "Native UI/GPU checks cover Linux x86_64 software Mesa; macOS, Windows and hardware GPU drivers not live-qualified.",
+    "One initial default-parallel suite run hit the existing JavaScriptCore execution deadline. The complete suite passes with --test-threads=2."
+  ]
+}

@@ -113,3 +113,22 @@ LOD, work budgets, shadow cutouts and alpha apply. Color-parameter opacity must
 participate in transparent rendering, including object programs. Zero wind or
 zero emitted density must let rendering idle. No generated leaves enter CPU
 geometry, snapping, export or Explode. Publish the program and schema via MCP.
+
+### Shader editor layout and preview — #29/#30, T66
+
+The shader editor occupies the same full-window area as the object script editor,
+with equal-width code and GPU preview panes. Three tabs retain independent drafts
+and editing state: Definition (JSON), Vertex (GLSL) and Fragment (GLSL). All use a
+monospace code editor with language-specific syntax highlighting. GLSL highlighting
+includes keywords/qualifiers, types, function names, comments, literals, parameter
+uniforms and time.
+
+Preview automatically after a typing pause, with an explicit Preview button. Use
+the existing renderer on a small private scene: a cube for surface shaders, a
+plane for subdivided/scattered surface programs and a procedural owner for trees.
+Orbit, pan and zoom affect only the preview camera. Report JSON/schema and actual
+GPU compiler/linker errors without changing the active drawing, selection, camera,
+materials or undo history. Tab switching preserves every draft. Cancel/Escape
+retire the preview and restore the drawing viewport; Save Program is an explicit
+undoable program edit. Retain compatible material parameter values when returning
+to the parent editor; newly declared fields use their defaults.

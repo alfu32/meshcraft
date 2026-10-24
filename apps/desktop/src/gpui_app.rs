@@ -2738,6 +2738,9 @@ impl Render for MeshcraftShell {
                             if thumbnails::tick(this) {
                                 cx.notify();
                             }
+                            if materials::tick(this, cx) {
+                                cx.notify();
+                            }
                             if scripts::tick(this) {
                                 this.refresh_scene();
                                 cx.notify();

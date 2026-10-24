@@ -3161,6 +3161,43 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T66",
+      "title": "#29/#30 Expand shader editor with highlighted tabs and isolated GPU preview",
+      "phase": "desktop",
+      "dependencies": [
+        "T65"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C42"
+      ],
+      "targets": [
+        "apps/desktop/src/gpui_shader_editor.rs",
+        "apps/desktop/src/gpui_shader_language.rs",
+        "apps/desktop/src/gpui_materials.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/procedural-materials.md"
+      ],
+      "slices": [
+        "Match the object script editor footprint with equal code/preview panes and persistent Definition, Vertex and Fragment tabs.",
+        "Use JSON and GLSL syntax highlighting, independent preview camera controls and debounced GPU evaluation with current-draft compiler diagnostics.",
+        "Qualify all generation previews, tab retention, error recovery, Save/Cancel isolation and viewport restoration."
+      ],
+      "done": [
+        "C42 shader editor extension passes with recorded native UI/GPU evidence."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }
