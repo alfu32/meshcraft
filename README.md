@@ -25,6 +25,8 @@ HSL, RGB and swatches, each with opacity controls.
 
 ## Modeling tools
 
+![img_1.png](assets/img_1.png)
+
 - **Draw geometry:** lines, polylines with straight and curved segments, rectangles, circles, planar meshes and 3D primitives.
 - **Shape meshes:** extrusion and Push/Pull, sweeps, ribbons, revolve, offsets and outlines.
 - **Transform and repeat:** move, rotate, scale, squash along a picked axis, stretch, move a copy, rotate a copy and arrays; reverse face normals and segment direction with Flip.
