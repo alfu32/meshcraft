@@ -1,6 +1,7 @@
 # Dashboard
 
-**0.40.3 Linux graphics startup:** failed graphics initialization can retry once
+**0.40.4 Linux graphics startup:** virtual X11 displays without DRI3 select the
+installed software Vulkan driver before native GPU initialization. Other failed graphics initialization can retry once
 with the installed Mesa software Vulkan driver, without altering healthy hardware
 startup or explicit driver choices. If no backend is available, a native X11
 message explains the requirement instead of a startup panic. Offline release

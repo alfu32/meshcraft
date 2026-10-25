@@ -10,6 +10,18 @@ use x11rb::{
     wrapper::ConnectionExt as _,
 };
 
+/// A virtual X11 server without DRI3 cannot present a hardware Vulkan surface.
+/// Select software before entering native driver code in that known case.
+pub fn retry_for_virtual_display() -> Option<std::io::Result<std::process::ExitStatus>> {
+    let (connection, _) = x11rb::connect(None).ok()?;
+    let dri3 = connection.query_extension(b"DRI3").ok()?.reply().ok()?;
+    if dri3.present {
+        return None;
+    }
+    eprintln!("Meshcraft: X11 display has no DRI3 presentation support");
+    retry_with_software()
+}
+
 fn software_driver(failed: bool, explicit: bool, directories: &[PathBuf]) -> Option<PathBuf> {
     if !failed || explicit {
         return None;

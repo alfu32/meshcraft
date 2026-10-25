@@ -75,6 +75,13 @@ fn main() {
             std::process::exit(2);
         }
     };
+    #[cfg(target_os = "linux")]
+    if let Some(result) = meshcraft_desktop::linux_graphics::retry_for_virtual_display() {
+        match result {
+            Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+            Err(error) => eprintln!("Could not start virtual-display graphics retry: {error}"),
+        }
+    }
     let startup_path = startup.document.clone();
     let startup_document = load_startup_document(startup.document);
     let (document, status, legacy_history, loaded_path) = match startup_document {

@@ -229,6 +229,13 @@ jobs:
           name: startup-smoke-${{ matrix.target }}
           path: target/startup-smoke
           if-no-files-found: warn
+      - name: Preserve Linux packages when startup checks fail
+        if: ${{ failure() && matrix.os == 'linux' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: failed-startup-packages-${{ matrix.target }}
+          path: target/release-assets
+          if-no-files-found: warn
       - name: Build Windows MSI and unsigned MSIX
         if: matrix.os == 'windows'
         shell: pwsh

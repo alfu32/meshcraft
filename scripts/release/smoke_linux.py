@@ -38,7 +38,16 @@ def main():
                 if name == "driver-error":
                     env.update(VK_DRIVER_FILES="/nonexistent/meshcraft-test-driver.json", VK_ICD_FILENAMES="/nonexistent/meshcraft-test-driver.json")
                 with (directory / "app.log").open("w") as app_log:
-                    process = subprocess.Popen(["firejail", "--quiet", "--noprofile", "--net=none", "--appimage", str(executable)], env=env, stdout=app_log, stderr=app_log, start_new_session=True)
+                    # Keep sandbox diagnostics: startup failures must identify
+                    # whether Firejail, the runtime, or Meshcraft failed.
+                    command = ["firejail", "--noprofile", "--net=none", "--appimage", str(executable)]
+                    if name == "offline":
+                        for label, prefix in [("runtime", [str(executable), "--appimage-extract-and-run"]), ("sandbox", command)]:
+                            with (directory / (label + "-version.log")).open("w") as preflight:
+                                probe = subprocess.run(prefix + ["--version"], env=env, stdout=preflight, stderr=preflight, timeout=30)
+                            if probe.returncode:
+                                raise RuntimeError(f"{label} --version failed: {probe.returncode}; see {directory}")
+                    process = subprocess.Popen(command, env=env, stdout=app_log, stderr=app_log, start_new_session=True)
                     try:
                         deadline = time.monotonic() + 30
                         window = None

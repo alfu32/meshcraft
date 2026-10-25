@@ -78,7 +78,8 @@ and license notices. glibc, the loader, compiler runtimes and GPU/GL/Vulkan driv
 come from the OS. The launcher prefers available desktop/graphics-provider libraries and uses the bundle for missing dependencies, so XKB remains compatible with the host Compose data. A working X11 desktop, fonts and a GPUI-compatible Vulkan driver
 are still runtime requirements; the glibc ceiling alone is not full desktop support.
 
-Failed Linux graphics initialization gets one fresh-process retry with an installed
+Virtual X11 displays without DRI3 presentation support select the installed Mesa
+software Vulkan driver before native graphics initialization. Other failed Linux graphics initialization gets one fresh-process retry with an installed
 Mesa Lavapipe driver, preserving normal hardware startup and explicit Vulkan driver
 choices. If graphics remain unavailable, an X11 error window explains the driver
 requirement; the application exits unsuccessfully after acknowledgement. This does
@@ -86,6 +87,8 @@ not require network access or a portal. Runtime/editor panics are not intercepte
 Release builds test the actual AppImage under Firejail `--net=none` in private Xvfb,
 verify that the real application window paints, and test the missing-driver dialog.
 Startup logs and screenshots are retained as separate workflow artifacts.
+Version preflights distinguish the AppImage runtime, sandbox and GUI startup;
+failed checks also preserve the actual packages for reproduction.
 
 The AppImage Hub's `references glibc 2.27` line describes the minimum host C library,
 not a bundled copy or proof of a startup error. The Hub's Ubuntu 22.04 test host
