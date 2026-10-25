@@ -1,0 +1,71 @@
+{
+  "version": "0.38.0",
+  "platform": "Linux x86_64, private Xvfb :96, software Mesa OpenGL",
+  "scope": "Native GPUI + shared command/MCP/model path; isolated configuration, no user drawing modified",
+  "tests": {
+    "core": 318,
+    "desktop": 385,
+    "cli": 5,
+    "io": 42,
+    "total": 750,
+    "optInExcluded": 15
+  },
+  "materialInspector": {
+    "dropdownAndApply": true,
+    "material": "architecture-grass",
+    "gpuDrawCalls": 1,
+    "gpuDiagnostics": [],
+    "undoRedo": true
+  },
+  "objectInputs": {
+    "objectContourPreselection": true,
+    "walkingObjectWithUiButton": true,
+    "sourceObjectsRetained": true
+  },
+  "settings": {
+    "escapeCancelsHeight": true,
+    "numericSpacingAndLevels": true,
+    "leftCheckbox": true
+  },
+  "heightDrag": {
+    "beforeRevision": 21,
+    "duringRevision": 21,
+    "afterRevision": 22,
+    "newHeight": 13.0,
+    "start": [
+      625,
+      549
+    ],
+    "end": [
+      623,
+      485
+    ]
+  },
+  "reopenedMaterialAssignment": {
+    "reopenedStairs": 4,
+    "materialAfterReopen": true,
+    "stairMaterialManagerApply": true,
+    "root": [
+      27
+    ],
+    "semanticId": "meshcraft:domain:2:architectureStairs:0",
+    "recordId": "meshcraft:architecture:69"
+  },
+  "reopen": {
+    "stairs": 4,
+    "sourceObjects": 2,
+    "woodAndGrassRetained": true,
+    "regeneration": true
+  },
+  "geometry": [
+    "straight/L/U/curved oriented closed-shell tests pass",
+    "straight flight below 400 triangles",
+    "5 levels at spacing 2 on independently switchable sides",
+    "copy/move/rotation, clipboard/explode, legacy and native persistence checks pass"
+  ],
+  "limitations": [
+    "Sources are captured at creation; source-object edits do not automatically update stairs.",
+    "One planar contour and an open coplanar path; guide geometry is linework.",
+    "Native UI/GPU tests cover Linux x86_64 software Mesa, not Windows/macOS or hardware drivers."
+  ]
+}

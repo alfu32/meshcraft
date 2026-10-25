@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.38.0 architecture:** Stairs accept contour C and walking path P from objects
+or selected lines, with editable height, steps/support and left/right guardrail
+guides. Height drags use phantom wireframes. Architectural material pickers now
+commit conventional and procedural material IDs through the validated command API.
+See the [guide and example](docs/architecture.md) and
+[T67 qualification](docs/rewrite/handoffs/T67.md).
+
 **0.37.0 shader editor:** a full-window editor with equal code/preview panes,
 three highlighted JSON/GLSL tabs, live GPU preview and independent orbit/pan/zoom.
 Draft errors stay local; Save/Cancel and program Undo/Redo are qualified.

@@ -12,6 +12,7 @@ use crate::{
 pub const GENERATED: &str = "meshcraft.architecture";
 pub const WALLS: &str = "architectureWalls";
 pub const SLABS: &str = "architectureSlabs";
+pub const STAIRS: &str = "architectureStairs";
 pub const FRAMES: &str = "architectureFrames";
 const EPS: f64 = 1e-7;
 #[path = "architecture_controls.rs"]
@@ -23,6 +24,9 @@ mod material_surfaces;
 #[path = "architecture_slabs.rs"]
 mod slabs;
 pub use controls::{Control, ControlPoint};
+#[path = "architecture_stairs.rs"]
+mod stairs;
+pub use stairs::Stair;
 
 #[cfg(test)]
 thread_local! {
@@ -141,6 +145,20 @@ pub(crate) fn transform_record_parameters(
             s.axis_u = Some(u / su);
             s.normal = normal;
             s.thickness *= sn;
+        }
+        Element::Stair(s) => {
+            if (su - sv).abs() > EPS * su.max(sv) || u.dot(v).abs() > EPS * su * sv {
+                return Err(
+                    "Explode a stair before applying a skewed or uneven planar scale.".into(),
+                );
+            }
+            for p in s.contour.iter_mut().chain(s.walking_path.iter_mut()) {
+                *p = transform.transform_point(*p);
+            }
+            s.up = normal;
+            s.height *= sn;
+            s.support_thickness *= sn;
+            s.rail_spacing *= sn;
         }
         Element::Frame(f) => {
             if (su - sv).abs() > EPS * su.max(sv) || u.dot(v).abs() > EPS * su * sv {
@@ -415,6 +433,7 @@ impl Default for Frame {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Element {
+    Stair(Stair),
     Wall(Wall),
     Slab(Slab),
     Frame(Frame),
@@ -642,6 +661,7 @@ impl Element {
         match self {
             Self::Wall(_) => WALLS,
             Self::Slab(_) => SLABS,
+            Self::Stair(_) => STAIRS,
             Self::Frame(_) => FRAMES,
         }
     }
@@ -649,6 +669,7 @@ impl Element {
         match self {
             Self::Wall(_) => SelectionKind::Wall,
             Self::Slab(_) => SelectionKind::Slab,
+            Self::Stair(_) => SelectionKind::Stair,
             Self::Frame(_) => SelectionKind::Frame,
         }
     }
@@ -656,6 +677,7 @@ impl Element {
         match self {
             Self::Wall(v) => &v.id,
             Self::Slab(v) => &v.id,
+            Self::Stair(v) => &v.id,
             Self::Frame(v) => &v.id,
         }
     }
@@ -663,6 +685,7 @@ impl Element {
         match self {
             Self::Wall(v) => v.id = id,
             Self::Slab(v) => v.id = id,
+            Self::Stair(v) => v.id = id,
             Self::Frame(v) => v.id = id,
         }
     }
@@ -670,6 +693,7 @@ impl Element {
         match self {
             Self::Wall(v) => &v.name,
             Self::Slab(v) => &v.name,
+            Self::Stair(v) => &v.name,
             Self::Frame(v) => &v.name,
         }
     }
@@ -677,7 +701,7 @@ impl Element {
         match self {
             Self::Wall(v) => &v.holes,
             Self::Slab(v) => &v.holes,
-            Self::Frame(_) => &[],
+            Self::Frame(_) | Self::Stair(_) => &[],
         }
     }
     pub fn holes_mut(&mut self) -> Result<&mut Vec<Hole>, String> {
@@ -695,6 +719,29 @@ impl Element {
                 .and_then(|p| serde_json::from_value::<Vec3>(p).ok())
         };
         match field {
+            STAIRS => {
+                let mut stair: Stair =
+                    serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+                if stair.walking_path.is_empty()
+                    && let (Some(a), Some(b)) = (point("walkingStart"), point("walkingEnd"))
+                {
+                    stair.walking_path = vec![a, b];
+                }
+                if stair.contour.is_empty()
+                    && let (Some(a), Some(b)) = (point("min"), point("max"))
+                {
+                    stair.contour = vec![
+                        a,
+                        Vec3::new(b.x, a.y, a.z),
+                        Vec3::new(b.x, a.y, b.z),
+                        Vec3::new(a.x, a.y, b.z),
+                    ];
+                }
+                if value.get("railCount").is_none() && value.get("up").is_none() {
+                    stair.rail_count = 4;
+                }
+                Ok(Self::Stair(stair))
+            }
             WALLS => {
                 let mut wall: Wall =
                     serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
@@ -776,9 +823,30 @@ impl Element {
         let mut value = match self {
             Self::Wall(v) => serde_json::to_value(v),
             Self::Slab(v) => serde_json::to_value(v),
+            Self::Stair(v) => serde_json::to_value(v),
             Self::Frame(v) => serde_json::to_value(v),
         }
         .expect("finite validated architecture record");
+        if let Self::Stair(s) = self
+            && !s.contour.is_empty()
+        {
+            let mut min = s.contour[0];
+            let mut max = min;
+            for p in &s.contour {
+                min.x = min.x.min(p.x);
+                min.y = min.y.min(p.y);
+                min.z = min.z.min(p.z);
+                max.x = max.x.max(p.x);
+                max.y = max.y.max(p.y);
+                max.z = max.z.max(p.z);
+            }
+            value["min"] = serde_json::json!(min);
+            value["max"] = serde_json::json!(max);
+            if let (Some(a), Some(b)) = (s.walking_path.first(), s.walking_path.last()) {
+                value["walkingStart"] = serde_json::json!(a);
+                value["walkingEnd"] = serde_json::json!(b);
+            }
+        }
         // Compatibility fields describe the same canonical polyline; legacy readers
         // retain the full contour even when they only understand rectangular slabs.
         if let Self::Slab(v) = self
@@ -802,6 +870,7 @@ impl Element {
     }
     pub fn plane(&self) -> Result<Plane, String> {
         match self {
+            Self::Stair(s) => s.plane(),
             Self::Wall(w) => w.plane(),
             Self::Slab(s) => slabs::surface(s).map(|v| v.0),
             Self::Frame(f) => surface(&f.contour, f.normal).map(|v| v.0),
@@ -814,6 +883,7 @@ impl Element {
         }
         let mut mesh = Mesh::default();
         match self {
+            Self::Stair(s) => return stairs::mesh(s),
             Self::Wall(w) => return joins::wall_mesh(w, &[]),
             Self::Slab(s) => return slabs::mesh(s),
             Self::Frame(f) => {
@@ -885,6 +955,7 @@ pub fn semantic_entity(extensions: &BTreeMap<String, Value>) -> Option<SelectedE
     let info = extensions.get(GENERATED)?;
     let id = info.get("id")?.as_str()?.to_owned();
     let kind = match info.get("field")?.as_str()? {
+        STAIRS => SelectionKind::Stair,
         WALLS => SelectionKind::Wall,
         SLABS => SelectionKind::Slab,
         FRAMES => SelectionKind::Frame,
@@ -897,6 +968,7 @@ pub fn generated(extensions: &BTreeMap<String, Value>) -> bool {
 }
 pub fn field(kind: SelectionKind) -> Option<&'static str> {
     match kind {
+        SelectionKind::Stair => Some(STAIRS),
         SelectionKind::Wall => Some(WALLS),
         SelectionKind::Slab => Some(SLABS),
         SelectionKind::Frame => Some(FRAMES),
@@ -1026,7 +1098,7 @@ impl Document {
             let Some(r) = self.resolve_occurrence(&occurrence) else {
                 continue;
             };
-            for field in [WALLS, SLABS, FRAMES] {
+            for field in [WALLS, SLABS, FRAMES, STAIRS] {
                 let Some(records) = r
                     .definition
                     .domain_data
@@ -1365,7 +1437,7 @@ impl Document {
         self.strip_architecture_geometry();
         let mut records = vec![];
         for d in self.definitions.values() {
-            for field in [WALLS, SLABS, FRAMES] {
+            for field in [WALLS, SLABS, FRAMES, STAIRS] {
                 let Some(values) = d
                     .domain_data
                     .get(field)
@@ -1482,7 +1554,7 @@ impl Document {
             let d = self
                 .definition(definition)
                 .ok_or("architecture definition is missing")?;
-            for field in [WALLS, SLABS, FRAMES] {
+            for field in [WALLS, SLABS, FRAMES, STAIRS] {
                 let Some(records) = d
                     .domain_data
                     .get(field)

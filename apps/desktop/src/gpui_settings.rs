@@ -83,6 +83,31 @@ const FIELDS: &[Field] = &[
         0.000001,
         1e6
     ),
+    field!("Stair height", "arch", "stair_height", 0.1, 0.000001, 1e6),
+    Field {
+        integer: true,
+        ..field!("Stair steps", "arch", "stair_steps", 1., 1., 512.)
+    },
+    field!(
+        "Stair support thickness",
+        "arch",
+        "stair_support",
+        0.05,
+        0.000001,
+        1e6
+    ),
+    field!(
+        "Stair guide spacing",
+        "arch",
+        "stair_spacing",
+        0.1,
+        0.000001,
+        1e6
+    ),
+    Field {
+        integer: true,
+        ..field!("Stair guide levels", "arch", "stair_levels", 1., 0., 128.)
+    },
     field!("Frame depth", "arch", "frame_depth", 0.01, 0.000001, 1e6),
     field!("Frame width", "arch", "frame_width", 0.01, 0.000001, 1e6),
     field!("Unit name", "model", "unit_name", 0., 0., 0.),
@@ -155,7 +180,10 @@ impl Field {
     fn is_length(self) -> bool {
         matches!(
             self.key,
-            "wall_thickness"
+            "stair_height"
+                | "stair_support"
+                | "stair_spacing"
+                | "wall_thickness"
                 | "wall_height"
                 | "wall_end_height"
                 | "wall_offset"
@@ -558,6 +586,11 @@ fn architecture_label(key: &str) -> &'static str {
         "wall_end_height" => "End height",
         "wall_offset" => "Axis offset",
         "wall_inclination" => "Inclination",
+        "stair_height" => "Height",
+        "stair_steps" => "Steps",
+        "stair_support" => "Support thickness",
+        "stair_spacing" => "Guide spacing",
+        "stair_levels" => "Guide levels",
         "frame_depth" => "Depth",
         "frame_width" => "Width",
         _ => "",
@@ -624,8 +657,10 @@ pub(super) fn render_field(
                     .ok()
                     .map(|value| shell.cached_document.model_settings().format_length(value))
                     .unwrap_or_default()
-            } else {
+            } else if field.key == "wall_inclination" {
                 "degrees".into()
+            } else {
+                String::new()
             };
             row = row.child(
                 div()

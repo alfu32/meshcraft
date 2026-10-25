@@ -203,7 +203,12 @@ impl MeshcraftApp {
                     meshcraft_core::document::architecture::Element::Slab(_) => {
                         &["top", "bottom", "side"][..]
                     }
-                    _ => &["frame", "glazing"][..],
+                    meshcraft_core::document::architecture::Element::Stair(_) => {
+                        &["tread", "support"][..]
+                    }
+                    meshcraft_core::document::architecture::Element::Frame(_) => {
+                        &["frame", "glazing"][..]
+                    }
                 };
                 for slot in slots {
                     element
@@ -217,8 +222,13 @@ impl MeshcraftApp {
                 } else {
                     element.procedural_parameters_mut().remove(id);
                 }
-                let owner_id = element.id().to_owned();
-                document.put_architecture(owner.definition, Some(&owner_id), element)?;
+                let SelectedEntity::SemanticHandle { id: owner_id, .. } = &owner.target.entity
+                else {
+                    return Err(
+                        "Architecture material target must identify its semantic owner".into(),
+                    );
+                };
+                document.put_architecture(owner.definition, Some(owner_id), element)?;
             }
             if !selection.selected().is_empty() {
                 if let Some(values) = &parameters {
@@ -387,6 +397,32 @@ mod procedural_tests {
                 })
             })
         }));
+        // A legacy reopen synthesizes model identities independently of the
+        // original persisted record ID. Apply must use the selected owner ID.
+        let mut reopened_app = MeshcraftApp::new_native_session(reopened, "Reopened".into(), None);
+        let selected = reopened_app
+            .document
+            .architecture_elements()
+            .into_iter()
+            .next()
+            .unwrap();
+        let SelectedEntity::SemanticHandle { id, .. } = &selected.target.entity else {
+            panic!()
+        };
+        assert_ne!(id, selected.element.id());
+        reopened_app.selection.select(selected.target);
+        reopened_app
+            .assign_native_material_parameters(
+                "grass",
+                Some(BTreeMap::from([("height".into(), json!(3.))])),
+            )
+            .unwrap();
+        assert_eq!(
+            reopened_app.document.architecture_elements()[0]
+                .element
+                .value()["proceduralParameters"]["grass"]["height"],
+            3.
+        );
         app.undo_document();
         assert_eq!(
             before.scene_root_definition(),

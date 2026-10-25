@@ -560,7 +560,10 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                 resolved.definition.domain_data.keys().any(|field| {
                     !matches!(
                         field.as_str(),
-                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                        "architectureWalls"
+                            | "architectureSlabs"
+                            | "architectureFrames"
+                            | "architectureStairs"
                     ) && (field != "hotspots" || document.script_frame(occurrence).is_none())
                 }),
                 resolved.definition.domain_entity_ids.clone(),
@@ -584,7 +587,10 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                     && field != "texts"
                     && !matches!(
                         field.as_str(),
-                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                        "architectureWalls"
+                            | "architectureSlabs"
+                            | "architectureFrames"
+                            | "architectureStairs"
                     )
                     && !(field == "hotspots" && document.script_frame(occurrence).is_some())
             })
@@ -598,6 +604,7 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
             "architectureWalls",
             "architectureSlabs",
             "architectureFrames",
+            "architectureStairs",
         ] {
             for record in extensions
                 .get(&format!("k3d.{field}"))
@@ -654,7 +661,7 @@ pub(crate) fn transform_annotation_record(
 ) -> Result<Value, String> {
     if matches!(
         field,
-        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+        "architectureWalls" | "architectureSlabs" | "architectureFrames" | "architectureStairs"
     ) {
         return crate::document::architecture::transform_record(field, record, transform);
     }
@@ -1240,7 +1247,7 @@ pub fn group_mesh_selection(
     if selected_domain_ids.keys().any(|field| {
         matches!(
             *field,
-            "architectureWalls" | "architectureSlabs" | "architectureFrames"
+            "architectureWalls" | "architectureSlabs" | "architectureFrames" | "architectureStairs"
         )
     }) {
         // Invalid unrelated legacy records remain opaque, just as on import.

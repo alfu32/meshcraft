@@ -284,6 +284,8 @@ impl Document {
                         ("side", "sideColor"),
                         ("frame", "color"),
                         ("glazing", "glazingColor"),
+                        ("tread", "treadColor"),
+                        ("support", "supportColor"),
                     ] {
                         if bindings.get(slot).and_then(Value::as_str) == Some(id)
                             && map.contains_key(field)
@@ -306,6 +308,7 @@ impl Document {
                 architecture::WALLS,
                 architecture::SLABS,
                 architecture::FRAMES,
+                architecture::STAIRS,
             ] {
                 if let Some(value) = d.domain_data.get_mut(field) {
                     sync_record(value, &id, color);
@@ -385,6 +388,7 @@ impl Document {
                     architecture::WALLS,
                     architecture::SLABS,
                     architecture::FRAMES,
+                    architecture::STAIRS,
                 ]
                 .iter()
                 .any(|key| {

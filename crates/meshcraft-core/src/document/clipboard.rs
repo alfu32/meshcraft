@@ -303,6 +303,7 @@ impl ClipboardSelection {
                     (architecture::WALLS, crate::selection::SelectionKind::Wall),
                     (architecture::SLABS, crate::selection::SelectionKind::Slab),
                     (architecture::FRAMES, crate::selection::SelectionKind::Frame),
+                    (architecture::STAIRS, crate::selection::SelectionKind::Stair),
                 ] {
                     for record in definition
                         .extensions

@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Control {
+    StairHeight,
     SlabVertex { index: usize },
     WallBase { end: bool },
     WallTop { end: bool },
@@ -13,6 +14,7 @@ pub enum Control {
 impl Control {
     pub fn label(&self) -> &'static str {
         match self {
+            Self::StairHeight => "Stair height",
             Self::SlabVertex { .. } => "Slab profile",
             Self::WallBase { .. } => "Wall base endpoint",
             Self::WallTop { .. } => "Wall top height",
@@ -44,6 +46,16 @@ impl Element {
             })
         };
         match self {
+            Self::Stair(s) => {
+                let base = *s.walking_path.last().ok_or("Walking path is empty")?;
+                add(
+                    Control::StairHeight,
+                    base + plane.normal * s.height,
+                    plane.u,
+                    None,
+                    Some(plane.normal),
+                );
+            }
             Self::Slab(s) => {
                 for (index, p) in s.profile.points.iter().enumerate() {
                     add(Control::SlabVertex { index }, *p, plane.normal, None, None);
@@ -144,6 +156,11 @@ impl Element {
             .ok_or("Architecture control no longer exists.")?
             .point;
         match (control, &mut element) {
+            (Control::StairHeight, Element::Stair(s)) => {
+                let base = *s.walking_path.last().ok_or("Walking path is empty")?;
+                s.height = (point - base).dot(plane.normal);
+                positive(s.height, "Stair height")?;
+            }
             (Control::SlabVertex { index }, Element::Slab(s)) => {
                 *s.profile
                     .points

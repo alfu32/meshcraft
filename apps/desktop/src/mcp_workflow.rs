@@ -124,6 +124,41 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
             spec["minItems"] = json!(3);
             spec["maxItems"] = json!(3);
         }
+        if command.id.as_str().starts_with("architecture.") {
+            if matches!(name, "contour" | "walking_path") {
+                spec["description"] = json!(if name == "contour" {
+                    "Closed planar stair boundary C in world coordinates; omit a repeated closing point. Source linework is retained."
+                } else {
+                    "Open planar walking path P in uphill order, on the contour plane. Path direction determines ascent and left/right sides."
+                });
+            } else if name.ends_with("_material") {
+                spec["description"] = json!(
+                    "Project material ID, conventional or procedural; bind to this architectural surface and preserve through regeneration."
+                );
+            }
+            match name {
+                "stair_height" => {
+                    spec["description"] = json!(
+                        "Total stair rise in internal model units; new stairs default to 10."
+                    );
+                    spec["exclusiveMinimum"] = json!(0);
+                }
+                "stair_steps" => {
+                    spec["minimum"] = json!(1);
+                    spec["maximum"] = json!(512);
+                }
+                "stair_levels" => {
+                    spec["minimum"] = json!(0);
+                    spec["maximum"] = json!(128);
+                    spec["description"] =
+                        json!("Number of copied guardrail guide levels; 0 hides guides.");
+                }
+                "stair_spacing" | "stair_support" => {
+                    spec["exclusiveMinimum"] = json!(0);
+                }
+                _ => {}
+            }
+        }
         if name == "unit"
             && matches!(
                 command.id.as_str(),

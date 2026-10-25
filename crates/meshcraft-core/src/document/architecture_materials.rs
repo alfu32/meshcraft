@@ -5,6 +5,7 @@ impl Element {
         match self {
             Self::Wall(v) => &v.materials,
             Self::Slab(v) => &v.materials,
+            Self::Stair(v) => &v.materials,
             Self::Frame(v) => &v.materials,
         }
     }
@@ -12,6 +13,7 @@ impl Element {
         match self {
             Self::Wall(w) => &mut w.procedural_parameters,
             Self::Slab(s) => &mut s.procedural_parameters,
+            Self::Stair(s) => &mut s.procedural_parameters,
             Self::Frame(f) => &mut f.procedural_parameters,
         }
     }
@@ -19,6 +21,7 @@ impl Element {
         match self {
             Self::Wall(v) => &mut v.materials,
             Self::Slab(v) => &mut v.materials,
+            Self::Stair(v) => &mut v.materials,
             Self::Frame(v) => &mut v.materials,
         }
     }
@@ -59,6 +62,10 @@ impl Document {
                 resolve(self, &mut s.materials, "top", &mut s.top_color)?;
                 resolve(self, &mut s.materials, "bottom", &mut s.bottom_color)?;
                 resolve(self, &mut s.materials, "side", &mut s.side_color)?;
+            }
+            Element::Stair(s) => {
+                resolve(self, &mut s.materials, "tread", &mut s.tread_color)?;
+                resolve(self, &mut s.materials, "support", &mut s.support_color)?;
             }
             Element::Frame(f) => {
                 resolve(self, &mut f.materials, "frame", &mut f.color)?;

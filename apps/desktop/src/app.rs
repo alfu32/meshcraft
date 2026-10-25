@@ -1429,6 +1429,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         }
         register_shell_command(&mut registry,"tool.arch_slab_freeform","Tool> Freeform Slab","Tool","architecture slab closed polyline profile arc",Some("arch_slab"),ShellAction::SelectToolAlias("Freeform Slab"));
         for (action,label) in [
+            ("create_stair","Create Stair from Contour and Walking Path"),("stair_contour","Use Selection as Stair Contour C"),("stair_path","Use Selection as Stair Walking Path P"),
             ("settings","Architecture Defaults"),("update","Update Selected Architecture"),
             ("create_wall","Create Wall"),("create_rectangular_slab","Create Rectangular Slab"),
             ("create_slab","Create Freeform Slab"),("create_frame","Create Independent Window or Door"),
@@ -1451,6 +1452,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "solid_intersection" => ShellAction::SolidBoolean(meshcraft_core::operations::solids::Boolean::Intersection),
                 "plane_section" => ShellAction::BeginSection,
                 "mesh_intersection" => ShellAction::MeshIntersection,
+                "arch_stair" => ShellAction::SelectToolAlias("Stair"),
                 "arch_wall" => ShellAction::SelectToolAlias("Wall"),
                 "arch_slab" => ShellAction::SelectToolAlias("Rectangular Slab"),
                 "arch_add_hole" => ShellAction::SelectToolAlias("Add Hole"),
@@ -2125,6 +2127,17 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("far", CommandValueType::Number),
         ],
         id if id.starts_with("architecture.") => &[
+            ("contour", CommandValueType::Array),
+            ("walking_path", CommandValueType::Array),
+            ("stair_height", CommandValueType::Number),
+            ("stair_steps", CommandValueType::Integer),
+            ("stair_support", CommandValueType::Number),
+            ("stair_left", CommandValueType::Boolean),
+            ("stair_right", CommandValueType::Boolean),
+            ("stair_spacing", CommandValueType::Number),
+            ("stair_levels", CommandValueType::Integer),
+            ("stair_tread_material", CommandValueType::String),
+            ("stair_support_material", CommandValueType::String),
             ("id", CommandValueType::String),
             ("occurrence", CommandValueType::Object),
             ("start", CommandValueType::Array),
@@ -2145,6 +2158,13 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("frame_width", CommandValueType::Number),
             ("glazing_enabled", CommandValueType::Boolean),
             ("record", CommandValueType::Object),
+            ("wall_exterior_material", CommandValueType::String),
+            ("wall_interior_material", CommandValueType::String),
+            ("slab_top_material", CommandValueType::String),
+            ("slab_bottom_material", CommandValueType::String),
+            ("slab_side_material", CommandValueType::String),
+            ("frame_material", CommandValueType::String),
+            ("glazing_material", CommandValueType::String),
             ("wall_exterior_color", CommandValueType::Object),
             ("wall_interior_color", CommandValueType::Object),
             ("slab_top_color", CommandValueType::Object),
@@ -6257,7 +6277,11 @@ impl MeshcraftApp {
         self.numeric_entry = Default::default();
         self.clipboard.placement = None;
         self.annotations.points.clear();
+        let contour = self.architecture.stair_contour.take();
         self.architecture = Default::default();
+        if matches!(tool, "Select" | "Stair") {
+            self.architecture.stair_contour = contour;
+        }
         self.section = Default::default();
         if matches!(tool, "Linear Dimension" | "Text" | "Leader") {
             self.panel_focus = Some("annotations".into());

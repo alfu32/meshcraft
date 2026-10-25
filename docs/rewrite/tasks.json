@@ -3198,6 +3198,54 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T67",
+      "title": "Implement contour/path architectural stairs and fix #29 material assignment",
+      "phase": "desktop",
+      "dependencies": [
+        "T61",
+        "T66"
+      ],
+      "requirements": [
+        "P03",
+        "P07"
+      ],
+      "acceptance": [
+        "C03",
+        "C22",
+        "C42"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/architecture_stairs.rs",
+        "apps/desktop/src/architecture_stair_workflow.rs",
+        "apps/desktop/src/gpui_architecture.rs",
+        "apps/desktop/src/app.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/ArchitectureStore.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/ArchitectureTools.kt"
+      ],
+      "source_symbols": [
+        "ArchitectureStairTool"
+      ],
+      "design_docs": [
+        "docs/rewrite/spec/modeling.md",
+        "docs/rewrite/spec/materials.md",
+        "docs/architecture.md"
+      ],
+      "slices": [
+        "Accept planar closed contour C and directed open walking path P from object instances or connected selection sets, retaining sources and tool cancellation semantics.",
+        "Generate nonoverlapping tread regions, a closed oriented shell and configurable left/right copied guide outlines; expose numerical settings and a phantom height control.",
+        "Integrate material bindings, transforms/copies, clipboard/explode, persistence, selection counts and MCP; register all architecture material-ID arguments so procedural/conventional assignments commit.",
+        "Qualify geometry, input paths, graphical settings/preview/commit, shader assignment, history and project reopen."
+      ],
+      "done": [
+        "Current stair and architectural material requests pass C22/C42 extensions with recorded native evidence; broader T30 source qualification remains tracked separately."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

@@ -41,6 +41,8 @@ impl SelectItem for MaterialChoice {
     }
 }
 const COLORS: &[(&str, &str)] = &[
+    ("stair_tread_material", "Treads"),
+    ("stair_support_material", "Support"),
     ("wall_exterior_material", "Exterior"),
     ("wall_interior_material", "Interior"),
     ("slab_top_material", "Top"),
@@ -189,8 +191,17 @@ fn apply_colors(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>) {
         },
         &payload,
     );
-    shell.architecture.dirty = false;
-    shell.architecture.changed_colors.clear();
+    let applied = shell.session.native_architecture_payload();
+    // Keep the draft if validation rejects an assignment; do not silently
+    // reload old values and make a failed commit look successful.
+    if payload
+        .values
+        .iter()
+        .all(|(key, value)| applied.values.get(key) == Some(value))
+    {
+        shell.architecture.dirty = false;
+        shell.architecture.changed_colors.clear();
+    }
 }
 
 pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
@@ -211,6 +222,15 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         }
     } else {
         body = body.child("Defaults for new architecture");
+    }
+    if selected.is_none()
+        || shell.session.active_tool_label() == "Stair"
+        || shell.session.native_stair_contour_ready()
+    {
+        body=body.child(div().text_sm().child(if shell.session.native_stair_contour_ready(){"Contour C ready. Select walking path P, then create the stair."}else{"Stair inputs: select contour C, then select walking path P. Object instances or connected edge selections are accepted."}))
+            .child(div().flex().gap(px(6.)).flex_wrap()
+                .child(Button::new("stair/use-contour").small().label("Contour C from Selection").on_click(cx.listener(|this,_,_,cx|{this.dispatch("architecture.stair_contour");cx.notify();})))
+                .child(Button::new("stair/use-path").small().label("Walking Path P from Selection").disabled(!shell.session.native_stair_contour_ready()).on_click(cx.listener(|this,_,_,cx|{this.dispatch("architecture.stair_path");cx.notify();}))));
     }
     body = body
         .child(
@@ -233,6 +253,17 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
             ][..],
         ),
         ("Slabs", "slab_", &["Slab thickness"][..]),
+        (
+            "Stairs",
+            "stair_",
+            &[
+                "Stair height",
+                "Stair steps",
+                "Stair support thickness",
+                "Stair guide spacing",
+                "Stair guide levels",
+            ][..],
+        ),
         ("Frames", "frame_", &["Frame depth", "Frame width"][..]),
     ] {
         let show = owners.is_empty()
@@ -242,6 +273,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     (Element::Wall(_), "wall_")
                         | (Element::Slab(_), "slab_")
                         | (Element::Frame(_), "frame_")
+                        | (Element::Stair(_), "stair_")
                 )
             });
         if !show {
@@ -260,6 +292,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         let kind = match prefix {
             "wall_" => meshcraft_core::selection::SelectionKind::Wall,
             "slab_" => meshcraft_core::selection::SelectionKind::Slab,
+            "stair_" => meshcraft_core::selection::SelectionKind::Stair,
             _ => meshcraft_core::selection::SelectionKind::Frame,
         };
         let readonly = shell.architecture.readonly_kinds.contains(&kind);
@@ -272,6 +305,35 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         for label in labels {
             if let Some(field) = settings::render_field(shell, label) {
                 section = section.child(field);
+            }
+        }
+        if prefix == "stair_" {
+            for (key, label) in [
+                ("stair_left", "Left guardrail guides"),
+                ("stair_right", "Right guardrail guides"),
+            ] {
+                let enabled = shell
+                    .architecture
+                    .payload
+                    .values
+                    .get(key)
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                section = section.child(Checkbox::new(key).label(label).checked(enabled).on_click(
+                    cx.listener(move |this, checked: &bool, _, cx| {
+                        let mut payload = CommandPayload::default();
+                        payload.values.insert(key.into(), json!(*checked));
+                        this.dispatch_payload(
+                            if inspected(this).is_some() {
+                                "architecture.update"
+                            } else {
+                                "architecture.settings"
+                            },
+                            &payload,
+                        );
+                        cx.notify();
+                    }),
+                ));
             }
         }
         if prefix == "wall_" {
@@ -391,6 +453,9 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
     }
     if let Some(e) = &selected {
         let hint = match e.element {
+            Element::Stair(_) => {
+                "Drag the triangle handle to change stair height. Preview is a wireframe; release commits once."
+            }
             Element::Wall(_) => {
                 "Blue base controls move freely. Magenta triangles adjust each end's height."
             }
@@ -588,7 +653,7 @@ pub(super) fn draw(
                 drawing.draw_circle(x as i32, y as i32, radius, color);
                 drawing.draw_circle_lines(x as i32, y as i32, radius, border);
             }
-            Control::WallTop { .. } => drawing.draw_triangle(
+            Control::WallTop { .. } | Control::StairHeight => drawing.draw_triangle(
                 raylib::prelude::Vector2::new(x, y - radius),
                 raylib::prelude::Vector2::new(x - radius, y + radius),
                 raylib::prelude::Vector2::new(x + radius, y + radius),

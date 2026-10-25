@@ -142,6 +142,17 @@ Fixed-seed offset/scatter tests assert shared-vertex movement, strength bounds, 
 
 Voxel cell/adjacency/fill/frame/explode at negative and rotated coordinates. Walls/slabs with holes and inclination/joins; stairs with contours/walking lines/rails; free-form window/door frames/glazing. Plumbing elbows and ventilation joins/humps/controls. Edit parameters then save/reload and regenerate exactly once, preserving authored loose geometry and per-element selection/handles.
 
+For T67, supply C/P as object instances and as connected selections. Test two-stage
+picking, preselection, separate selection capture, direction reversal, invalid
+branches/disconnected/nonplanar/crossing inputs and Escape without mutation. Verify
+straight, L/U and sampled curved stairs, closed oriented triangles, exact total
+height (default 10), guide offsets at 5 × spacing 2, independent sides and zero
+levels. Check numeric edits and the single height control: phantom-only drag,
+one release commit, Escape cancellation. Copy/transform/paste/explode and reopen
+retain one semantic stair and its settings; Explode leaves ordinary geometry.
+Architecture selectors must commit procedural IDs for every material slot and
+for creation defaults, including through the same validated command API as MCP.
+
 ## C23 — Desktop menu accessibility and parity
 
 Every shipping action has a primary menu path. Test F10/Alt or platform equivalent, arrows, Enter/Escape, shortcuts, disabled and checked states, focus restoration, high-DPI labels, accessible names and platform conventions. Open a menu during numeric draft entry: no leaked tool-cycle letter, Delete or point commit. Switching profile preserves model/session/draft; viewport picking/capture offsets remain correct. Test native menu adapter separately if selected.

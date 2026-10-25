@@ -201,3 +201,13 @@ layout, with equal code/preview panes, three JSON/GLSL tabs, native syntax
 highlighting and an isolated GPU preview with independent camera navigation.
 Draft evaluation is debounced; schema/compiler errors stay visible, and Cancel
 restores the drawing unchanged. See [P07](spec/materials.md) and C42.
+
+## Architectural stair delivery and #29 material assignment follow-up
+
+T67 delivers the user-requested contour C/walking-path P stair workflow from the
+T30 architecture scope: source object or edge-set inputs, canonical parameters,
+closed tread/support meshes, configurable side guides and numerical/phantom
+height editing. It also fixes the missing material-ID command arguments behind
+architectural procedural-material assignments reverting on commit. T30 remains
+the aggregate source/legacy qualification owner; its stair slice is delivered
+by T67. See [P03](spec/modeling.md#p03-stairs-window-frames-and-door-frames).

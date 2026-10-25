@@ -162,7 +162,7 @@ fn selected_annotation_record_ref<'a>(
 fn selected_annotation_points(record: &Value, field: &str) -> Option<Vec<Vec3>> {
     if matches!(
         field,
-        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+        "architectureWalls" | "architectureSlabs" | "architectureFrames" | "architectureStairs"
     ) {
         return Some(
             crate::document::architecture::Element::from_value(field, record.clone())

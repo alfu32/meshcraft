@@ -177,6 +177,24 @@ colors are `{r,g,b,a}` with normalized channels. `architecture.settings` edits
 persisted defaults; `architecture.update` edits the selected owner or the supplied
 `id` and optional `occurrence:{path:[...]}`.
 
+`architecture.create_stair` takes world-point arrays `contour` (closed boundary,
+without a repeated final point) and `walking_path` (open, ordered uphill), plus
+optional `normal`. Dimensions are `stair_height` (default 10), `stair_steps`
+(1–512), `stair_support`, `stair_spacing` (positive) and `stair_levels` (0–128).
+`stair_left` and `stair_right` toggle guide sides. `architecture.stair_contour`
+captures the current selection as C; `architecture.stair_path` uses the current
+selection as P and creates the stair. Inputs can be segment sets or occurrences.
+`architecture.move_control` accepts `{"kind":"stair_height"}` with a world
+`position` to edit height. All stair settings also work with `architecture.update`
+and `architecture.settings`; guide spacing, dimensions and positions use model
+units. `stair_tread_material` and `stair_support_material` are material IDs.
+
+Architecture material parameters are IDs, for conventional or procedural catalog
+entries: `wall_exterior_material`, `wall_interior_material`, `slab_top_material`,
+`slab_bottom_material`, `slab_side_material`, `frame_material`, `glazing_material`,
+and the stair slots above. They work for selected matching owners, explicit
+owner IDs and new-element defaults, and survive regeneration/save/reopen.
+
 `meshcraft_geometry.architecture` returns canonical records, semantic selection
 targets and editability. Derived face/edge targets resolve to their owner; edit
 parameters rather than the generated cache. `architecture.add_hole` takes an owner

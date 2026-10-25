@@ -1,19 +1,23 @@
 //! Shared point-input, structured commands and transactional architecture editing.
 use super::*;
 use meshcraft_core::document::architecture::{
-    self as arch, Control, Element, Frame, FrameKind, PlacedElement, Slab, Wall,
+    self as arch, Control, Element, Frame, FrameKind, PlacedElement, Slab, Stair, Wall,
 };
 use serde_json::Value;
+#[path = "architecture_stair_workflow.rs"]
+mod stair_workflow;
 
 #[derive(Clone, Default)]
 pub(super) struct State {
     pub points: Vec<Vec3>,
+    pub stair_contour: Option<Vec<Vec3>>,
     pub normal: Option<Vec3>,
     pub owner: Option<SelectionTarget>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 struct Defaults {
+    stair: Stair,
     wall: Wall,
     slab: Slab,
     frame: Frame,
@@ -21,6 +25,13 @@ struct Defaults {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
+            stair: Stair {
+                materials: BTreeMap::from([
+                    ("tread".into(), "smoke-white".into()),
+                    ("support".into(), "smoke-grey".into()),
+                ]),
+                ..Stair::default()
+            },
             wall: Wall {
                 thickness: 1.0,
                 height: 9.0,
@@ -56,6 +67,7 @@ impl Default for Defaults {
     }
 }
 const TOOLS: &[&str] = &[
+    "Stair",
     "Wall",
     "Rectangular Slab",
     "Freeform Slab",
@@ -122,6 +134,7 @@ impl MeshcraftApp {
                     (arch::WALLS, SelectionKind::Wall),
                     (arch::SLABS, SelectionKind::Slab),
                     (arch::FRAMES, SelectionKind::Frame),
+                    (arch::STAIRS, SelectionKind::Stair),
                 ]
                 .into_iter()
                 .flat_map(|(field, kind)| {
@@ -168,16 +181,27 @@ impl MeshcraftApp {
             match &item.element {
                 Element::Wall(w) => d.wall = w.clone(),
                 Element::Slab(s) => d.slab = s.clone(),
+                Element::Stair(s) => d.stair = s.clone(),
                 Element::Frame(f) => d.frame = f.clone(),
             }
         }
-        let value = json!({"name":selected.first().map(|e|e.element.name()).unwrap_or(""),
+        let value = json!({"stair_height":d.stair.height,"stair_steps":d.stair.step_count,"stair_support":d.stair.support_thickness,"stair_left":d.stair.rail_left,"stair_right":d.stair.rail_right,"stair_spacing":d.stair.rail_spacing,"stair_levels":d.stair.rail_count,"name":selected.first().map(|e|e.element.name()).unwrap_or(""),
             "wall_thickness":d.wall.thickness,"wall_height":d.wall.height,"wall_end_height":d.wall.end_height(),"wall_offset":d.wall.offset,"wall_auto_join":d.wall.auto_join,"wall_inclination":d.wall.inclination_deg,
             "wall_exterior_color":d.wall.exterior_color,"wall_interior_color":d.wall.interior_color,
             "slab_thickness":d.slab.thickness,"slab_top_color":d.slab.top_color,"slab_bottom_color":d.slab.bottom_color,"slab_side_color":d.slab.side_color,
             "frame_depth":d.frame.depth,"frame_width":d.frame.frame_width,"frame_color":d.frame.color,"glazing_enabled":d.frame.glazing_enabled,"glazing_color":d.frame.glazing_color});
         let mut value = value;
         for (key, id, color) in [
+            (
+                "stair_tread_material",
+                d.stair.materials.get("tread"),
+                d.stair.tread_color,
+            ),
+            (
+                "stair_support_material",
+                d.stair.materials.get("support"),
+                d.stair.support_color,
+            ),
             (
                 "wall_exterior_material",
                 d.wall.materials.get("exterior"),
@@ -418,7 +442,11 @@ impl MeshcraftApp {
         }
     }
     pub(super) fn arch_begin(&mut self) {
+        let contour = self.architecture.stair_contour.take();
         self.architecture = State::default();
+        if self.active_tool == "Stair" {
+            self.architecture.stair_contour = contour;
+        }
         self.architecture.normal =
             Some(if matches!(self.active_tool.as_str(), "Window" | "Door") {
                 self.cursor_snap
@@ -429,6 +457,14 @@ impl MeshcraftApp {
             });
         self.panel_focus = Some("architecture_walls".into());
         self.status = self.arch_hint().into();
+        if self.active_tool == "Stair"
+            && self.architecture.stair_contour.is_none()
+            && !self.selection.selected().is_empty()
+            && let Ok(path) = self.stair_source(self.selection.ordered_selected(), None, true)
+        {
+            self.architecture.stair_contour = Some(path);
+            self.status = self.arch_hint().into();
+        }
         if matches!(
             self.active_tool.as_str(),
             "Freeform Slab" | "Window" | "Door"
@@ -495,6 +531,12 @@ impl MeshcraftApp {
     }
     pub(super) fn arch_hint(&self) -> &'static str {
         match self.active_tool.as_str() {
+            "Stair" if self.architecture.stair_contour.is_none() => {
+                "Stair: pick closed contour C (object/polyline), or use the selected contour edges."
+            }
+            "Stair" => {
+                "Stair: pick open walking path P (object/polyline), or select its edges and use Walking Path from Selection."
+            }
             "Wall" if self.architecture.points.is_empty() => {
                 "Wall: pick the start of a wall chain · Enter finishes · Esc cancels"
             }
@@ -579,6 +621,33 @@ impl MeshcraftApp {
         target: Option<SelectionTarget>,
     ) {
         let tool = self.active_tool.clone();
+        if tool == "Stair" {
+            let closed = self.architecture.stair_contour.is_none();
+            let result = target
+                .ok_or_else(|| "Pick a polyline object or a connected source edge.".to_owned())
+                .and_then(|t| self.stair_source(std::slice::from_ref(&t), Some(&t), closed));
+            match result {
+                Ok(points) => {
+                    if closed {
+                        self.architecture.stair_contour = Some(points);
+                        self.status = self.arch_hint().into();
+                    } else {
+                        match self.commit_stair_input(points, &CommandPayload::default()) {
+                            Ok(_) => {
+                                self.activate_tool("Select");
+                                self.architecture.stair_contour = None;
+                                self.status =
+                                    "Stair created. Drag its height handle or edit its properties."
+                                        .into();
+                            }
+                            Err(e) => self.status = e,
+                        }
+                    }
+                }
+                Err(e) => self.status = e,
+            }
+            return;
+        }
         if self.architecture.points.is_empty() && self.polyline_tool_state.points().is_empty() {
             if tool == "Add Hole" {
                 let owner = target
@@ -696,6 +765,16 @@ impl MeshcraftApp {
         }
     }
     pub(super) fn arch_preview(&self, point: Vec3) -> Option<ToolPreview> {
+        if self.active_tool == "Stair" {
+            return self
+                .architecture
+                .stair_contour
+                .clone()
+                .map(|outline| ToolPreview::Polyline {
+                    outline,
+                    closed: true,
+                });
+        }
         let point = self.arch_project(point);
         let tool = &self.active_tool;
         let normal = self.architecture.normal.unwrap_or(Vec3::Y);
@@ -813,6 +892,36 @@ impl MeshcraftApp {
             *element = Element::from_value(element.field(), value)?;
         }
         match element {
+            Element::Stair(s) => {
+                s.height = scalar(payload, "stair_height", s.height)?;
+                s.support_thickness = scalar(payload, "stair_support", s.support_thickness)?;
+                s.rail_spacing = scalar(payload, "stair_spacing", s.rail_spacing)?;
+                for (key, field) in [
+                    ("stair_steps", &mut s.step_count),
+                    ("stair_levels", &mut s.rail_count),
+                ] {
+                    if let Some(v) = payload.values.get(key) {
+                        *field = v
+                            .as_u64()
+                            .and_then(|v| u32::try_from(v).ok())
+                            .ok_or_else(|| format!("{key} must be a nonnegative integer."))?;
+                    }
+                }
+                for (key, field) in [
+                    ("stair_left", &mut s.rail_left),
+                    ("stair_right", &mut s.rail_right),
+                ] {
+                    if let Some(v) = payload.values.get(key) {
+                        *field = v
+                            .as_bool()
+                            .ok_or_else(|| format!("{key} must be boolean."))?;
+                    }
+                }
+                if let Some(name) = payload.values.get("name").and_then(Value::as_str) {
+                    s.name = name.into();
+                }
+                s.validate_settings()?;
+            }
             Element::Wall(w) => {
                 w.thickness = scalar(payload, "wall_thickness", w.thickness)?;
                 w.height = scalar(payload, "wall_height", w.height)?;
@@ -857,11 +966,13 @@ impl MeshcraftApp {
             }
         }
         let prefix = match element {
+            Element::Stair(_) => "stair",
             Element::Wall(_) => "wall",
             Element::Slab(_) => "slab",
             Element::Frame(_) => "frame",
         };
         let slots = match element {
+            Element::Stair(_) => &["tread", "support"][..],
             Element::Wall(_) => &["exterior", "interior"][..],
             Element::Slab(_) => &["top", "bottom", "side"][..],
             Element::Frame(_) => &["frame", "glazing"][..],
@@ -900,8 +1011,53 @@ impl MeshcraftApp {
     ) -> CommandResult {
         let result = (|| -> Result<Value, String> {
             match action {
+                "stair_contour" => {
+                    let points =
+                        self.stair_source(self.selection.ordered_selected(), None, true)?;
+                    self.architecture.stair_contour = Some(points);
+                    self.panel_focus = Some("architecture_stairs".into());
+                    Ok(json!({"input":"C","points":self.architecture.stair_contour}))
+                }
+                "stair_path" => {
+                    let path = self.stair_source(self.selection.ordered_selected(), None, false)?;
+                    let target = self.commit_stair_input(path, payload)?;
+                    self.architecture.stair_contour = None;
+                    self.activate_tool("Select");
+                    Ok(json!({"target":format!("{target:?}")}))
+                }
+                "create_stair" => {
+                    let contour = serde_json::from_value(
+                        payload
+                            .values
+                            .get("contour")
+                            .ok_or("contour is required")?
+                            .clone(),
+                    )
+                    .map_err(|e| format!("Invalid contour: {e}"))?;
+                    let path = serde_json::from_value(
+                        payload
+                            .values
+                            .get("walking_path")
+                            .ok_or("walking_path is required")?
+                            .clone(),
+                    )
+                    .map_err(|e| format!("Invalid walking_path: {e}"))?;
+                    let e = self.stair_element(contour, path, payload)?;
+                    let target = self.commit_arch_element(e)?;
+                    let owner = self
+                        .document
+                        .architecture_element(&target)
+                        .ok_or("New stair missing")?;
+                    Ok(json!({"occurrence":target.occurrence,"record":owner.element.value()}))
+                }
                 "settings" => {
                     let mut d = self.arch_defaults();
+                    let mut stair = Element::Stair(d.stair.clone());
+                    Self::arch_patch(&mut stair, payload)?;
+                    if let Element::Stair(s) = stair {
+                        d.stair = s;
+                    }
+                    d.stair.validate_settings()?;
                     let mut w = Element::Wall(d.wall.clone());
                     Self::arch_patch(&mut w, payload)?;
                     let mut s = Element::Slab(d.slab.clone());
@@ -947,6 +1103,11 @@ impl MeshcraftApp {
                     });
                     frame.mesh()?;
                     self.commit_document_edit("Architecture defaults", |doc| {
+                        let mut t = Element::Stair(d.stair);
+                        doc.resolve_architecture_materials(&mut t)?;
+                        let Element::Stair(stair) = t else {
+                            unreachable!()
+                        };
                         let mut w = Element::Wall(d.wall);
                         let mut s = Element::Slab(d.slab);
                         let mut f = Element::Frame(d.frame);
@@ -959,7 +1120,7 @@ impl MeshcraftApp {
                             unreachable!()
                         };
                         doc.set_architecture_defaults(
-                            json!({"wall":wall,"slab":slab,"frame":frame}),
+                            json!({"wall":wall,"slab":slab,"frame":frame,"stair":stair}),
                         )
                     })?;
                     Ok(json!({"updated":"defaults"}))
@@ -974,6 +1135,7 @@ impl MeshcraftApp {
                     let first_kind = owners.first().map(|e| e.element.kind());
                     owners.retain(|e| {
                         payload.values.keys().any(|key| match &e.element {
+                            Element::Stair(_) => key.starts_with("stair_"),
                             Element::Wall(_) => key.starts_with("wall_"),
                             Element::Slab(_) => key.starts_with("slab_"),
                             Element::Frame(_) => {
@@ -1228,6 +1390,97 @@ mod tests {
             json!({"start":[0,0,0],"end":[5,0,0],"wall_height":3}),
         );
         app.native_selected_architecture().unwrap().target
+    }
+    #[test]
+    fn procedural_material_ids_commit_through_architecture_commands_and_regeneration() {
+        let mut app = app();
+        let material = meshcraft_core::document::materials::Material {
+            id: "procedural-architecture".into(),
+            name: "Procedural architecture".into(),
+            procedural: Some(Default::default()),
+            ..Default::default()
+        };
+        app.save_native_material(material).unwrap();
+        command(
+            &mut app,
+            "architecture.create_wall",
+            json!({"start":[0,0,0],"end":[6,0,0]}),
+        );
+        command(
+            &mut app,
+            "architecture.create_rectangular_slab",
+            json!({"start":[0,0,4],"end":[6,0,10]}),
+        );
+        command(
+            &mut app,
+            "architecture.create_frame",
+            json!({"start":[0,0,12],"end":[6,5,12],"normal":[0,0,1]}),
+        );
+        let owners = app.document.architecture_elements();
+        app.selection.apply(
+            owners.iter().map(|o| o.target.clone()),
+            SelectionMode::Replace,
+        );
+        let values = json!({"wall_exterior_material":"procedural-architecture","wall_interior_material":"procedural-architecture","slab_top_material":"procedural-architecture","slab_bottom_material":"procedural-architecture","slab_side_material":"procedural-architecture","frame_material":"procedural-architecture","glazing_material":"procedural-architecture"});
+        let before = app.document.clone();
+        command(&mut app, "architecture.update", values.clone());
+        for owner in app.document.architecture_elements() {
+            assert!(
+                owner
+                    .element
+                    .surface_materials()
+                    .values()
+                    .all(|id| id == "procedural-architecture")
+            );
+            let mesh = app.document.architecture_mesh(&owner.target).unwrap();
+            assert!(
+                mesh.face_materials
+                    .iter()
+                    .all(|id| id.as_deref() == Some("procedural-architecture"))
+            );
+        }
+        command(&mut app, "edit.undo", json!({}));
+        assert_eq!(
+            app.document
+                .architecture_elements()
+                .into_iter()
+                .map(|o| o.element.value())
+                .collect::<Vec<_>>(),
+            before
+                .architecture_elements()
+                .into_iter()
+                .map(|o| o.element.value())
+                .collect::<Vec<_>>()
+        );
+        command(&mut app, "edit.redo", json!({}));
+        assert!(app.document.regenerate_architecture().is_empty());
+        for owner in app.document.architecture_elements() {
+            assert!(
+                owner
+                    .element
+                    .surface_materials()
+                    .values()
+                    .all(|id| id == "procedural-architecture")
+            );
+        }
+        command(&mut app, "architecture.settings", values);
+        let defaults = app.document.architecture_defaults().unwrap();
+        assert_eq!(
+            defaults["slab"]["materials"]["top"],
+            "procedural-architecture"
+        );
+        let mut restored: Document =
+            serde_json::from_str(&serde_json::to_string(&app.document).unwrap()).unwrap();
+        assert!(restored.regenerate_architecture().is_empty());
+        for owner in restored.architecture_elements() {
+            assert!(
+                owner
+                    .element
+                    .surface_materials()
+                    .values()
+                    .all(|id| id == "procedural-architecture")
+            );
+        }
     }
     #[test]
     fn property_edits_apply_to_matching_selected_owners_in_one_transaction() {

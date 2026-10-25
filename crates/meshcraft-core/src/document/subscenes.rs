@@ -248,6 +248,7 @@ impl Document {
                 super::architecture::WALLS,
                 super::architecture::SLABS,
                 super::architecture::FRAMES,
+                super::architecture::STAIRS,
             ] {
                 if let Some(value) = copy.domain_data.get_mut(field) {
                     remap_surfaces(value, &ids.materials);

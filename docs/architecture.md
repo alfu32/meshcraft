@@ -28,6 +28,22 @@ sets defaults for new elements when nothing is selected.
   frame plane takes its normal from the cursor’s **blue up vector**, including
   endpoint/line snaps (which can have a different snap normal).
 
+- **Stair:** pick a closed contour **C**, then an open walking path **P**. Each can
+  be an object containing linework or a connected polyline. A preselected closed
+  set of edges supplies C immediately. For separate selections, use **Contour C
+  from Selection**, select P with Select/Window, then **Walking Path P from
+  Selection** in the Architecture panel. Escape clears pending input. Source
+  linework stays intact, and path segment direction controls ascent.
+
+Stairs default to height **10**, 14 steps, support thickness 0.2 and five guide
+levels spaced by 1. The Stairs section edits these settings and independently
+switches left/right guardrail guides. For example, set spacing 2 and levels 5 to
+copy the upper side outlines at offsets 2, 4, 6, 8 and 10. Guides include tread and
+riser transitions and remain linework. Select one stair and drag its triangle
+height handle for a wireframe preview; release commits once, Escape cancels.
+Treads and support have separate material selectors. Copy/paste, move/rotate,
+Explode and Undo/Redo retain normal architectural behavior.
+
 Select a slab to show its blue profile controls. Drag a control freely in 3D,
 with the same movement whether Shift is held or not. Geometry and guide snaps
 supply precise positions, including the ground grid. Without a snap, movement
@@ -151,3 +167,15 @@ project materials. Material identity is retained independently of its current
 RGBA color, including across control-point rebuilding, copy and import. Editing a
 material refreshes its users. Legacy color-only surfaces are promoted to named
 materials when loaded or edited. Hotspots retain their intrinsic color property.
+
+## Stair and material example
+
+Open [architectural-stairs.octd](../examples/architectural-stairs.octd) for straight,
+L-shaped and curved flights, retained contour/path source objects, five guide
+levels at spacing 2, and a procedural Grass slab. Architectural material selectors
+accept both conventional and procedural IDs and retain them through regeneration
+and reopen.
+
+![Architectural stairs](rewrite/references/stairs/overview.png)
+
+![Procedural material applied through the slab inspector](rewrite/references/stairs/procedural-material.png)

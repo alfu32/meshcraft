@@ -132,3 +132,12 @@ materials or undo history. Tab switching preserves every draft. Cancel/Escape
 retire the preview and restore the drawing viewport; Save Program is an explicit
 undoable program edit. Retain compatible material parameter values when returning
 to the parent editor; newly declared fields use their defaults.
+
+### Architectural material assignments — #29, T67
+
+All architectural material selectors send material IDs through the validated
+command dispatcher. Register the exterior/interior, top/bottom/side, frame/glazing
+and tread/support ID fields on architecture creation, update and defaults
+commands. Both conventional and procedural catalog materials must commit,
+regenerate, survive Undo/Redo and reopen without reverting to prior bindings.
+A failed assignment retains the inspector draft instead of silently resetting it.

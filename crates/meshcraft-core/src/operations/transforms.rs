@@ -556,7 +556,10 @@ fn transform_domain_selections(
                 }
                 let architecture = matches!(
                     field,
-                    "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                    "architectureWalls"
+                        | "architectureSlabs"
+                        | "architectureFrames"
+                        | "architectureStairs"
                 );
                 let mut transformed = if architecture {
                     crate::document::architecture::transform_record_parameters(
@@ -576,7 +579,10 @@ fn transform_domain_selections(
                     let new_id = format!("meshcraft:transform:{}:{field}:{fresh}", definition_id.0);
                     if matches!(
                         field,
-                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                        "architectureWalls"
+                            | "architectureSlabs"
+                            | "architectureFrames"
+                            | "architectureStairs"
                     ) {
                         transformed["id"] = serde_json::json!(new_id);
                     }
@@ -592,7 +598,10 @@ fn transform_domain_selections(
                     next_records[index] = transformed;
                     if matches!(
                         field,
-                        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+                        "architectureWalls"
+                            | "architectureSlabs"
+                            | "architectureFrames"
+                            | "architectureStairs"
                     ) {
                         changed_architecture.insert((*definition_id, selected_id.clone()));
                     }
@@ -633,6 +642,7 @@ fn transform_domain_selections(
                         "architectureWalls" => SelectionKind::Wall,
                         "architectureSlabs" => SelectionKind::Slab,
                         "architectureFrames" => SelectionKind::Frame,
+                        "architectureStairs" => SelectionKind::Stair,
                         _ => unreachable!("domain transform fields are validated at collection"),
                     };
                     copy_targets.insert(SelectionTarget {
@@ -1301,7 +1311,7 @@ fn append_preview_annotation(
 ) -> Result<(), String> {
     if matches!(
         field,
-        "architectureWalls" | "architectureSlabs" | "architectureFrames"
+        "architectureWalls" | "architectureSlabs" | "architectureFrames" | "architectureStairs"
     ) {
         let mesh =
             crate::document::architecture::Element::from_value(field, record.clone())?.mesh()?;

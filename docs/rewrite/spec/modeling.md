@@ -287,6 +287,32 @@ do not add history. Keep editability and prototype-context restrictions.
 
 Defaults: stair height 2.7, 14 steps, support thickness 0.2, both rails on; frame depth 0.12, width 0.06. New-frame settings enable glazing, while persisted FrameDto defaults glazing off: preserve that distinction when loading omitted values. Support panel editing, generated mesh selection semantics, transforms, explode, and reopen.
 
+**Updated stair workflow (2026-10-25).** Stair input consists of a closed planar
+contour **C** and an open walking path **P**, each supplied as an object instance
+(including nested linework) or a connected selection of segments. Pick C then P,
+or capture C from the current selection, select P, then use Walking Path from
+Selection. Keep the source geometry intact. Segment direction determines ascent;
+reversing P also exchanges left and right. Reject disconnected, branched,
+nonplanar, crossing or reversing inputs without committing partial geometry.
+
+New stairs default to height **10**, 14 steps and support thickness 0.2. Retain
+stored legacy heights. A triangle control at the upper end changes height along
+the stair's up axis, using a phantom wireframe and one commit on release; Escape
+cancels. The Architecture inspector edits height, steps, support thickness,
+left/right guardrail-guide switches, positive guide spacing (default 1), and guide
+level count (default 5, zero hides guides). Guide geometry is linework copying
+upper side outlines, including riser transitions, at spacing × levels 1..N;
+5 levels at spacing 2 produce offsets 2, 4, 6, 8 and 10. These are guides, not
+solid rail assemblies. Treads and support bind materials, including procedural
+materials, with normal architecture selection/visibility/editability semantics.
+
+The contour is partitioned by walking progress into nonoverlapping tread regions,
+with a continuous support underside and consistently oriented closed triangles.
+Support straight, turning and sampled curved planar paths; resource limits must
+fail explicitly. Copy, transform, explode, history and project persistence retain
+canonical stair records and material references. Explode yields ordinary meshes
+and guide segments directly, without introducing another object prototype.
+
 Source: architecture store/tools/settings and architecture DTOs. Acceptance: C03, C22.
 
 **Confirmed frame ownership (updated 2026-10-23).** Windows and doors are independent
