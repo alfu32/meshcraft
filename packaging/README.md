@@ -83,6 +83,10 @@ pipeline and works without FUSE via `APPIMAGE_EXTRACT_AND_RUN=1`.
 The Snap uses `core24` and Canonical's `mesa-2404` graphics content provider so the
 GPUI/Vulkan and raylib/OpenGL APIs are available inside confinement. This isolated
 Snap runtime is separate from the old-glibc portable/AppImage build baseline.
+Snap packages use `grade: stable`, allowing the uploaded revision to be released
+to edge, beta, candidate or stable. The grade determines channel eligibility;
+the publisher chooses the release channel separately. A `devel`-grade revision
+must be rebuilt and uploaded as a new revision before candidate/stable promotion.
 For local unsigned Snap installation, install the base/provider and connect the
 `gpu-2404`, `x11` and `opengl` plugs as required by snapd. Store publication is separate.
 

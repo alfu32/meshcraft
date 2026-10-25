@@ -56,7 +56,7 @@ plugs:
     default-provider: mesa-2404
     target: $SNAP/gpu-2404
 confinement: strict
-grade: devel
+grade: stable
 license: MIT OR Apache-2.0
 apps:
   meshcraft:
@@ -83,6 +83,7 @@ apps:
                 target=manifest["target"],
                 base="core24",
                 confinement="strict",
+                grade="stable",
                 minimumGlibc=manifest["minimumGlibc"],
                 payloadArchiveSha256=sha(a.archive.read_bytes()),
             ),

@@ -16,6 +16,7 @@ import common
 import meta
 import portable
 import verify
+import snap as snap_packager
 
 
 class ReleaseTests(unittest.TestCase):
@@ -88,6 +89,43 @@ class ReleaseTests(unittest.TestCase):
         data = (package / "bin/meshcraft").read_bytes()
         with self.assertRaisesRegex(ValueError, "architecture differs"):
             common.validate_binary("aarch64-unknown-linux-gnu", data)
+
+    def test_snap_grade_allows_candidate_and_stable_for_both_architectures(self):
+        for target, arch in (
+            ("x86_64-unknown-linux-gnu", "amd64"),
+            ("aarch64-unknown-linux-gnu", "arm64"),
+        ):
+            with self.subTest(target=target):
+                archive = self.archive(target)
+                output = self.root / ("snap-" + arch)
+
+                def pack(args, **kwargs):
+                    self.assertEqual(args[:2], ["snap", "pack"])
+                    metadata = (Path(args[2]) / "meta/snap.yaml").read_text()
+                    for line in [
+                        "grade: stable",
+                        "confinement: strict",
+                        "base: core24",
+                        "architectures: [" + arch + "]",
+                    ]:
+                        self.assertIn(line, metadata)
+                    self.assertNotIn("grade: devel", metadata)
+                    (
+                        Path(args[3])
+                        / ("meshcraft_" + self.version + "_" + arch + ".snap")
+                    ).write_bytes(b"hsqs")
+
+                arguments = ["snap.py", "--archive", str(archive), "--output", str(output)]
+                with patch("sys.argv", arguments):
+                    with patch("snap.subprocess.run", side_effect=pack):
+                        with redirect_stdout(io.StringIO()):
+                            snap_packager.main()
+                artifact = output / ("meshcraft_" + self.version + "_" + arch + ".snap")
+                metadata = json.loads(
+                    Path(str(artifact) + ".manifest.json").read_text()
+                )
+                self.assertEqual(metadata["grade"], "stable")
+                self.assertEqual(metadata["target"], target)
 
     def test_rejects_symlinked_input(self):
         binary = self.root / "binary"

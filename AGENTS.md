@@ -34,7 +34,7 @@ The performance suite requires every tool to be exercised on small, medium, high
 
 ## Manual desktop releases
 
-Use `.github/workflows/distribution.yaml` with `workflow_dispatch` at an existing version tag; do not add a redundant tag/source input or create/move tags in the workflow. The tag must match the hardcoded desktop app version. Preserve the six-target native matrix and portable/AppImage/Snap/MSI/MSIX/DMG artifacts documented in `packaging/README.md`. Linux compilation and native dependency collection use the old-glibc container, with an ELF version ceiling; a newer hosted runner is only the orchestrator. MSIX signing stays deferred until the user prepares repository secrets. Packaging helpers use the standard library and have checks via `python3 -m unittest discover -s scripts/release -p 'test_*.py' -v`.
+Use `.github/workflows/distribution.yaml` with `workflow_dispatch` at an existing version tag; do not add a redundant tag/source input or create/move tags in the workflow. The tag must match the hardcoded desktop app version. Preserve the six-target native matrix and portable/AppImage/Snap/MSI/MSIX/DMG artifacts documented in `packaging/README.md`. Linux compilation and native dependency collection use the old-glibc container, with an ELF version ceiling; a newer hosted runner is only the orchestrator. Snap packages use `grade: stable` so revisions are eligible for every risk channel; the chosen Store release channel remains a separate explicit publication action. MSIX signing stays deferred until the user prepares repository secrets. Packaging helpers use the standard library and have checks via `python3 -m unittest discover -s scripts/release -p 'test_*.py' -v`.
 
 ## User requests check
 

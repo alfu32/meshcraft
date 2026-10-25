@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.40.2 Snap channel eligibility:** amd64 and arm64 Snap packages now use
+`grade: stable`, allowing candidate/stable promotion as well as edge/beta releases.
+The sidecar manifest records the grade, and packaging regression tests cover both
+architectures. Store upload and channel selection remain explicit actions.
+
 **0.40.1 non-gating stress reports:** completed measurements succeed regardless
 of tool outcomes. CI always publishes Markdown/CSV/JSON and a diagnostic ZIP to
 the same release. Interrupted, missing or rejected worker data produce explicit
