@@ -91,6 +91,10 @@ Version preflights distinguish the AppImage runtime, sandbox and GUI startup;
 failed checks also preserve the actual packages for reproduction.
 The private Xvfb server uses `-noreset`, keeping driver probes and short-lived
 window pollers from resetting the display during startup.
+For native startup crashes, `appimage-diagnose.yaml` consumes the failed-package
+artifacts from a selected Release run and captures direct/sandboxed startup and
+GDB backtraces on both Linux architectures. It does not build or publish an app,
+and its diagnostic outcomes do not constitute release qualification.
 
 The AppImage Hub's `references glibc 2.27` line describes the minimum host C library,
 not a bundled copy or proof of a startup error. The Hub's Ubuntu 22.04 test host

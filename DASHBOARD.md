@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.40.6 native startup diagnosis:** the 0.40.5 Linux release checks still exposed
+a CI-specific crash after the display race was fixed. Publication stays blocked.
+A dedicated manual workflow captures native backtraces from the existing failed
+packages on both Linux architectures without rebuilding the application.
+
 **0.40.5 stable offline release check:** private Xvfb uses `-noreset` so polling
 clients cannot reset the display during startup. The full offline AppImage smoke
 passed locally with a development fixture, including runtime/sandbox preflights,

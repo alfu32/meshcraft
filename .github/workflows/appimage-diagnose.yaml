@@ -1,0 +1,51 @@
+name: Diagnose AppImage startup
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Failed Release run containing failed-startup-packages artifacts
+        required: true
+        default: '40234081788'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native diagnostics
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gdb xvfb xdotool xfonts-base firejail libfuse2t64 mesa-vulkan-drivers libgl1-mesa-dri
+      - name: Download the existing failed package (no application build)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          name: failed-startup-packages-${{ matrix.target }}
+          path: target/diagnose-input
+      - name: Capture startup and native backtraces
+        run: python3 scripts/release/diagnose_linux.py --input target/diagnose-input --output target/startup-diagnosis
+      - name: Preserve all diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-startup-${{ matrix.target }}
+          path: target/startup-diagnosis
+          if-no-files-found: warn
