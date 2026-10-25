@@ -3365,7 +3365,14 @@ impl Render for MeshcraftShell {
 
         let close_view = cx.entity().downgrade();
         let title_bar = gpui_component::TitleBar::new()
-            .child(div().text_sm().child("Meshcraft"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(gpui::img("branding/meshcraft.png").size(px(24.)))
+                    .child(div().text_sm().child("Meshcraft")),
+            )
             .on_close_window(move |_, _, cx| {
                 let _ = close_view.update(cx, |shell, cx| {
                     shell.dispatch("app.quit");
@@ -3535,6 +3542,7 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(bounds),
+                    app_id: Some("meshcraft".into()),
                     titlebar: Some(gpui::TitlebarOptions {
                         title: Some("Meshcraft".into()),
                         ..gpui_component::TitleBar::title_bar_options()

@@ -33,12 +33,12 @@ def main():
         (root / "bin/meshcraft").chmod(0o755)
         (root / "meta/gui").mkdir(parents=True)
         shutil.copyfile(
-            ROOT / "packaging/meshcraft.svg", root / "meta/gui/meshcraft.svg"
+            ROOT / "packaging/meshcraft.png", root / "meta/gui/meshcraft.png"
         )
         desktop = (
             (ROOT / "packaging/linux/meshcraft.desktop")
             .read_text()
-            .replace("Icon=meshcraft", "Icon=${SNAP}/meta/gui/meshcraft.svg")
+            .replace("Icon=meshcraft", "Icon=${SNAP}/meta/gui/meshcraft.png")
         )
         (root / "meta/gui/meshcraft.desktop").write_text(desktop)
         (root / "meta/snap.yaml").write_text(

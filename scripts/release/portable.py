@@ -47,8 +47,8 @@ def assemble(target, binary, output, native=None):
     for name in ["README.md", "LICENSE-MIT", "LICENSE-APACHE", "packaging/README.md"]:
         add(name, ROOT / name)
     add("notices/tool-icons.txt", ROOT / "assets/tool-icons/LEGACY-LICENSE.md")
-    add("meshcraft.svg", ROOT / "packaging/meshcraft.svg")
     add("meshcraft.png", ROOT / "packaging/meshcraft.png")
+    add("notices/branding.md", ROOT / "assets/branding/README.md")
     add("examples/dynamic-object.octd", ROOT / "examples/dynamic-object.octd")
     executable = (
         "bin/meshcraft" if linux else "meshcraft.exe" if windows else "meshcraft"

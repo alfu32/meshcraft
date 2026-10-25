@@ -211,3 +211,18 @@ height editing. It also fixes the missing material-ID command arguments behind
 architectural procedural-material assignments reverting on commit. T30 remains
 the aggregate source/legacy qualification owner; its stair slice is delivered
 by T67. See [P03](spec/modeling.md#p03-stairs-window-frames-and-door-frames).
+
+## Presentation, performance coverage and reviewed menus
+
+T68 is the phase-1 presentation delivery: registry-derived tool/command CSV with
+four preserved review columns, actual screenshots under descriptive stable names,
+a generated application icon and packaging integration. Commit, version-tag and
+push this phase independently. See [review instructions](../tools/README.md).
+
+T69 is explicitly planned for the next session: operation-specific tests for
+every inventory tool at small/medium/high/heavy weights, local execution, and a
+manual existing-tag `stress-test.yaml` consuming that tag's release binary (fail
+when absent). Publish Markdown/CSV/JSON report assets and then link the stable
+latest-release Markdown report from README. T70 waits for user CSV assignments,
+restructures menus/ribbon/toolbars and refreshes all README captures at their
+manifest paths. Neither future phase is delivered or started by T68.

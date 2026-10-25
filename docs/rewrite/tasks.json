@@ -3246,6 +3246,127 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T68",
+      "title": "Present Meshcraft with live tool inventory, screenshots and generated app branding",
+      "phase": "desktop",
+      "dependencies": [
+        "T67"
+      ],
+      "requirements": [
+        "O03",
+        "U01",
+        "A05"
+      ],
+      "acceptance": [
+        "C31"
+      ],
+      "targets": [
+        "docs/tools/tools.csv",
+        "scripts/export_tool_inventory.py",
+        "README.md",
+        "assets/branding/README.md",
+        "apps/desktop/build.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tools/README.md",
+        "docs/rewrite/spec/interface.md"
+      ],
+      "slices": [
+        "Export the complete registry and actual icon keys with stable IDs, deferred availability and four empty review columns; preserve subsequent user assignments on regeneration.",
+        "Enrich the product README using actual captures at stable descriptive paths, keeping original evidence and planning phase-3 refreshes.",
+        "Generate the application icon and integrate its embedded native UI, Windows executable resource and all existing package icon paths, recording provenance and mechanical derivatives."
+      ],
+      "done": [
+        "C31 presentation slice passes; phase 1 is independently committed, tagged and pushed, leaving performance/menu work for subsequent user-approved phases."
+      ],
+      "tool_ids": [],
+      "status": "complete"
+    },
+    {
+      "id": "T69",
+      "title": "Benchmark every inventory tool at four model weights using released binaries",
+      "phase": "desktop",
+      "dependencies": [
+        "T68"
+      ],
+      "requirements": [
+        "O03",
+        "O04"
+      ],
+      "acceptance": [
+        "C26",
+        "C31"
+      ],
+      "targets": [
+        ".github/workflows/stress-test.yaml",
+        "docs/tools/tools.csv",
+        "scripts/"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tools/README.md",
+        "docs/rewrite/spec/interface.md"
+      ],
+      "slices": [
+        "Build operation-specific correctness/performance scenarios for every inventory tool at small, medium, high and heavy model weights, recording explicit unsupported cases.",
+        "Run the same scenarios locally and in a manual existing-tag workflow consuming the matching release binary; fail if the binary is unavailable.",
+        "Publish complete Markdown/CSV/JSON reports and environment/fixture metadata as release assets and link the stable latest-release report from README."
+      ],
+      "done": [
+        "Coverage, actual operation latency and published release artifacts satisfy the agreed four-tier contract; no placeholder command activation is counted as tool coverage."
+      ],
+      "tool_ids": [],
+      "status": "planned"
+    },
+    {
+      "id": "T70",
+      "title": "Restructure menus from reviewed tool CSV and refresh documentation captures",
+      "phase": "desktop",
+      "dependencies": [
+        "T68"
+      ],
+      "requirements": [
+        "U01",
+        "U02",
+        "O03"
+      ],
+      "acceptance": [
+        "C02",
+        "C31"
+      ],
+      "targets": [
+        "docs/tools/tools.csv",
+        "apps/desktop/src/gpui_layout.rs",
+        "README.md",
+        "docs/screenshots/manifest.json"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tools/README.md",
+        "docs/rewrite/spec/interface.md"
+      ],
+      "slices": [
+        "Consume user-reviewed ribbon/sub-panel assignments and comments by stable command ID without silently losing tools.",
+        "Qualify resulting menus, ribbon, toolbars and command dispatch; preserve declared availability and keyboard workflows.",
+        "Recapture README screenshots at their stable descriptive paths and refresh user-facing documentation for the final layout."
+      ],
+      "done": [
+        "User CSV review has been incorporated, command coverage verified and screenshot/documentation refresh completed."
+      ],
+      "tool_ids": [],
+      "status": "planned"
     }
   ]
 }

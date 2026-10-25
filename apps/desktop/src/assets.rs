@@ -42,6 +42,7 @@ pub struct ComponentAssets;
 impl gpui::AssetSource for ComponentAssets {
     fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         let bytes: &'static [u8] = match path {
+            "branding/meshcraft.png" => include_bytes!("../../../assets/branding/meshcraft-64.png"),
             "icons/check.svg" => include_bytes!("../../../assets/gpui/check.svg"),
             "icons/chevron-down.svg" => include_bytes!("../../../assets/gpui/chevron-down.svg"),
             "icons/chevron-up.svg" => include_bytes!("../../../assets/gpui/chevron-up.svg"),
@@ -66,6 +67,7 @@ impl gpui::AssetSource for ComponentAssets {
     }
     fn list(&self, path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
         Ok([
+            "branding/meshcraft.png",
             "icons/check.svg",
             "icons/chevron-down.svg",
             "icons/chevron-up.svg",

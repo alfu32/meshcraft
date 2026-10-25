@@ -228,6 +228,27 @@ Rust release gates include reproducible locked toolchain/dependencies, packaged 
 
 Source: build/release files, `assets`, `docs-site`. Acceptance: C31.
 
+**Presentation and review delivery (0.39.0).** Export every live registered tool
+and command by stable ID, current category/name and actual icon key into
+`docs/tools/tools.csv`. Include explicitly deferred entries and current menu
+paths. Leave `ribbon-tab`, `sub-panel`, `comments` and `icon-comments` empty for
+the user's review, preserving these cells across regeneration. Supply an icon
+gallery from the same registry. Enrich the product README with actual application
+screenshots at descriptive stable paths and retain their capture provenance;
+refresh them after the reviewed menu redesign. Use the generated app icon in the
+embedded native UI, Windows executable resource, and every platform's existing
+packaging path. Record the master, prompt and mechanical derivative process.
+
+**Next delivery, planned.** Every inventory tool receives an actual operation
+performance test on small/medium/high/heavy fixtures, runnable locally and through
+a manual `stress-test.yaml` dispatch at an existing tag. Download that tag's
+release binary; fail if unavailable, without rebuilding. Publish measurements,
+environment, fixture weights and complete pass/fail/unsupported coverage as
+release assets (`performance.md`, CSV and JSON). Add the stable latest-release
+README report link once the asset exists. Menu restructuring follows the user's
+CSV review, then screenshots and documentation are refreshed. These later phases
+are not claimed by the presentation delivery.
+
 ### O04 Responsiveness and performance
 
 **Observed intent + measured target.** Original SPEC targets 60 FPS and typical simple actions below 50 ms; these are goals, not measured audit findings. History repeatedly fixes full scans, full mesh rebuilding, raw-load replay, orthographic indexing, stale chunks, plugin snapshots and excessive feedback. Initial design must avoid those failure modes.

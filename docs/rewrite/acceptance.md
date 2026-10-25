@@ -191,6 +191,16 @@ WASM build/serve, browser file open/import/download and local recovery; custom e
 
 ## C31 — Release qualification
 
+Presentation slice (T68): the headless `--command-catalog` export and generated
+CSV cover the live registry once per command ID, validate actual icon keys,
+retain explicit deferred availability, and initially leave all four review
+columns blank. Regeneration preserves quoted/multiline user assignments and
+rejects loss. Inspect the README's actual screenshots and icon visually; verify
+descriptive paths/capture provenance, embedded native branding, package PNG/ICO
+inputs and Windows resource wiring. Run release-helper and planning checks.
+Native installers remain qualified on their own platform runners; Linux source
+inspection is not a Windows/macOS execution result.
+
 Linux/Windows/macOS packages launch, open legacy files, save/recover, use menus/shortcuts/dialogs, export and close cleanly. Manual release dispatch uses the selected existing tag, matches the literal app version and immutable source SHA, and rejects incomplete six-target artifact/checksum matrices. Audit old-sysroot Linux ELF requirements independently of the hosted runner; unsigned MSIX is an explicit deferred-signing output, not a signed installability proof. Complete all in-scope requirement/task mappings, measured performance report and deliberate-difference ledger. Verify docs/assets/provenance/build metadata and absence of mandatory Android/JVM/Groovy/TUI dependencies. Initial desktop release does not wait for C30/browser or C33/JavaScriptCore plugins; those have separate required delivery gates. No placeholders or unimplemented commands are reported as finished features.
 
 ## C32 — Normalized object ownership and effective-content equivalence

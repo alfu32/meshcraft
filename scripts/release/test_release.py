@@ -74,6 +74,13 @@ class ReleaseTests(unittest.TestCase):
                     verify.check_portable(
                         file.read_bytes(), file.name, self.version, "b" * 40
                     )
+        package, _ = common.payload(path, self.root / "branding-check")
+        self.assertEqual(
+            (package / "meshcraft.png").read_bytes(),
+            (common.ROOT / "packaging/meshcraft.png").read_bytes(),
+        )
+        self.assertTrue((package / "notices/branding.md").is_file())
+        self.assertFalse((package / "meshcraft.svg").exists())
 
     def test_rejects_wrong_native_cpu_even_with_valid_metadata(self):
         archive = self.archive("x86_64-unknown-linux-gnu")

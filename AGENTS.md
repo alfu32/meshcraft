@@ -24,6 +24,13 @@ Run `verify_plan.py` after changing requirements, tasks, acceptance suites, loca
 
 The repository history uses Conventional Commit style (for example, `feat(planning): ...`). Keep commits focused and mention the affected task or document area. PRs should explain the behavior or planning change, link relevant requirement/task/scenario IDs, report validation commands and results, and include screenshots for visual changes. Call out unverified assumptions or blocked checks explicitly.
 Tags are important in this process so each time you commit dont forget to tag according to semver rules and increase the harcoded app version in the app toml (versionise before committing). Major version incrementation is my responsibility.
+When the user requests a completed phase to be published, commit, create its matching annotated version tag, and push both the branch and tag. Do not stop after a local commit/tag.
+
+## Tool inventory, performance, and menu review
+
+Keep `docs/tools/tools.csv` aligned with the live command registry using `scripts/export_tool_inventory.py`. Preserve user review columns by command ID; menu restructuring consumes those assignments only after review. README screenshots use descriptive stable paths in `docs/screenshots/manifest.json` and must be refreshed after the menu/ribbon redesign.
+
+The next performance delivery requires every tool to be exercised on small, medium, high and heavy model tiers, locally and by a dedicated manual `stress-test.yaml` workflow. That workflow must consume the release binary at the selected existing tag and fail if it is absent. Publish measured results and coverage as release assets, including Markdown for a stable latest-release README link. Do not claim generic command-activation timing covers an actual tool operation. This performance workflow is planned work, not a completed phase-1 feature.
 
 ## Manual desktop releases
 

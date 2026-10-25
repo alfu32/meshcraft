@@ -17,6 +17,7 @@ Options:
   --windowed           Start in a window using the default size or --size
   --maximized          Start maximized (the default)
   --version            Print the application version
+  --command-catalog    Print the complete command/tool catalog as JSON without opening a window
   --help               Print this help
 
 The app starts maximized by default. Window sizes are logical points; the minimum is 900x600.";
@@ -33,6 +34,7 @@ enum StartupCommand {
     Run(StartupOptions),
     Help,
     Version,
+    CommandCatalog,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -49,6 +51,21 @@ fn main() {
         }
         Ok(StartupCommand::Version) => {
             println!("Meshcraft {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Ok(StartupCommand::CommandCatalog) => {
+            let catalog = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "commands": MeshcraftApp::command_catalog(),
+                "toolbar_groups": MeshcraftApp::native_toolbar_catalog()
+                    .into_iter()
+                    .map(|(name, commands)| (name, commands.into_iter().map(|command| command.id).collect::<Vec<_>>()))
+                    .collect::<Vec<_>>(),
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&catalog).expect("command catalog JSON")
+            );
             return;
         }
         Err(error) => {
@@ -88,6 +105,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> Result<Startu
         match argument.to_str() {
             Some("--help" | "-h") => return Ok(StartupCommand::Help),
             Some("--version" | "-V") => return Ok(StartupCommand::Version),
+            Some("--command-catalog") => return Ok(StartupCommand::CommandCatalog),
             Some("--open" | "--size") => {
                 let option = argument.to_string_lossy().into_owned();
                 let value = args
@@ -301,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn help_and_version_are_standalone_commands() {
+    fn help_version_and_catalog_are_standalone_commands() {
         assert_eq!(
             StartupCommand::Help,
             parse_startup_args(args(&["--help"])).unwrap()
@@ -309,6 +327,10 @@ mod tests {
         assert_eq!(
             StartupCommand::Version,
             parse_startup_args(args(&["--version"])).unwrap()
+        );
+        assert_eq!(
+            StartupCommand::CommandCatalog,
+            parse_startup_args(args(&["--command-catalog"])).unwrap()
         );
     }
 }

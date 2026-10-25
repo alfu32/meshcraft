@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "regenerate_after": "Phase 3 menu and ribbon restructuring",
+  "policy": "Actual application captures only. Preserve these filenames when refreshing. Original captures remain in their evidence locations. Do not imply these older captures show the new app icon.",
+  "screenshots": [
+    {
+      "file": "modeling-workspace.png",
+      "source": "docs/img.png",
+      "scenario": "Direct mesh modeling, extrusion and sweeps. Retake with the modeling demo, matching the broad overview.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "architecture-materials-workspace.png",
+      "source": "docs/img_1.png",
+      "scenario": "Walls, paving, grass and a procedural tree. Retake the architectural materials demo with the native workspace visible.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "dynamic-object-instances.png",
+      "source": "assets/img_1.png",
+      "scenario": "Reusable object instances and varied geometry. Retake with object prototypes and instances visible.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "scripted-object-editor.png",
+      "source": "docs/img_2.png",
+      "scenario": "JavaScript object editor with code and orbitable preview. Reopen the tree script in the object editor.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "procedural-tree.png",
+      "source": "docs/rewrite/references/procedural-presets/tree.png",
+      "scenario": "Open examples/procedural-presets.octd; frame a tree and capture the viewport.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "procedural-foliage.png",
+      "source": "docs/rewrite/references/foliage/foliage.png",
+      "scenario": "Open examples/foliage-colors.octd; frame the foliage surface and capture the viewport.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "architectural-stairs.png",
+      "source": "docs/rewrite/references/stairs/overview.png",
+      "scenario": "Open examples/architectural-stairs.octd; frame all four stair examples with their guide lines.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    },
+    {
+      "file": "shader-editor-preview.png",
+      "source": "docs/rewrite/references/shader-editor/fragment-preview.png",
+      "scenario": "Open a custom shader material in the shader editor; show highlighted Fragment code with a valid GPU cube preview.",
+      "capture": "Existing actual application capture, copied without image editing for phase 1",
+      "refresh": "pending phase 3"
+    }
+  ]
+}

@@ -1,5 +1,14 @@
 # Dashboard
 
+**0.39.0 presentation:** product README with eight actual screenshots at stable,
+descriptive paths; a generated application icon embedded in the native title bar
+and wired into the existing platform packaging; a live-registry inventory of
+287 tools/commands with icons and preserved blank menu-review columns.
+See the [CSV and review guide](docs/tools/README.md) and
+[T68 qualification](docs/rewrite/handoffs/T68.md). Four-tier performance tests
+and CSV-driven menu restructuring are the next planned phases, not part of this
+presentation release.
+
 **0.38.0 architecture:** Stairs accept contour C and walking path P from objects
 or selected lines, with editable height, steps/support and left/right guardrail
 guides. Height drags use phantom wireframes. Architectural material pickers now

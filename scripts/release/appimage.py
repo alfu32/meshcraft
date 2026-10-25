@@ -53,8 +53,8 @@ def main():
         shutil.copyfile(
             ROOT / "packaging/linux/meshcraft.desktop", app / "meshcraft.desktop"
         )
-        shutil.copyfile(ROOT / "packaging/meshcraft.svg", app / "meshcraft.svg")
-        shutil.copyfile(ROOT / "packaging/meshcraft.svg", app / ".DirIcon")
+        shutil.copyfile(ROOT / "packaging/meshcraft.png", app / "meshcraft.png")
+        shutil.copyfile(ROOT / "packaging/meshcraft.png", app / ".DirIcon")
         for entry in inputs["notices"]:
             source = ROOT / "packaging" / entry["file"]
             if sha(source.read_bytes()) != entry["sha256"]:

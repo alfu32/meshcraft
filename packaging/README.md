@@ -1,5 +1,13 @@
 # Manual build and release
 
+The generated application icon's transparent master and provenance are in
+[assets/branding](../assets/branding/README.md). The native title bar embeds its
+64-pixel image; release packaging uses `packaging/meshcraft.png` for portable
+archives, AppImage, Snap, macOS ICNS and MSIX logos. Windows also links the
+multi-size `packaging/windows/meshcraft.ico` into the executable and MSI shortcuts.
+Regenerate checked-in derivatives with `python3 scripts/prepare_app_icon.py`
+(ImageMagick needed only for regeneration).
+
 Meshcraft uses the same six-target distribution matrix as the Rust Kode reference
 (`alfu32/kodecraft`, commit `f3f915c5a9c14f445a3f4e83e520ce2970831636`). There is no JDBC/Java payload.
 

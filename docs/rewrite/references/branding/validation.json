@@ -1,0 +1,56 @@
+{
+  "version": "0.39.0",
+  "source_base": "1db7434",
+  "platform": "Linux x86_64, private Xvfb :96, Mesa software rendering, isolated configuration/cache, MCP localhost:18766",
+  "native_observed": [
+    "Started the final native binary and queried its version through MCP.",
+    "Opened a private copy of examples/architectural-stairs.octd; framed the model and adjusted its camera.",
+    "Visually verified the new transparent icon in the native title bar, normal window controls and rendered scene.",
+    "Original example drawing and user drawings were not edited."
+  ],
+  "inventory": {
+    "rows": 287,
+    "registered": 256,
+    "deferred": 31,
+    "all_icons_resolved": true,
+    "all_review_cells_blank": true,
+    "headless_export": "Actual final binary executed with DISPLAY and WAYLAND_DISPLAY absent; IDs match the CSV exactly."
+  },
+  "gallery": "Loaded the actual generated HTML and SVG atlas in isolated headless Chrome and visually inspected the screenshot.",
+  "icon": {
+    "master": "assets/branding/meshcraft.png",
+    "master_dimensions": [
+      1254,
+      1254
+    ],
+    "alpha": "Master and PNG derivatives have nonconstant alpha spanning 0 to 1.",
+    "ico_sizes": [
+      16,
+      24,
+      32,
+      48,
+      64,
+      128,
+      256
+    ],
+    "resource_check": "x86_64-w64-mingw32-windres successfully compiled ICO resource 1 into a PE-x86-64 object with a .rsrc section. This is a resource compilation check, not a Windows app launch.",
+    "package_check": "Portable archive tests verify the exact current PNG bytes and branding notice; AppImage/Snap use PNG; macOS/Windows package consumers reviewed.",
+    "derivative_check": "Repeated ImageMagick conversion, separated by a timestamp boundary, produces identical PNG/ICO bytes after stripping ancillary metadata."
+  },
+  "tests": {
+    "desktop": 385,
+    "cli": 5,
+    "ignored_opt_in": 15,
+    "inventory": 4,
+    "release_helpers": 8,
+    "clippy": "pass, all desktop targets with -D warnings",
+    "formatting": "pass",
+    "planning": "pass, 71 tasks/250 slices/65 requirements/43 scenario suites/74 legacy builtin tools"
+  },
+  "limits": [
+    "No Windows/macOS native launch or installer execution performed in this Linux session.",
+    "README screenshots retain their original capture sources; refresh after phase 3.",
+    "Phase 2 benchmark runner, stress-test workflow and reports are planned, not implemented.",
+    "Menus/ribbon/tool assignments remain unchanged pending user CSV review."
+  ]
+}

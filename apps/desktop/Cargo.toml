@@ -1,6 +1,6 @@
 [package]
 name = "meshcraft-desktop"
-version = "0.38.0"
+version = "0.39.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -37,6 +37,7 @@ base64.workspace = true
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 
 [build-dependencies]
+embed-resource = "=3.0.12"
 resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts"] }
 
 [dev-dependencies]
