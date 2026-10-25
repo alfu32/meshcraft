@@ -1,6 +1,6 @@
 [package]
 name = "meshcraft-desktop"
-version = "0.40.4"
+version = "0.40.5"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

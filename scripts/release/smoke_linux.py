@@ -22,7 +22,9 @@ def main():
     read, write = os.pipe()
     results = []
     with (output / "xvfb.log").open("w") as log:
-        server = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "1280x900x24", "-ac"], pass_fds=(write,), stdout=log, stderr=log)
+        # Polling tools are short-lived X11 clients. Without -noreset, their
+        # disconnects can reset the server underneath startup and driver probes.
+        server = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "1280x900x24", "-ac", "-noreset"], pass_fds=(write,), stdout=log, stderr=log)
         os.close(write)
         try:
             if not select.select([read], [], [], 20)[0]:

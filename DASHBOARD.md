@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.40.5 stable offline release check:** private Xvfb uses `-noreset` so polling
+clients cannot reset the display during startup. The full offline AppImage smoke
+passed locally with a development fixture, including runtime/sandbox preflights,
+painted application contents and missing-driver acknowledgement. This fixture is
+not a qualified release artifact; both released Linux architectures remain gated
+on actual-AppImage checks. See [display evidence](docs/rewrite/handoffs/T44.md#stable-offline-test-display--0405).
+
 **0.40.4 Linux graphics startup:** virtual X11 displays without DRI3 select the
 installed software Vulkan driver before native GPU initialization. Other failed graphics initialization can retry once
 with the installed Mesa software Vulkan driver, without altering healthy hardware

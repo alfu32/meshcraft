@@ -89,6 +89,8 @@ verify that the real application window paints, and test the missing-driver dial
 Startup logs and screenshots are retained as separate workflow artifacts.
 Version preflights distinguish the AppImage runtime, sandbox and GUI startup;
 failed checks also preserve the actual packages for reproduction.
+The private Xvfb server uses `-noreset`, keeping driver probes and short-lived
+window pollers from resetting the display during startup.
 
 The AppImage Hub's `references glibc 2.27` line describes the minimum host C library,
 not a bundled copy or proof of a startup error. The Hub's Ubuntu 22.04 test host
