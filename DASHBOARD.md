@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.40.1 non-gating stress reports:** completed measurements succeed regardless
+of tool outcomes. CI always publishes Markdown/CSV/JSON and a diagnostic ZIP to
+the same release. Interrupted, missing or rejected worker data produce explicit
+incomplete diagnostic reports, preserving all available observations and logs.
+Source/binary validation still governs complete measurement tables; missing
+binaries and publication errors remain infrastructure failures.
+
 **0.40.0 performance infrastructure:** operation recipes for all 287 inventory
 entries at four resident model weights, plus scalable primitive Select/Move/Rotate
 probes. The real desktop runner records input, phantom feedback, commit and fresh

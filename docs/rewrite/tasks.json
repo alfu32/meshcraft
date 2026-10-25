@@ -3321,7 +3321,7 @@
         "Build operation-specific correctness/performance scenarios for every inventory tool at small, medium, high and heavy model weights, recording explicit unsupported cases.",
         "Run the same scenarios locally and in a manual existing-tag workflow consuming the matching release binary; fail if the binary is unavailable.",
         "Publish complete Markdown/CSV/JSON reports and environment/fixture metadata as release assets and link the stable latest-release report from README.",
-        "Add scalable primitive-fragment Select/Move/Rotate probes, native-owner and viewport timing, isolated process recovery and strict same-binary four-worker report merging."
+        "Add scalable primitive-fragment Select/Move/Rotate probes, native-owner and viewport timing, isolated process recovery and strict same-binary four-worker report merging; make outcomes non-gating and always publish detailed reports or explicitly incomplete diagnostics."
       ],
       "done": [
         "Coverage, actual operation latency and published release artifacts satisfy the agreed four-tier contract; no placeholder command activation is counted as tool coverage."

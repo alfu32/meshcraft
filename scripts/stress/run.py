@@ -25,6 +25,11 @@ from runtime import Failure, desktop
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def exit_code(report):
+    """Measurement outcomes are data; only an unfinished harness run is an error."""
+    return 0 if report.get("coverage_complete") else 1
+
+
 def cpu_name():
     text = Path("/proc/cpuinfo").read_text() if Path("/proc/cpuinfo").exists() else ""
     return next(
@@ -373,12 +378,7 @@ def main():
     )
     write(report, output)
     print(dict(Counter(r["status"] for r in report["cases"])), flush=True)
-    return (
-        1
-        if any(r["status"] not in ("passed", "unsupported") for r in report["cases"])
-        or not report["coverage_complete"]
-        else 0
-    )
+    return exit_code(report)
 
 
 if __name__ == "__main__":

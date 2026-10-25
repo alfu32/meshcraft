@@ -244,7 +244,10 @@ performance test on small/medium/high/heavy fixtures, runnable locally and throu
 a manual `stress-test.yaml` dispatch at an existing tag. Download that tag's
 release binary; fail if unavailable, without rebuilding. Publish measurements,
 environment, fixture weights and complete pass/fail/unsupported coverage as
-release assets (`performance.md`, CSV and JSON). Add the stable latest-release
+release assets (`performance.md`, CSV, JSON and diagnostic ZIP) irrespective of
+tool success/failure or measured performance. Benchmark outcomes are non-gating;
+interrupted/incomplete runs publish clearly marked diagnostic reports with raw
+observations instead of validated timing tables. Add the stable latest-release
 README report link, identifying assets that await a first same-tag stress run.
 Menu restructuring follows the user's CSV review, then screenshots and
 documentation are refreshed. Performance implementation and findings are

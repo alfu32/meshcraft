@@ -12,6 +12,15 @@ from cases import BULK_COMMANDS
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def upload(repo, tag, files):
+    if not all(p.is_file() and p.stat().st_size for p in files):
+        raise ValueError("Report asset is missing")
+    subprocess.run(
+        ["gh", "release", "upload", tag, "--repo", repo, "--clobber", *map(str, files)],
+        check=True,
+    )
+
+
 def validate(report, tag, revision, inventory):
     if report["version"] != tag or report["source_revision"] != revision:
         raise ValueError("Report tag/source mismatch")
@@ -83,21 +92,7 @@ def main():
         a.directory / name
         for name in ("performance.md", "performance.csv", "performance.json")
     ]
-    if not all(p.is_file() and p.stat().st_size for p in files):
-        raise ValueError("Report asset is missing")
-    subprocess.run(
-        [
-            "gh",
-            "release",
-            "upload",
-            a.tag,
-            "--repo",
-            a.repo,
-            "--clobber",
-            *map(str, files),
-        ],
-        check=True,
-    )
+    upload(a.repo, a.tag, files)
 
 
 if __name__ == "__main__":

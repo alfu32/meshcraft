@@ -9,6 +9,8 @@ used by the application. It does not build an alternative modeling implementatio
 [Latest CSV](https://github.com/alfu32/meshcraft/releases/latest/download/performance.csv) ·
 [Latest raw JSON](https://github.com/alfu32/meshcraft/releases/latest/download/performance.json)
 
+[Latest diagnostic bundle](https://github.com/alfu32/meshcraft/releases/latest/download/performance-diagnostics.zip)
+
 These assets are added by **Stress test after Release**. A newly published release
 has no performance assets until its stress run finishes; the download URL does
 not silently substitute another version's results. Previous releases retain their
@@ -27,8 +29,11 @@ and commit geometry; transformations and arrays operate on valid selected source
 File operations use actual temporary files and wait for asynchronous completion.
 Other commands exercise their intended session/editor/read action. Deferred
 commands have explicit `unsupported` rows with no successful timing values.
-Missing recipes, unknown IDs, operation failures and incomplete coverage fail the
-runner. A failure is a test result, not an omitted tool or successful zero time.
+Operation failures and performance values are report data and never fail a
+completed measurement run. Missing recipes, unknown IDs and incomplete execution
+remain harness errors. CI still publishes a detailed diagnostic report for those
+errors, clearly marked incomplete. A failed tool is never omitted or assigned a
+successful zero time.
 
 | Tier | Unique quads | Stored background vertices | Segments | Triangles | Background primitives | Extra fragment selection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -134,10 +139,17 @@ release CI has dedicated tier workers and does not compile during measurement.
    app build step exists in this workflow. An absent release/binary fails.
 4. Each worker runs its tier and publishes its Markdown summary plus a workflow
    artifact containing reports and diagnostics, including on failure.
-5. The publication job merges full coverage and uploads `performance.md`,
-   `performance.csv` and `performance.json` to the same existing release. Complete
-   reports with genuine tool failures are published honestly while the benchmark
-   job stays red. Incomplete or mismatched results cannot replace release assets.
+5. The publication job always uploads `performance.md`, `performance.csv`,
+   `performance.json` and `performance-diagnostics.zip` to the same existing
+   release, irrespective of measured performance or tool success/failure.
+   Complete validated runs retain all timing tables and failure details. Failed
+   measurements do not make the benchmark job red.
+6. If workers are missing, interrupted, corrupt or mismatched, publish an explicit
+   **incomplete diagnostic report** with all available unvalidated observations,
+   runner output and native logs. These replace the canonical report assets as
+   the latest attempt, while making no claim of complete validated measurements.
+   Strict source/binary/coverage checks still govern measurement tables. Missing
+   binaries, setup and release-upload errors remain infrastructure failures.
 
 The workflow currently qualifies Linux x86_64 software rendering. The six-target
 **release** matrix remains unchanged. This is not Windows/macOS performance evidence.
@@ -149,9 +161,9 @@ For example, after publishing the source tag, dispatch Release and wait for it t
 finish before dispatching Stress test:
 
 ```sh
-gh workflow run distribution.yaml --ref 0.40.0
+gh workflow run distribution.yaml --ref 0.40.1
 # After the release succeeds and its binaries are published:
-gh workflow run stress-test.yaml --ref 0.40.0
+gh workflow run stress-test.yaml --ref 0.40.1
 ```
 
 ## Findings and interpretation

@@ -149,6 +149,8 @@ model sizes, including bulk selection, Move and Rotate. Run **Stress test** afte
 [raw samples](https://github.com/alfu32/meshcraft/releases/latest/download/performance.json).
 A new release gets these assets when its stress run finishes; failures and
 unsupported commands remain visible. See the guide for measurement limits.
+Benchmark outcomes are non-gating. Interrupted runs publish an explicit incomplete
+report and [all available diagnostics](https://github.com/alfu32/meshcraft/releases/latest/download/performance-diagnostics.zip).
 
 The [local 0.40.0 qualification](docs/performance/local-0.40.0/performance.md)
 contains the first complete four-tier ledger. It uses a development binary and

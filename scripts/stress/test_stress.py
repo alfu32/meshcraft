@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from cases import Exercise, recipe, TRANSFORMS, ARRAYS, validate_observed
@@ -17,6 +18,9 @@ from publish import validate
 from report import summarize, write
 from merge import merge
 from download import require_release
+from ci_publish import prepare as prepare_publication
+from publish import upload
+from run import exit_code
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -151,7 +155,7 @@ class StressTests(unittest.TestCase):
         report["cases"][1].update(
             status="unsupported", reason="Deferred", samples=[], stats=summarize([])
         )
-        # Failures remain publishable as honest complete results; workflow still fails.
+        # Failures remain honest report data and never gate benchmark success.
         validate(report, "1.2.3", "a" * 40, {"tool.line"})
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -173,6 +177,100 @@ class StressTests(unittest.TestCase):
                 ],
                 "failed",
             )
+
+    def test_completed_measurement_runs_never_fail_on_tool_outcomes(self):
+        report = self.make_report()
+        for status in ("passed", "failed", "unsupported"):
+            report["cases"][0]["status"] = status
+            self.assertEqual(exit_code(report), 0)
+        report["coverage_complete"] = False
+        self.assertEqual(exit_code(report), 1)
+
+    def test_ci_publishes_full_failed_report_with_all_diagnostics(self):
+        report = self.make_report()
+        report["cases"][0].update(
+            status="failed",
+            reason="Native application crashed",
+            samples=[dict(status="failed", timings={})],
+            stats=summarize([]),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for tier in report["tiers"]:
+                worker = copy.deepcopy(report)
+                worker.update(
+                    tiers=[tier],
+                    partial=True,
+                    cases=[c for c in report["cases"] if c["tier"] == tier],
+                    fixtures=[f for f in report["fixtures"] if f["tier"] == tier],
+                )
+                path = root / "workers" / ("performance-linux-x86_64-" + tier)
+                path.mkdir(parents=True)
+                (path / "performance.json").write_text(json.dumps(worker))
+                (path / "app.log").write_text("native diagnostic\n")
+            files = prepare_publication(
+                root / "workers", root / "published", "1.2.3", "a" * 40, {"tool.line"}
+            )
+            actual = json.loads(files[2].read_text())
+            self.assertTrue(actual["coverage_complete"])
+            self.assertEqual(actual["cases"][0]["status"], "failed")
+            self.assertIn("Native application crashed", files[0].read_text())
+            with zipfile.ZipFile(files[-1]) as archive:
+                self.assertIn(
+                    "workers/performance-linux-x86_64-heavy/app.log", archive.namelist()
+                )
+            with patch("publish.subprocess.run") as run:
+                upload("owner/repo", "1.2.3", files)
+                self.assertEqual(run.call_args.args[0][-4:], list(map(str, files)))
+
+    def test_ci_publishes_interrupted_missing_corrupt_or_rejected_worker_details(self):
+        for mode in ("missing", "interrupted", "corrupt", "wrong_source"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                worker = self.make_report()
+                worker.update(tiers=["small"], partial=True, coverage_complete=False)
+                if mode == "wrong_source":
+                    worker["source_revision"] = "c" * 40
+                    worker["coverage_complete"] = True
+                path = root / "workers/performance-linux-x86_64-small"
+                path.mkdir(parents=True)
+                if mode != "missing":
+                    (path / "performance.json").write_text(
+                        "{" if mode == "corrupt" else json.dumps(worker)
+                    )
+                (path / "runner.log").write_text("renderer stopped before completion\n")
+                if mode == "wrong_source":
+                    for tier in ("medium", "high", "heavy"):
+                        other = self.make_report()
+                        other.update(tiers=[tier], partial=True)
+                        extra = root / "workers" / ("performance-linux-x86_64-" + tier)
+                        extra.mkdir()
+                        (extra / "performance.json").write_text(json.dumps(other))
+                files = prepare_publication(
+                    root / "workers",
+                    root / "published",
+                    "1.2.3",
+                    "a" * 40,
+                    {"tool.line"},
+                    "https://example.com/workflow",
+                )
+                actual = json.loads(files[2].read_text())
+                self.assertFalse(actual["coverage_complete"])
+                self.assertFalse(actual["measurements_validated"])
+                self.assertEqual(actual["report_kind"], "incomplete_diagnostics")
+                self.assertIn("Incomplete run", files[0].read_text())
+                if mode == "wrong_source":
+                    self.assertIn("identity differs", actual["error"])
+                with zipfile.ZipFile(files[-1]) as archive:
+                    self.assertEqual(
+                        archive.read(
+                            "workers/performance-linux-x86_64-small/runner.log"
+                        ),
+                        b"renderer stopped before completion\n",
+                    )
+                with patch("publish.subprocess.run") as run:
+                    upload("owner/repo", "1.2.3", files)
+                    run.assert_called_once()
 
     def test_http_success_does_not_hide_rejected_world_point_commits(self):
         before = dict(revision=7)

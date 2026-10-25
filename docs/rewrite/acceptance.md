@@ -182,10 +182,13 @@ builds the app. Fail preflight if the published binary is absent; verify archive
 package-file hashes, version, architecture and source before executing it. Merge
 four isolated tier reports only when binary/source/coverage agree. Publish full
 Markdown/CSV/JSON reports, summaries and failure diagnostics as same-release
-assets. Keep failed operations and unsupported entries distinct; publish honest
-complete failures while retaining a failing CI status. Incomplete/mismatched
-reports must not overwrite release assets. Missing recipes and filtered coverage
-cannot be presented as complete testing. See [method and limits](../performance/README.md).
+assets. Keep failed operations and unsupported entries distinct; measurement
+outcomes never fail a completed benchmark run. Always publish detailed canonical
+reports and a diagnostic ZIP. Incomplete/mismatched workers produce explicitly
+incomplete diagnostic reports with unvalidated raw observations, never complete
+measurement tables. Missing recipes and filtered coverage cannot be presented as
+complete testing. Missing binaries/setup/upload failures remain infrastructure
+errors. See [method and limits](../performance/README.md).
 
 ## C39 — GPU renderer and custom model viewport (#18, #21)
 
