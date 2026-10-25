@@ -11,6 +11,9 @@ pub use app::MeshcraftApp;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpui_app;
 
+#[cfg(target_os = "linux")]
+pub mod linux_graphics;
+
 #[cfg(target_arch = "wasm32")]
 mod web;
 

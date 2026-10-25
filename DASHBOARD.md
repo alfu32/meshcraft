@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.40.3 Linux graphics startup:** failed graphics initialization can retry once
+with the installed Mesa software Vulkan driver, without altering healthy hardware
+startup or explicit driver choices. If no backend is available, a native X11
+message explains the requirement instead of a startup panic. Offline release
+smokes check the actual AppImage and preserve screenshots and native logs.
+See [startup evidence](docs/rewrite/handoffs/T44.md#appimage-offline-startup--0403).
+
 **0.40.2 Snap channel eligibility:** amd64 and arm64 Snap packages now use
 `grade: stable`, allowing candidate/stable promotion as well as edge/beta releases.
 The sidecar manifest records the grade, and packaging regression tests cover both

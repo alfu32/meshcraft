@@ -3517,11 +3517,23 @@ pub fn run_native(
     maximized: bool,
     session: MeshcraftApp,
     mcp_port: Option<u16>,
-) {
+) -> Result<(), String> {
+    let startup_error = Arc::new(Mutex::new(None));
+    let window_error = startup_error.clone();
+    // GPUI currently unwraps backend initialization errors. Catch only this
+    // constructor, before renderer threads start; runtime/editor panics still propagate.
+    let application = std::panic::catch_unwind(Application::new).map_err(|payload| {
+        let detail = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("graphics backend initialization panicked");
+        format!("Could not initialize Meshcraft graphics: {detail}")
+    })?;
     let mut renderer = RaylibWorker::start();
     let bridge = renderer.bridge.clone();
     let shutdown = renderer.shutdown.clone();
-    Application::new()
+    application
         .with_assets(crate::assets::ComponentAssets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
@@ -3544,7 +3556,7 @@ pub fn run_native(
             } else {
                 centered
             };
-            cx.open_window(
+            let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(bounds),
                     app_id: Some("meshcraft".into()),
@@ -3584,11 +3596,29 @@ pub fn run_native(
                     });
                     cx.new(|cx| gpui_component::Root::new(shell, window, cx))
                 },
-            )
-            .expect("open Meshcraft GPUI window");
+            );
+            if let Err(error) = opened {
+                let message = format!("Could not initialize Meshcraft graphics: {error:#}");
+                *window_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(message);
+                // Linux starts calloop after this launch callback and resets its
+                // stop signal. Queue shutdown inside the running event loop.
+                cx.spawn(async |cx| {
+                    let _ = cx.update(|cx| cx.quit());
+                })
+                .detach();
+                return;
+            }
             cx.activate(true);
         });
     renderer.stop();
+    let error = startup_error
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take();
+    match error {
+        Some(message) => Err(message),
+        None => Ok(()),
+    }
 }
 
 // Scale the logarithmic zoom rate; Alt takes precedence when both modifiers are held.

@@ -91,12 +91,29 @@ fn main() {
     if let Some(path) = loaded_path {
         session.set_native_project_path(path);
     }
-    run_native(
+    if let Err(error) = run_native(
         startup.window_size,
         startup.maximized,
         session,
         startup.mcp_port,
-    );
+    ) {
+        eprintln!("{error}");
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(result) = meshcraft_desktop::linux_graphics::retry_with_software() {
+                match result {
+                    Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+                    Err(retry_error) => {
+                        eprintln!("Could not start software graphics retry: {retry_error}")
+                    }
+                }
+            }
+            if let Err(dialog_error) = meshcraft_desktop::linux_graphics::show_failure(&error) {
+                eprintln!("Could not show graphics error: {dialog_error:#}");
+            }
+        }
+        std::process::exit(1);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

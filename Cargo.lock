@@ -4313,7 +4313,7 @@ dependencies = [
 
 [[package]]
 name = "meshcraft-desktop"
-version = "0.40.2"
+version = "0.40.3"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -4342,6 +4342,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "x11rb",
 ]
 
 [[package]]

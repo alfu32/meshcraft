@@ -209,13 +209,26 @@ jobs:
           key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Install Linux packagers
         if: matrix.os == 'linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends desktop-file-utils squashfs-tools snapd libfuse2t64
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends desktop-file-utils squashfs-tools snapd libfuse2t64 xvfb xdotool firejail imagemagick mesa-vulkan-drivers libgl1-mesa-dri xfonts-base
       - name: Build Linux AppImage and Snap
         if: matrix.os == 'linux'
         run: |
           archive="target/release-assets/meshcraft-$RELEASE_VERSION-$RELEASE_TARGET.tar.gz"
           python3 scripts/release/appimage.py --archive "$archive" --output target/release-assets
           python3 scripts/release/snap.py --archive "$archive" --output target/release-assets
+      - name: Verify the packaged AppImage starts offline and paints its window
+        if: matrix.os == 'linux'
+        run: |
+          python3 scripts/release/smoke_linux.py \
+            --appimage "target/release-assets/meshcraft-$RELEASE_VERSION-${{ matrix.arch }}.AppImage" \
+            --output target/startup-smoke
+      - name: Preserve offline startup diagnostics
+        if: ${{ always() && matrix.os == 'linux' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: startup-smoke-${{ matrix.target }}
+          path: target/startup-smoke
+          if-no-files-found: warn
       - name: Build Windows MSI and unsigned MSIX
         if: matrix.os == 'windows'
         shell: pwsh
