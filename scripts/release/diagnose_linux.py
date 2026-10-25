@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import select
 import shlex
+import shutil
 import signal
 import subprocess
 
@@ -75,6 +76,26 @@ def main():
                 ("extracted-sandbox", sandbox + [str(app / "AppRun")]),
             ]
             for name, command in cases:
+                result = run_case(name, command, env, output)
+                report["cases"].append(result)
+                print(json.dumps(result), flush=True)
+            # Validate the checked-out launcher fix against the exact same ELFs.
+            # Old artifacts lack the new bundled locale data, so this candidate
+            # explicitly uses the runner's locale data; release smokes cover the
+            # complete newly packaged runtime and bundled data.
+            root = Path(__file__).resolve().parents[2]
+            package = app / "usr/lib/meshcraft"
+            (package / "lib/xkb").mkdir()
+            for name in ["libxkbcommon.so.0", "libxkbcommon-x11.so.0"]:
+                (package / "lib" / name).rename(package / "lib/xkb" / name)
+            shutil.copyfile(root / "packaging/linux/meshcraft", package / "meshcraft")
+            shutil.copyfile(root / "packaging/linux/xkb-runtime.sh", package / "xkb-runtime.sh")
+            env["XLOCALEDIR"] = "/usr/share/X11/locale"
+            report["candidate"] = "Checked-out paired XKB launcher; host locale data for old artifact"
+            for name, command in [
+                ("candidate-direct", [str(app / "AppRun")]),
+                ("candidate-sandbox", sandbox + [str(app / "AppRun")]),
+            ]:
                 result = run_case(name, command, env, output)
                 report["cases"].append(result)
                 print(json.dumps(result), flush=True)

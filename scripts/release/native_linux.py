@@ -30,6 +30,12 @@ SYSTEM = {
     "libstdc++.so.6",
 }
 
+XKB_PAIR = {"libxkbcommon.so.0", "libxkbcommon-x11.so.0"}
+
+
+def library_path(name):
+    return ("lib/xkb/" if name in XKB_PAIR else "lib/") + name
+
 
 def glibc(path):
     text = subprocess.check_output(["readelf", "--version-info", str(path)], text=True)
@@ -72,7 +78,7 @@ def bundle(binary, target, output, ceiling):
     ]:
         if name not in paths:
             raise ValueError("Missing dynamic runtime dependency: " + name)
-        pending.append(("lib/" + name, paths[name]))
+        pending.append((library_path(name), paths[name]))
     seen = set()
     external = set()
     records = []
@@ -132,7 +138,15 @@ def bundle(binary, target, output, ceiling):
             else:
                 if dependency not in paths:
                     raise ValueError("Unresolved library " + dependency)
-                pending.append(("lib/" + dependency, paths[dependency]))
+                pending.append((library_path(dependency), paths[dependency]))
+    # The private fallback pair also needs locale data understood by that version.
+    # XLOCALEDIR still lets explicit and per-user Compose files take precedence.
+    shutil.copytree("/usr/share/X11/locale", output / "share/X11/locale", symlinks=False)
+    (output / "notices/native/libx11-data").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(
+        "/usr/share/doc/libx11-data/copyright",
+        output / "notices/native/libx11-data/copyright",
+    )
     # A minimal font set/config also works inside the isolated Snap runtime.
     fonts = Path("/usr/share/fonts/truetype/dejavu")
     if not fonts.is_dir():

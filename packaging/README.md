@@ -75,7 +75,7 @@ raylib 6 requires CMake >=3.25; this does not upgrade the build glibc.
 architecture and external libraries. Non-driver native libraries (including
 fontconfig/FreeType and XKB libraries loaded dynamically) plus a small DejaVu font set/config receive relative RPATHs
 and license notices. glibc, the loader, compiler runtimes and GPU/GL/Vulkan drivers
-come from the OS. The launcher prefers available desktop/graphics-provider libraries and uses the bundle for missing dependencies, so XKB remains compatible with the host Compose data. A working X11 desktop, fonts and a GPUI-compatible Vulkan driver
+come from the OS. The launcher prefers available desktop/graphics-provider libraries and uses the bundle for missing dependencies. XKB's core and X11 bridge share private structures, so they must be selected as a pair: coherent host pairs are preferred, while an incomplete or split host runtime selects the matched pair in `lib/xkb`. Its compatible bundled locale data is selected through XLOCALEDIR, preserving explicit/per-user Compose preferences. A working X11 desktop, fonts and a GPUI-compatible Vulkan driver
 are still runtime requirements; the glibc ceiling alone is not full desktop support.
 
 Virtual X11 displays without DRI3 presentation support select the installed Mesa

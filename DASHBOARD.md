@@ -1,5 +1,13 @@
 # Dashboard
 
+**0.40.7 matched keyboard runtime:** native backtraces on both Linux architectures
+identified the remaining crash in the old bundled XKB X11 bridge, loaded together
+with the modern host core. Packaging now keeps a private matched fallback pair
+and compatible locale data; coherent host pairs remain preferred. The exact CI
+binary reproduced the segfault in a minimal Ubuntu 24.04 container and opened
+offline after applying the new launcher and runtime layout. Four selection
+regression tests pass. See [keyboard runtime evidence](docs/rewrite/handoffs/T44.md#matched-keyboard-runtime--0407).
+
 **0.40.6 native startup diagnosis:** the 0.40.5 Linux release checks still exposed
 a CI-specific crash after the display race was fixed. Publication stays blocked.
 A dedicated manual workflow captures native backtraces from the existing failed

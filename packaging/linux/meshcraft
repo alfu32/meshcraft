@@ -1,13 +1,23 @@
 #!/bin/sh
 set -eu
 app_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# Prefer desktop/driver-provider libraries when available; the audited bundle
-# supplies missing dependencies. In particular XKB must match the host Compose data.
+# Prefer desktop/driver-provider libraries, keeping the XKB core and X11 bridge
+# together: their private structures are incompatible across runtime versions.
 case $(uname -m) in
   x86_64) app_triplet=x86_64-linux-gnu ;;
   aarch64) app_triplet=aarch64-linux-gnu ;;
   *) echo 'Unsupported Meshcraft architecture' >&2; exit 1 ;;
 esac
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/lib/$app_triplet:/usr/lib/$app_triplet:/lib64:/usr/lib64:/lib:/usr/lib:$app_root/lib"
+app_system_paths="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/lib/$app_triplet:/usr/lib/$app_triplet:/lib64:/usr/lib64:/lib:/usr/lib"
+. "$app_root/xkb-runtime.sh"
+if meshcraft_needs_bundled_xkb "$app_system_paths"; then
+    export LD_LIBRARY_PATH="$app_root/lib/xkb:$app_system_paths:$app_root/lib"
+    # XLOCALEDIR preserves explicit XCOMPOSEFILE and ~/.XCompose preferences.
+    if [ "${XLOCALEDIR+x}" != x ]; then
+        export XLOCALEDIR="$app_root/share/X11/locale"
+    fi
+else
+    export LD_LIBRARY_PATH="$app_system_paths:$app_root/lib"
+fi
 export FONTCONFIG_FILE="$app_root/etc/fonts/fonts.conf"
 exec "$app_root/bin/meshcraft" "$@"

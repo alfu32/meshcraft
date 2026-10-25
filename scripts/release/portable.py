@@ -44,6 +44,7 @@ def assemble(target, binary, output, native=None):
                 )
         # Native bundle includes the patched executable. Do not overwrite it with the original.
         add("meshcraft", ROOT / "packaging/linux/meshcraft", True)
+        add("xkb-runtime.sh", ROOT / "packaging/linux/xkb-runtime.sh")
     for name in ["README.md", "LICENSE-MIT", "LICENSE-APACHE", "packaging/README.md"]:
         add(name, ROOT / name)
     add("notices/tool-icons.txt", ROOT / "assets/tool-icons/LEGACY-LICENSE.md")
