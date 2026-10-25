@@ -61,7 +61,7 @@ license: MIT OR Apache-2.0
 apps:
   meshcraft:
     command: bin/meshcraft
-    plugs: [home, removable-media, desktop, desktop-legacy, x11, opengl, network, gpu-2404]
+    plugs: [home, removable-media, desktop, desktop-legacy, wayland, x11, opengl, network, gpu-2404]
 """.format(version=manifest["version"], arch=arch)
         )
         epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "1767225600"))

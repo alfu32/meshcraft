@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.40.8 Snap Wayland startup fix:** the Snap now requests the Wayland plug and
+checks the advertised compositor socket before GPUI selects a backend. If the
+socket is unavailable inside confinement and X11 is available, it restarts using
+X11. `cargo check --package meshcraft-desktop --bin meshcraft --locked` passes.
+See [Snap startup evidence](docs/rewrite/handoffs/T44.md#snap-wayland-startup--0408).
+
 **0.40.7 matched keyboard runtime:** native backtraces on both Linux architectures
 identified the remaining crash in the old bundled XKB X11 bridge, loaded together
 with the modern host core. Packaging now keeps a private matched fallback pair

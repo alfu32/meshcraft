@@ -112,8 +112,11 @@ Snap packages use `grade: stable`, allowing the uploaded revision to be released
 to edge, beta, candidate or stable. The grade determines channel eligibility;
 the publisher chooses the release channel separately. A `devel`-grade revision
 must be rebuilt and uploaded as a new revision before candidate/stable promotion.
-For local unsigned Snap installation, install the base/provider and connect the
-`gpu-2404`, `x11` and `opengl` plugs as required by snapd. Store publication is separate.
+The Snap requests `wayland` and `x11` so it can use either desktop compositor.
+At startup, Meshcraft checks that an advertised Wayland socket is reachable and
+restarts through X11 when the confined app cannot access it. For local unsigned
+Snap installation, install the base/provider and connect the `gpu-2404`,
+`wayland`, `x11` and `opengl` plugs as required by snapd. Store publication is separate.
 
 The Ubuntu 18.04 dependency and diagnostic link/ELF checks passed with the pinned Rust toolchain. The
 container uses Python 3.8 and pip 25.0.1 for the newer CMake tool. Its multi-architecture

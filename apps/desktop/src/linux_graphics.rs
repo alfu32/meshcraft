@@ -1,6 +1,6 @@
 //! X11 startup on virtual desktops and driver-independent graphics error feedback.
 
-use std::{env, path::PathBuf};
+use std::{env, ffi::OsStr, os::unix::net::UnixStream, path::PathBuf};
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -13,6 +13,28 @@ use x11rb::{
 /// A virtual X11 server without DRI3 cannot present a hardware Vulkan surface.
 /// Select software before entering native driver code in that known case.
 pub fn retry_for_virtual_display() -> Option<std::io::Result<std::process::ExitStatus>> {
+    // GPUI chooses Wayland whenever WAYLAND_DISPLAY is set, even if a confined
+    // desktop app cannot access the advertised socket. Its Wayland constructor
+    // currently unwraps that connection error, so retry on X11 before GPUI starts.
+    if env::var_os("MESHCRAFT_X11_RETRY").is_none()
+        && env::var_os("DISPLAY").is_some_and(|value| !value.is_empty())
+        && let Some(display) = env::var_os("WAYLAND_DISPLAY").filter(|value| !value.is_empty())
+        && !wayland_socket_reachable(&display, env::var_os("XDG_RUNTIME_DIR").as_deref())
+    {
+        eprintln!("Meshcraft: Wayland socket is unavailable; retrying with X11");
+        let executable = match env::current_exe() {
+            Ok(path) => path,
+            Err(error) => return Some(Err(error)),
+        };
+        let mut command = std::process::Command::new(executable);
+        command
+            .args(env::args_os().skip(1))
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("WAYLAND_SOCKET")
+            .env("MESHCRAFT_X11_RETRY", "1");
+        return Some(command.status());
+    }
+
     let (connection, _) = x11rb::connect(None).ok()?;
     let dri3 = connection.query_extension(b"DRI3").ok()?.reply().ok()?;
     if dri3.present {
@@ -20,6 +42,19 @@ pub fn retry_for_virtual_display() -> Option<std::io::Result<std::process::ExitS
     }
     eprintln!("Meshcraft: X11 display has no DRI3 presentation support");
     retry_with_software()
+}
+
+fn wayland_socket_reachable(display: &OsStr, runtime_dir: Option<&OsStr>) -> bool {
+    let display_path = PathBuf::from(display);
+    let socket = if display_path.is_absolute() {
+        display_path
+    } else {
+        let Some(runtime_dir) = runtime_dir else {
+            return false;
+        };
+        PathBuf::from(runtime_dir).join(display_path)
+    };
+    UnixStream::connect(socket).is_ok()
 }
 
 fn software_driver(failed: bool, explicit: bool, directories: &[PathBuf]) -> Option<PathBuf> {
