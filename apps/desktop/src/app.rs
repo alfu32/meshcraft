@@ -5744,6 +5744,10 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn poll_autosave(&mut self, now: Instant) -> Option<Duration> {
+        // Isolated performance runs exclude background serialization from tool timings.
+        if std::env::var_os("MESHCRAFT_DISABLE_AUTOSAVE").is_some() {
+            return None;
+        }
         let revision = self.document.revision();
         if revision != self.autosave_observed_revision {
             self.autosave_observed_revision = revision;

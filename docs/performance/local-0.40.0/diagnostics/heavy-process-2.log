@@ -1,0 +1,79 @@
+
+thread 'main' (2060009) panicked at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_atlas.rs:229:40:
+called `Option::unwrap()` on a `None` value
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:150:5
+   3: core::option::unwrap_failed
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/option.rs:2248:5
+   4: <core::option::Option<&gpui::platform::blade::blade_atlas::BladeAtlasTexture>>::unwrap
+             at /home/alfu64/.rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:1014:21
+   5: <gpui::platform::blade::blade_atlas::BladeAtlasStorage as core::ops::index::Index<gpui::platform::AtlasTextureId>>::index
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_atlas.rs:295:46
+   6: <gpui::platform::blade::blade_atlas::BladeAtlasState>::flush_initializations
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_atlas.rs:229:40
+   7: <gpui::platform::blade::blade_atlas::BladeAtlasState>::flush
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_atlas.rs:235:14
+   8: <gpui::platform::blade::blade_atlas::BladeAtlas>::before_frame
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_atlas.rs:66:14
+   9: <gpui::platform::blade::blade_renderer::BladeRenderer>::draw
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/blade/blade_renderer.rs:645:20
+  10: <gpui::platform::linux::x11::window::X11Window as gpui::platform::PlatformWindow>::draw
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/linux/x11/window.rs:1475:24
+  11: <gpui::window::Window>::present
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/window.rs:2008:30
+  12: <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/window.rs:1049:40
+  13: <gpui::app::App>::update_window_id::<(), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>::{closure#0}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app.rs:1371:26
+  14: <gpui::app::App>::update::<core::option::Option<()>, <gpui::app::App>::update_window_id<(), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app.rs:761:22
+  15: <gpui::app::App>::update_window_id::<(), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app.rs:1365:14
+  16: <gpui::app::App as gpui::AppContext>::update_window::<(), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app.rs:2187:14
+  17: <gpui::app::async_context::AsyncApp as gpui::AppContext>::update_window::<(), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app/async_context.rs:89:14
+  18: <gpui::window::AnyWindowHandle>::update::<gpui::app::async_context::AsyncApp, (), <gpui::window::Window>::new::{closure#4}::{closure#1}::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/window.rs:4826:12
+  19: <gpui::window::Window>::new::{closure#4}::{closure#1}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/window.rs:1047:30
+  20: gpui_util::measure::<(), <gpui::window::Window>::new::{closure#4}::{closure#1}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui_util-0.2.2/src/util.rs:474:9
+  21: <gpui::window::Window>::new::{closure#4}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/window.rs:1045:21
+  22: <alloc::boxed::Box<dyn core::ops::function::FnMut<(gpui::platform::RequestFrameOptions,), Output = ()>> as core::ops::function::FnMut<(gpui::platform::RequestFrameOptions,)>>::call_mut
+             at /home/alfu64/.rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/boxed.rs:2327:9
+  23: <gpui::platform::linux::x11::window::X11WindowStatePtr>::refresh
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/linux/x11/window.rs:992:13
+  24: <gpui::platform::linux::x11::client::X11ClientState>::start_refresh_loop::{closure#0}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/linux/x11/client.rs:1796:36
+  25: <core::cell::RefCell<calloop::sources::DispatcherInner<calloop::sources::timer::Timer, <gpui::platform::linux::x11::client::X11ClientState>::start_refresh_loop::{closure#0}>> as calloop::sources::EventDispatcher<gpui::platform::linux::x11::client::X11Client>>::process_events::{closure#0}
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/sources/mod.rs:327:61
+  26: <calloop::sources::timer::Timer as calloop::sources::EventSource>::process_events::<<core::cell::RefCell<calloop::sources::DispatcherInner<calloop::sources::timer::Timer, <gpui::platform::linux::x11::client::X11ClientState>::start_refresh_loop::{closure#0}>> as calloop::sources::EventDispatcher<gpui::platform::linux::x11::client::X11Client>>::process_events::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/sources/timer.rs:122:38
+  27: <core::cell::RefCell<calloop::sources::DispatcherInner<calloop::sources::timer::Timer, <gpui::platform::linux::x11::client::X11ClientState>::start_refresh_loop::{closure#0}>> as calloop::sources::EventDispatcher<gpui::platform::linux::x11::client::X11Client>>::process_events
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/sources/mod.rs:327:14
+  28: <calloop::loop_logic::EventLoop<gpui::platform::linux::x11::client::X11Client>>::dispatch_events
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/loop_logic.rs:445:36
+  29: <calloop::loop_logic::EventLoop<gpui::platform::linux::x11::client::X11Client>>::dispatch::<core::option::Option<core::time::Duration>>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/loop_logic.rs:559:14
+  30: <calloop::loop_logic::EventLoop<gpui::platform::linux::x11::client::X11Client>>::run::<<gpui::platform::linux::x11::client::X11Client as gpui::platform::linux::platform::LinuxClient>::run::{closure#0}, core::option::Option<core::time::Duration>>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/loop_logic.rs:596:18
+  31: <gpui::platform::linux::x11::client::X11Client as gpui::platform::linux::platform::LinuxClient>::run
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/linux/x11/client.rs:1607:20
+  32: <gpui::platform::linux::x11::client::X11Client as gpui::platform::Platform>::run
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/platform/linux/platform.rs:165:9
+  33: <gpui::app::Application>::run::<meshcraft_desktop::gpui_app::run_native::{closure#0}>
+             at /home/alfu64/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gpui-0.2.2/src/app.rs:180:18
+  34: meshcraft_desktop::gpui_app::run_native
+             at ./apps/desktop/src/gpui_app.rs:3526:10
+  35: meshcraft::main
+             at ./apps/desktop/src/main.rs:94:5
+  36: <fn() as core::ops::function::FnOnce<()>>::call_once
+             at /home/alfu64/.rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

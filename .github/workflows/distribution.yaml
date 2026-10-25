@@ -72,6 +72,8 @@ jobs:
       - name: Validate release helpers and planning
         run: |
           python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+          python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v
+          python3 -m unittest discover -s scripts -p 'test_export_tool_inventory.py' -v
           python3 docs/rewrite/scripts/verify_plan.py --source-root target/legacy
       - name: Build the old-glibc environment
         run: docker build -t meshcraft-build -f packaging/linux/Dockerfile .

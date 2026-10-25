@@ -263,7 +263,7 @@ impl MeshcraftApp {
             EditContext::Occurrence(p) => json!({"kind":"occurrence","path":p.path}),
         };
         let pending_dialog=self.pending_replacement.as_ref().map(|p|json!({"job_id":p.job_id,"kind":match &p.target {ReplacementTarget::NewDocument=>"new",ReplacementTarget::OpenProject(_)=>"open"},"choices":["save","discard","cancel"],"instructions":"Use meshcraft_resolve_document explicitly; save needs a path when the document is unnamed."}));
-        json!({"prototypeDeletion":self.native_prototype_deletion_prompt().map(|p|json!({"definition_id":p.definition_id.0,"name":p.name,"references":p.references,"instances":p.instances,"message":p.message()})),"pendingDialog":pending_dialog,"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"numericInput":self.tool_numeric_text(),"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.ordered_selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
+        json!({"prototypeDeletion":self.native_prototype_deletion_prompt().map(|p|json!({"definition_id":p.definition_id.0,"name":p.name,"references":p.references,"instances":p.instances,"message":p.message()})),"pendingDialog":pending_dialog,"history":{"cursor":self.history.cursor(),"entries":self.history.entries().len()},"version":env!("CARGO_PKG_VERSION"),"revision":self.document.revision(),"generation":self.document_generation,"activeTool":self.active_tool,"numericInput":self.tool_numeric_text(),"toolInstructions":self.native_point_input_hint(),"status":self.status,"editContext":context,"selection":self.selection.ordered_selected().iter().map(target_json).collect::<Vec<_>>(),"projectPath":self.current_project_path(),"unsavedChanges":self.document.revision()!=self.saved_revision,"clipboard":{"available":!self.clipboard.text.is_empty(),"bytes":self.clipboard.text.len()}})
     }
     pub(crate) fn mcp_commands(&self, args: &Value) -> Value {
         let query = args["query"].as_str().unwrap_or("").to_lowercase();
@@ -463,7 +463,10 @@ impl MeshcraftApp {
                 };
                 self.cursor_snap = Some(snap);
                 if action == "click" {
-                    if self.active_tool == "Select" {
+                    if self.active_tool == "Select"
+                        && !self.tool_cycle_state.hotspot_placement_active()
+                        && !self.hotspot_reference_pick
+                    {
                         return Err("use meshcraft_select with exact target IDs".into());
                     }
                     self.handle_native_world_pick(p, Some(snap), None);
@@ -533,6 +536,23 @@ impl MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn world_points_work_for_hotspot_placement_and_reference_while_select_is_active() {
+        let mut app = super::super::tests::test_app();
+        let click = json!({"action":"click","worldX":0,"worldY":0,"worldZ":0});
+        assert!(app.mcp_pointer(&click).is_err());
+        let result = app.dispatch_command("hotspot.begin_placement", &CommandPayload::default());
+        assert!(result.accepted);
+        app.mcp_pointer(&click).unwrap();
+        assert_eq!(app.history.cursor(), 1);
+        assert_eq!(app.active_tool, "Select");
+        let result = app.dispatch_command("hotspot.reference", &CommandPayload::default());
+        assert!(result.accepted);
+        app.mcp_pointer(&json!({"action":"click","worldX":1,"worldY":0,"worldZ":0}))
+            .unwrap();
+        assert!(!app.hotspot_reference_pick);
+        assert_eq!(app.history.cursor(), 2);
+    }
     #[test]
     fn commands_world_picks_queries_selection_and_undo_share_live_model() {
         let mut app = super::super::tests::test_app();

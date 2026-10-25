@@ -1,5 +1,16 @@
 # Dashboard
 
+**0.40.0 performance infrastructure:** operation recipes for all 287 inventory
+entries at four resident model weights, plus scalable primitive Select/Move/Rotate
+probes. The real desktop runner records input, phantom feedback, commit and fresh
+viewport timing. The manual Stress test workflow consumes the selected tag's
+verified release binary, runs four isolated workers and publishes complete
+Markdown/CSV/JSON release assets, including failures. No binary means failure,
+never an implicit build. See the [suite and local results](docs/performance/README.md)
+and [T69 qualification](docs/rewrite/handoffs/T69.md). Release-binary CI publication
+remains a manual qualification step after Release at the same tag. Phase 3 still
+awaits menu assignments; no menu restructuring is included.
+
 **0.39.0 presentation:** product README with eight actual screenshots at stable,
 descriptive paths; a generated application icon embedded in the native title bar
 and wired into the existing platform packaging; a live-registry inventory of

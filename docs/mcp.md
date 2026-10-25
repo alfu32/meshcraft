@@ -358,3 +358,18 @@ variation, seed, leafColor and alternateColor. Spread is a local tangent-plane
 radius that scatters leaves beyond source boundaries. Assign and override it
 through the existing material commands. All shader `color` parameters now use
 native color pickers in the UI; model/MCP values remain normalized RGBA arrays.
+
+## Automated desktop launch and timing
+
+`meshcraft --mcp-port 18766` explicitly starts the localhost server at launch.
+Without this option it remains stopped until started in the settings panel.
+The [performance runner](performance/README.md) uses an isolated configuration,
+cache and display; it never attaches to a user's session.
+
+`k3d_status.history` reports the native history cursor and entry count (not imported
+legacy history). Successful tool results add `_timing.ownerThreadMs`, measured on
+the UI owner thread before response serialization/transport. Background worker and
+GPU time are separate. `meshcraft_capture_view.renderFrameMs` reports the raylib
+offscreen frame's measured rendering/readback work. Neither value is an end-to-end
+GUI latency guarantee or pure GPU timer. World-point input also supports hotspot
+placement and reference picking while the main tool remains Select.

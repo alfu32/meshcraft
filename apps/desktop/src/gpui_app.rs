@@ -3512,7 +3512,12 @@ impl Render for MeshcraftShell {
     }
 }
 
-pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp) {
+pub fn run_native(
+    window_size: [f32; 2],
+    maximized: bool,
+    session: MeshcraftApp,
+    mcp_port: Option<u16>,
+) {
     let mut renderer = RaylibWorker::start();
     let bridge = renderer.bridge.clone();
     let shutdown = renderer.shutdown.clone();
@@ -3570,7 +3575,10 @@ pub fn run_native(window_size: [f32; 2], maximized: bool, session: MeshcraftApp)
                             },
                         )
                         .detach();
-                        let shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
+                        let mut shell = MeshcraftShell::new(bridge_for_view, session, view_cx);
+                        if let Some(port) = mcp_port {
+                            automation::start_on_launch(&mut shell, port, view_cx);
+                        }
                         window.focus(&shell.focus);
                         shell
                     });

@@ -169,6 +169,24 @@ Small deterministic ray/path scenes, progressive tile coverage, worker counts, c
 
 Record hardware/OS/GPU/build and fixture hashes/sizes/counts. Measure cold/warm raw load and save, perspective/orthographic pick percentiles, simple edit latency, static/interaction frame time, selection/copy preview, regeneration and undo/history memory. Include large `docs/tutorial/000_interface.octd` (about 49.8 MB compressed) in an opt-in performance set. Verify revision/cancellation correctness alongside timing; targets are goals until measured.
 
+T69 tool suite extension: derive coverage from the live inventory; exercise every
+registered tool/command and explicit deferred entry at small/medium/high/heavy
+weights, plus scaled primitive-fragment Select/Move/Rotate variants. Verify live
+fixture counts and hashes, complete operation inputs/previews/commits and relevant
+state/file outcomes. Capture client stage times, MCP owner-thread time and raylib
+frame work separately, with precise measurement limits. Native rendering uses an
+isolated real desktop, not a replacement modeling implementation.
+
+Run locally and in a dedicated manually selected-tag stress workflow that never
+builds the app. Fail preflight if the published binary is absent; verify archive,
+package-file hashes, version, architecture and source before executing it. Merge
+four isolated tier reports only when binary/source/coverage agree. Publish full
+Markdown/CSV/JSON reports, summaries and failure diagnostics as same-release
+assets. Keep failed operations and unsupported entries distinct; publish honest
+complete failures while retaining a failing CI status. Incomplete/mismatched
+reports must not overwrite release assets. Missing recipes and filtered coverage
+cannot be presented as complete testing. See [method and limits](../performance/README.md).
+
 ## C39 — GPU renderer and custom model viewport (#18, #21)
 
 Run the native desktop app with the raylib-rs GPU renderer inside the GPUI viewport. Batch scene geometry rather than issuing one draw per entity. Verify front/back face colors and winding, shadow maps from solid geometry onto the ground and other entities, and that authored lines, construction grid, selection and preview overlays do not cast shadows. Exercise transformed/nested instances, cursor/guides, staged geometry/text feedback, selected highlights, both marquee directions, geometry/grid snapping, click deselection, connected/coplanar multi-click selection and viewport resize/DPI mapping. Confirm render snapshots follow document revisions and camera/pointer updates do not rebuild unchanged scene meshes or scan the full document. Load at least 2,000 entities; record hardware, display backend, GPU, build profile, fixture hash, frame time, idle CPU, hover, pick and edit latency. Core and IO build without GPUI/raylib/GPU dependencies.

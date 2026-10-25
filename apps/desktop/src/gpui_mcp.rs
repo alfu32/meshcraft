@@ -82,6 +82,25 @@ fn control(shell: &mut MeshcraftShell, action: &str, cx: &mut Context<MeshcraftS
 fn running(shell: &MeshcraftShell) -> bool {
     shell.mcp.server.as_ref().is_some_and(mcp::Server::running)
 }
+/// Explicit startup opt-in for automation; default interactive launches stay stopped.
+pub(super) fn start_on_launch(
+    shell: &mut MeshcraftShell,
+    port: u16,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let result = shell
+        .session
+        .native_set_mcp_port(port)
+        .and_then(|()| mcp::Server::start(port));
+    match result {
+        Ok(server) => shell.mcp.server = Some(server),
+        Err(error) => {
+            eprintln!("MCP startup failed: {error}");
+            shell.mcp.error = Some(error);
+        }
+    }
+    cx.notify();
+}
 pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
     let active = running(shell);
     let port = shell
@@ -177,7 +196,7 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
                     | "meshcraft_capture_view"
             );
         let start = Instant::now();
-        let result = if work.method == "tools/call" {
+        let mut result = if work.method == "tools/call" {
             call(
                 shell,
                 work.params["name"].as_str().unwrap_or(""),
@@ -190,6 +209,14 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
         // Generic commands already do this through apply_command_effects.
         if changed && operation != "k3d_execute_command" {
             shell.refresh_scene();
+        }
+        if work.method == "tools/call"
+            && let Ok(Value::Object(value)) = &mut result
+        {
+            value.insert(
+                "_timing".into(),
+                json!({"ownerThreadMs":start.elapsed().as_secs_f64()*1000.}),
+            );
         }
         let log = json!({"operation":operation,"success":result.is_ok(),"elapsedMs":start.elapsed().as_millis(),"revision":shell.session.document_revision(),"error":result.as_ref().err().map(|s|s.chars().take(1024).collect::<String>())});
         shell.mcp.logs.push_back(log);
@@ -512,6 +539,6 @@ fn capture(shell: &MeshcraftShell, args: &Value) -> Result<Value, String> {
     .map_err(|e| e.to_string())?;
     let data = base64::engine::general_purpose::STANDARD.encode(png);
     Ok(
-        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"procedural":{"diagnostics":frame.procedural_diagnostics,"candidateInstances":frame.procedural_candidates,"drawCalls":frame.procedural_draw_calls},"frameSequence":frame.sequence,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
+        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"procedural":{"diagnostics":frame.procedural_diagnostics,"candidateInstances":frame.procedural_candidates,"drawCalls":frame.procedural_draw_calls},"frameSequence":frame.sequence,"renderFrameMs":frame.frame_ms,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
     )
 }

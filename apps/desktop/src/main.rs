@@ -18,6 +18,7 @@ Options:
   --maximized          Start maximized (the default)
   --version            Print the application version
   --command-catalog    Print the complete command/tool catalog as JSON without opening a window
+  --mcp-port <PORT>    Start the localhost MCP server at launch (opt-in)
   --help               Print this help
 
 The app starts maximized by default. Window sizes are logical points; the minimum is 900x600.";
@@ -27,6 +28,7 @@ struct StartupOptions {
     document: Option<PathBuf>,
     window_size: [f32; 2],
     maximized: bool,
+    mcp_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,7 +91,12 @@ fn main() {
     if let Some(path) = loaded_path {
         session.set_native_project_path(path);
     }
-    run_native(startup.window_size, startup.maximized, session);
+    run_native(
+        startup.window_size,
+        startup.maximized,
+        session,
+        startup.mcp_port,
+    );
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -100,12 +107,24 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> Result<Startu
     let mut document = None;
     let mut window_size = None;
     let mut requested_maximized = None;
+    let mut mcp_port = None;
 
     while let Some(argument) = args.next() {
         match argument.to_str() {
             Some("--help" | "-h") => return Ok(StartupCommand::Help),
             Some("--version" | "-V") => return Ok(StartupCommand::Version),
             Some("--command-catalog") => return Ok(StartupCommand::CommandCatalog),
+            Some("--mcp-port") => {
+                if mcp_port.is_some() {
+                    return Err("provide --mcp-port only once".into());
+                }
+                mcp_port = Some(
+                    args.next()
+                        .and_then(|value| value.to_str().and_then(|s| s.parse::<u16>().ok()))
+                        .filter(|port| *port != 0)
+                        .ok_or("--mcp-port requires an integer from 1 to 65535")?,
+                );
+            }
             Some("--open" | "--size") => {
                 let option = argument.to_string_lossy().into_owned();
                 let value = args
@@ -167,6 +186,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> Result<Startu
         document,
         window_size,
         maximized,
+        mcp_port,
     }))
 }
 
@@ -263,6 +283,7 @@ mod tests {
                 document: None,
                 window_size: DEFAULT_WINDOW_SIZE,
                 maximized: true,
+                mcp_port: None,
             }),
             parse_startup_args([]).unwrap()
         );
@@ -293,6 +314,7 @@ mod tests {
                     document: None,
                     window_size: [1600.0, 900.0],
                     maximized: false,
+                    mcp_port: None,
                 }),
                 parse_startup_args(args(&["--size", size])).unwrap()
             );
@@ -332,5 +354,24 @@ mod tests {
             StartupCommand::CommandCatalog,
             parse_startup_args(args(&["--command-catalog"])).unwrap()
         );
+    }
+
+    #[test]
+    fn mcp_startup_is_explicit_and_requires_a_valid_unique_port() {
+        let StartupCommand::Run(options) =
+            parse_startup_args(args(&["--mcp-port", "18766"])).unwrap()
+        else {
+            panic!("run")
+        };
+        assert_eq!(options.mcp_port, Some(18766));
+        for invalid in [
+            vec!["--mcp-port"],
+            vec!["--mcp-port", "0"],
+            vec!["--mcp-port", "65536"],
+            vec!["--mcp-port", "x"],
+            vec!["--mcp-port", "1", "--mcp-port", "2"],
+        ] {
+            assert!(parse_startup_args(args(&invalid)).is_err());
+        }
     }
 }

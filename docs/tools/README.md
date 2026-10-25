@@ -47,20 +47,14 @@ or an MCP server. Pass `--binary /path/to/meshcraft` to use another build.
 The exporter preserves all four review columns by command ID and refuses to
 discard notes for removed commands. The gallery is regenerated from the same CSV.
 
-## Next phases (not delivered in phase 1)
+## Performance and the next menu phase
 
-Phase 2 adds operation-specific performance tests for every tool in this inventory
-at **small, medium, high and heavy** model sizes. Define fixture entity counts and
-hardware/software context; time preview/start/commit separately where relevant,
-with output correctness checks. Do not substitute command activation for actual
-tool execution or present unsupported cases as successful benchmarks.
-
-Tests must run locally and in a dedicated manual `stress-test.yaml` workflow
-dispatched at an existing tag. CI must download that tag's existing release
-binary and fail if it is absent; it must not build a different executable.
-Publish Markdown, CSV and machine-readable results as release assets, with a
-stable future README link to `releases/latest/download/performance.md` once that
-asset exists. Include both successful and unsupported/failed cases in coverage.
+Phase 2's [performance suite](../performance/README.md) exercises every registry
+entry at small, medium, high and heavy weights, with additional bulk selection,
+Move and Rotate variants. It runs locally and through the manually tagged
+`stress-test.yaml` workflow using the exact existing release binary. Reports are
+published as Markdown/CSV/JSON assets on that release. Deferred commands and actual
+failures stay visible; no command activation is passed off as completed modeling.
 
 Phase 3 consumes your edited CSV to reorganize menus, ribbon and tool groups.
 Afterward, recapture the README images at their existing descriptive paths using

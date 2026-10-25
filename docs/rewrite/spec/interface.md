@@ -239,15 +239,16 @@ refresh them after the reviewed menu redesign. Use the generated app icon in the
 embedded native UI, Windows executable resource, and every platform's existing
 packaging path. Record the master, prompt and mechanical derivative process.
 
-**Next delivery, planned.** Every inventory tool receives an actual operation
+**Performance delivery (T69).** Every inventory tool receives an actual operation
 performance test on small/medium/high/heavy fixtures, runnable locally and through
 a manual `stress-test.yaml` dispatch at an existing tag. Download that tag's
 release binary; fail if unavailable, without rebuilding. Publish measurements,
 environment, fixture weights and complete pass/fail/unsupported coverage as
 release assets (`performance.md`, CSV and JSON). Add the stable latest-release
-README report link once the asset exists. Menu restructuring follows the user's
-CSV review, then screenshots and documentation are refreshed. These later phases
-are not claimed by the presentation delivery.
+README report link, identifying assets that await a first same-tag stress run.
+Menu restructuring follows the user's CSV review, then screenshots and
+documentation are refreshed. Performance implementation and findings are
+documented in [the suite guide](../../performance/README.md).
 
 ### O04 Responsiveness and performance
 

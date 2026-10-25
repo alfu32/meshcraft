@@ -139,10 +139,24 @@ with a versioned application API, more architectural and building-services tools
 **photorealistic rendering**, richer vector text and annotations, and broader
 platform qualification.
 
-The next delivery phase will benchmark every tool at four model sizes and publish
-results with release binaries. The [tool inventory CSV](docs/tools/tools.csv) is
-ready for menu and ribbon review; [review instructions and the next-phase plan](docs/tools/README.md)
-explain the process. Performance reports are not published yet.
+## Performance reports
+
+The [performance suite](docs/performance/README.md) exercises every tool at four
+model sizes, including bulk selection, Move and Rotate. Run **Stress test** after
+**Release** at the same tag to publish the
+[latest release performance report](https://github.com/alfu32/meshcraft/releases/latest/download/performance.md),
+[CSV](https://github.com/alfu32/meshcraft/releases/latest/download/performance.csv) and
+[raw samples](https://github.com/alfu32/meshcraft/releases/latest/download/performance.json).
+A new release gets these assets when its stress run finishes; failures and
+unsupported commands remain visible. See the guide for measurement limits.
+
+The [local 0.40.0 qualification](docs/performance/local-0.40.0/performance.md)
+contains the first complete four-tier ledger. It uses a development binary and
+one sample per case; it exposes failures and is not a release-speed claim.
+
+The [tool inventory CSV](docs/tools/tools.csv) is ready for your menu and ribbon
+assignments. [Review instructions](docs/tools/README.md) explain phase 3; current
+menus and screenshot filenames are preserved.
 
 The [development dashboard](DASHBOARD.md) records implementation and validation.
 The [rewrite guide](docs/rewrite/README.md) links specifications, architecture and

@@ -219,10 +219,12 @@ four preserved review columns, actual screenshots under descriptive stable names
 a generated application icon and packaging integration. Commit, version-tag and
 push this phase independently. See [review instructions](../tools/README.md).
 
-T69 is explicitly planned for the next session: operation-specific tests for
+T69 implements operation-specific tests for
 every inventory tool at small/medium/high/heavy weights, local execution, and a
 manual existing-tag `stress-test.yaml` consuming that tag's release binary (fail
 when absent). Publish Markdown/CSV/JSON report assets and then link the stable
 latest-release Markdown report from README. T70 waits for user CSV assignments,
 restructures menus/ribbon/toolbars and refreshes all README captures at their
-manifest paths. Neither future phase is delivered or started by T68.
+manifest paths. T68 delivers presentation alone. T69 delivers the test/report
+workflow; released-binary CI publication remains its manual qualification gate.
+See [T69 evidence](handoffs/T69.md). T70 still waits for the user's menu assignments.
