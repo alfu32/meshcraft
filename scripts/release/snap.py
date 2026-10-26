@@ -28,7 +28,7 @@ def main():
         (root / "bin").mkdir()
         (root / "gpu-2404").mkdir()
         (root / "bin/meshcraft").write_text(
-            '#!/bin/sh\nexport XDG_CONFIG_HOME="$SNAP_USER_COMMON/.config"\nexport XDG_CACHE_HOME="$SNAP_USER_COMMON/.cache"\nexec "$SNAP/gpu-2404/bin/gpu-2404-provider-wrapper" "$SNAP/opt/meshcraft/meshcraft" "$@"\n'
+            '#!/bin/sh\nexport XDG_CONFIG_HOME="$SNAP_USER_COMMON/.config"\nexport XDG_CACHE_HOME="$SNAP_USER_COMMON/.cache"\nexport MESHCRAFT_EXEC_WRAPPER="$SNAP/gpu-2404/bin/gpu-2404-provider-wrapper"\nexec "$SNAP/opt/meshcraft/meshcraft" "$@"\n'
         )
         (root / "bin/meshcraft").chmod(0o755)
         (root / "meta/gui").mkdir(parents=True)

@@ -142,10 +142,16 @@ def bundle(binary, target, output, ceiling):
     # The private fallback pair also needs locale data understood by that version.
     # XLOCALEDIR still lets explicit and per-user Compose files take precedence.
     shutil.copytree("/usr/share/X11/locale", output / "share/X11/locale", symlinks=False)
+    shutil.copytree("/usr/share/X11/xkb", output / "share/X11/xkb", symlinks=False)
     (output / "notices/native/libx11-data").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(
         "/usr/share/doc/libx11-data/copyright",
         output / "notices/native/libx11-data/copyright",
+    )
+    (output / "notices/native/xkb-data").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(
+        "/usr/share/doc/xkb-data/copyright",
+        output / "notices/native/xkb-data/copyright",
     )
     # A minimal font set/config also works inside the isolated Snap runtime.
     fonts = Path("/usr/share/fonts/truetype/dejavu")

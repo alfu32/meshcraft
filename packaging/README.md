@@ -113,8 +113,10 @@ to edge, beta, candidate or stable. The grade determines channel eligibility;
 the publisher chooses the release channel separately. A `devel`-grade revision
 must be rebuilt and uploaded as a new revision before candidate/stable promotion.
 The Snap requests `wayland` and `x11` so it can use either desktop compositor.
-At startup, Meshcraft checks that an advertised Wayland socket is reachable and
-restarts through X11 when the confined app cannot access it. For local unsigned
+Snap's private runtime directory may differ from the directory containing the
+Wayland socket, so startup resolves that socket and passes its absolute path to
+GPUI. If it is unavailable, Meshcraft restarts through X11. The Linux payload
+bundles XKB keyboard configuration for confined X11 sessions. For local unsigned
 Snap installation, install the base/provider and connect the `gpu-2404`,
 `wayland`, `x11` and `opengl` plugs as required by snapd. Store publication is separate.
 

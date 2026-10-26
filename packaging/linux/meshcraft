@@ -19,5 +19,11 @@ if meshcraft_needs_bundled_xkb "$app_system_paths"; then
 else
     export LD_LIBRARY_PATH="$app_system_paths:$app_root/lib"
 fi
+if [ "${XKB_CONFIG_ROOT+x}" != x ] && [ -d "$app_root/share/X11/xkb" ]; then
+    export XKB_CONFIG_ROOT="$app_root/share/X11/xkb"
+fi
 export FONTCONFIG_FILE="$app_root/etc/fonts/fonts.conf"
+if [ -n "${MESHCRAFT_EXEC_WRAPPER:-}" ]; then
+    exec "$MESHCRAFT_EXEC_WRAPPER" "$app_root/bin/meshcraft" "$@"
+fi
 exec "$app_root/bin/meshcraft" "$@"
