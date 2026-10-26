@@ -80,9 +80,7 @@ fn wayland_socket(display: &OsStr, runtime_dir: Option<&OsStr>) -> Option<(PathB
     if UnixStream::connect(&configured).is_ok() {
         return Some((configured, false));
     }
-    if env::var_os("SNAP").is_none() {
-        return None;
-    }
+    env::var_os("SNAP")?;
     let parent_runtime = runtime_dir.parent()?.join(display_path);
     UnixStream::connect(&parent_runtime)
         .is_ok()

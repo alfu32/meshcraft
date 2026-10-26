@@ -1,6 +1,6 @@
 # Dashboard
 
-**0.40.9 confined desktop startup:** the installed 0.40.8 Snap exposed two
+**0.40.10 confined desktop startup:** the installed 0.40.8 Snap exposed two
 packaging gaps: snapd places the Wayland socket beside its private
 `XDG_RUNTIME_DIR`, and the Snap entrypoint bypassed the native launcher that
 sets the bundled XKB runtime. Startup now uses the reachable absolute Wayland
@@ -8,7 +8,7 @@ socket, while the Linux payload includes XKB configuration and the Snap routes
 through the normal launcher and GPU provider wrapper. See [Snap runtime
 evidence](docs/rewrite/handoffs/T44.md#confined-desktop-startup--0409).
 
-**0.40.8 Snap Wayland startup fix:** the Snap now requests the Wayland plug and
+**0.40.9 Snap Wayland startup fix:** the Snap now requests the Wayland plug and
 checks the advertised compositor socket before GPUI selects a backend. If the
 socket is unavailable inside confinement and X11 is available, it restarts using
 X11. `cargo check --package meshcraft-desktop --bin meshcraft --locked` passes.
