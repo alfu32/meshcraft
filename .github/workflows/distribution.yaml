@@ -71,6 +71,8 @@ jobs:
           persist-credentials: false
       - name: Validate release helpers and planning
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rpm
           python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
           python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v
           python3 -m unittest discover -s scripts -p 'test_export_tool_inventory.py' -v
@@ -209,13 +211,34 @@ jobs:
           key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Install Linux packagers
         if: matrix.os == 'linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends desktop-file-utils squashfs-tools snapd libfuse2t64 xvfb xdotool firejail imagemagick mesa-vulkan-drivers libgl1-mesa-dri xfonts-base
-      - name: Build Linux AppImage and Snap
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends desktop-file-utils squashfs-tools snapd libfuse2t64 xvfb xdotool firejail imagemagick mesa-vulkan-drivers libgl1-mesa-dri xfonts-base rpm
+      - name: Build Linux AppImage, Snap, DEB and RPM
         if: matrix.os == 'linux'
         run: |
           archive="target/release-assets/meshcraft-$RELEASE_VERSION-$RELEASE_TARGET.tar.gz"
           python3 scripts/release/appimage.py --archive "$archive" --output target/release-assets
           python3 scripts/release/snap.py --archive "$archive" --output target/release-assets
+          python3 scripts/release/linux_packages.py --archive "$archive" --output target/release-assets
+      - name: Check DEB installation, command launch and removal
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get install -y ./target/release-assets/*.deb
+          test "$(meshcraft --version)" = "Meshcraft $RELEASE_VERSION"
+          sudo apt-get remove -y meshcraft
+          test ! -e /opt/meshcraft
+      - name: Check RPM installation, command launch and removal on Rocky Linux 8
+        if: matrix.os == 'linux'
+        run: |
+          docker run --rm -v "$PWD/target/release-assets:/packages:ro" \
+            -e RELEASE_VERSION \
+            rockylinux:8@sha256:9794037624aaa6212aeada1d28861ef5e0a935adaf93e4ef79837119f2a2d04c \
+            bash -euc '
+              dnf install -y /packages/*.rpm
+              test "$(meshcraft --version)" = "Meshcraft $RELEASE_VERSION"
+              rpm -V meshcraft
+              dnf remove -y meshcraft
+              test ! -e /opt/meshcraft
+            '
       - name: Verify the packaged AppImage starts offline and paints its window
         if: matrix.os == 'linux'
         run: |
@@ -273,6 +296,8 @@ jobs:
           merge-multiple: true
       - name: Verify the complete matrix and publish at the selected existing tag
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rpm
           python3 scripts/release/verify.py --directory incoming --version "$RELEASE_VERSION" --sha "$RELEASE_SHA"
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$RELEASE_SHA"
           gh release create "$RELEASE_TAG" incoming/* target/SHA256SUMS.txt \

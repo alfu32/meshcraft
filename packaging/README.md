@@ -13,11 +13,11 @@ Meshcraft uses the same six-target distribution matrix as the Rust Kode referenc
 
 | Native target | Portable archives | Additional installers |
 | --- | --- | --- |
-| Linux x86_64 / aarch64 | ZIP, tar.gz | AppImage, Snap |
+| Linux x86_64 / aarch64 | ZIP, tar.gz | AppImage, Snap, DEB, RPM |
 | Windows x64 / ARM64 | ZIP, tar.gz | MSI, unsigned MSIX |
 | macOS Intel / Apple Silicon | ZIP, tar.gz | DMG containing Meshcraft.app |
 
-Each release contains 22 primary artifacts, per-file SHA-256 sidecars and a combined
+Each release contains 26 primary artifacts, per-file SHA-256 sidecars and a combined
 `SHA256SUMS.txt`. Portable archives include a file manifest, source revision,
 version, notices and the small dynamic-object example. UI icons/shaders stay embedded
 in the executable. User scenes, configuration, build directories and test projects
@@ -124,6 +124,60 @@ The Ubuntu 18.04 dependency and diagnostic link/ELF checks passed with the pinne
 container uses Python 3.8 and pip 25.0.1 for the newer CMake tool. Its multi-architecture
 base image is pinned by digest. The actual Linux AppImage also passed a GUI smoke check; the exact executed
 probes and remaining platform limits are recorded in the [release handoff](../docs/rewrite/handoffs/T44.md).
+
+## Native DEB and RPM packages
+
+Each Linux matrix job packages the same audited old-glibc portable payload into:
+
+| Target | DEB | RPM |
+| --- | --- | --- |
+| x86_64 | `meshcraft_X.Y.Z-1_amd64.deb` | `meshcraft-X.Y.Z-1.x86_64.rpm` |
+| ARM64 | `meshcraft_X.Y.Z-1_arm64.deb` | `meshcraft-X.Y.Z-1.aarch64.rpm` |
+
+The package revision is `1`, separate from the app's SemVer. The application and
+its audited private dependencies install under `/opt/meshcraft`; `/usr/bin/meshcraft`
+starts the shared Linux launcher. Desktop, icon, AppStream and `.octd` MIME entries
+are installed under `/usr/share`. User drawings and preferences are never installed
+or removed. The package manager resolves the host C/compiler runtime and GL/EGL,
+OpenGL and Vulkan loader libraries. The host provides a compatible graphics driver.
+These packages run directly on the host without a Snap runtime or GPU content provider.
+
+Build locally from either architecture's portable archive (Python 3, `dpkg-deb`,
+`rpmbuild`, `rpm` and `rpm2cpio` are required):
+
+```sh
+python3 scripts/release/linux_packages.py \
+  --archive target/release-assets/meshcraft-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz \
+  --output target/release-assets
+# Use the aarch64-unknown-linux-gnu archive for ARM64 packages.
+# --format deb or --format rpm builds just that format; the default builds both.
+```
+
+Packaging does not recompile or execute the target binary; it can package either
+architecture on the same workstation. CI uses each architecture's native runner.
+Each build extracts and verifies its package's architecture, version, source revision,
+root ownership, launcher, desktop entries and every payload digest/mode. Final release
+verification also checks the installed manifest against the portable archive and
+requires a provenance sidecar. RPM automatic library provides/requires and stripping
+are disabled for this private bundle; explicit requirements describe unbundled libraries.
+This prevents the bundled libraries from satisfying unrelated system package dependencies
+and preserves the audited binary hashes.
+
+CI installs, runs `meshcraft --version` and removes the DEB on Ubuntu 24.04 and the
+RPM in a digest-pinned Rocky Linux 8 container on both native architectures. RPM
+installation also verifies the installed file digests with `rpm -V`. These are
+installation/CLI checks; they do not qualify every distro's graphics stack.
+
+Install a matching download through the system package manager:
+
+```sh
+sudo apt install ./meshcraft_X.Y.Z-1_amd64.deb
+sudo dnf install ./meshcraft-X.Y.Z-1.x86_64.rpm
+```
+
+Both formats are unsigned release downloads with SHA-256 checksums. No repository
+is added automatically. APT/RPM repository hosting, signing and automated updates
+are a separate next stage; see [Open Build Service](OBS.md) for the proposed workflow.
 
 ## Windows and macOS
 

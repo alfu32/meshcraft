@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -17,6 +18,9 @@ import meta
 import portable
 import verify
 import snap as snap_packager
+import linux_packages
+
+NATIVE_PACKAGE_TOOLS = all(shutil.which(tool) for tool in ("dpkg-deb", "rpmbuild", "rpm", "rpm2cpio"))
 
 
 class ReleaseTests(unittest.TestCase):
@@ -135,6 +139,52 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlinked"):
             portable.assemble("x86_64-apple-darwin", link, self.root / "assets")
 
+    @unittest.skipUnless(NATIVE_PACKAGE_TOOLS, "install dpkg and rpm for native packaging checks")
+    def test_native_packages_preserve_payload_and_target_for_both_architectures(self):
+        for target, arches in linux_packages.ARCHITECTURES.items():
+            with self.subTest(target=target), redirect_stdout(io.StringIO()):
+                archive = self.archive(target)
+                artifacts = linux_packages.build(archive, self.root / target)
+                self.assertEqual(len(artifacts), 2)
+                for artifact in artifacts:
+                    manifest = linux_packages.check_package(artifact, self.version, self.sha, target)
+                    self.assertEqual(manifest["sourceRevision"], self.sha)
+                    metadata, files = linux_packages.contents(artifact)
+                    self.assertEqual(metadata[2], arches[artifact.suffix == ".rpm"])
+                    self.assertEqual(files["usr/bin/meshcraft"], (linux_packages.LAUNCHER, True))
+                    other_target = next(t for t in linux_packages.ARCHITECTURES if t != target)
+                    with self.assertRaisesRegex(ValueError, "architecture mismatch"):
+                        linux_packages.check_package(artifact, self.version, self.sha, other_target)
+                    with self.assertRaisesRegex(ValueError, "source mismatch"):
+                        linux_packages.check_package(artifact, self.version, "b" * 40, target)
+                    if artifact.suffix == ".rpm":
+                        provides = subprocess.check_output(["rpm", "-qp", "--provides", str(artifact)], text=True)
+                        self.assertNotIn("libxkbcommon", provides)
+                        self.assertNotIn("libjavascriptcore", provides)
+
+    @unittest.skipUnless(NATIVE_PACKAGE_TOOLS, "install dpkg and rpm for native packaging checks")
+    def test_native_verifier_rejects_changed_installed_binary(self):
+        target = "x86_64-unknown-linux-gnu"
+        with redirect_stdout(io.StringIO()):
+            artifact = linux_packages.build(self.archive(target), self.root / "deb", "deb")[0]
+        tree = self.root / "changed-deb"
+        subprocess.check_call(["dpkg-deb", "--raw-extract", str(artifact), str(tree)])
+        (tree / "opt/meshcraft/bin/meshcraft").write_bytes(b"changed executable")
+        altered = self.root / "altered.deb"
+        subprocess.check_output(["dpkg-deb", "--root-owner-group", "--build", str(tree), str(altered)])
+        with self.assertRaisesRegex(ValueError, "digest/mode mismatch"):
+            linux_packages.check_package(altered, self.version, self.sha, target)
+
+    def test_rpm_reader_rejects_traversal_and_truncated_files(self):
+        name = b"../escape\0"
+        fields = [1, 0o100644, 0, 0, 1, 0, 0, 0, 0, 0, 0, len(name), 0]
+        data = b"070701" + b"".join(("%08x" % value).encode() for value in fields) + name
+        data += b"\0" * (-len(data) % 4)
+        with self.assertRaisesRegex(ValueError, "Unsafe package path"):
+            linux_packages.read_cpio(data)
+        with self.assertRaisesRegex(ValueError, "trailer missing"):
+            linux_packages.read_cpio(b"070701")
+
     def test_rejects_bad_app_version_and_inherited_version(self):
         app = self.root / "apps/desktop"
         app.mkdir(parents=True)
@@ -225,9 +275,13 @@ class ReleaseTests(unittest.TestCase):
                 bad.read_bytes(), archive.name, self.version, self.sha
             )
 
+    @unittest.skipUnless(NATIVE_PACKAGE_TOOLS, "install dpkg and rpm for native packaging checks")
     def test_requires_complete_six_platform_matrix_and_checksums(self):
         for target in common.TARGETS:
-            self.archive(target)
+            archive = self.archive(target)
+            if target in linux_packages.ARCHITECTURES:
+                with redirect_stdout(io.StringIO()):
+                    linux_packages.build(archive, self.root / "assets")
         assets = self.root / "assets"
         for name in verify.expected_assets(self.version):
             p = assets / name
@@ -248,8 +302,16 @@ class ReleaseTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 common.publish(p)
         self.assertEqual(
-            22, len(verify.verify(assets, self.version, self.sha).splitlines())
+            26, len(verify.verify(assets, self.version, self.sha).splitlines())
         )
+        native = next(assets.glob("*.deb.manifest.json"))
+        original = native.read_text()
+        provenance = json.loads(original)
+        provenance["sourceRevision"] = "b" * 40
+        native.write_text(json.dumps(provenance))
+        with self.assertRaisesRegex(ValueError, "provenance mismatch"):
+            verify.verify(assets, self.version, self.sha)
+        native.write_text(original)
         victim = next(assets.glob("*.msi"))
         sidecar = Path(str(victim) + ".sha256")
         sidecar.write_text("0" * 64 + "  " + victim.name)

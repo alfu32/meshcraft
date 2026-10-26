@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.alfu32.meshcraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Meshcraft</name>
+  <summary>Direct mesh modeler with dynamic and scripted objects</summary>
+  <description>
+    <p>Build and edit meshes with construction and architectural tools, reusable
+    object prototypes, JavaScript scripting, and procedural materials.</p>
+  </description>
+  <launchable type="desktop-id">meshcraft.desktop</launchable>
+  <provides>
+    <binary>meshcraft</binary>
+    <mediatype>application/x-meshcraft</mediatype>
+  </provides>
+  <url type="homepage">https://github.com/alfu32/meshcraft</url>
+  <url type="bugtracker">https://github.com/alfu32/meshcraft/issues</url>
+  <content_rating type="oars-1.1"/>
+</component>

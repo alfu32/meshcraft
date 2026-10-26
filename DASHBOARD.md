@@ -1,12 +1,19 @@
 # Dashboard
 
+**0.41.0 native Linux installers:** tagged release builds now produce DEB and RPM
+packages for amd64 and ARM64, adding four installers to the required release matrix.
+They use the audited native payload with desktop/MIME integration, and CI checks
+installation, command launch and removal on Ubuntu and Rocky Linux. Payload integrity
+and provenance are checked before publication. OBS repository publication is documented
+as a separate next stage. See [package evidence](docs/rewrite/handoffs/T44.md#native-deb-and-rpm-packages--0410).
+
 **0.40.10 confined desktop startup:** the installed 0.40.8 Snap exposed two
 packaging gaps: snapd places the Wayland socket beside its private
 `XDG_RUNTIME_DIR`, and the Snap entrypoint bypassed the native launcher that
 sets the bundled XKB runtime. Startup now uses the reachable absolute Wayland
 socket, while the Linux payload includes XKB configuration and the Snap routes
 through the normal launcher and GPU provider wrapper. See [Snap runtime
-evidence](docs/rewrite/handoffs/T44.md#confined-desktop-startup--0409).
+evidence](docs/rewrite/handoffs/T44.md#confined-desktop-startup--04010).
 
 **0.40.9 Snap Wayland startup fix:** the Snap now requests the Wayland plug and
 checks the advertised compositor socket before GPUI selects a backend. If the

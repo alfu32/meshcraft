@@ -21,6 +21,9 @@ JavaScript and connect an agent through MCP.
 
 [![Get it from the Snap Store](https://snapcraft.io/en/dark/install.svg)](https://snapcraft.io/meshcraft)
 
+Linux release downloads include **DEB and RPM packages for amd64 and ARM64**, plus
+AppImage, Snap and portable archives. See the [installation notes](packaging/README.md#native-deb-and-rpm-packages).
+
 ![Direct mesh modeling workspace with extruded profiles, curved walls and live selection feedback](docs/screenshots/modeling-workspace.png)
 
 ## A workshop for geometry
