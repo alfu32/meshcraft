@@ -43,6 +43,9 @@ def package_fixture(version, arch, files):
         for offset in range(0, len(data), 65536):
             digest = base64.b64encode(bytes.fromhex(sha(data[offset:offset + 65536]))).decode()
             ET.SubElement(entry, namespace + "Block", Hash=digest)
+        if len(data) > 65536:
+            ET.SubElement(entry, "{http://schemas.microsoft.com/appx/2021/blockmap}FileHash",
+                          Hash=base64.b64encode(bytes.fromhex(sha(data))).decode())
     files["AppxBlockMap.xml"] = ET.tostring(block_map)
     files["AppxSignature.p7x"] = b"PKCX" + b"synthetic-CMS-fixture" * 8
     files["[Content_Types].xml"] = b"<Types/>"
@@ -85,6 +88,17 @@ class MsixTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(package)) as archive:
             msix.check_package(archive, "0.41.1", "x64")
             changed = {name: archive.read(name) for name in archive.namelist()}
+        block_map = ET.fromstring(changed["AppxBlockMap.xml"])
+        file_hash = block_map.find(".//{http://schemas.microsoft.com/appx/2021/blockmap}FileHash")
+        self.assertIsNotNone(file_hash)
+        file_hash.set("Hash", "incorrect")
+        altered = io.BytesIO()
+        with zipfile.ZipFile(altered, "w") as archive:
+            for name, value in changed.items():
+                archive.writestr(name, ET.tostring(block_map) if name == "AppxBlockMap.xml" else value)
+        with zipfile.ZipFile(io.BytesIO(altered.getvalue())) as archive:
+            with self.assertRaisesRegex(ValueError, "whole-file digest"):
+                msix.check_package(archive, "0.41.1", "x64")
         changed["meshcraft.exe"] = b"modified" * 17500
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:

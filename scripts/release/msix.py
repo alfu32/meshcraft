@@ -115,7 +115,14 @@ def check_block_map(archive):
         data = archive.read(name)
         if len(data) != int(entry.get("Size", "-1")):
             raise ValueError("MSIX block-map size mismatch: " + name)
-        blocks = list(entry)
+        blocks = entry.findall(namespace + "Block")
+        file_hashes = entry.findall("{http://schemas.microsoft.com/appx/2021/blockmap}FileHash")
+        if len(file_hashes) > 1 or len(entry) != len(blocks) + len(file_hashes):
+            raise ValueError("Unsupported MSIX block-map file entry: " + name)
+        for file_hash in file_hashes:
+            digest = base64.b64encode(hashlib.sha256(data).digest()).decode()
+            if file_hash.get("Hash") != digest:
+                raise ValueError("MSIX block-map whole-file digest mismatch: " + name)
         if len(blocks) != (len(data) + 65535) // 65536:
             raise ValueError("MSIX block-map block count mismatch: " + name)
         for offset, block in enumerate(blocks):
