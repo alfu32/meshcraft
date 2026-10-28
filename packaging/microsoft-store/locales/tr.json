@@ -1,0 +1,44 @@
+{
+  "language": "Turkish",
+  "description": "Ücretsiz ve açık kaynaklı doğrudan ağ modelleyicisi Meshcraft-desktop ile fikirlerinize 3B biçim verin.\n\nKenarları ve yüzleri düzenleyin, yollar çizin; uzatma, süpürme ve döndürmeyle hacimler oluşturun. Yakalama, kılavuzlar ve sayısal giriş hassas çalışmayı kolaylaştırır. Bağımsız örnekleri olan yeniden kullanılabilir prototipler; duvarlar, döşemeler, açıklıklar, pencereler, kapılar ve merdivenler oluşturun.\n\nProsedürel GPU malzemelerini ve gölgelendiricilerle üretilen ağaçları keşfedin. Canlı 3B önizlemeyle JavaScript nesneleri ve GLSL gölgelendiricileri geliştirin. Ölçüler, metin ve açıklama çizgileri ekleyin; perspektif, ortografik ve gezinme kameralarını kullanın.\n\nOBJ, STL ve glTF/GLB dahil biçimlerde geometri alışverişi yapın. Biçim desteği belgelenen alt kümelerle sınırlıdır; tam CAD veya BIM uyumluluğu garanti edilmez. İsteğe bağlı yerel MCP sunucusu uyumlu ajanlarla çalışır; harici istemci ve hizmetler ayrıdır.\n\nTemel modelleme çevrimdışı çalışır ve Meshcraft hesabı gerektirmez. Uygulama arayüzü şu anda İngilizcedir. Uygulama aktif olarak geliştirilmektedir.",
+  "shortDescription": "Doğrudan 3B ağ modelleme, dinamik nesneler, mimari ve prosedürel malzemeler. Önizlemeyle JavaScript/GLSL geliştirin ve yerel MCP üzerinden uyumlu ajanları bağlayın.",
+  "features": [
+    "Uzatma, süpürme, döndürme ve katı işlemleriyle doğrudan ağ düzenleme",
+    "Hassas yakalama, kılavuzlar, sayısal giriş ve dönüşüm önizlemeleri",
+    "Yeniden kullanılabilir prototipler ve dinamik tutamaçlı bağımsız örnekler",
+    "Düzenlenebilir duvarlar, döşemeler, açıklıklar, pencereler, kapılar ve merdivenler",
+    "Renk, saydamlık ve prosedürel çim, yapraklar, su, tuğla ve ahşap",
+    "Düzenlenebilir parametrelerle gölgelendiricilerin ürettiği ağaçlar ve dallanan biçimler",
+    "API yardımı ve canlı 3B önizleme sunan JavaScript nesne düzenleyicisi",
+    "GLSL düzenleyicisi ve uyumlu ajanlar için isteğe bağlı yerel MCP sunucusu",
+    "Ölçüler, metin, açıklama çizgileri; perspektif, ortografik ve gezinme kameraları",
+    "Geometri alışverişi, düzenlenebilir projeler, geri alma ve GPU nesneleri ile ağlar arasında dönüşüm"
+  ],
+  "searchTerms": [
+    "3B modelleme",
+    "ağ düzenleyici",
+    "CAD",
+    "dinamik nesneler",
+    "JavaScript",
+    "mimari",
+    "prosedürel malzemeler"
+  ],
+  "captions": [
+    "3B çalışma alanında geometriyi doğrudan oluşturun ve yeniden biçimlendirin.",
+    "Prototipleri yeniden kullanın ve bağımsız örneklerin parametrelerini değiştirin.",
+    "Duvarlar, döşemeler, açıklıklar ve merdivenlerle mimari biçimler oluşturun.",
+    "Kod tamamlama ve etkileşimli 3B önizlemeyle JavaScript nesneleri yazın.",
+    "Malzeme veya nesne önizlemesinin yanında GLSL gölgelendiricilerini düzenleyin.",
+    "Yapraklar, su, tuğla ve ahşap gibi prosedürel GPU malzemelerini keşfedin.",
+    "Gölgelendiricilerle üretilen ağaçları ve dalları ayar önizlemesinde düzenleyin.",
+    "Merdivenleri inceleyin; basamakları, destekleri ve korkuluk kılavuzlarını ayarlayın."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3 ve DirectX 11 destekleyen grafik sürücüleri",
+    "Klavye ve fare"
+  ],
+  "recommendedHardware": [
+    "Güncel grafik sürücüleri ve üç düğmeli fare",
+    "Büyük modeller için ek RAM"
+  ]
+}

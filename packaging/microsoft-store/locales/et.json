@@ -1,0 +1,44 @@
+{
+  "language": "Estonian",
+  "description": "Anna oma ideedele 3D-kuju Meshcraft-desktopiga — tasuta avatud lähtekoodiga otsese võrkmodelleerimise rakendusega.\n\nMuuda servi ja tahke, joonista radu ning loo ruumilisi vorme väljapressimise, piki rada vedamise ja pööramisega. Täpsust toetavad haakimine, abijooned ja arvuline sisestus. Loo korduskasutatavaid prototüüpe sõltumatute eksemplaridega ning seinu, plaate, avasid, aknaid, uksi ja treppe.\n\nKatseta protseduurilisi GPU-materjale ja varjutajatega loodud puid. Arenda JavaScripti objekte ja GLSL-varjutajaid reaalajas 3D-eelvaatega. Lisa mõõte, teksti ja viitejooni; kasuta perspektiiv-, ortograafilist või läbikäigukaamerat.\n\nVaheta geomeetriat muu hulgas OBJ-, STL- ja glTF/GLB-vormingus. Toetatud on dokumenteeritud alamhulgad, mitte täielik CAD- või BIM-ühilduvus. Valikuline kohalik MCP-server töötab ühilduvate agentidega; välised kliendid ja teenused on eraldiseisvad.\n\nPõhimodelleerimine töötab võrguühenduseta ja Meshcrafti kontota. Kasutajaliides on praegu ingliskeelne. Rakendust arendatakse aktiivselt.",
+  "shortDescription": "Otsene 3D-võrkmodelleerimine, dünaamilised objektid, arhitektuur ja protseduurilised materjalid. JavaScript/GLSL reaalajas eelvaatega ning agendid kohaliku MCP kaudu.",
+  "features": [
+    "Otsene võrgu redigeerimine väljapressimise, piki rada vedamise, pööramise ja kehatehetega",
+    "Täpne haakimine, abijooned, arvuline sisestus ja teisenduste eelvaated",
+    "Korduskasutatavad prototüübid ja sõltumatud eksemplarid dünaamiliste käepidemetega",
+    "Muudetavad seinad, plaadid, avad, aknad, uksed ja trepid",
+    "Värvid, läbipaistvus ja protseduuriline rohi, lehestik, vesi, tellis ning puit",
+    "Varjutajatega loodud puud ja hargnevad vormid muudetavate parameetritega",
+    "JavaScripti objektiredaktor API-abiga ja reaalajas 3D-eelvaatega",
+    "GLSL-redaktor ja valikuline kohalik MCP-server ühilduvatele agentidele",
+    "Mõõdud, tekst, viitejooned ning perspektiiv-, ortograafiline ja läbikäigukaamera",
+    "Geomeetriavahetus, muudetavad projektid, tagasivõtmine ning GPU-objektide ja võrkude teisendamine"
+  ],
+  "searchTerms": [
+    "3D modelleerimine",
+    "võrguredaktor",
+    "CAD",
+    "dünaamilised objektid",
+    "JavaScript",
+    "arhitektuur",
+    "protseduurilised materjalid"
+  ],
+  "captions": [
+    "Loo ja muuda geomeetriat otse 3D-tööalas.",
+    "Kasuta prototüüpe uuesti ja muuda sõltumatute eksemplaride parameetreid.",
+    "Loo arhitektuurivorme seinte, plaatide, avade ja treppidega.",
+    "Kirjuta JavaScripti objekte koodilõpetuse ja interaktiivse 3D-eelvaatega.",
+    "Muuda GLSL-varjutajaid materjali või objekti eelvaate kõrval.",
+    "Avasta protseduurilisi GPU-materjale: lehestik, vesi, tellis ja puit.",
+    "Kohanda varjutajatega loodud puid ja harusid seadete eelvaates.",
+    "Vaata treppe ja seadista astmeid, tugesid ning piirde abijooni."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3 ja DirectX 11 toega graafikadraiverid",
+    "Klaviatuur ja hiir"
+  ],
+  "recommendedHardware": [
+    "Ajakohased graafikadraiverid ja kolme nupuga hiir",
+    "Lisamälu suuremate mudelite jaoks"
+  ]
+}

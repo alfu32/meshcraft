@@ -1,0 +1,44 @@
+{
+  "language": "German",
+  "description": "Gestalten Sie Ihre Ideen in 3D, verwenden Sie Modelle mehrfach und erweitern Sie sie mit Code.\n\nMeshcraft-desktop ist ein kostenloser, quelloffener 3D-Mesh-Modellierer für Gestalter, Maker und Entwickler. Bearbeiten Sie Kanten und Flächen direkt in einer interaktiven Ansicht.\n\nZeichnen Sie Linien, gekrümmte Pfade und Flächen. Erzeugen Sie Volumen durch Extrusion, Sweeps und Rotation und formen oder kombinieren Sie Geometrie. Fangpunkte, Hilfslinien und numerische Eingaben unterstützen präzises Arbeiten.\n\nErstellen Sie wiederverwendbare Objektprototypen und unabhängige Instanzen mit dynamischen Griffen. Entwerfen Sie Architekturstudien mit Wänden, Platten, Öffnungen, Fenstern, Türen und Treppen. Nutzen Sie Farben, Transparenz, prozedurale Materialien und auf der GPU erzeugte Bäume.\n\nEntwickeln Sie JavaScript-Objekte und GLSL-Shader mit direkter 3D-Vorschau. Ein optionaler lokaler MCP-Server ermöglicht kompatiblen Agenten, das Modell zu lesen und zu bearbeiten. Externe Clients und Dienste gehören nicht zur Anwendung.\n\nErgänzen Sie Bemaßungen, Texte und Hinweislinien. Wechseln Sie zwischen Perspektive, orthografischer Ansicht und begehbarer Kamera. Tauschen Sie Geometrie etwa als OBJ, STL oder glTF/GLB aus und speichern Sie bearbeitbare Projekte mit Rückgängig und Wiederholen. Unterstützt werden dokumentierte Teilmengen der Formate, keine vollständige CAD- oder BIM-Kompatibilität.\n\nDie grundlegende Modellierung funktioniert offline und ohne Meshcraft-Konto. Die Benutzeroberfläche ist derzeit auf Englisch. Meshcraft wird aktiv weiterentwickelt.",
+  "shortDescription": "Direkte 3D-Mesh-Modellierung, wiederverwendbare dynamische Objekte und JavaScript-/GLSL-Vorschauen. Entwerfen Sie Architekturstudien, nutzen Sie prozedurale Materialien und verbinden Sie kompatible Agenten über lokales MCP.",
+  "features": [
+    "Direkte 3D-Mesh-Bearbeitung mit Extrusion, Sweeps, Rotationskörpern und Volumenoperationen",
+    "Präzise Fangpunkte, Hilfslinien, numerische Eingaben und Transformationsvorschauen",
+    "Wiederverwendbare Prototypen und unabhängige Instanzen mit dynamischen Griffen",
+    "Bearbeitbare Wände, Platten, Öffnungen, Fenster, Türen und architektonische Treppen",
+    "Farben, Transparenz und prozedurales Gras, Laub, Wasser, Ziegel und Holz",
+    "Shader-generierte Bäume und Verzweigungsformen mit bearbeitbaren Parametern",
+    "JavaScript-Objekteditor mit API-Hilfe und direkter 3D-Vorschau",
+    "GLSL-Shadereditor und optionaler lokaler MCP-Server für kompatible Agenten",
+    "Bemaßungen, Texte, Hinweislinien sowie perspektivische, orthografische und begehbare Kameras",
+    "Geometrieaustausch, bearbeitbare Projekte, Rückgängig und Umwandlung zwischen GPU-Objekten und Meshes"
+  ],
+  "searchTerms": [
+    "3D-Modellierung",
+    "Mesh-Editor",
+    "CAD",
+    "dynamische Objekte",
+    "JavaScript",
+    "Architektur",
+    "prozedurale Materialien"
+  ],
+  "captions": [
+    "Erstellen und formen Sie Geometrie direkt im 3D-Arbeitsbereich.",
+    "Verwenden Sie Objektprototypen erneut und variieren Sie unabhängige Instanzen.",
+    "Entwerfen Sie Architekturformen mit Wänden, Platten, Öffnungen und Treppen.",
+    "Schreiben Sie JavaScript-Objekte mit Codevervollständigung und interaktiver 3D-Vorschau.",
+    "Bearbeiten Sie GLSL-Shader neben einer Vorschau des Materials oder Objekts.",
+    "Entdecken Sie prozedurale GPU-Materialien wie Laub, Wasser, Ziegel und Holz.",
+    "Passen Sie Shader-Bäume und Verzweigungsformen in der Objektvorschau an.",
+    "Prüfen Sie Treppen und konfigurieren Sie Stufen, Tragwerk und Geländerhilfslinien."
+  ],
+  "minimumHardware": [
+    "Grafiktreiber mit OpenGL 3.3 und DirectX 11",
+    "Tastatur und Maus"
+  ],
+  "recommendedHardware": [
+    "Aktuelle Grafiktreiber und eine Dreitastenmaus",
+    "Zusätzlicher Arbeitsspeicher für größere Modelle"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "language": "Latvian",
+  "description": "Piešķiriet idejām 3D veidolu ar Meshcraft-desktop — bezmaksas atvērtā pirmkoda rīku tiešai tīklu modelēšanai.\n\nRediģējiet šķautnes un skaldnes, zīmējiet ceļus un veidojiet apjomus ar izspiešanu, profila vilkšanu un rotāciju. Piesaistes, palīglīnijas un skaitliska ievade palīdz strādāt precīzi. Veidojiet atkārtoti lietojamus prototipus ar neatkarīgiem eksemplāriem, kā arī sienas, pārsegumus, atvērumus, logus, durvis un kāpnes.\n\nIzmēģiniet procedurālos GPU materiālus un ar ēnotājiem ģenerētus kokus. Izstrādājiet JavaScript objektus un GLSL ēnotājus ar tiešraides 3D priekšskatījumu. Pievienojiet izmērus, tekstu un norādes; izmantojiet perspektīvas, ortogrāfisko un pastaigas kameru.\n\nApmainieties ar ģeometriju, tostarp OBJ, STL un glTF/GLB formātos. Atbalsts aptver dokumentētas apakškopas, negarantējot pilnīgu CAD vai BIM saderību. Izvēles lokālais MCP serveris sadarbojas ar saderīgiem aģentiem; ārējie klienti un pakalpojumi ir atsevišķi.\n\nPamata modelēšana darbojas bezsaistē bez Meshcraft konta. Saskarne pašlaik ir angļu valodā. Lietotne tiek aktīvi izstrādāta.",
+  "shortDescription": "Tieša 3D tīklu modelēšana, dinamiski objekti, arhitektūra un procedurāli materiāli. JavaScript/GLSL ar priekšskatījumu un aģentu pieslēgšana caur lokālo MCP.",
+  "features": [
+    "Tieša tīklu rediģēšana ar izspiešanu, profila vilkšanu, rotāciju un darbībām ar ķermeņiem",
+    "Precīzas piesaistes, palīglīnijas, skaitliska ievade un transformāciju priekšskatījumi",
+    "Atkārtoti lietojami prototipi un neatkarīgi eksemplāri ar dinamiskiem rokturiem",
+    "Rediģējamas sienas, pārsegumi, atvērumi, logi, durvis un kāpnes",
+    "Krāsas, caurspīdīgums un procedurāla zāle, lapotne, ūdens, ķieģelis un koks",
+    "Ar ēnotājiem ģenerēti koki un sazarotas formas ar maināmiem parametriem",
+    "JavaScript objektu redaktors ar API palīdzību un tiešraides 3D priekšskatījumu",
+    "GLSL redaktors un izvēles lokālais MCP serveris saderīgiem aģentiem",
+    "Izmēri, teksts, norādes un perspektīvas, ortogrāfiskā un pastaigas kamera",
+    "Ģeometrijas apmaiņa, rediģējami projekti, atsaukšana un GPU objektu un tīklu pārveide"
+  ],
+  "searchTerms": [
+    "3D modelēšana",
+    "tīklu redaktors",
+    "CAD",
+    "dinamiski objekti",
+    "JavaScript",
+    "arhitektūra",
+    "procedurāli materiāli"
+  ],
+  "captions": [
+    "Veidojiet un pārveidojiet ģeometriju tieši 3D darbvietā.",
+    "Izmantojiet prototipus atkārtoti un mainiet neatkarīgu eksemplāru parametrus.",
+    "Veidojiet arhitektūras formas ar sienām, pārsegumiem, atvērumiem un kāpnēm.",
+    "Rakstiet JavaScript objektus ar koda pabeigšanu un interaktīvu 3D priekšskatījumu.",
+    "Rediģējiet GLSL ēnotājus blakus materiāla vai objekta priekšskatījumam.",
+    "Izpētiet procedurālos GPU materiālus: lapotni, ūdeni, ķieģeli un koku.",
+    "Pielāgojiet ģenerētus kokus un zarojumus iestatījumu priekšskatījumā.",
+    "Apskatiet kāpnes un konfigurējiet pakāpienus, balstus un margu palīglīnijas."
+  ],
+  "minimumHardware": [
+    "Grafikas draiveri ar OpenGL 3.3 un DirectX 11 atbalstu",
+    "Tastatūra un pele"
+  ],
+  "recommendedHardware": [
+    "Atjaunināti grafikas draiveri un trīs pogu pele",
+    "Papildu RAM lielākiem modeļiem"
+  ]
+}

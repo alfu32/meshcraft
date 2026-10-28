@@ -107,7 +107,10 @@ class Rpc:
 
 
 @contextlib.contextmanager
-def desktop(binary, directory, timeout, software):
+def desktop(binary, directory, timeout, software, size=(1280, 900)):
+    width, height = size
+    if not (640 <= width <= 7680 and 480 <= height <= 4320):
+        raise ValueError("Private desktop size is outside the supported capture range")
     directory.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.pop("WAYLAND_DISPLAY", None)
@@ -145,7 +148,7 @@ def desktop(binary, directory, timeout, software):
             str(display_write),
             "-screen",
             "0",
-            "1280x900x24",
+            f"{width}x{height}x24",
             "-ac",
         ],
         pass_fds=(display_write,),
@@ -175,7 +178,7 @@ def desktop(binary, directory, timeout, software):
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         app = subprocess.Popen(
-            [str(binary), "--size", "1280x900", "--mcp-port", str(port)],
+            [str(binary), "--size", f"{width}x{height}", "--mcp-port", str(port)],
             env=env,
             stdout=log,
             stderr=log,

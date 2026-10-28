@@ -1,0 +1,44 @@
+{
+  "language": "Finnish",
+  "description": "Muotoile ideasi 3D:ksi Meshcraft-desktopilla, maksuttomalla avoimen lähdekoodin suoralla verkkomallintimella.\n\nMuokkaa särmiä ja tahkoja, piirrä polkuja ja luo tilavuuksia pursotuksella, pyyhkäisyllä ja pyöräytyksellä. Tartunta, apuviivat ja numeerinen syöttö tukevat tarkkaa työskentelyä. Luo uudelleenkäytettäviä prototyyppejä itsenäisine esiintymineen sekä seiniä, laattoja, aukkoja, ikkunoita, ovia ja portaita.\n\nTutustu proseduraalisiin GPU-materiaaleihin ja varjostimilla luotuihin puihin. Kehitä JavaScript-objekteja ja GLSL-varjostimia reaaliaikaisella 3D-esikatselulla. Lisää mittoja, tekstiä ja viiteviivoja; käytä perspektiivi-, ortografista tai läpikävelykameraa.\n\nVaihda geometriaa esimerkiksi OBJ-, STL- ja glTF/GLB-muodoissa. Tuki kattaa dokumentoidut osajoukot eikä takaa täydellistä CAD- tai BIM-yhteensopivuutta. Valinnainen paikallinen MCP-palvelin toimii yhteensopivien agenttien kanssa; ulkoiset asiakasohjelmat ja palvelut ovat erillisiä.\n\nPerusmallinnus toimii ilman verkkoyhteyttä ja Meshcraft-tiliä. Käyttöliittymä on tällä hetkellä englanninkielinen. Sovellusta kehitetään aktiivisesti.",
+  "shortDescription": "Suora 3D-verkkomallinnus, dynaamiset objektit, arkkitehtuuri ja proseduraaliset materiaalit. Kehitä JavaScript/GLSL-koodia esikatselulla ja yhdistä agentteja paikallisen MCP:n kautta.",
+  "features": [
+    "Suora verkkomuokkaus pursotuksella, pyyhkäisyllä, pyöräytyksellä ja kappaleoperaatioilla",
+    "Tarkka tartunta, apuviivat, numeerinen syöttö ja muunnosten esikatselu",
+    "Uudelleenkäytettävät prototyypit ja itsenäiset esiintymät dynaamisine kahvoineen",
+    "Muokattavat seinät, laatat, aukot, ikkunat, ovet ja portaat",
+    "Värit, läpinäkyvyys sekä proseduraalinen ruoho, lehvästö, vesi, tiili ja puu",
+    "Varjostimilla luodut puut ja haarautuvat muodot muokattavine parametreineen",
+    "JavaScript-objektieditori API-ohjeilla ja reaaliaikaisella 3D-esikatselulla",
+    "GLSL-editori ja valinnainen paikallinen MCP-palvelin yhteensopiville agenteille",
+    "Mitat, teksti, viiteviivat sekä perspektiivi-, ortografinen ja läpikävelykamera",
+    "Geometrian siirto, muokattavat projektit, kumoaminen sekä GPU-objektien ja verkkojen muunnokset"
+  ],
+  "searchTerms": [
+    "3D mallinnus",
+    "verkkoeditori",
+    "CAD",
+    "dynaamiset objektit",
+    "JavaScript",
+    "arkkitehtuuri",
+    "proseduraaliset materiaalit"
+  ],
+  "captions": [
+    "Rakenna ja muokkaa geometriaa suoraan 3D-työtilassa.",
+    "Käytä prototyyppejä uudelleen ja muuta itsenäisten esiintymien parametreja.",
+    "Luo arkkitehtuurimuotoja seinistä, laatoista, aukoista ja portaista.",
+    "Kirjoita JavaScript-objekteja koodintäydennyksellä ja interaktiivisella 3D-esikatselulla.",
+    "Muokkaa GLSL-varjostimia materiaalin tai objektin esikatselun vieressä.",
+    "Tutustu proseduraalisiin GPU-materiaaleihin, kuten lehvästöön, veteen, tiileen ja puuhun.",
+    "Säädä varjostimilla luotuja puita ja haaroja asetusten esikatselussa.",
+    "Tarkastele portaita ja määritä askelmat, tuet ja kaiteiden apuviivat."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3:a ja DirectX 11:tä tukevat grafiikkaohjaimet",
+    "Näppäimistö ja hiiri"
+  ],
+  "recommendedHardware": [
+    "Ajantasaiset grafiikkaohjaimet ja kolmen painikkeen hiiri",
+    "Lisää RAM-muistia suurille malleille"
+  ]
+}

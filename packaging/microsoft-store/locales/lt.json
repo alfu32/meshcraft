@@ -1,0 +1,44 @@
+{
+  "language": "Lithuanian",
+  "description": "Suteikite idėjoms 3D formą su Meshcraft-desktop — nemokama atvirojo kodo tiesioginio tinklų modeliavimo programa.\n\nRedaguokite briaunas ir sieneles, braižykite kelius ir kurkite tūrius išstūmimu, profilio tempimu ir sukimu. Pritraukimas, pagalbinės linijos ir skaitinė įvestis padeda dirbti tiksliai. Kurkite pakartotinai naudojamus prototipus su nepriklausomais egzemplioriais, sienas, perdangas, angas, langus, duris ir laiptus.\n\nIšbandykite procedūrines GPU medžiagas ir šešėliuoklėmis generuojamus medžius. Kurkite JavaScript objektus ir GLSL šešėliuokles su tiesiogine 3D peržiūra. Pridėkite matmenis, tekstą ir nuorodas; naudokite perspektyvinę, ortografinę ir pasivaikščiojimo kamerą.\n\nKeiskitės geometrija OBJ, STL, glTF/GLB ir kitais formatais. Palaikomi dokumentuoti poaibiai, negarantuojant visiško CAD ar BIM suderinamumo. Pasirenkamas vietinis MCP serveris veikia su suderinamais agentais; išoriniai klientai ir paslaugos yra atskiri.\n\nPagrindinis modeliavimas veikia neprisijungus ir be Meshcraft paskyros. Sąsaja šiuo metu yra anglų kalba. Programa aktyviai tobulinama.",
+  "shortDescription": "Tiesioginis 3D tinklų modeliavimas, dinaminiai objektai, architektūra ir procedūrinės medžiagos. JavaScript/GLSL su peržiūra ir agentų prijungimas per vietinį MCP.",
+  "features": [
+    "Tiesioginis tinklų redagavimas su išstūmimu, profilio tempimu, sukimu ir kūnų operacijomis",
+    "Tikslus pritraukimas, pagalbinės linijos, skaitinė įvestis ir transformacijų peržiūra",
+    "Pakartotinai naudojami prototipai ir nepriklausomi egzemplioriai su dinaminėmis rankenėlėmis",
+    "Redaguojamos sienos, perdangos, angos, langai, durys ir laiptai",
+    "Spalvos, skaidrumas ir procedūrinė žolė, lapija, vanduo, plytos bei mediena",
+    "Šešėliuoklėmis generuojami medžiai ir šakotos formos su keičiamais parametrais",
+    "JavaScript objektų redaktorius su API pagalba ir tiesiogine 3D peržiūra",
+    "GLSL redaktorius ir pasirenkamas vietinis MCP serveris suderinamiems agentams",
+    "Matmenys, tekstas, nuorodos ir perspektyvinė, ortografinė bei pasivaikščiojimo kamera",
+    "Geometrijos mainai, redaguojami projektai, atšaukimas ir GPU objektų bei tinklų konvertavimas"
+  ],
+  "searchTerms": [
+    "3D modeliavimas",
+    "tinklų redaktorius",
+    "CAD",
+    "dinaminiai objektai",
+    "JavaScript",
+    "architektūra",
+    "procedūrinės medžiagos"
+  ],
+  "captions": [
+    "Kurkite ir keiskite geometriją tiesiogiai 3D darbo srityje.",
+    "Pakartotinai naudokite prototipus ir keiskite nepriklausomų egzempliorių parametrus.",
+    "Kurkite architektūrines formas su sienomis, perdangomis, angomis ir laiptais.",
+    "Rašykite JavaScript objektus su kodo užbaigimu ir interaktyvia 3D peržiūra.",
+    "Redaguokite GLSL šešėliuokles šalia medžiagos arba objekto peržiūros.",
+    "Atraskite procedūrines GPU medžiagas: lapiją, vandenį, plytas ir medieną.",
+    "Derinkite generuojamus medžius ir šakas nustatymų peržiūroje.",
+    "Apžiūrėkite laiptus ir nustatykite pakopas, atramas bei turėklų pagalbines linijas."
+  ],
+  "minimumHardware": [
+    "Grafikos tvarkyklės, palaikančios OpenGL 3.3 ir DirectX 11",
+    "Klaviatūra ir pelė"
+  ],
+  "recommendedHardware": [
+    "Naujausios grafikos tvarkyklės ir trijų mygtukų pelė",
+    "Papildoma RAM didesniems modeliams"
+  ]
+}

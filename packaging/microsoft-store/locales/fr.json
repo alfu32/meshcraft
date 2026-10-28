@@ -1,0 +1,44 @@
+{
+  "language": "French",
+  "description": "Donnez forme à vos idées en 3D, réutilisez vos modèles et animez-les avec du code.\n\nMeshcraft-desktop est un modeleur de maillages 3D libre et gratuit, destiné aux concepteurs, aux créateurs et aux développeurs. Travaillez directement sur les arêtes et les faces dans une vue interactive.\n\nTracez des lignes, des chemins courbes et des surfaces. Construisez des volumes par extrusion, balayage ou révolution, puis transformez et combinez la géométrie. Les accrochages, les guides et la saisie numérique facilitent un travail précis.\n\nCréez des prototypes réutilisables et des instances indépendantes, dont les poignées permettent de modifier la forme. Réalisez des études architecturales avec murs, dalles, ouvertures, fenêtres, portes et escaliers. Explorez les couleurs, la transparence, les matériaux procéduraux et les arbres générés sur le GPU.\n\nDéveloppez des objets JavaScript et des shaders GLSL avec un aperçu 3D en direct. Un serveur MCP local facultatif permet à des agents compatibles de consulter et de modifier le modèle. Les clients et services externes sont distincts de l’application.\n\nAjoutez des cotes, du texte et des repères. Utilisez les vues en perspective, orthographiques ou en déplacement libre. Échangez de la géométrie notamment en OBJ, STL et glTF/GLB, et conservez des projets modifiables avec annulation et rétablissement. La prise en charge des formats couvre les sous-ensembles documentés, sans garantir une compatibilité CAO ou BIM complète.\n\nLa modélisation de base fonctionne hors ligne, sans compte Meshcraft. L’interface de l’application est actuellement en anglais. Le logiciel est en développement actif.",
+  "shortDescription": "Modélisation directe de maillages 3D, objets dynamiques réutilisables et aperçus JavaScript/GLSL. Créez des études architecturales, explorez les matériaux procéduraux et connectez des agents compatibles via MCP local.",
+  "features": [
+    "Édition directe de maillages 3D avec extrusion, balayage, révolution et opérations sur les solides",
+    "Accrochages précis, guides, saisie numérique et aperçus des transformations",
+    "Prototypes réutilisables et instances indépendantes avec poignées dynamiques",
+    "Murs, dalles, ouvertures, fenêtres, portes et escaliers architecturaux modifiables",
+    "Couleurs, transparence et matériaux procéduraux : herbe, feuillage, eau, brique et bois",
+    "Arbres et formes ramifiées générés par shaders, avec paramètres modifiables",
+    "Éditeur d’objets JavaScript avec découverte de l’API et aperçu 3D en direct",
+    "Éditeur de shaders GLSL et serveur MCP local facultatif pour les agents compatibles",
+    "Cotes, textes, repères et caméras en perspective, orthographiques ou en déplacement libre",
+    "Échange de géométrie, projets modifiables, annulation et conversion entre objets GPU et maillages"
+  ],
+  "searchTerms": [
+    "modélisation 3D",
+    "éditeur de maillage",
+    "CAO",
+    "objets dynamiques",
+    "JavaScript",
+    "architecture",
+    "matériaux procéduraux"
+  ],
+  "captions": [
+    "Construisez et remodelez la géométrie directement dans l’espace de travail 3D.",
+    "Réutilisez des prototypes et faites varier les paramètres d’instances indépendantes.",
+    "Créez des formes architecturales : murs, dalles, ouvertures et escaliers.",
+    "Programmez des objets JavaScript avec complétion et aperçu 3D interactif.",
+    "Modifiez des shaders GLSL à côté d’un aperçu du matériau ou de l’objet.",
+    "Explorez les matériaux GPU procéduraux : feuillage, eau, brique et bois.",
+    "Ajustez les arbres et les ramifications générés par shaders dans l’aperçu des paramètres.",
+    "Inspectez les escaliers et configurez les marches, les supports et les guides de garde-corps."
+  ],
+  "minimumHardware": [
+    "Pilotes graphiques compatibles OpenGL 3.3 et DirectX 11",
+    "Clavier et souris"
+  ],
+  "recommendedHardware": [
+    "Pilotes graphiques à jour et souris à trois boutons",
+    "Mémoire vive supplémentaire pour les grands modèles"
+  ]
+}

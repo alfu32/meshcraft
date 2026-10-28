@@ -1,0 +1,44 @@
+{
+  "language": "Spanish",
+  "description": "Da forma a tus ideas en 3D y conviértelas en objetos reutilizables.\n\nMeshcraft-desktop es un modelador directo de mallas, gratuito y de código abierto. Edita aristas y caras, dibuja trazados y crea volúmenes mediante extrusión, barrido y revolución. Usa referencias, guías y entrada numérica para trabajar con precisión.\n\nCrea prototipos dinámicos con instancias independientes y elementos arquitectónicos: muros, losas, huecos, ventanas, puertas y escaleras. Explora materiales procedurales y árboles generados en la GPU. Programa objetos JavaScript y shaders GLSL con vistas previas 3D.\n\nAñade cotas, texto y directrices. Usa cámaras en perspectiva, ortográficas o de recorrido e intercambia geometría en OBJ, STL y glTF/GLB. Los formatos admiten los subconjuntos documentados, sin garantizar compatibilidad CAD o BIM completa.\n\nEl servidor MCP local opcional permite trabajar con agentes compatibles; los clientes y servicios externos son independientes. El modelado básico funciona sin conexión y no requiere una cuenta Meshcraft. La interfaz está actualmente en inglés. La aplicación está en desarrollo activo.",
+  "shortDescription": "Modelado directo de mallas 3D, objetos dinámicos, arquitectura y materiales procedurales. Programa en JavaScript/GLSL con vista previa y conecta agentes compatibles mediante MCP local.",
+  "features": [
+    "Edición directa de mallas con extrusión, barrido, revolución y operaciones con sólidos",
+    "Referencias precisas, guías, entrada numérica y vistas previas de transformaciones",
+    "Prototipos reutilizables e instancias independientes con controles dinámicos",
+    "Muros, losas, huecos, ventanas, puertas y escaleras editables",
+    "Color, transparencia y materiales procedurales: hierba, follaje, agua, ladrillo y madera",
+    "Árboles y formas ramificadas generados por shaders con parámetros editables",
+    "Editor de objetos JavaScript con ayuda de API y vista previa 3D",
+    "Editor GLSL y servidor MCP local opcional para agentes compatibles",
+    "Cotas, texto, directrices y cámaras en perspectiva, ortográficas y de recorrido",
+    "Intercambio de geometría, proyectos editables, deshacer y conversión entre objetos GPU y mallas"
+  ],
+  "searchTerms": [
+    "modelado 3D",
+    "editor de mallas",
+    "CAD",
+    "objetos dinámicos",
+    "JavaScript",
+    "arquitectura",
+    "materiales procedurales"
+  ],
+  "captions": [
+    "Construye y modifica geometría directamente en el espacio de trabajo 3D.",
+    "Reutiliza prototipos y ajusta los parámetros de instancias independientes.",
+    "Crea formas arquitectónicas con muros, losas, huecos y escaleras.",
+    "Programa objetos JavaScript con autocompletado y vista previa interactiva.",
+    "Edita shaders GLSL junto a la vista previa del material o del objeto.",
+    "Explora materiales GPU procedurales como follaje, agua, ladrillo y madera.",
+    "Ajusta árboles y ramificaciones generados por shaders desde su vista previa.",
+    "Inspecciona escaleras y configura peldaños, soportes y guías de barandilla."
+  ],
+  "minimumHardware": [
+    "Controladores gráficos compatibles con OpenGL 3.3 y DirectX 11",
+    "Teclado y ratón"
+  ],
+  "recommendedHardware": [
+    "Controladores gráficos actualizados y ratón de tres botones",
+    "RAM adicional para modelos grandes"
+  ]
+}

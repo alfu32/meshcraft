@@ -1,0 +1,44 @@
+{
+  "language": "Turkmen (Latin)",
+  "description": "Meshcraft-desktop bilen pikirleriňize 3D görnüş beriň. Bu torlary gönüden-göni modellemek üçin mugt we açyk çeşmeli programma.\n\nGyralary we ýüzleri redaktirläň, ýollary çyzyň, ekstrudirläp, ýol boýunça süýşürip we aýlap göwrümleri dörediň. Ýapyşdyrma, ugrukdyryjylar we san girizmek takyk işlemäge kömek edýär. Garaşsyz nusgalary bolan gaýtadan ulanylýan prototipleri, diwarlary, plitalary, deşikleri, penjireleri, gapylary we basgançaklary dörediň.\n\nProsedural GPU materiallaryny we şeýderler bilen döredilen agaçlary öwreniň. Göni 3D deslapky syn bilen JavaScript obýektlerini we GLSL şeýderlerini taýýarlaň. Ölçegleri, teksti we görkeziji çyzyklary goşuň; perspektiw, ortografik we gezelenç kameralaryny ulanyň.\n\nGeometriýany OBJ, STL we glTF/GLB ýaly formatlarda alyş-çalyş ediň. Goldaw resminamalaşdyrylan bölekler bilen çäklenýär; doly CAD ýa-da BIM sazlaşygy kepillendirilmeýär. Islege bagly ýerli MCP serweri sazlaşykly agentler bilen işleýär; daşarky müşderiler we hyzmatlar aýratyn üpjün edilýär.\n\nEsasy modelleme internet we Meshcraft hasaby bolmazdan işleýär. Programmanyň interfeýsi häzir iňlis dilindedir. Programma işjeň ösdürilýär.",
+  "shortDescription": "Gönüden-göni 3D tor modellemesi, dinamiki obýektler, binagärlik we prosedural materiallar. JavaScript/GLSL üçin deslapky syn we ýerli MCP arkaly agent birikmesi.",
+  "features": [
+    "Ekstruziýa, ýol boýunça süýşürme, aýlama we gaty jisim amallary bilen tor redaktirlemesi",
+    "Takyk ýapyşdyrma, ugrukdyryjylar, san girizmek we öwürmeleriň deslapky syny",
+    "Gaýtadan ulanylýan prototipler we dinamiki tutawaçly garaşsyz nusgalar",
+    "Redaktirlenýän diwarlar, plitalar, deşikler, penjireler, gapylar we basgançaklar",
+    "Reňkler, durulyk we prosedural ot, ýaprak, suw, kerpiç hem agaç materiallary",
+    "Üýtgedilýän parametrli, şeýder arkaly döredilýän agaçlar we şahalanýan görnüşler",
+    "API kömegi we göni 3D deslapky syn bilen JavaScript obýekt redaktory",
+    "GLSL redaktory we sazlaşykly agentler üçin islege bagly ýerli MCP serweri",
+    "Ölçegler, tekst, görkeziji çyzyklar we perspektiw, ortografik hem gezelenç kameralary",
+    "Geometriýa alyş-çalşy, redaktirlenýän taslamalar, yzyna gaýtarmak we GPU obýektleri bilen torlaryň öwrülişi"
+  ],
+  "searchTerms": [
+    "3D modelleme",
+    "tor redaktory",
+    "CAD",
+    "dinamiki obýektler",
+    "JavaScript",
+    "binagärlik",
+    "prosedural materiallar"
+  ],
+  "captions": [
+    "3D iş meýdanynda geometriýany gönüden-göni dörediň we üýtgediň.",
+    "Prototipleri gaýtadan ulanyň we garaşsyz nusgalaryň parametrlerini üýtgediň.",
+    "Diwarlar, plitalar, deşikler we basgançaklar bilen binagärlik görnüşlerini dörediň.",
+    "Kody tamamlamak we interaktiw 3D deslapky syn bilen JavaScript obýektlerini ýazyň.",
+    "Materialyň ýa-da obýektiň deslapky synynyň ýanynda GLSL şeýderlerini redaktirläň.",
+    "Ýaprak, suw, kerpiç we agaç ýaly prosedural GPU materiallaryny öwreniň.",
+    "Sazlamalaryň deslapky synynda şeýder arkaly döredilen agaçlary we şahalary sazlaň.",
+    "Basgançaklary gözden geçiriň we ädimleri, daýançlary hem germew ugrukdyryjylaryny sazlaň."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3 we DirectX 11 goldaýan grafiki draýwerler",
+    "Klawiatura we syçan"
+  ],
+  "recommendedHardware": [
+    "Täzelenen grafiki draýwerler we üç düwmeli syçan",
+    "Uly modeller üçin goşmaça RAM"
+  ]
+}

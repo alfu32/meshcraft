@@ -1,0 +1,33 @@
+{
+  "productName": "Meshcraft-desktop",
+  "storeId": "9NPWJKLZGLTT",
+  "publisherDisplayName": "K3D0",
+  "submissionType": "MSIX desktop app",
+  "minimumApplicationVersionForThisListing": "0.45.0",
+  "preparedFields": {
+    "primaryCategory": "Multimedia design",
+    "subcategory": "Illustration + graphic design",
+    "secondaryCategory": "Developer tools",
+    "price": "Free",
+    "freeTrial": "None",
+    "inAppPurchases": "None",
+    "website": "https://github.com/alfu32/meshcraft",
+    "supportContact": "https://github.com/alfu32/meshcraft/issues",
+    "privacyPolicy": "https://github.com/alfu32/meshcraft/blob/work/docs/privacy.md",
+    "accessesPersonalInformation": "Yes — user-selected project files and their metadata may contain personal information; optional local MCP clients can access the model. No automatic developer analytics or project upload.",
+    "deviceFamily": "Windows.Desktop",
+    "packageArchitectures": ["x64", "arm64"],
+    "minimumWindowsVersion": "10.0.17763.0 (Windows 10, version 1809)",
+    "applicationInterfaceLanguages": ["en-US"],
+    "accountRequired": false,
+    "coreModelingRequiresInternet": false,
+    "certificationNotes": "Desktop 3D mesh modeler. No login, subscription, external server or network connection is needed for core modeling. Test with keyboard and mouse. Create a rectangle in the viewport, select geometry and use Extrude; example project files are also included in the portable release. JavaScript objects, GLSL shaders and procedural objects are user-authored modeling features. Optional MCP is disabled until started in settings and binds only to 127.0.0.1; external agent clients and services are separate. The interface is English; Store descriptions and captions are localized. The app needs graphics drivers supporting OpenGL 3.3 and DirectX 11."
+  },
+  "accountOnlyStepsNotRepresentableInListingCsv": {
+    "ageRating": "Complete the Partner Center/IARC questionnaire. No official rating has been assigned by this bundle. The shipped examples contain abstract geometry, architecture and vegetation; the app is a user-operated creation tool.",
+    "marketsAndPublicationDate": "Use the publisher's chosen markets and schedule; no account settings were changed.",
+    "publisherContactAndTraderDeclarations": "Use the verified publisher details already held in Partner Center. No address, phone number or private email has been invented or copied into this repository.",
+    "packageUpload": "Upload the same-version signed MSIX packages from the manual release workflow. This listing bundle contains no executable or signing material.",
+    "finalSubmission": "Import and review the listing, complete account-only declarations, then submit in Partner Center. The local build does not publish or certify the app."
+  }
+}

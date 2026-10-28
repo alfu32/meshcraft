@@ -1,0 +1,44 @@
+{
+  "language": "Romanian",
+  "description": "Dă formă ideilor în 3D, refolosește modelele și extinde-le prin cod.\n\nMeshcraft-desktop este un modelator direct de rețele 3D, gratuit și cu sursă deschisă, pentru designeri, creatori și dezvoltatori. Lucrează direct cu muchii și fețe într-o vedere interactivă.\n\nDesenează linii, trasee curbe și suprafețe. Creează volume prin extrudare, baleiere și revoluție, apoi transformă sau combină geometria. Atragerea la puncte, ghidajele și introducerea numerică ajută la lucrul precis.\n\nCreează prototipuri reutilizabile și instanțe independente cu mânere dinamice. Realizează studii arhitecturale cu pereți, plăci, goluri, ferestre, uși și scări. Explorează culori, transparență, materiale procedurale și arbori generați pe GPU.\n\nDezvoltă obiecte JavaScript și shadere GLSL în editoare cu previzualizare 3D. Un server MCP local opțional permite agenților compatibili să inspecteze și să modifice modelul. Clienții și serviciile externe sunt separate de aplicație.\n\nAdaugă cote, texte și indicații. Folosește camere în perspectivă, ortografice sau de parcurgere. Schimbă geometrie în formate precum OBJ, STL și glTF/GLB și păstrează proiecte editabile cu anulare și refacere. Suportul formatelor acoperă subseturile documentate, nu compatibilitate CAD sau BIM completă.\n\nModelarea de bază funcționează offline, fără cont Meshcraft. Interfața aplicației este momentan în engleză. Aplicația este în dezvoltare activă.",
+  "shortDescription": "Modelare directă de rețele 3D, obiecte dinamice reutilizabile și previzualizări JavaScript/GLSL. Creează studii arhitecturale, explorează materiale procedurale și conectează agenți compatibili prin MCP local.",
+  "features": [
+    "Editare directă 3D cu extrudare, baleiere, revoluție și operații pe solide",
+    "Atragere precisă la puncte, ghidaje, introducere numerică și previzualizarea transformărilor",
+    "Prototipuri reutilizabile și instanțe independente cu mânere dinamice",
+    "Pereți, plăci, goluri, ferestre, uși și scări arhitecturale editabile",
+    "Culori, transparență și materiale procedurale: iarbă, frunziș, apă, cărămidă și lemn",
+    "Arbori și forme ramificate generate prin shadere, cu parametri editabili",
+    "Editor de obiecte JavaScript cu explorarea API-ului și previzualizare 3D",
+    "Editor de shadere GLSL și server MCP local opțional pentru agenți compatibili",
+    "Cote, texte, indicații și camere în perspectivă, ortografice și de parcurgere",
+    "Schimb de geometrie, proiecte editabile, anulare/refacere și conversie între obiecte GPU și rețele"
+  ],
+  "searchTerms": [
+    "modelare 3D",
+    "editor de rețele",
+    "CAD",
+    "obiecte dinamice",
+    "JavaScript",
+    "arhitectură",
+    "materiale procedurale"
+  ],
+  "captions": [
+    "Construiește și modifică geometria direct în spațiul de modelare 3D.",
+    "Refolosește prototipurile și variază parametrii instanțelor independente.",
+    "Creează forme arhitecturale cu pereți, plăci, goluri și scări.",
+    "Scrie obiecte JavaScript cu completarea codului și previzualizare 3D interactivă.",
+    "Editează shadere GLSL alături de previzualizarea materialului sau obiectului.",
+    "Explorează materiale GPU procedurale: frunziș, apă, cărămidă și lemn.",
+    "Ajustează arborii și ramificațiile generate prin shadere în previzualizarea obiectului.",
+    "Inspectează scările și configurează treptele, suporturile și ghidajele balustradelor."
+  ],
+  "minimumHardware": [
+    "Drivere grafice compatibile cu OpenGL 3.3 și DirectX 11",
+    "Tastatură și mouse"
+  ],
+  "recommendedHardware": [
+    "Drivere grafice actualizate și mouse cu trei butoane",
+    "Memorie RAM suplimentară pentru modele mari"
+  ]
+}

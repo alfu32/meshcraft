@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+ width="358" height="358" viewBox="0 0 358 358">
+ <defs>
+  <linearGradient id="background" x2="0.8" y2="1">
+   <stop stop-color="#081725"/><stop offset=".56" stop-color="#123c59"/>
+   <stop offset="1" stop-color="#071b2c"/>
+  </linearGradient>
+  <radialGradient id="glow"><stop stop-color="#27b9e9" stop-opacity=".23"/>
+   <stop offset="1" stop-color="#27b9e9" stop-opacity="0"/></radialGradient>
+ </defs>
+ <rect width="358" height="358" fill="url(#background)"/>
+ <ellipse cx="179.0" cy="153.94" rx="186.16" ry="211.22" fill="url(#glow)"/>
+ <path d="M -238.67,358 L 179.00,143.20 M -208.83,358 L 179.00,143.20 M -179.00,358 L 179.00,143.20 M -149.17,358 L 179.00,143.20 M -119.33,358 L 179.00,143.20 M -89.50,358 L 179.00,143.20 M -59.67,358 L 179.00,143.20 M -29.83,358 L 179.00,143.20 M 0.00,358 L 179.00,143.20 M 29.83,358 L 179.00,143.20 M 59.67,358 L 179.00,143.20 M 89.50,358 L 179.00,143.20 M 119.33,358 L 179.00,143.20 M 149.17,358 L 179.00,143.20 M 179.00,358 L 179.00,143.20 M 208.83,358 L 179.00,143.20 M 238.67,358 L 179.00,143.20 M 268.50,358 L 179.00,143.20 M 298.33,358 L 179.00,143.20 M 328.17,358 L 179.00,143.20 M 358.00,358 L 179.00,143.20 M 387.83,358 L 179.00,143.20 M 417.67,358 L 179.00,143.20 M 447.50,358 L 179.00,143.20 M 477.33,358 L 179.00,143.20 M 0,175.42 H 358 M 0,200.48 H 358 M 0,232.70 H 358 M 0,275.66 H 358 M 0,332.94 H 358" fill="none" stroke="#59cbee" stroke-opacity=".13" stroke-width="1.00"/>
+ <path d="M 0,250.6 L 78.76,171.84 L 136.04,358 Z"
+  fill="#3a97b9" fill-opacity=".06"/>
+ <path d="M 358,107.39999999999999 L 279.24,200.48000000000002 L 358,311.46 Z"
+  fill="#fca35a" fill-opacity=".055"/>
+ <image x="41.16999999999999" y="5.37" width="275.66" height="275.66" xlink:href="../../../../assets/branding/meshcraft.png"/>
+ 
+</svg>

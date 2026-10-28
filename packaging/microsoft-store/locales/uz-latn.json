@@ -1,0 +1,44 @@
+{
+  "language": "Uzbek (Latin)",
+  "description": "Meshcraft-desktop yordamida g‘oyalaringizga 3D shakl bering. Bu to‘rlarni bevosita modellashtirish uchun bepul va ochiq kodli dastur.\n\nQirra va yuzlarni tahrirlang, yo‘llar chizing, ekstruziya, yo‘l bo‘ylab surish va aylantirish orqali hajm yarating. Yopishtirish, yo‘naltiruvchilar va raqamli kiritish aniqlikka yordam beradi. Mustaqil nusxali qayta ishlatiladigan prototiplar, devorlar, plitalar, ochiqlar, derazalar, eshiklar va zinapoyalar yarating.\n\nProtsedurali GPU materiallari va sheyder yaratadigan daraxtlarni sinang. Jonli 3D ko‘rinish bilan JavaScript obyektlari va GLSL sheyderlarini ishlab chiqing. O‘lchamlar, matn va izoh chiziqlarini qo‘shing; perspektiv, ortografik va sayr kameralaridan foydalaning.\n\nGeometriyani OBJ, STL va glTF/GLB kabi formatlarda almashing. Qo‘llab-quvvatlash hujjatlashtirilgan qismlar bilan cheklangan; to‘liq CAD yoki BIM mosligi kafolatlanmaydi. Ixtiyoriy mahalliy MCP server mos agentlar bilan ishlaydi; tashqi mijozlar va xizmatlar alohida taqdim etiladi.\n\nAsosiy modellashtirish internetsiz va Meshcraft hisobisiz ishlaydi. Dastur interfeysi hozir ingliz tilida. Dastur faol rivojlantirilmoqda.",
+  "shortDescription": "Bevosita 3D to‘r modellashtirish, dinamik obyektlar, arxitektura va protsedurali materiallar. Jonli ko‘rinish bilan JavaScript/GLSL va mahalliy MCP orqali agentlarni ulash.",
+  "features": [
+    "Ekstruziya, yo‘l bo‘ylab surish, aylantirish va qattiq jism amallari bilan to‘r tahriri",
+    "Aniq yopishtirish, yo‘naltiruvchilar, raqamli kiritish va o‘zgartirishlarni oldindan ko‘rish",
+    "Qayta ishlatiladigan prototiplar va dinamik tutqichli mustaqil nusxalar",
+    "Tahrirlanadigan devorlar, plitalar, ochiqlar, derazalar, eshiklar va zinapoyalar",
+    "Rang, shaffoflik va protsedurali o‘t, barglar, suv, g‘isht hamda yog‘och",
+    "Parametrlari tahrirlanadigan, sheyder yaratadigan daraxtlar va tarmoqlangan shakllar",
+    "API yordami va jonli 3D ko‘rinishli JavaScript obyekt muharriri",
+    "GLSL muharriri va mos agentlar uchun ixtiyoriy mahalliy MCP server",
+    "O‘lchamlar, matn, izoh chiziqlari va perspektiv, ortografik hamda sayr kameralari",
+    "Geometriya almashuvi, tahrirlanadigan loyihalar, bekor qilish va GPU obyektlari bilan to‘rlar o‘rtasida aylantirish"
+  ],
+  "searchTerms": [
+    "3D modellashtirish",
+    "to‘r muharriri",
+    "CAD",
+    "dinamik obyektlar",
+    "JavaScript",
+    "arxitektura",
+    "protsedurali materiallar"
+  ],
+  "captions": [
+    "3D ish maydonida geometriyani bevosita yarating va o‘zgartiring.",
+    "Prototiplardan qayta foydalaning va mustaqil nusxalar parametrlarini o‘zgartiring.",
+    "Devorlar, plitalar, ochiqlar va zinapoyalar bilan arxitektura shakllarini yarating.",
+    "Kodni to‘ldirish va interaktiv 3D ko‘rinish bilan JavaScript obyektlarini yozing.",
+    "Material yoki obyekt ko‘rinishi yonida GLSL sheyderlarini tahrirlang.",
+    "Barglar, suv, g‘isht va yog‘och kabi protsedurali GPU materiallarini o‘rganing.",
+    "Sozlamalar ko‘rinishida sheyder yaratgan daraxtlar va shoxlarni moslang.",
+    "Zinapoyalarni ko‘ring, pog‘onalar, tayanchlar va panjara yo‘naltiruvchilarini sozlang."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3 va DirectX 11 qo‘llaydigan grafik drayverlar",
+    "Klaviatura va sichqoncha"
+  ],
+  "recommendedHardware": [
+    "Yangilangan grafik drayverlar va uch tugmali sichqoncha",
+    "Katta modellar uchun qo‘shimcha RAM"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "language": "Hungarian",
+  "description": "Formálja ötleteit 3D-ben a Meshcraft-desktop ingyenes, nyílt forráskódú, közvetlen hálómodellező alkalmazással.\n\nSzerkesszen éleket és lapokat, rajzoljon útvonalakat, és hozzon létre térbeli alakzatokat kihúzással, söpréssel és forgatással. Az illesztés, a segédvonalak és a számbeli bevitel segítik a pontos munkát. Készítsen újrafelhasználható prototípusokat független példányokkal, valamint falakat, födémeket, nyílásokat, ablakokat, ajtókat és lépcsőket.\n\nPróbálja ki a procedurális GPU-anyagokat és a shaderekkel létrehozott fákat. Fejlesszen JavaScript-objektumokat és GLSL-shadereket élő 3D-előnézettel. Adjon hozzá méreteket, szöveget és hivatkozásokat; használjon perspektivikus, ortografikus és bejáró kamerát.\n\nCseréljen geometriát többek között OBJ, STL és glTF/GLB formátumban. A támogatás a dokumentált részhalmazokra terjed ki, nem garantál teljes CAD- vagy BIM-kompatibilitást. Az opcionális helyi MCP-kiszolgáló kompatibilis ágensekkel használható; a külső kliensek és szolgáltatások különállók.\n\nAz alapmodellezés offline, Meshcraft-fiók nélkül is működik. A felület jelenleg angol nyelvű. Az alkalmazás aktív fejlesztés alatt áll.",
+  "shortDescription": "Közvetlen 3D-hálómodellezés, dinamikus objektumok, építészet és procedurális anyagok. JavaScript/GLSL-fejlesztés élő előnézettel és ágenskapcsolat helyi MCP-n keresztül.",
+  "features": [
+    "Közvetlen hálószerkesztés kihúzással, söpréssel, forgatással és testműveletekkel",
+    "Pontos illesztés, segédvonalak, számbeli bevitel és transzformációs előnézet",
+    "Újrafelhasználható prototípusok és független példányok dinamikus fogópontokkal",
+    "Szerkeszthető falak, födémek, nyílások, ablakok, ajtók és lépcsők",
+    "Színek, átlátszóság és procedurális fű, lombozat, víz, tégla és fa",
+    "Shaderekkel létrehozott fák és elágazó formák szerkeszthető paraméterekkel",
+    "JavaScript-objektumszerkesztő API-súgóval és élő 3D-előnézettel",
+    "GLSL-szerkesztő és opcionális helyi MCP-kiszolgáló kompatibilis ágensekhez",
+    "Méretek, szöveg, hivatkozások és perspektivikus, ortografikus, bejáró kamerák",
+    "Geometriacsere, szerkeszthető projektek, visszavonás és átalakítás GPU-objektumok és hálók között"
+  ],
+  "searchTerms": [
+    "3D modellezés",
+    "hálószerkesztő",
+    "CAD",
+    "dinamikus objektumok",
+    "JavaScript",
+    "építészet",
+    "procedurális anyagok"
+  ],
+  "captions": [
+    "Hozzon létre és alakítson geometriát közvetlenül a 3D-munkaterületen.",
+    "Használja újra a prototípusokat, és változtassa a független példányok paramétereit.",
+    "Készítsen építészeti formákat falakkal, födémekkel, nyílásokkal és lépcsőkkel.",
+    "Írjon JavaScript-objektumokat kódkiegészítéssel és interaktív 3D-előnézettel.",
+    "Szerkesszen GLSL-shadereket az anyag vagy az objektum előnézete mellett.",
+    "Fedezze fel a procedurális GPU-anyagokat: lombozat, víz, tégla és fa.",
+    "Állítsa be a shaderekkel létrehozott fákat és elágazásokat az előnézetben.",
+    "Vizsgálja meg a lépcsőket, és állítsa be a fokokat, támaszokat és korlátvezetőket."
+  ],
+  "minimumHardware": [
+    "OpenGL 3.3 és DirectX 11 támogatású grafikus illesztőprogramok",
+    "Billentyűzet és egér"
+  ],
+  "recommendedHardware": [
+    "Naprakész grafikus illesztőprogramok és háromgombos egér",
+    "További RAM a nagyobb modellekhez"
+  ]
+}

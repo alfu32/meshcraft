@@ -1,0 +1,44 @@
+{
+  "language": "Vietnamese",
+  "description": "Biến ý tưởng thành hình khối 3D với Meshcraft-desktop, trình dựng mô hình lưới trực tiếp miễn phí và mã nguồn mở.\n\nChỉnh sửa cạnh và mặt, vẽ đường dẫn, tạo khối bằng đùn, quét và xoay. Bắt điểm, đường hướng dẫn và nhập số giúp thao tác chính xác. Tạo nguyên mẫu tái sử dụng với các thể hiện độc lập, cùng tường, sàn, lỗ mở, cửa sổ, cửa đi và cầu thang.\n\nKhám phá vật liệu thủ tục trên GPU và cây do shader tạo ra. Phát triển đối tượng JavaScript và shader GLSL với xem trước 3D trực tiếp. Thêm kích thước, văn bản và đường dẫn chú thích; sử dụng camera phối cảnh, trực giao và đi bộ.\n\nTrao đổi hình học bằng OBJ, STL, glTF/GLB và các định dạng khác. Hỗ trợ giới hạn trong các tập con được tài liệu hóa, không bảo đảm tương thích CAD hoặc BIM đầy đủ. Máy chủ MCP cục bộ tùy chọn hỗ trợ tác nhân tương thích; ứng dụng khách và dịch vụ bên ngoài được cung cấp riêng.\n\nChức năng dựng mô hình cơ bản hoạt động ngoại tuyến, không cần tài khoản Meshcraft. Giao diện ứng dụng hiện bằng tiếng Anh. Ứng dụng đang được tích cực phát triển.",
+  "shortDescription": "Dựng lưới 3D trực tiếp, đối tượng động, kiến trúc và vật liệu thủ tục. Phát triển JavaScript/GLSL có xem trước và kết nối tác nhân qua MCP cục bộ.",
+  "features": [
+    "Chỉnh sửa lưới trực tiếp với đùn, quét, xoay và phép toán khối",
+    "Bắt điểm chính xác, đường hướng dẫn, nhập số và xem trước biến đổi",
+    "Nguyên mẫu tái sử dụng và thể hiện độc lập với tay nắm động",
+    "Tường, sàn, lỗ mở, cửa sổ, cửa đi và cầu thang có thể chỉnh sửa",
+    "Màu, độ trong suốt và vật liệu thủ tục: cỏ, tán lá, nước, gạch và gỗ",
+    "Cây và dạng phân nhánh do shader tạo với tham số chỉnh sửa được",
+    "Trình biên tập đối tượng JavaScript có trợ giúp API và xem trước 3D trực tiếp",
+    "Trình biên tập GLSL và máy chủ MCP cục bộ tùy chọn cho tác nhân tương thích",
+    "Kích thước, văn bản, đường dẫn chú thích và camera phối cảnh, trực giao, đi bộ",
+    "Trao đổi hình học, dự án chỉnh sửa được, hoàn tác và chuyển đổi giữa đối tượng GPU với lưới"
+  ],
+  "searchTerms": [
+    "mô hình 3D",
+    "sửa lưới",
+    "CAD",
+    "đối tượng động",
+    "JavaScript",
+    "kiến trúc",
+    "vật liệu thủ tục"
+  ],
+  "captions": [
+    "Tạo và thay đổi hình học trực tiếp trong không gian làm việc 3D.",
+    "Tái sử dụng nguyên mẫu và thay đổi tham số của các thể hiện độc lập.",
+    "Tạo hình kiến trúc với tường, sàn, lỗ mở và cầu thang.",
+    "Viết đối tượng JavaScript với hoàn thành mã và xem trước 3D tương tác.",
+    "Chỉnh sửa shader GLSL bên cạnh bản xem trước vật liệu hoặc đối tượng.",
+    "Khám phá vật liệu GPU thủ tục như tán lá, nước, gạch và gỗ.",
+    "Điều chỉnh cây và nhánh do shader tạo trong bản xem trước cài đặt.",
+    "Kiểm tra cầu thang và thiết lập bậc, phần đỡ cùng đường hướng dẫn lan can."
+  ],
+  "minimumHardware": [
+    "Trình điều khiển đồ họa hỗ trợ OpenGL 3.3 và DirectX 11",
+    "Bàn phím và chuột"
+  ],
+  "recommendedHardware": [
+    "Trình điều khiển đồ họa mới và chuột ba nút",
+    "Thêm RAM cho mô hình lớn"
+  ]
+}

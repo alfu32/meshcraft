@@ -8,6 +8,11 @@ multi-size `packaging/windows/meshcraft.ico` into the executable and MSI shortcu
 Regenerate checked-in derivatives with `python3 scripts/prepare_app_icon.py`
 (ImageMagick needed only for regeneration).
 
+Microsoft Store listing text, all 35 exported locales, desktop screenshots and
+promotional artwork are maintained in [microsoft-store](microsoft-store/README.md).
+Run `python3 scripts/microsoft_store.py --update-export` to create the English-first
+and complete Partner Center import folders and ZIPs.
+
 Meshcraft uses the same six-target distribution matrix as the Rust Kode reference
 (`alfu32/kodecraft`, commit `f3f915c5a9c14f445a3f4e83e520ce2970831636`). There is no JDBC/Java payload.
 

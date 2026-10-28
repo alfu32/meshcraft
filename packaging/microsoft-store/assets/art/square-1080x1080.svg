@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+ width="1080" height="1080" viewBox="0 0 1080 1080">
+ <defs>
+  <linearGradient id="background" x2="0.8" y2="1">
+   <stop stop-color="#081725"/><stop offset=".56" stop-color="#123c59"/>
+   <stop offset="1" stop-color="#071b2c"/>
+  </linearGradient>
+  <radialGradient id="glow"><stop stop-color="#27b9e9" stop-opacity=".23"/>
+   <stop offset="1" stop-color="#27b9e9" stop-opacity="0"/></radialGradient>
+ </defs>
+ <rect width="1080" height="1080" fill="url(#background)"/>
+ <ellipse cx="540.0" cy="464.4" rx="561.6" ry="637.1999999999999" fill="url(#glow)"/>
+ <path d="M -720.00,1080 L 540.00,432.00 M -630.00,1080 L 540.00,432.00 M -540.00,1080 L 540.00,432.00 M -450.00,1080 L 540.00,432.00 M -360.00,1080 L 540.00,432.00 M -270.00,1080 L 540.00,432.00 M -180.00,1080 L 540.00,432.00 M -90.00,1080 L 540.00,432.00 M 0.00,1080 L 540.00,432.00 M 90.00,1080 L 540.00,432.00 M 180.00,1080 L 540.00,432.00 M 270.00,1080 L 540.00,432.00 M 360.00,1080 L 540.00,432.00 M 450.00,1080 L 540.00,432.00 M 540.00,1080 L 540.00,432.00 M 630.00,1080 L 540.00,432.00 M 720.00,1080 L 540.00,432.00 M 810.00,1080 L 540.00,432.00 M 900.00,1080 L 540.00,432.00 M 990.00,1080 L 540.00,432.00 M 1080.00,1080 L 540.00,432.00 M 1170.00,1080 L 540.00,432.00 M 1260.00,1080 L 540.00,432.00 M 1350.00,1080 L 540.00,432.00 M 1440.00,1080 L 540.00,432.00 M 0,529.20 H 1080 M 0,604.80 H 1080 M 0,702.00 H 1080 M 0,831.60 H 1080 M 0,1004.40 H 1080" fill="none" stroke="#59cbee" stroke-opacity=".13" stroke-width="1.00"/>
+ <path d="M 0,756.0 L 237.6,518.4 L 410.4,1080 Z"
+  fill="#3a97b9" fill-opacity=".06"/>
+ <path d="M 1080,324.0 L 842.4,604.8000000000001 L 1080,939.6 Z"
+  fill="#fca35a" fill-opacity=".055"/>
+ <image x="124.19999999999999" y="16.2" width="831.6" height="831.6" xlink:href="../../../../assets/branding/meshcraft.png"/>
+ <text x="540.0" y="972.0" fill="#f4f9ff" font-family="DejaVu Sans" font-size="56.16" font-weight="600" text-anchor="middle">Meshcraft-desktop</text>
+</svg>

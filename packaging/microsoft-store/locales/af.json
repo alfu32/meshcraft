@@ -1,0 +1,44 @@
+{
+  "language": "Afrikaans",
+  "description": "Gee jou idees vorm in 3D met Meshcraft-desktop, ’n gratis oopbronprogram vir direkte maasmodellering.\n\nWysig rande en vlakke, teken paaie en skep volumes deur ekstrusie, sweeps en omwenteling. Vasgrypunte, hulplyne en numeriese invoer help met presiese werk. Skep herbruikbare prototipes met onafhanklike instansies en argitektuur met mure, blaaie, openinge, vensters, deure en trappe.\n\nVerken prosedurele GPU-materiale en bome wat deur skaduprogramme gegenereer word. Ontwikkel JavaScript-objekte en GLSL-skaduprogramme met lewendige 3D-voorskoue. Voeg afmetings, teks en verwysingslyne by en gebruik perspektief-, ortografiese en deurloopkameras.\n\nRuil geometrie uit in onder meer OBJ, STL en glTF/GLB. Formaatondersteuning dek gedokumenteerde deelversamelings en waarborg nie volledige CAD- of BIM-versoenbaarheid nie. Die opsionele plaaslike MCP-bediener werk met versoenbare agente; eksterne kliënte en dienste is afsonderlik.\n\nBasiese modellering werk vanlyn sonder ’n Meshcraft-rekening. Die koppelvlak is tans in Engels. Die program word aktief ontwikkel.",
+  "shortDescription": "Direkte 3D-maasmodellering, dinamiese objekte, argitektuur en prosedurele materiale. Ontwikkel JavaScript/GLSL met voorskoue en verbind agente deur plaaslike MCP.",
+  "features": [
+    "Direkte maasredigering met ekstrusie, sweeps, omwenteling en soliede bewerkings",
+    "Presiese vasgrypunte, hulplyne, numeriese invoer en transformasievoorskoue",
+    "Herbruikbare prototipes en onafhanklike instansies met dinamiese handvatsels",
+    "Wysigbare mure, blaaie, openinge, vensters, deure en trappe",
+    "Kleur, deursigtigheid en prosedurele gras, blare, water, baksteen en hout",
+    "Bome en vertakte vorms uit skaduprogramme met wysigbare parameters",
+    "JavaScript-objekredigeerder met API-hulp en lewendige 3D-voorskou",
+    "GLSL-redigeerder en opsionele plaaslike MCP-bediener vir versoenbare agente",
+    "Afmetings, teks, verwysingslyne en perspektief-, ortografiese en deurloopkameras",
+    "Geometrie-uitruiling, wysigbare projekte, ontdoen en omskakeling tussen GPU-objekte en mase"
+  ],
+  "searchTerms": [
+    "3D modellering",
+    "maasredigeerder",
+    "CAD",
+    "dinamiese objekte",
+    "JavaScript",
+    "argitektuur",
+    "prosedurele materiale"
+  ],
+  "captions": [
+    "Bou en hervorm geometrie direk in die 3D-werkruimte.",
+    "Hergebruik prototipes en verander onafhanklike instansies se parameters.",
+    "Skep argitektuur met mure, blaaie, openinge en trappe.",
+    "Skryf JavaScript-objekte met kodevoltooiing en ’n interaktiewe 3D-voorskou.",
+    "Wysig GLSL-skaduprogramme langs die voorskou van die materiaal of objek.",
+    "Verken prosedurele GPU-materiale soos blare, water, baksteen en hout.",
+    "Pas gegenereerde bome en vertakkings in die instellingsvoorskou aan.",
+    "Bekyk trappe en stel treë, steun en leuninghulplyne op."
+  ],
+  "minimumHardware": [
+    "Grafiese drywers wat OpenGL 3.3 en DirectX 11 ondersteun",
+    "Sleutelbord en muis"
+  ],
+  "recommendedHardware": [
+    "Onlangse grafiese drywers en ’n drieknopmuis",
+    "Bykomende RAM vir groter modelle"
+  ]
+}

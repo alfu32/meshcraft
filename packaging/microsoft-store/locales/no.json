@@ -1,0 +1,44 @@
+{
+  "language": "Norwegian Bokmål",
+  "description": "Gi ideene dine form i 3D med Meshcraft-desktop, et gratis program med åpen kildekode for direkte meshmodellering.\n\nRediger kanter og flater, tegn baner og lag volumer med ekstrudering, sveip og omdreining. Festepunkter, hjelpelinjer og numerisk inndata gjør presist arbeid enklere. Lag gjenbrukbare prototyper med uavhengige instanser og arkitektur med vegger, dekker, åpninger, vinduer, dører og trapper.\n\nUtforsk prosedyrebaserte GPU-materialer og shadergenererte trær. Utvikle JavaScript-objekter og GLSL-shadere med direkte 3D-forhåndsvisning. Legg til mål, tekst og henvisningslinjer og bruk perspektiv-, ortografiske og gjennomgangskameraer.\n\nUtveksle geometri i blant annet OBJ, STL og glTF/GLB. Formatstøtten omfatter dokumenterte delmengder og garanterer ikke full CAD- eller BIM-kompatibilitet. Den valgfrie lokale MCP-serveren kan brukes av kompatible agenter; eksterne klienter og tjenester er separate.\n\nGrunnleggende modellering fungerer frakoblet uten en Meshcraft-konto. Grensesnittet er for tiden på engelsk. Programmet er under aktiv utvikling.",
+  "shortDescription": "Direkte 3D-meshmodellering, dynamiske objekter, arkitektur og prosedyrebaserte materialer. Utvikle JavaScript/GLSL med forhåndsvisning og koble til agenter via lokal MCP.",
+  "features": [
+    "Direkte meshredigering med ekstrudering, sveip, omdreining og solidoperasjoner",
+    "Presise festepunkter, hjelpelinjer, numerisk inndata og forhåndsvisning av transformasjoner",
+    "Gjenbrukbare prototyper og uavhengige instanser med dynamiske håndtak",
+    "Redigerbare vegger, dekker, åpninger, vinduer, dører og trapper",
+    "Farger, gjennomsiktighet og prosedyrebasert gress, løvverk, vann, tegl og tre",
+    "Shadergenererte trær og forgrenede former med redigerbare parametere",
+    "JavaScript-objektredigering med API-hjelp og direkte 3D-forhåndsvisning",
+    "GLSL-redigering og valgfri lokal MCP-server for kompatible agenter",
+    "Mål, tekst, henvisningslinjer og perspektiv-, ortografiske og gjennomgangskameraer",
+    "Geometriutveksling, redigerbare prosjekter, angre og konvertering mellom GPU-objekter og mesh"
+  ],
+  "searchTerms": [
+    "3D modellering",
+    "meshredigering",
+    "CAD",
+    "dynamiske objekter",
+    "JavaScript",
+    "arkitektur",
+    "prosedyrematerialer"
+  ],
+  "captions": [
+    "Bygg og omform geometri direkte i 3D-arbeidsområdet.",
+    "Gjenbruk prototyper og varier parameterne til uavhengige instanser.",
+    "Lag arkitektur med vegger, dekker, åpninger og trapper.",
+    "Skriv JavaScript-objekter med kodefullføring og interaktiv 3D-forhåndsvisning.",
+    "Rediger GLSL-shadere ved siden av forhåndsvisningen av materialet eller objektet.",
+    "Utforsk prosedyrebaserte GPU-materialer som løvverk, vann, tegl og tre.",
+    "Juster shadergenererte trær og forgreninger i forhåndsvisningen av innstillingene.",
+    "Se på trapper og konfigurer trinn, støtte og rekkverksguider."
+  ],
+  "minimumHardware": [
+    "Grafikkdrivere med støtte for OpenGL 3.3 og DirectX 11",
+    "Tastatur og mus"
+  ],
+  "recommendedHardware": [
+    "Oppdaterte grafikkdrivere og mus med tre knapper",
+    "Ekstra RAM til større modeller"
+  ]
+}

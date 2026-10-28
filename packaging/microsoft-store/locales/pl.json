@@ -1,0 +1,44 @@
+{
+  "language": "Polish",
+  "description": "Nadaj pomysłom kształt w 3D dzięki Meshcraft-desktop — bezpłatnemu modelerowi siatek o otwartym kodzie źródłowym.\n\nEdytuj bezpośrednio krawędzie i ściany, rysuj ścieżki i twórz bryły przez wyciąganie, przeciąganie profilu i obrót. Przyciąganie, prowadnice i dane liczbowe ułatwiają precyzyjną pracę. Twórz prototypy z niezależnymi instancjami oraz ściany, stropy, otwory, okna, drzwi i schody.\n\nWypróbuj proceduralne materiały GPU i drzewa generowane przez shadery. Programuj obiekty JavaScript i shadery GLSL z podglądem 3D na żywo. Dodawaj wymiary, tekst i odnośniki; korzystaj z kamer perspektywicznych, ortograficznych i spacerowych.\n\nWymieniaj geometrię m.in. w formatach OBJ, STL i glTF/GLB. Obsługiwane są udokumentowane podzbiory formatów, bez gwarancji pełnej zgodności CAD lub BIM. Opcjonalny lokalny serwer MCP współpracuje ze zgodnymi agentami; zewnętrzne klienty i usługi są odrębne.\n\nPodstawowe modelowanie działa offline, bez konta Meshcraft. Interfejs aplikacji jest obecnie w języku angielskim. Program jest aktywnie rozwijany.",
+  "shortDescription": "Bezpośrednie modelowanie siatek 3D, obiekty dynamiczne, architektura i materiały proceduralne. Programuj JavaScript/GLSL z podglądem i łącz agentów przez lokalny MCP.",
+  "features": [
+    "Bezpośrednia edycja siatek: wyciąganie, przeciąganie profilu, obrót i operacje na bryłach",
+    "Precyzyjne przyciąganie, prowadnice, dane liczbowe i podgląd przekształceń",
+    "Wielokrotne użycie prototypów i niezależne instancje z dynamicznymi uchwytami",
+    "Edytowalne ściany, stropy, otwory, okna, drzwi i schody",
+    "Kolory, przezroczystość i proceduralna trawa, liście, woda, cegła oraz drewno",
+    "Drzewa i rozgałęzienia generowane przez shadery z edytowalnymi parametrami",
+    "Edytor obiektów JavaScript z pomocą API i podglądem 3D na żywo",
+    "Edytor GLSL i opcjonalny lokalny serwer MCP dla zgodnych agentów",
+    "Wymiary, tekst, odnośniki oraz kamery perspektywiczne, ortograficzne i spacerowe",
+    "Wymiana geometrii, edytowalne projekty, cofanie i konwersja obiektów GPU na siatki i odwrotnie"
+  ],
+  "searchTerms": [
+    "modelowanie 3D",
+    "edytor siatek",
+    "CAD",
+    "obiekty dynamiczne",
+    "JavaScript",
+    "architektura",
+    "materiały proceduralne"
+  ],
+  "captions": [
+    "Twórz i przekształcaj geometrię bezpośrednio w obszarze roboczym 3D.",
+    "Używaj prototypów wielokrotnie i zmieniaj parametry niezależnych instancji.",
+    "Twórz architekturę ze ścianami, stropami, otworami i schodami.",
+    "Pisz obiekty JavaScript z uzupełnianiem kodu i interaktywnym podglądem 3D.",
+    "Edytuj shadery GLSL obok podglądu materiału lub obiektu.",
+    "Odkrywaj proceduralne materiały GPU: liście, wodę, cegłę i drewno.",
+    "Dostosowuj drzewa i rozgałęzienia generowane przez shadery w podglądzie ustawień.",
+    "Przeglądaj schody i konfiguruj stopnie, podpory oraz prowadnice balustrad."
+  ],
+  "minimumHardware": [
+    "Sterowniki graficzne obsługujące OpenGL 3.3 i DirectX 11",
+    "Klawiatura i mysz"
+  ],
+  "recommendedHardware": [
+    "Aktualne sterowniki graficzne i mysz z trzema przyciskami",
+    "Dodatkowa pamięć RAM do większych modeli"
+  ]
+}

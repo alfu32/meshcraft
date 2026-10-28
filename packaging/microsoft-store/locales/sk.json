@@ -1,0 +1,44 @@
+{
+  "language": "Slovak",
+  "description": "Dajte svojim nápadom tvar v 3D s aplikáciou Meshcraft-desktop, bezplatným modelárom sietí s otvoreným zdrojovým kódom.\n\nPriamo upravujte hrany a plochy, kreslite dráhy a tvorte objemy vysúvaním, ťahaním profilu a rotáciou. Prichytávanie, vodiace čiary a číselný vstup pomáhajú pri presnej práci. Vytvárajte prototypy s nezávislými inštanciami a architektúru so stenami, doskami, otvormi, oknami, dverami a schodmi.\n\nVyskúšajte procedurálne GPU materiály a stromy generované shadermi. Vyvíjajte JavaScript objekty a GLSL shadery so živým 3D náhľadom. Pridávajte kóty, text a odkazy; používajte perspektívnu, ortografickú kameru a prechádzanie modelom.\n\nVymieňajte geometriu napríklad v OBJ, STL a glTF/GLB. Podpora pokrýva zdokumentované podmnožiny formátov, nie úplnú kompatibilitu CAD alebo BIM. Voliteľný lokálny MCP server spolupracuje s kompatibilnými agentmi; externí klienti a služby sú samostatné.\n\nZákladné modelovanie funguje offline bez účtu Meshcraft. Rozhranie aplikácie je momentálne v angličtine. Aplikácia sa aktívne vyvíja.",
+  "shortDescription": "Priame modelovanie 3D sietí, dynamické objekty, architektúra a procedurálne materiály. Vyvíjajte JavaScript/GLSL s náhľadom a pripájajte agentov cez lokálny MCP.",
+  "features": [
+    "Priama úprava sietí s vysúvaním, ťahaním profilu, rotáciou a operáciami s telesami",
+    "Presné prichytávanie, vodiace čiary, číselný vstup a náhľady transformácií",
+    "Opakovane použiteľné prototypy a nezávislé inštancie s dynamickými úchytmi",
+    "Upraviteľné steny, dosky, otvory, okná, dvere a schody",
+    "Farby, priehľadnosť a procedurálna tráva, lístie, voda, tehla a drevo",
+    "Stromy a rozvetvené tvary generované shadermi s upraviteľnými parametrami",
+    "Editor JavaScript objektov s pomocou API a živým 3D náhľadom",
+    "GLSL editor a voliteľný lokálny MCP server pre kompatibilných agentov",
+    "Kóty, text, odkazy a perspektívna, ortografická a prechádzková kamera",
+    "Výmena geometrie, upraviteľné projekty, späť a prevod medzi GPU objektmi a sieťami"
+  ],
+  "searchTerms": [
+    "3D modelovanie",
+    "editor sietí",
+    "CAD",
+    "dynamické objekty",
+    "JavaScript",
+    "architektúra",
+    "procedurálne materiály"
+  ],
+  "captions": [
+    "Tvorte a upravujte geometriu priamo v 3D pracovnom priestore.",
+    "Používajte prototypy opakovane a meňte parametre nezávislých inštancií.",
+    "Tvorte architektúru so stenami, doskami, otvormi a schodmi.",
+    "Píšte JavaScript objekty s dopĺňaním kódu a interaktívnym 3D náhľadom.",
+    "Upravujte GLSL shadery vedľa náhľadu materiálu alebo objektu.",
+    "Objavujte procedurálne GPU materiály, napríklad lístie, vodu, tehlu a drevo.",
+    "Upravujte stromy a vetvenie generované shadermi v náhľade nastavení.",
+    "Prezerajte schody a nastavujte stupne, podpery a vodiace čiary zábradlia."
+  ],
+  "minimumHardware": [
+    "Grafické ovládače s podporou OpenGL 3.3 a DirectX 11",
+    "Klávesnica a myš"
+  ],
+  "recommendedHardware": [
+    "Aktuálne grafické ovládače a myš s tromi tlačidlami",
+    "Viac pamäte RAM pre väčšie modely"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "language": "Dutch",
+  "description": "Geef je ideeën vorm in 3D en maak er herbruikbare objecten van.\n\nMeshcraft-desktop is een gratis, opensource modelleerprogramma voor directe meshbewerking. Bewerk randen en vlakken, teken paden en maak volumes met extrusie, sweep en omwenteling. Snappen, hulplijnen en numerieke invoer helpen je nauwkeurig te werken.\n\nMaak dynamische prototypes met onafhankelijke instanties en architectuurstudies met muren, vloeren, openingen, ramen, deuren en trappen. Ontdek procedurele materialen en bomen die op de GPU worden gegenereerd. Ontwikkel JavaScript-objecten en GLSL-shaders met live 3D-voorbeelden.\n\nVoeg maatlijnen, tekst en verwijslijnen toe. Gebruik perspectief-, orthografische en wandelcamera’s en wissel geometrie uit via OBJ, STL en glTF/GLB. Formaatondersteuning betreft gedocumenteerde subsets, zonder volledige CAD- of BIM-compatibiliteit te garanderen.\n\nDe optionele lokale MCP-server werkt met compatibele agents; externe clients en diensten staan los van de app. De basismodellering werkt offline zonder Meshcraft-account. De interface is momenteel Engelstalig. De app wordt actief ontwikkeld.",
+  "shortDescription": "Directe 3D-meshbewerking, dynamische objecten, architectuur en procedurele materialen. Ontwikkel in JavaScript/GLSL met live voorbeelden en verbind agents via lokale MCP-tools.",
+  "features": [
+    "Directe meshbewerking met extrusie, sweep, omwenteling en bewerkingen op volumes",
+    "Nauwkeurig snappen, hulplijnen, numerieke invoer en transformatievoorbeelden",
+    "Herbruikbare prototypes en onafhankelijke instanties met dynamische handgrepen",
+    "Bewerkbare muren, vloeren, openingen, ramen, deuren en trappen",
+    "Kleur, transparantie en procedureel gras, gebladerte, water, baksteen en hout",
+    "Shadergegenereerde bomen en vertakte vormen met bewerkbare parameters",
+    "JavaScript-objecteditor met API-hulp en een live 3D-voorbeeld",
+    "GLSL-editor en optionele lokale MCP-server voor compatibele agents",
+    "Maatlijnen, tekst, verwijslijnen en perspectief-, orthografische en wandelcamera’s",
+    "Geometrie-uitwisseling, bewerkbare projecten, ongedaan maken en conversie tussen GPU-objecten en meshes"
+  ],
+  "searchTerms": [
+    "3D modelleren",
+    "mesh-editor",
+    "CAD",
+    "dynamische objecten",
+    "JavaScript",
+    "architectuur",
+    "procedurele materialen"
+  ],
+  "captions": [
+    "Bouw en vervorm geometrie rechtstreeks in de 3D-werkruimte.",
+    "Hergebruik prototypes en varieer de parameters van onafhankelijke instanties.",
+    "Maak architectuurvormen met muren, vloeren, openingen en trappen.",
+    "Schrijf JavaScript-objecten met codeaanvulling en een interactief 3D-voorbeeld.",
+    "Bewerk GLSL-shaders naast het voorbeeld van het materiaal of object.",
+    "Ontdek procedurele GPU-materialen zoals gebladerte, water, baksteen en hout.",
+    "Pas shadergegenereerde bomen en vertakkingen aan in het instellingenvoorbeeld.",
+    "Bekijk trappen en configureer treden, ondersteuning en leuninghulplijnen."
+  ],
+  "minimumHardware": [
+    "Grafische stuurprogramma’s met OpenGL 3.3- en DirectX 11-ondersteuning",
+    "Toetsenbord en muis"
+  ],
+  "recommendedHardware": [
+    "Actuele grafische stuurprogramma’s en een muis met drie knoppen",
+    "Extra RAM voor grotere modellen"
+  ]
+}

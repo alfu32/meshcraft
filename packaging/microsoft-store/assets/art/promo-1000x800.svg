@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+ width="1000" height="800" viewBox="0 0 1000 800">
+ <defs>
+  <linearGradient id="background" x2="0.8" y2="1">
+   <stop stop-color="#081725"/><stop offset=".56" stop-color="#123c59"/>
+   <stop offset="1" stop-color="#071b2c"/>
+  </linearGradient>
+  <radialGradient id="glow"><stop stop-color="#27b9e9" stop-opacity=".23"/>
+   <stop offset="1" stop-color="#27b9e9" stop-opacity="0"/></radialGradient>
+ </defs>
+ <rect width="1000" height="800" fill="url(#background)"/>
+ <ellipse cx="500.0" cy="344.0" rx="520.0" ry="472.0" fill="url(#glow)"/>
+ <path d="M -666.67,800 L 500.00,320.00 M -583.33,800 L 500.00,320.00 M -500.00,800 L 500.00,320.00 M -416.67,800 L 500.00,320.00 M -333.33,800 L 500.00,320.00 M -250.00,800 L 500.00,320.00 M -166.67,800 L 500.00,320.00 M -83.33,800 L 500.00,320.00 M 0.00,800 L 500.00,320.00 M 83.33,800 L 500.00,320.00 M 166.67,800 L 500.00,320.00 M 250.00,800 L 500.00,320.00 M 333.33,800 L 500.00,320.00 M 416.67,800 L 500.00,320.00 M 500.00,800 L 500.00,320.00 M 583.33,800 L 500.00,320.00 M 666.67,800 L 500.00,320.00 M 750.00,800 L 500.00,320.00 M 833.33,800 L 500.00,320.00 M 916.67,800 L 500.00,320.00 M 1000.00,800 L 500.00,320.00 M 1083.33,800 L 500.00,320.00 M 1166.67,800 L 500.00,320.00 M 1250.00,800 L 500.00,320.00 M 1333.33,800 L 500.00,320.00 M 0,392.00 H 1000 M 0,448.00 H 1000 M 0,520.00 H 1000 M 0,616.00 H 1000 M 0,744.00 H 1000" fill="none" stroke="#59cbee" stroke-opacity=".13" stroke-width="1.00"/>
+ <path d="M 0,560.0 L 220.0,384.0 L 380.0,800 Z"
+  fill="#3a97b9" fill-opacity=".06"/>
+ <path d="M 1000,240.0 L 780.0,448.00000000000006 L 1000,696.0 Z"
+  fill="#fca35a" fill-opacity=".055"/>
+ <image x="140.0" y="12.0" width="720.0" height="720.0" xlink:href="../../../../assets/branding/meshcraft.png"/>
+ <text x="500.0" y="720.0" fill="#f4f9ff" font-family="DejaVu Sans" font-size="52.0" font-weight="600" text-anchor="middle">Meshcraft-desktop</text>
+</svg>

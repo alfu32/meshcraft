@@ -1,0 +1,44 @@
+{
+  "language": "Italian",
+  "description": "Dai forma alle tue idee in 3D e trasformale in oggetti riutilizzabili.\n\nMeshcraft-desktop è un modellatore diretto di mesh, gratuito e open source. Modifica spigoli e facce, disegna percorsi e crea volumi con estrusione, sweep e rivoluzione. Snap, guide e inserimento numerico aiutano a lavorare con precisione.\n\nCrea prototipi dinamici con istanze indipendenti e studi architettonici con pareti, solai, aperture, finestre, porte e scale. Esplora materiali procedurali e alberi generati dalla GPU. Sviluppa oggetti JavaScript e shader GLSL con anteprime 3D in tempo reale.\n\nAggiungi quote, testo e richiami. Usa viste prospettiche, ortografiche o in prima persona e scambia geometria in OBJ, STL e glTF/GLB. Il supporto dei formati copre i sottoinsiemi documentati, senza garantire piena compatibilità CAD o BIM.\n\nIl server MCP locale facoltativo permette di usare agenti compatibili; client e servizi esterni sono separati. La modellazione di base funziona offline senza un account Meshcraft. L’interfaccia è attualmente in inglese. L’applicazione è in sviluppo attivo.",
+  "shortDescription": "Modellazione diretta di mesh 3D, oggetti dinamici, architettura e materiali procedurali. Sviluppa in JavaScript/GLSL con anteprima e collega agenti compatibili tramite MCP locale.",
+  "features": [
+    "Modifica diretta di mesh con estrusione, sweep, rivoluzione e operazioni sui solidi",
+    "Snap precisi, guide, inserimento numerico e anteprime delle trasformazioni",
+    "Prototipi riutilizzabili e istanze indipendenti con maniglie dinamiche",
+    "Pareti, solai, aperture, finestre, porte e scale modificabili",
+    "Colori, trasparenza e materiali procedurali: erba, fogliame, acqua, mattoni e legno",
+    "Alberi e forme ramificate generati da shader con parametri modificabili",
+    "Editor di oggetti JavaScript con guida API e anteprima 3D",
+    "Editor GLSL e server MCP locale facoltativo per agenti compatibili",
+    "Quote, testo, richiami e viste prospettiche, ortografiche e in prima persona",
+    "Scambio di geometria, progetti modificabili, annullamento e conversione tra oggetti GPU e mesh"
+  ],
+  "searchTerms": [
+    "modellazione 3D",
+    "editor mesh",
+    "CAD",
+    "oggetti dinamici",
+    "JavaScript",
+    "architettura",
+    "materiali procedurali"
+  ],
+  "captions": [
+    "Costruisci e modifica la geometria direttamente nell’area di lavoro 3D.",
+    "Riutilizza prototipi e varia i parametri delle istanze indipendenti.",
+    "Crea forme architettoniche con pareti, solai, aperture e scale.",
+    "Scrivi oggetti JavaScript con completamento del codice e anteprima interattiva.",
+    "Modifica shader GLSL accanto all’anteprima del materiale o dell’oggetto.",
+    "Esplora materiali GPU procedurali come fogliame, acqua, mattoni e legno.",
+    "Regola alberi e ramificazioni generati da shader nell’anteprima delle impostazioni.",
+    "Esamina le scale e configura gradini, supporti e guide dei parapetti."
+  ],
+  "minimumHardware": [
+    "Driver grafici compatibili con OpenGL 3.3 e DirectX 11",
+    "Tastiera e mouse"
+  ],
+  "recommendedHardware": [
+    "Driver grafici aggiornati e mouse a tre pulsanti",
+    "RAM aggiuntiva per modelli grandi"
+  ]
+}
