@@ -27,7 +27,7 @@ try {
       $Installed.Publisher -cne $Identity.publisher -or $Installed.Version.ToString() -ne $Metadata.packageVersion -or
       $Installed.Architecture.ToString() -ine $Arch) { throw 'Installed MSIX identity/version/architecture mismatch' }
   $Executable = Join-Path $Installed.InstallLocation 'meshcraft.exe'
-  python -c 'import subprocess,sys; actual=subprocess.check_output([sys.argv[1],"--version"],text=True).strip(); assert actual=="Meshcraft "+sys.argv[2],actual; print(actual)' $Executable $Version
+  python -c "import subprocess,sys; actual=subprocess.check_output([sys.argv[1],'--version'],text=True).strip(); assert actual=='Meshcraft '+sys.argv[2],actual; print(actual)" $Executable $Version
   if ($LASTEXITCODE -ne 0) { throw 'Installed MSIX command launch failed' }
 } finally {
   try {
