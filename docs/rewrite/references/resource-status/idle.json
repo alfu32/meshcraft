@@ -1,0 +1,25 @@
+{
+  "frameBefore": 1,
+  "frameAfter": 1,
+  "revision": 0,
+  "idleSeconds": 3.2,
+  "appAlive": true,
+  "anchors": {
+    "RAM": {
+      "x": 413,
+      "changed_pixels": 0
+    },
+    "CPU": {
+      "x": 659,
+      "changed_pixels": 0
+    },
+    "VRAM": {
+      "x": 763,
+      "changed_pixels": 0
+    },
+    "Frame": {
+      "x": 1051,
+      "changed_pixels": 0
+    }
+  }
+}

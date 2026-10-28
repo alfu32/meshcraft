@@ -4,6 +4,8 @@ mod assets;
 mod native_snap;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_spatial;
+#[cfg(not(target_arch = "wasm32"))]
+mod resource_stats;
 mod viewport;
 
 pub use app::MeshcraftApp;

@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "gpui_resource_stats.rs"]
+mod resource_stats;
+
 #[path = "gpui_annotations.rs"]
 mod annotations;
 #[path = "gpui_architecture.rs"]
@@ -355,6 +358,7 @@ struct ViewportBridge {
     redraw: Arc<(Mutex<u64>, Condvar)>,
     preview: Arc<Mutex<Option<ViewportBridge>>>,
     bakes: Arc<Mutex<Vec<crate::app::BakeCaptureRequest>>>,
+    gpu_memory: Arc<Mutex<Option<crate::resource_stats::GpuMemory>>>,
 }
 
 impl ViewportBridge {
@@ -367,6 +371,7 @@ impl ViewportBridge {
             redraw: Arc::new((Mutex::new(1), Condvar::new())),
             preview: Arc::new(Mutex::new(None)),
             bakes: Arc::new(Mutex::new(Vec::new())),
+            gpu_memory: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -518,19 +523,44 @@ fn render_loop(
     let mut lighting = lighting::Renderer::new(&mut rl, &thread);
     let mut sequence = 0_u64;
     let mut rendered_revision = 0;
+    let gpu_probe = resource_stats::GlMemoryProbe::new();
+    let mut gpu_sample_at: Option<Instant> = None;
 
     while !stop.load(Ordering::Acquire) && !rl.window_should_close() {
+        if let Some(probe) = &gpu_probe
+            && gpu_sample_at
+                .is_none_or(|last| last.elapsed() >= crate::resource_stats::SAMPLE_INTERVAL)
+        {
+            if let Ok(mut usage) = bridge.gpu_memory.lock() {
+                *usage = probe.sample();
+            }
+            gpu_sample_at = Some(Instant::now());
+        }
         let (revision, changed) = &*bridge.redraw;
         let Ok(revision) = revision.lock() else {
             break;
         };
-        let next_revision = match changed.wait_while(revision, |revision| {
+        let idle = |revision: &mut u64| {
             *revision == rendered_revision
                 && !lighting.gpu.procedural.animated
                 && !stop.load(Ordering::Acquire)
-        }) {
-            Ok(revision) if !stop.load(Ordering::Acquire) => *revision,
-            _ => break,
+        };
+        let next_revision = if gpu_probe.is_some() {
+            match changed.wait_timeout_while(revision, crate::resource_stats::SAMPLE_INTERVAL, idle)
+            {
+                Ok((revision, _)) if !stop.load(Ordering::Acquire) => {
+                    if *revision == rendered_revision && !lighting.gpu.procedural.animated {
+                        continue;
+                    }
+                    *revision
+                }
+                _ => break,
+            }
+        } else {
+            match changed.wait_while(revision, idle) {
+                Ok(revision) if !stop.load(Ordering::Acquire) => *revision,
+                _ => break,
+            }
         };
         rendered_revision = next_revision;
 
@@ -1119,6 +1149,7 @@ struct MeshcraftShell {
     collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
     bridge: ViewportBridge,
     viewport_canvas: Entity<RaylibCanvas>,
+    resource_hud: Entity<resource_stats::Hud>,
     session: MeshcraftApp,
     camera: OrbitCamera,
     layout: ViewportLayout,
@@ -1155,7 +1186,6 @@ struct MeshcraftShell {
     feedback: Option<ToolFeedback>,
     close_requested: bool,
     host_watch_started: bool,
-    last_sequence: u64,
 }
 
 impl MeshcraftShell {
@@ -1165,6 +1195,7 @@ impl MeshcraftShell {
             frame_watch_started: false,
             presented_image: None,
         });
+        let resource_hud = cx.new(|_| resource_stats::Hud::new(bridge.clone()));
         let mut this = Self {
             annotations: Default::default(),
             architecture: Default::default(),
@@ -1211,9 +1242,9 @@ impl MeshcraftShell {
             feedback: None,
             close_requested: false,
             host_watch_started: false,
-            last_sequence: 0,
             bridge,
             viewport_canvas,
+            resource_hud,
             session,
         };
         this.camera.fit(&this.session.document_snapshot());
@@ -2887,10 +2918,6 @@ impl Render for MeshcraftShell {
         annotations::prepare(self, window, cx);
         automation::prepare(self, window, cx);
         self.prepare_palette(window, cx);
-        let frame = self.bridge.latest_frame();
-        if let Some(frame) = frame.as_ref() {
-            self.last_sequence = frame.sequence;
-        }
 
         let menu_bar = div()
             .h(px(layout::MENU_HEIGHT))
@@ -3191,6 +3218,9 @@ impl Render for MeshcraftShell {
         let status_tooltip = status_text.clone();
         let status = div()
             .h(px(layout::STATUS_HEIGHT))
+            .min_h(px(layout::STATUS_HEIGHT))
+            .flex_shrink_0()
+            .overflow_hidden()
             .flex()
             .items_center()
             .gap(px(8.))
@@ -3220,10 +3250,7 @@ impl Render for MeshcraftShell {
                         .build(window, cx)
                     }),
             )
-            .child(div().flex_shrink_0().child(frame.map_or_else(
-                || "Viewport starting".to_owned(),
-                |frame| format!("raylib frame {} · {:.1} ms", frame.sequence, frame.frame_ms),
-            )));
+            .child(self.resource_hud.clone());
 
         if self.open_menu != Some("File") {
             self.files = files::Ui::default();

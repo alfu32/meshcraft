@@ -69,6 +69,32 @@ restore the layout. Preferences do not modify the document or its undo history.
 
 **Observed + new profile preference.** Persist application workspace profile, panel/toolbar layout/visibility, UI scale/line widths, grid presentation and navigation tuning separately from model settings. Reset-layout must recover panels placed outside a changed monitor configuration. Status shows active tool, cursor screen/world coordinates, snap label, numeric input, operation messages, load/save progress and edit context.
 
+**Live resource status (0.43.0).** The native status bar always reserves fixed-width,
+monospaced cells for RAM, CPU, VRAM and the last viewport frame. Changing values,
+frame-number digit counts, availability and GPU scope must not move the message
+region or neighboring cells. Byte and percentage fields are padded separately;
+long messages truncate with the existing full-text tooltip. The bar stays one row.
+
+Sample once per second. RAM is Meshcraft's resident bytes and percentage of total
+physical RAM. CPU is the current Meshcraft process's utilization divided by the
+logical processor count: 100% means the entire machine's CPU capacity. Collect OS
+statistics off the UI thread and invalidate only the resource HUD; do not traverse
+or mutate the drawing, rebuild GPU meshes, or render another viewport frame.
+
+Prefer driver-reported process VRAM, shown as **VRAM app**. Linux uses DRM resident
+VRAM counters, de-duplicating device/client identities, with matching-device sysfs
+capacity. Windows uses DXGI process local-memory usage and dedicated capacity of
+active adapters. If only device counters are available, show **GPU total** and
+explain that other applications are included. OpenGL NVX counters are GPU-wide
+estimates, sampled on the graphics owner without framebuffer readback. Unsupported,
+invalid, software-renderer or unavailable dedicated-memory counters display **N/A**;
+never present shared/system RAM or an arbitrary GPU's usage as process VRAM.
+Tooltips identify the counter's scope, source and percentage denominator.
+
+Counter semantics: [Linux DRM client accounting](https://docs.kernel.org/gpu/drm-usage-stats.html),
+[Windows DXGI process memory](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_4/nf-dxgi1_4-idxgiadapter3-queryvideomemoryinfo),
+[OpenGL NVX memory information](https://registry.khronos.org/OpenGL/extensions/NVX/NVX_gpu_memory_info.txt).
+
 The construction cursor uses only red, green and blue axis segments without arrowheads, with a small center bullet drawn last in the viewport overlay. On a segment snap, blue follows the segment, red remains parallel to the ground and green is the remaining orthogonal axis (#14, #15). Selected vertex handles are small red bullets drawn in screen space (#15). Axis guides and grid guides freeze the complete displayed cursor basis at placement: U/red, V/green and W/blue, including the segment-aligned basis on line and midpoint snaps. Command placement, point placement and previews share that basis.
 
 Keep a persistent recent-project list of at most ten paths. Successful opens move the project to the front and remove an older duplicate; failed or cancelled loads do not add an entry. Expose entries in the **File → Recent Files** submenu, newest first, and through the command palette, using the normal load/replacement flow. Native entries display the file name and path, distinguishing identical names in different directories. The empty submenu explains that no files have been opened. Successful command-line opens join the same list; native preferences persist the list immediately after a successful open.

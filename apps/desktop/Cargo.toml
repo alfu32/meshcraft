@@ -1,6 +1,6 @@
 [package]
 name = "meshcraft-desktop"
-version = "0.42.0"
+version = "0.43.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -21,6 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sysinfo = { version = "=0.31.4", default-features = false, features = ["system"] }
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "x11"] }
 gpui-component = { version = "=0.5.1", default-features = false }
 tree-sitter = "=0.25.10"
@@ -39,6 +40,9 @@ rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"]
 [build-dependencies]
 embed-resource = "=3.0.12"
 resvg = { version = "=0.45.1", default-features = false, features = ["text", "system-fonts"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.61.3", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "=0.13.2"
