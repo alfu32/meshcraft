@@ -22,6 +22,13 @@ impl Document {
         self.set_procedural_object(id, None, material)?;
         Ok(id)
     }
+    pub fn create_branching_object(&mut self) -> Result<DefinitionId, String> {
+        let mut material = Material::default();
+        apply_preset(&mut material, BRANCHING);
+        let id = self.add_definition("Tree", DefinitionKind::Mesh);
+        self.set_procedural_object(id, None, material)?;
+        Ok(id)
+    }
     pub fn set_procedural_object(
         &mut self,
         id: DefinitionId,
@@ -39,7 +46,7 @@ impl Document {
             .into_iter()
             .find(|p| p.id == config.program)
             .ok_or("Unknown procedural object program")?;
-        if program.generation != "tree" {
+        if !program.is_object_generator() {
             return Err("Choose an object-generation program".into());
         }
         program.resolve(&config.parameters, &BTreeMap::new())?;
@@ -110,7 +117,7 @@ impl Document {
                 .ok_or("Procedural object requires a program")?;
             if let Some(p) = programs.iter().find(|p| p.id == config.program) {
                 p.resolve(&config.parameters, &BTreeMap::new())?;
-                if p.generation != "tree" {
+                if !p.is_object_generator() {
                     return Err("Procedural object must use an object-generation program".into());
                 }
             }
@@ -163,6 +170,7 @@ fn object_bounds(settings: &Material, programs: &[Program]) -> Aabb3 {
     let Some(config) = &settings.procedural else {
         return fallback;
     };
+    let program = programs.iter().find(|p| p.id == config.program);
     let Some(values) = programs
         .iter()
         .find(|p| p.id == config.program)
@@ -176,11 +184,16 @@ fn object_bounds(settings: &Material, programs: &[Program]) -> Aabb3 {
     };
     let n = |id: &str| values.get(id).and_then(Value::as_f64).unwrap_or(0.);
     let h = n("height");
-    let pad = n("leafSize") * 3. + h * n("wind") + n("trunkRadius");
+    let pad = n("leafSize") * 3.
+        + h * n("wind")
+        + n("trunkRadius")
+        + program.map_or(0., |p| p.bounds_expansion);
     let r = n("radius").max(n("trunkRadius")) + pad;
+    let roots = program.is_some_and(|p| p.generation == "branching")
+        && values.get("form").and_then(Value::as_str) == Some("roots");
     Aabb3 {
-        min: Vec3::new(-r, -pad, -r),
-        max: Vec3::new(r, h + pad, r),
+        min: Vec3::new(-r, if roots { -h - pad } else { -pad }, -r),
+        max: Vec3::new(r, if roots { pad } else { h + pad }, r),
     }
 }
 
@@ -311,7 +324,7 @@ mod tests {
             assert!(p.supported());
             assert!(d.put_procedural_program(p).is_err());
         }
-        assert_eq!(d.procedural_programs().len(), 6);
+        assert_eq!(d.procedural_programs().len(), 7);
         let id = d.create_procedural_tree().unwrap();
         let before = d.clone();
         let mut bad = d.procedural_object_definition(id).unwrap();
@@ -322,5 +335,87 @@ mod tests {
             .insert("height".into(), (-1.).into());
         assert!(d.set_procedural_object(id, None, bad).is_err());
         assert_eq!(d, before);
+    }
+}
+
+#[cfg(test)]
+mod branching_tests {
+    use super::*;
+    use crate::{
+        operations::objects::{duplicate_occurrence, place_definition},
+        selection::EditContext,
+    };
+    use serde_json::json;
+    #[test]
+    fn branching_settings_are_mesh_free_private_and_preserve_legacy_trees() {
+        let mut document = Document::new();
+        let legacy = document.create_procedural_tree().unwrap();
+        assert_eq!(
+            document
+                .procedural_object_definition(legacy)
+                .unwrap()
+                .procedural
+                .unwrap()
+                .program,
+            TREE
+        );
+        let id = document.create_branching_object().unwrap();
+        let mut settings = Material::default();
+        apply_preset(&mut settings, BRANCHING);
+        document
+            .set_procedural_object(id, None, settings.clone())
+            .unwrap();
+        let path = place_definition(
+            &mut document,
+            &EditContext::Document,
+            id,
+            Vec3::ZERO,
+            None,
+            false,
+        )
+        .unwrap();
+        let copy = duplicate_occurrence(&mut document, &path, Vec3::X * 10.).unwrap();
+        settings
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("form".into(), json!("roots"));
+        document
+            .set_procedural_object(id, Some(&copy), settings.clone())
+            .unwrap();
+        assert!(
+            document
+                .procedural_object_local_bounds(&copy)
+                .unwrap()
+                .min
+                .y
+                < -6.
+        );
+        assert!(
+            document
+                .procedural_object_local_bounds(&path)
+                .unwrap()
+                .min
+                .y
+                > -6.
+        );
+        assert!(document.definition(id).unwrap().geometry.is_empty());
+        let restored: Document =
+            serde_json::from_value(serde_json::to_value(&document).unwrap()).unwrap();
+        assert_eq!(
+            restored.procedural_object(&copy),
+            document.procedural_object(&copy)
+        );
+        restored.validate().unwrap();
+        settings
+            .procedural
+            .as_mut()
+            .unwrap()
+            .parameters
+            .insert("levels".into(), json!(7));
+        let before = document.clone();
+        assert!(document.set_procedural_object(id, None, settings).is_err());
+        assert_eq!(document, before);
     }
 }

@@ -1,0 +1,18 @@
+{
+  "version": "0.45.0",
+  "objects": 6,
+  "authoredVertices": 0,
+  "authoredTriangles": 0,
+  "idleFrameSequence": 3,
+  "procedural": {
+    "diagnostics": [],
+    "candidateInstances": 13973,
+    "drawCalls": 16
+  },
+  "preview": {
+    "diagnostics": [],
+    "candidateInstances": 3475,
+    "drawCalls": 3
+  },
+  "alive": true
+}

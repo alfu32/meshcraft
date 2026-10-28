@@ -213,13 +213,13 @@ pub(crate) fn command_schema(command: &CommandDescriptor) -> Value {
                 "instance_path" =>
                     "Optional numeric occurrence path. Supplied settings become a private instance override; omit to change prototype defaults.",
                 "settings" =>
-                    "Full Material-shaped shader settings record (name/color/pbr/procedural). procedural.program=meshcraft.tree.v1, parameters use the tree schema in meshcraft_scene.proceduralPrograms. No mesh triangles are generated on the CPU.",
+                    "Full Material-shaped shader settings record (name/color/pbr/procedural). procedural.program=meshcraft.branching.v1 (current default) or meshcraft.tree.v1 (legacy), parameters use the selected schema in meshcraft_scene.proceduralPrograms. No mesh triangles are generated on the CPU.",
                 _ => "",
             });
         }
         if command.id.as_str() == "material.program" && name == "program" {
             spec["description"] = json!(
-                "Procedural Program: id, name, generation=surface|blades|foliage|surface_grid|tree, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds; localPosition/sourceNormal varyings anchor material patterns. Optional vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv) changes shading relief. tree programs belong to independent objects; surface_grid subdivides on the GPU. See meshcraft_scene.proceduralPrograms for builtins."
+                "Procedural Program: id, name, generation=surface|blades|foliage|surface_grid|tree|branching, backend=vertex_instancing_gl33, parameters=[{id,kind,default,label,description,min,max,step,unit,options}], vertex GLSL proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv), fragment GLSL vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv), boundsExpansion, animated, transparent. Typed uniforms u_<id>, time in seconds; localPosition/sourceNormal varyings anchor material patterns. Optional vec3 proceduralShadingNormal(vec3 normal,vec3 position,vec2 uv) changes shading relief. tree and branching programs belong to independent objects. branching exposes a GLSL branchingRule(inout BranchRule rule,int level,int child,uvec2 path,uint key) hook for conditional affine rules; BranchRule fields are attach, angle/azimuth (radians), lengthScale, radiusScale, bend, tropism, activation, plus read-only parentStart/parentControl/parentEnd/parentFrame/parentRadius. Stable path/seed, bounded depth, curved tubes and leaf cards are evaluated on GPU; surface_grid subdivides on the GPU. See meshcraft_scene.proceduralPrograms for builtins."
             );
         }
         if command.id.as_str() == "material.save" && name == "material" {

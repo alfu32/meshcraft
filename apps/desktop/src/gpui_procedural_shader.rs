@@ -1,7 +1,7 @@
 //! Compile on the graphics owner and retain real GLSL compile/link logs for the inspector.
 use raylib::{ffi, prelude::Shader};
 use std::ffi::{CStr, CString};
-unsafe fn function<T: Copy>(name: &CStr) -> Result<T, String> {
+pub(super) unsafe fn function<T: Copy>(name: &CStr) -> Result<T, String> {
     let address = unsafe { ffi::rlGetProcAddress(name.as_ptr()) };
     if address.is_null() {
         return Err(format!(

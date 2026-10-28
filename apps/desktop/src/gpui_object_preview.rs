@@ -88,7 +88,7 @@ fn preview_document(source: &Document, material: &Material) -> Result<Document, 
         .into_iter()
         .find(|p| p.id == config.program)
         .ok_or("Object program is unavailable")?;
-    if program.generation != "tree" {
+    if !program.is_object_generator() {
         return Err("Choose an object-generation program for this object".into());
     }
     program.resolve(&config.parameters, &BTreeMap::new())?;

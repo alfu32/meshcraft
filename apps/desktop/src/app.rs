@@ -6618,7 +6618,7 @@ impl MeshcraftApp {
                             let mut m = meshcraft_core::document::materials::Material::default();
                             meshcraft_core::document::procedural::apply_preset(
                                 &mut m,
-                                meshcraft_core::document::procedural::TREE,
+                                meshcraft_core::document::procedural::BRANCHING,
                             );
                             m
                         };

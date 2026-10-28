@@ -94,7 +94,7 @@ impl Parameter {
 pub struct Program {
     pub id: String,
     pub name: String,
-    /// Surface shading, GPU-subdivided surface_grid, distributed blades/foliage, or an independent tree.
+    /// Surface shading, subdivision/scatter, or an independent tree/branching generator.
     pub generation: String,
     pub backend: String,
     pub parameters: Vec<Parameter>,
@@ -186,7 +186,7 @@ impl Program {
         self.backend == "vertex_instancing_gl33"
             && matches!(
                 self.generation.as_str(),
-                "surface" | "blades" | "foliage" | "surface_grid" | "tree"
+                "surface" | "blades" | "foliage" | "surface_grid" | "tree" | "branching"
             )
             && self.parameters.iter().all(|p| {
                 matches!(
@@ -205,6 +205,10 @@ impl Program {
                         | "enum"
                 )
             })
+    }
+    /// Independent GPU owners, rather than details attached to a mesh surface.
+    pub fn is_object_generator(&self) -> bool {
+        matches!(self.generation.as_str(), "tree" | "branching")
     }
 }
 

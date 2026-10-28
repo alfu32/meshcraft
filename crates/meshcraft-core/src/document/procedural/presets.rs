@@ -5,8 +5,14 @@ pub const BRICK: &str = "meshcraft.brick.v1";
 pub const WOOD: &str = "meshcraft.wood.v1";
 pub const FOLIAGE: &str = "meshcraft.foliage.v1";
 pub const TREE: &str = "meshcraft.tree.v1";
+pub const BRANCHING: &str = "meshcraft.branching.v1";
+/// Canonical injected GLSL type, also published with the program schema.
+pub const BRANCH_RULE_GLSL: &str = "struct BranchRule { float attach; float angle; float azimuth; float lengthScale; float radiusScale; float bend; float tropism; float activation; vec3 parentStart; vec3 parentControl; vec3 parentEnd; vec3 parentFrame; float parentRadius; };";
 pub fn is_builtin(id: &str) -> bool {
-    matches!(id, GRASS | WATER | BRICK | WOOD | TREE | FOLIAGE)
+    matches!(
+        id,
+        GRASS | WATER | BRICK | WOOD | TREE | FOLIAGE | BRANCHING
+    )
 }
 pub fn builtin_programs() -> Vec<Program> {
     vec![
@@ -16,6 +22,7 @@ pub fn builtin_programs() -> Vec<Program> {
         brick_program(),
         wood_program(),
         tree_program(),
+        branching_program(),
     ]
 }
 fn scalar(id: &str, label: &str, value: f64, min: f64, max: f64, description: &str) -> Parameter {
@@ -426,6 +433,102 @@ pub fn tree_program() -> Program {
         ..Default::default()
     }
 }
+/// Bounded conditional branching; all branch frames, curves and surfaces are GLSL.
+pub fn branching_program() -> Program {
+    let mut program = tree_program();
+    program.id = BRANCHING.into();
+    program.name = "Branching fractal".into();
+    program.generation = "branching".into();
+    program.extensions.insert(
+        "branchingLimits".into(),
+        serde_json::json!({
+            "maxDepth":6,"maxPrimaryBranches":12,"maxChildren":8,
+            "maxBranchCandidates":16384,"curveSegments":3,"radialSectors":6,
+            "hook":"branchingRule(inout BranchRule rule,int level,int child,uvec2 path,uint key)",
+            "ruleType":BRANCH_RULE_GLSL,
+            "pathEncoding":"root=1; append four-bit child+1 slots; x=low32, y=high32",
+            "ruleFields":{
+                "attach":"Parent curve parameter, clamped 0..1",
+                "angle":"Deflection from parent tangent in radians, clamped 0..pi",
+                "azimuth":"Rotation around parent tangent in radians",
+                "lengthScale":"Child/parent chord length ratio, clamped 0..2.5",
+                "radiusScale":"Child/parent attachment radius ratio, clamped 0..0.95",
+                "bend":"Quadratic curvature, clamped -1..1",
+                "tropism":"Local vertical attraction, clamped -1..1",
+                "activation":"Continuous child survival, clamped 0..1; inherited by descendants",
+                "parentStart":"vec3; read-only local parent curve start; writes ignored",
+                "parentControl":"vec3; read-only local quadratic control point; writes ignored",
+                "parentEnd":"vec3; read-only local parent curve end; writes ignored",
+                "parentFrame":"vec3; read-only transported frame reference; writes ignored",
+                "parentRadius":"float; read-only parent base radius; writes ignored"
+            }
+        }),
+    );
+    program
+        .parameters
+        .retain(|p| !matches!(p.id.as_str(), "branches" | "levels"));
+    program.parameters.splice(0..0, [
+        Parameter {
+            id: "form".into(), label: "Form".into(), kind: "enum".into(),
+            default: "broadleaf".into(),
+            description: "Rule family for the GPU generator.".into(),
+            options: [
+                ("broadleaf", "Broadleaf tree"), ("conifer", "Conifer"),
+                ("coral", "Coral"), ("roots", "Roots"),
+                ("shrub", "Shrub"), ("weeping", "Weeping tree"),
+            ].into_iter().map(|(k,v)| (k.into(),v.into())).collect(),
+            min: None, max: None, step: None, unit: String::new(), extensions: BTreeMap::new(),
+        },
+        integer("branches", "Primary branches", 7, 1., 12.),
+        integer("forks", "Children per branch", 3, 1., 8.),
+        integer("levels", "Branching depth", 3, 0., 6.),
+        scalar("angle", "Branch angle", 42., 0., 160., "Angle from the parent's tangent, in degrees."),
+        scalar("twist", "Phyllotactic angle", 137.5, -180., 180., "Rotation between child slots, in degrees. Slot identity stays stable when counts change."),
+        scalar("attachment", "Attachment", 0.72, 0.05, 1., "Attachment position along the parent curve; primary branches are distributed along the trunk."),
+        scalar("lengthRatio", "Length ratio", 0.62, 0.05, 0.9, "Child length relative to its parent, before family and random variation."),
+        scalar("radiusRatio", "Radius ratio", 0.58, 0.05, 0.9, "Child radius relative to the parent radius at its attachment."),
+        scalar("bend", "Curvature", 0.2, -1., 1., "Quadratic branch curvature; child frames follow the curved parent tangent."),
+        scalar("gravity", "Tropism", 0.15, -1., 1., "Positive bends toward local up; negative bends down. Roots invert their local up."),
+        scalar("variation", "Variation", 0.3, 0., 1., "Deterministic variation of lengths, angles and attachments."),
+        scalar("branchDensity", "Branch survival", 1., 0., 1., "Continuous seeded pruning; zero retains only the trunk. Descendants inherit parent survival."),
+        scalar("growth", "Growth", 1., 0., 1., "Continuous growth from an empty object to the configured branching depth."),
+        scalar("minPixels", "Branch LOD", 1., 0., 8., "Fade subpixel branch hierarchies in the viewport. Zero disables branch LOD; bake captures full detail."),
+    ]);
+    program.vertex = include_str!("branching.vs").into();
+    let order = [
+        "form",
+        "height",
+        "radius",
+        "trunkRadius",
+        "branches",
+        "forks",
+        "levels",
+        "leaves",
+        "leafSize",
+        "wind",
+        "growth",
+        "branchDensity",
+        "angle",
+        "twist",
+        "attachment",
+        "lengthRatio",
+        "radiusRatio",
+        "bend",
+        "gravity",
+        "variation",
+        "minPixels",
+        "barkColor",
+        "leafColor",
+        "seed",
+    ];
+    program.parameters.sort_by_key(|p| {
+        order
+            .iter()
+            .position(|id| *id == p.id)
+            .unwrap_or(usize::MAX)
+    });
+    program
+}
 /// Set sensible shading defaults while preserving the caller's unique material ID.
 pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) {
     use super::super::materials::Pbr;
@@ -434,6 +537,7 @@ pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) 
         BRICK => "Brick",
         WOOD => "Wood",
         TREE => "Tree",
+        BRANCHING => "Tree",
         FOLIAGE => "Foliage",
         _ => "Grass",
     }

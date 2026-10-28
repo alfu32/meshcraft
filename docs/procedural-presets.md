@@ -59,6 +59,11 @@ and automation API continue using normalized RGBA arrays.
 
 ## Trees
 
+New trees now use the [shared branching shader](branching-shaders.md), with
+Broadleaf, Conifer, Weeping, Shrub, Coral and Roots forms, curved inherited frames,
+growth/pruning controls and an editable GLSL rule hook. Existing `meshcraft.tree.v1`
+objects keep their original program. The legacy tree behavior is described below.
+
 In **Object Prototypes**, choose **New Tree**. Set its shape, foliage, colors,
 seed and wind, then **Save** and pick an insertion point. The placement phantom
 shows the owner's conservative bounding box. Double-click its prototype entry

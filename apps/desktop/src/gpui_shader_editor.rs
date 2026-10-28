@@ -87,7 +87,7 @@ pub(super) fn preview_document(
         document.put_material(base.clone())?;
     }
     let mut material = configure(material, &program);
-    if program.generation == "tree" {
+    if program.is_object_generator() {
         let id = document.create_procedural_tree()?;
         document.set_procedural_object(id, None, material)?;
         meshcraft_core::operations::objects::place_definition(
@@ -576,7 +576,7 @@ mod tests {
             assert_eq!(custom.fragment, p.fragment);
             let paths = preview.scene_geometry_refs().unwrap();
             assert!(!paths.is_empty());
-            if p.generation == "tree" {
+            if p.is_object_generator() {
                 assert!(
                     paths
                         .iter()

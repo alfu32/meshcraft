@@ -156,3 +156,18 @@ and tread/support ID fields on architecture creation, update and defaults
 commands. Both conventional and procedural catalog materials must commit,
 regenerate, survive Undo/Redo and reopen without reverting to prior bindings.
 A failed assignment retains the inspector draft instead of silently resetting it.
+
+### Conditional branching shader — #29/#31
+
+New procedural trees use a shared GLSL conditional branching evaluator with
+Broadleaf, Conifer, Weeping, Shrub, Coral and Roots rule families. Preserve existing
+`meshcraft.tree.v1` objects and provide `meshcraft.branching.v1` as an independent
+owner program. Generate frames, curved variable-radius branches and foliage on
+the GPU from stable path IDs and seeds. Rust supplies only settings, conservative
+bounds and bounded candidate counts. No CPU branch generation or per-frame mesh
+readback. Parent-relative frames, continuous growth/survival and descendant-aware
+LOD apply to every family. Expose the GLSL `branchingRule` hook, typed parameters
+and backend work limits through the editor and MCP. Previews, shadows and explicit
+mesh bake share the same shader. Preserve prototype/instance properties, copy,
+history and persistence. See [the shader contract](../../branching-shaders.md) for
+limits, controls, path encoding and the scope of continuity/topological claims.

@@ -46,8 +46,8 @@ def main():
         def unchanged():
             after = rpc.call('meshcraft_scene', {})
             assert all(after[k] == v for k, v in before.items() if k not in ('status', '_timing'))
-            assert after['status']['revision'] == 0
-            assert after['status']['history']['entries'] == 0
+            assert after['status']['revision'] == before['status']['revision']
+            assert after['status']['history']['entries'] == before['status']['history']['entries']
 
         observations = []
         # Repeated transitions catch atlas uploads being evicted before presentation.
@@ -66,8 +66,15 @@ def main():
             observations.append(dict(iteration=iteration, preview=frame['procedural'],
                                      idleSequence=second['frameSequence']))
 
-        rpc.command('object.new_tree')
+        # Check legacy typed controls alongside the new default's preview cycles.
+        # Create a real fixture so this test doesn't depend on popup hit timing.
+        rpc.command('object.configure_procedural', dict(settings=dict(
+            name='Legacy preview fixture', pbr=dict(roughness=.72, metallic=0),
+            procedural=dict(program='meshcraft.tree.v1'))))
+        before = rpc.call('meshcraft_scene', {})
+        rpc.command('object.edit_tree')
         rpc.frame(True)
+        time.sleep(.6)
         field(754, 0)  # Pause wind, so camera/draft updates can be checked separately.
         rpc.frame(True)
         field(311, 12)
@@ -108,8 +115,8 @@ def main():
         saved = rpc.call('meshcraft_scene', {})
         settings = saved['prototypes'][0]['proceduralObject']['procedural']['parameters']
         assert settings['height'] == 12 and settings['wind'] == 0
-        assert saved['status']['revision'] == 1
-        assert saved['status']['history']['entries'] == 1
+        assert saved['status']['revision'] == before['status']['revision'] + 1
+        assert saved['status']['history']['entries'] == before['status']['history']['entries'] + 1
         rpc.command('object.edit_tree')
         rpc.frame(True)
         shot('saved-settings')

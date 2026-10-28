@@ -1,4 +1,6 @@
 //! GPU surfaces, blades and trees. CPU buffers contain source domains or owner bounds.
+#[path = "gpui_branching_gpu.rs"]
+mod branching_gpu;
 #[path = "gpui_object_bake.rs"]
 pub(super) mod object_bake;
 #[path = "gpui_procedural_shader.rs"]
@@ -86,6 +88,7 @@ impl DomainGpu {
 struct Compiled {
     source: (String, String),
     shader: Option<Shader>,
+    branching: Option<branching_gpu::StatePass>,
     error: Option<String>,
 }
 struct Batch {
@@ -147,20 +150,90 @@ fn shader_sources(p: &Program) -> (String, String) {
             ));
         }
     }
+    let object = p.is_object_generator();
+    let branching = p.generation == "branching";
+    let mut prelude = if object {
+        "uniform int treeBranches; uniform int treeLeafCount; flat out float treePart; flat out float treeKey; void treeVertex(out vec3 p,out vec3 normal,out vec2 uv);".to_owned()
+    } else {
+        String::new()
+    };
+    if branching {
+        prelude.push_str("\n#define BRANCH_SECTORS 6\n#define BRANCH_SEGMENTS 3\n");
+        prelude.push_str(meshcraft_core::document::procedural::BRANCH_RULE_GLSL);
+        prelude.push_str("\nuint hash(uint x); float random(uint x);\n");
+    }
+    let engine = if branching {
+        include_str!("../../../assets/shaders/procedural_branching.glsl").to_owned()
+    } else if object {
+        include_str!("../../../assets/shaders/procedural_tree.glsl")
+            .replace("uniform int treeBranches;", "")
+            .replace("uniform int treeLeafCount;", "")
+            .replace("flat out float treePart;", "")
+            .replace("flat out float treeKey;", "")
+    } else {
+        String::new()
+    };
     (
         include_str!("../../../assets/shaders/procedural.vs")
             // Foliage-only names must not constrain unrelated custom parameter types.
-            .replace("/*GENERATOR*/",if p.generation=="foliage" {"#define MESHCRAFT_FOLIAGE 1"}else{""})
+            .replace(
+                "/*GENERATOR*/",
+                if p.generation == "foliage" {
+                    "#define MESHCRAFT_FOLIAGE 1"
+                } else {
+                    ""
+                },
+            )
             .replace("/*PARAMETERS*/", &declarations)
             .replace("/*VERTEX*/", &p.vertex)
-            .replace("/*TREE*/",if p.generation=="tree" {"uniform int treeBranches; uniform int treeLeafCount; flat out float treePart; flat out float treeKey; void treeVertex(out vec3 p,out vec3 normal,out vec2 uv);"}else{""})
-            .replace("/*TREE_BRANCH*/",if p.generation=="tree" {"if(generation==2){treeVertex(position,normal,uv);}else"}else{""})
-            + &if p.generation=="tree" {include_str!("../../../assets/shaders/procedural_tree.glsl").replace("uniform int treeBranches;", "").replace("uniform int treeLeafCount;", "").replace("flat out float treePart;", "").replace("flat out float treeKey;", "")}else{String::new()},
+            .replace("/*TREE*/", &prelude)
+            .replace(
+                "/*TREE_BRANCH*/",
+                if object {
+                    "if(generation==2){treeVertex(position,normal,uv);}else"
+                } else {
+                    ""
+                },
+            )
+            + &engine,
         include_str!("../../../assets/shaders/procedural.fs")
             .replace("/*PARAMETERS*/", &declarations)
-            .replace("/*TREE_INPUTS*/",if p.generation=="tree" {"flat in float treePart; flat in float treeKey;"}else{""})
-            .replace("/*FRAGMENT*/", &format!("{}\n{}",if p.fragment.contains("vec3 proceduralShadingNormal("){""}else{"vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){return n;}"},p.fragment)),
+            .replace(
+                "/*TREE_INPUTS*/",
+                if object {
+                    "flat in float treePart; flat in float treeKey;"
+                } else {
+                    ""
+                },
+            )
+            .replace(
+                "/*FRAGMENT*/",
+                &format!(
+                    "{}\n{}",
+                    if p.fragment.contains("vec3 proceduralShadingNormal(") {
+                        ""
+                    } else {
+                        "vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){return n;}"
+                    },
+                    p.fragment
+                ),
+            ),
     )
+}
+fn render_shader_sources(program: &Program) -> (String, String) {
+    let (vertex, fragment) = shader_sources(program);
+    if program.generation == "branching" {
+        (
+            vertex.replacen(
+                "#version 330",
+                "#version 330\n#define BRANCHING_CACHED 1",
+                1,
+            ),
+            fragment,
+        )
+    } else {
+        (vertex, fragment)
+    }
 }
 fn matrix(m: Affine3) -> raylib::ffi::Matrix {
     let a = m.linear;
@@ -187,10 +260,38 @@ fn matrix(m: Affine3) -> raylib::ffi::Matrix {
 fn num(values: &BTreeMap<String, Value>, key: &str, default: f64) -> f64 {
     values.get(key).and_then(Value::as_f64).unwrap_or(default)
 }
-fn tree_branch_count(values: &BTreeMap<String, Value>) -> usize {
-    let b = num(values, "branches", 8.).clamp(2., 12.) as usize;
-    let levels = num(values, "levels", 3.).clamp(1., 4.) as u32;
-    1 + b * (3usize.pow(levels) - 1) / 2
+fn object_branch_count(program: &Program, values: &BTreeMap<String, Value>) -> usize {
+    if program.generation != "branching" {
+        let b = num(values, "branches", 8.).clamp(2., 12.) as usize;
+        let levels = num(values, "levels", 3.).clamp(1., 4.) as u32;
+        return 1 + b * (3usize.pow(levels) - 1) / 2;
+    }
+    let mut width = num(values, "branches", 7.).clamp(1., 12.) as usize;
+    let forks = num(values, "forks", 3.).clamp(1., 8.) as usize;
+    let mut count = 1usize;
+    for _ in 0..num(values, "levels", 3.).clamp(0., 6.) as usize {
+        count = count.saturating_add(width);
+        width = width.saturating_mul(forks);
+    }
+    count.min(16_384)
+}
+fn object_branch_vertices(program: &Program) -> usize {
+    if program.generation == "branching" {
+        6 * 3 * 6
+    } else {
+        48
+    }
+}
+fn object_leaf_count(program: &Program, values: &BTreeMap<String, Value>) -> usize {
+    if program.generation == "branching"
+        && matches!(
+            values.get("form").and_then(Value::as_str),
+            Some("coral" | "roots")
+        )
+    {
+        return 0;
+    }
+    num(values, "leaves", 3500.).max(0.) as usize
 }
 fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
     let source = p
@@ -202,6 +303,9 @@ fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
         meshcraft_core::document::procedural::GRASS
         | meshcraft_core::document::procedural::FOLIAGE
         | meshcraft_core::document::procedural::TREE => num(values, "wind", 0.) > 0.,
+        meshcraft_core::document::procedural::BRANCHING => {
+            num(values, "wind", 0.) > 0. && num(values, "growth", 1.) > 0.
+        }
         meshcraft_core::document::procedural::WATER => {
             num(values, "amplitude", 0.) > 0. && num(values, "speed", 0.) > 0.
         }
@@ -251,20 +355,29 @@ impl Renderer {
                 ));
                 continue;
             }
-            let source = shader_sources(program);
+            let source = render_shader_sources(program);
             let index = self
                 .programs
                 .iter()
                 .position(|p| p.source == source)
                 .unwrap_or_else(|| {
-                    let result = shader_compiler::compile(&source.0, &source.1);
-                    let (shader, error) = match result {
-                        Ok(shader) => (Some(shader), None),
-                        Err(e) => (None, Some(format!("{}: {e}", program.name))),
+                    let result =
+                        shader_compiler::compile(&source.0, &source.1).and_then(|shader| {
+                            let branching = if program.generation == "branching" {
+                                Some(branching_gpu::StatePass::new(program)?)
+                            } else {
+                                None
+                            };
+                            Ok((shader, branching))
+                        });
+                    let (shader, branching, error) = match result {
+                        Ok((shader, branching)) => (Some(shader), branching, None),
+                        Err(e) => (None, None, Some(format!("{}: {e}", program.name))),
                     };
                     self.programs.push(Compiled {
                         source,
                         shader,
+                        branching,
                         error,
                     });
                     self.programs.len() - 1
@@ -430,7 +543,7 @@ impl Renderer {
                     self.surface_materials
                         .insert(surface_key(id, &face.extensions));
                 }
-                if program.generation == "tree" {
+                if program.is_object_generator() {
                     continue;
                 }
                 let key = (id.to_owned(), serde_json::to_string(&values).unwrap());
@@ -658,7 +771,8 @@ impl Renderer {
         for batch in &self.batches {
             let config = batch.material.procedural.as_ref().unwrap();
             let program = programs.iter().find(|p| p.id == config.program).unwrap();
-            let Some(shader) = self.programs[batch.program].shader.as_mut() else {
+            let compiled = &mut self.programs[batch.program];
+            let Some(shader) = compiled.shader.as_mut() else {
                 continue;
             };
             shader.set_shader_value_matrix(shader.get_shader_location("viewProjection"), vp);
@@ -672,7 +786,7 @@ impl Renderer {
                 match program.generation.as_str() {
                     "blades" => 1,
                     "foliage" => 4,
-                    "tree" => 2,
+                    "tree" | "branching" => 2,
                     "surface_grid" => 3,
                     _ => 0,
                 },
@@ -801,6 +915,28 @@ impl Renderer {
                 let distance = camera.map_or(0., |c| c.position().distance(center));
                 let lod = 1. / (1. + (distance / config.lod_distance).powi(2));
                 let density = num(&batch.values, "density", 1.) * lod;
+                let mut branch_pixels = 0f32;
+                if program.generation == "branching" {
+                    let scale = model
+                        .linear
+                        .iter()
+                        .flatten()
+                        .map(|v| v * v)
+                        .sum::<f64>()
+                        .sqrt();
+                    let pixels = camera.map_or(0., |c| {
+                        let height = unsafe { raylib::ffi::rlGetFramebufferHeight() }.max(1) as f64;
+                        let span = if c.orthographic {
+                            f64::from(c.distance)
+                        } else {
+                            2. * distance.max(0.01)
+                                * (f64::from(c.field_of_view).to_radians() * 0.5).tan()
+                        };
+                        height * scale / span.max(0.01)
+                    });
+                    branch_pixels = pixels as f32;
+                }
+
                 if !visible(domain.bounds, batch.expansion, *model, vp) {
                     continue;
                 }
@@ -833,9 +969,9 @@ impl Renderer {
                     let max = (config.max_instances as usize / domain.data.len()).max(1);
                     let n = n.min((max as f64).sqrt() as usize).max(1);
                     n * n
-                } else if program.generation == "tree" {
-                    let branches = tree_branch_count(&batch.values);
-                    let leaves = (num(&batch.values, "leaves", 3500.) * lod) as usize;
+                } else if program.is_object_generator() {
+                    let branches = object_branch_count(program, &batch.values);
+                    let leaves = (object_leaf_count(program, &batch.values) as f64 * lod) as usize;
                     let leaves =
                         leaves.min((config.max_instances as usize).saturating_sub(branches));
                     shader.set_shader_value(
@@ -862,6 +998,24 @@ impl Renderer {
                         target,
                     )),
                 );
+                if let Some(pass) = compiled.branching.as_mut() {
+                    let count = object_branch_count(program, &batch.values).min(per);
+                    if let Err(error) = pass.run(
+                        program,
+                        &batch.values,
+                        self.time,
+                        branch_pixels,
+                        domain.vao,
+                        count,
+                    ) {
+                        self.diagnostics.push(error);
+                        continue;
+                    }
+                    shader.set_shader_value(shader.get_shader_location("branchStates"), 11i32);
+                    if !depth {
+                        self.draw_calls += 1;
+                    }
+                }
                 unsafe {
                     raylib::ffi::rlEnableShader(shader.id);
                     raylib::ffi::rlActiveTextureSlot(1);
@@ -874,10 +1028,14 @@ impl Renderer {
                     for i in 0..4 {
                         raylib::ffi::rlSetVertexAttributeDivisor(i, per as i32);
                     }
-                    if program.generation == "tree" {
-                        let branches = tree_branch_count(&batch.values).min(per);
+                    if program.is_object_generator() {
+                        let branches = object_branch_count(program, &batch.values).min(per);
                         shader.set_shader_value(shader.get_shader_location("treePass"), 0i32);
-                        raylib::ffi::rlDrawVertexArrayInstanced(0, 48, branches as i32);
+                        raylib::ffi::rlDrawVertexArrayInstanced(
+                            0,
+                            object_branch_vertices(program) as i32,
+                            branches as i32,
+                        );
                         if per > branches {
                             shader.set_shader_value(shader.get_shader_location("treePass"), 1i32);
                             raylib::ffi::rlDrawVertexArrayInstanced(0, 6, (per - branches) as i32);
@@ -917,12 +1075,13 @@ impl Renderer {
                 if !depth {
                     self.animated |= program.animated && animation_active(program, &batch.values);
                     self.candidates += domain.data.len() * per;
-                    self.draw_calls +=
-                        if program.generation == "tree" && per > tree_branch_count(&batch.values) {
-                            2
-                        } else {
-                            1
-                        };
+                    self.draw_calls += if program.is_object_generator()
+                        && per > object_branch_count(program, &batch.values)
+                    {
+                        2
+                    } else {
+                        1
+                    };
                 }
             }
         }
@@ -1906,3 +2065,7 @@ mod integration_tests {
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "gpui_branching_tests.rs"]
+mod branching_tests;

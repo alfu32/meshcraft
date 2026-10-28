@@ -92,7 +92,7 @@ pub(super) fn edit(
             .cached_document
             .procedural_programs()
             .iter()
-            .any(|p| p.id == c.program && p.generation == "tree")
+            .any(|p| p.id == c.program && p.is_object_generator())
     });
     let name = cx.new(|cx| InputState::new(window, cx).default_value(material.name.clone()));
     let color = cx.new(|cx| InputState::new(window, cx).default_value(hex(material.color)));
@@ -173,7 +173,7 @@ pub(super) fn edit(
             .cached_document
             .procedural_programs()
             .into_iter()
-            .filter(|p| (p.generation == "tree") == is_object)
+            .filter(|p| (p.is_object_generator()) == is_object)
             .map(|p| p.id),
     )
     .collect::<Vec<_>>();
@@ -1177,7 +1177,7 @@ pub(super) fn edit_tree(
     };
     let settings = if new {
         let mut m = Material::default();
-        procedural::apply_preset(&mut m, procedural::TREE);
+        procedural::apply_preset(&mut m, procedural::BRANCHING);
         Some(m)
     } else {
         path.as_ref()

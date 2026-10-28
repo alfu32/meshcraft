@@ -25,7 +25,7 @@ pub(in crate::gpui_app) fn capture(
             .into_iter()
             .find(|p| p.id == config.program)
             .ok_or("Shader program is unavailable")?;
-        if program.generation != "tree" {
+        if !program.is_object_generator() {
             return Err("Unsupported object generator for GPU bake".into());
         }
         if program.parameters.iter().any(|p| p.kind == "texture") {
@@ -46,10 +46,10 @@ pub(in crate::gpui_app) fn capture(
             .and_then(|id| catalog.iter().find(|m| &m.id == id))
             .unwrap_or(&material);
         let c = base.color;
-        let branches = tree_branch_count(&values).min(config.max_instances as usize);
-        let leaves = (num(&values, "leaves", 3500.) as usize)
+        let branches = object_branch_count(&program, &values).min(config.max_instances as usize);
+        let leaves = object_leaf_count(&program, &values)
             .min((config.max_instances as usize).saturating_sub(branches));
-        total += branches * 16 + leaves * 2;
+        total += branches * (object_branch_vertices(&program) / 3) + leaves * 2;
         if total > 2_000_000 {
             return Err("Bake exceeds the two million triangle safety limit".into());
         }
@@ -77,6 +77,9 @@ pub(in crate::gpui_app) fn capture(
             matrix(Affine3::IDENTITY),
         );
         shader.set_shader_value(shader.get_shader_location("time"), time);
+        if program.generation == "branching" {
+            shader.set_shader_value(shader.get_shader_location("branchPixelScale"), 0f32);
+        }
         shader.set_shader_value(shader.get_shader_location("generation"), 2i32);
         shader.set_shader_value(shader.get_shader_location("treeBranches"), branches as i32);
         shader.set_shader_value(shader.get_shader_location("treeLeafCount"), leaves as i32);
@@ -107,7 +110,11 @@ pub(in crate::gpui_app) fn capture(
         let captured = (|| unsafe {
             raylib::ffi::rlEnableShader(shader.id);
             shader.set_shader_value(shader.get_shader_location("treePass"), 0i32);
-            let mut data = shader_compiler::capture(domain.vao, 48, branches as i32)?;
+            let mut data = shader_compiler::capture(
+                domain.vao,
+                object_branch_vertices(&program) as i32,
+                branches as i32,
+            )?;
             if leaves > 0 {
                 shader.set_shader_value(shader.get_shader_location("treePass"), 1i32);
                 data.extend(shader_compiler::capture(domain.vao, 6, leaves as i32)?);
