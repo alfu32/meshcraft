@@ -1,0 +1,46 @@
+{
+  "cycles": [
+    {
+      "iteration": 0,
+      "preview": {
+        "diagnostics": [],
+        "candidateInstances": 3460,
+        "drawCalls": 2
+      },
+      "idleSequence": 19
+    },
+    {
+      "iteration": 1,
+      "preview": {
+        "diagnostics": [],
+        "candidateInstances": 3460,
+        "drawCalls": 2
+      },
+      "idleSequence": 39
+    },
+    {
+      "iteration": 2,
+      "preview": {
+        "diagnostics": [],
+        "candidateInstances": 3460,
+        "drawCalls": 2
+      },
+      "idleSequence": 66
+    },
+    {
+      "iteration": 3,
+      "preview": {
+        "diagnostics": [],
+        "candidateInstances": 3460,
+        "drawCalls": 2
+      },
+      "idleSequence": 94
+    }
+  ],
+  "savedRevision": 1,
+  "savedHistory": {
+    "cursor": 1,
+    "entries": 1
+  },
+  "alive": true
+}

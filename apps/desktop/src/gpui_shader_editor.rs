@@ -70,7 +70,7 @@ fn configure(material: &Material, program: &Program) -> Material {
     material
 }
 
-fn preview_document(
+pub(super) fn preview_document(
     program: &Program,
     material: &Material,
     base: Option<&Material>,
@@ -78,6 +78,9 @@ fn preview_document(
     let mut document = Document::new();
     let mut program = program.clone();
     // A private ID also permits previews of a built-in copy without replacing it.
+    program
+        .extensions
+        .insert(PREVIEW_PROGRAM_SOURCE.into(), json!(program.id));
     program.id = "meshcraft.shader-preview".into();
     document.put_procedural_program(program.clone())?;
     if let Some(base) = base {
@@ -195,7 +198,7 @@ pub(super) fn open(
         .materials
         .editor
         .as_ref()
-        .map(|e| e.material.clone())
+        .map(|e| draft_material(e, cx).unwrap_or_else(|_| e.material.clone()))
         .unwrap_or_default();
     if let Some(parent) = shell.materials.editor.as_ref() {
         if let Ok(values) = read_parameter_fields(parent, cx)
@@ -267,6 +270,7 @@ pub(super) fn close(
     if let Ok(mut preview) = shell.bridge.preview.lock() {
         *preview = None;
     }
+    super::object_preview::activate(shell);
     shell.bridge.request_redraw();
     window.focus(&shell.focus);
     cx.notify();
@@ -344,7 +348,7 @@ fn save(shell: &mut MeshcraftShell, window: &mut Window, cx: &mut Context<Meshcr
     match result {
         Ok(program) => {
             let parent = shell.materials.editor.as_ref().map(|e| {
-                let mut material = e.material.clone();
+                let mut material = draft_material(e, cx).unwrap_or_else(|_| e.material.clone());
                 if let Ok(values) = read_parameter_fields(e, cx)
                     && let Some(config) = material.procedural.as_mut()
                 {
@@ -357,6 +361,9 @@ fn save(shell: &mut MeshcraftShell, window: &mut Window, cx: &mut Context<Meshcr
             if let Some((material, object)) = parent {
                 edit(shell, material, window, cx);
                 shell.materials.editor.as_mut().unwrap().object = object;
+                if shell.materials.editor.as_ref().unwrap().object.is_some() {
+                    super::object_preview::open(shell, cx);
+                }
             }
         }
         Err(error) => {

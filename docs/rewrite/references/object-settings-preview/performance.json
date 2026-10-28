@@ -1,0 +1,618 @@
+{
+  "schema_version": 1,
+  "version": "0.44.0",
+  "source_revision": "999a3f04400ca6261e39a2b2dd8549c52bac7ff8",
+  "binary_sha256": "a692105dbefd18d70711b979b8fa527846b4614381f68151412788aad9976bca",
+  "supplied_binary": "/home/alfu64/Development/meshcraft/target/debug/meshcraft",
+  "release_artifact": null,
+  "source_state": "local supplied binary; source revision is a working-tree base, not an exact release claim",
+  "started_at": "2026-10-28T15:26:42.154505+00:00",
+  "workflow_url": null,
+  "samples_per_case": 1,
+  "tiers": [
+    "small",
+    "medium",
+    "high",
+    "heavy"
+  ],
+  "inventory_count": 289,
+  "selected_command_count": 2,
+  "benchmark_case_count": 2,
+  "partial": true,
+  "environment": {
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "cpu": "Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz",
+    "cpu_count": 8,
+    "python": "3.12.11 (main, Aug 21 2025, 13:44:19) [GCC 14.2.0]",
+    "rendering": "Mesa software OpenGL / private Xvfb",
+    "viewport_window": [
+      1280,
+      900
+    ],
+    "autosave": false,
+    "antialiasing": "Off",
+    "activity": "local development desktop; normal background activity",
+    "build": "local supplied binary (not assumed release optimized)",
+    "gpu_info": "name of display: :2\ndisplay: :2  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Mesa (0xffffffff)\n    Device: llvmpipe (LLVM 20.1.8, 256 bits) (0xffffffff)\n    Version: 25.2.8\n    Accelerated: no\n    Video memory: 31968MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.5\n    Max compat profile version: 4.5\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.2\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 0 MB, largest block: 0 MB\n    VBO free aux. memory - total: 9151 MB, largest block: 9151 MB\n    Texture free memory - total: 0 MB, largest block: 0 MB\n    Texture free aux. memory - total: 9151 MB, largest block: 9151 MB\n    Renderbuffer free memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free aux. memory - total: 9151 MB, largest block: 9151 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 0 MB\n    Total available memory: 31968 MB\n    Currently available dedicated video memory: 0 MB\nOpenGL vendor string: Mesa\nOpenGL renderer string: llvmpipe (LLVM 20.1.8, 256 bits)\nOpenGL core profile version string: 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL core profile shading language version string: 4.50\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.5 (Compatibility Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL shading language version string: 4.50\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.2 Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.20\n\n"
+  },
+  "fixtures": [
+    {
+      "tier": "small",
+      "quads": 128,
+      "background_vertices": 1792,
+      "background_unique_positions": 512,
+      "background_segments": 512,
+      "background_triangles": 256,
+      "background_primitives": 768,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 24,
+      "sha256": "9444a0d152f343384fad73390cd972ec432747ba72c2219b263f6cb0e2c16d22",
+      "bytes": 91445,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 1792,
+        "segments": 512,
+        "triangles": 256
+      }
+    },
+    {
+      "tier": "medium",
+      "quads": 2048,
+      "background_vertices": 28672,
+      "background_unique_positions": 8192,
+      "background_segments": 8192,
+      "background_triangles": 4096,
+      "background_primitives": 12288,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 192,
+      "sha256": "9e2d187926d0076304adc53ef2c9432f8fd00a9a812c87369114a332c81fee4f",
+      "bytes": 1322501,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 28672,
+        "segments": 8192,
+        "triangles": 4096
+      }
+    },
+    {
+      "tier": "high",
+      "quads": 16384,
+      "background_vertices": 229376,
+      "background_unique_positions": 65536,
+      "background_segments": 65536,
+      "background_triangles": 32768,
+      "background_primitives": 98304,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 1536,
+      "sha256": "23f1de5f778a53fc590cd2f86f2c2d4ce198cb9615cd642bf56d27747b71881c",
+      "bytes": 10863749,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 229376,
+        "segments": 65536,
+        "triangles": 32768
+      }
+    },
+    {
+      "tier": "heavy",
+      "quads": 65536,
+      "background_vertices": 917504,
+      "background_unique_positions": 262144,
+      "background_segments": 262144,
+      "background_triangles": 131072,
+      "background_primitives": 393216,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 6144,
+      "sha256": "75bfdc838d4cca3b072f7013c04c09563c1beb75832768491bd2a82fd179904c",
+      "bytes": 44032189,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 917504,
+        "segments": 262144,
+        "triangles": 131072
+      }
+    }
+  ],
+  "cases": [
+    {
+      "command_id": "object.edit_tree",
+      "variant": "standard",
+      "name": "Edit Procedural Tree",
+      "category": "Objects",
+      "tier": "small",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 528.481579,
+            "mcp_owner_thread_ms": 90.13964999999999,
+            "render_frame_ms": 103.34580993652344,
+            "preview_ms": 2405.552496,
+            "frame_ready_ms": 980.37307,
+            "workflow_elapsed_ms": 5493.944243,
+            "total_ms": 3914.4071449999997
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.edit_tree"
+          ],
+          "before_revision": 52,
+          "after_revision": 53,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 2405.552496,
+          "p95": 2405.552496,
+          "maximum": 2405.552496
+        },
+        "commit_ms": {
+          "median": 528.481579,
+          "p95": 528.481579,
+          "maximum": 528.481579
+        },
+        "frame_ready_ms": {
+          "median": 980.37307,
+          "p95": 980.37307,
+          "maximum": 980.37307
+        },
+        "total_ms": {
+          "median": 3914.4071449999997,
+          "p95": 3914.4071449999997,
+          "maximum": 3914.4071449999997
+        },
+        "mcp_owner_thread_ms": {
+          "median": 90.13964999999999,
+          "p95": 90.13964999999999,
+          "maximum": 90.13964999999999
+        },
+        "render_frame_ms": {
+          "median": 103.34580993652344,
+          "p95": 103.34580993652344,
+          "maximum": 103.34580993652344
+        }
+      }
+    },
+    {
+      "command_id": "object.new_tree",
+      "variant": "standard",
+      "name": "New Procedural Tree",
+      "category": "Objects",
+      "tier": "small",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 431.070095,
+            "mcp_owner_thread_ms": 113.47152,
+            "render_frame_ms": 72.75774383544922,
+            "preview_ms": 1688.314592,
+            "frame_ready_ms": 1190.49199,
+            "workflow_elapsed_ms": 4699.470129,
+            "total_ms": 3309.8766769999997
+          },
+          "steps": [
+            "object.new_tree"
+          ],
+          "before_revision": 54,
+          "after_revision": 54,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 1688.314592,
+          "p95": 1688.314592,
+          "maximum": 1688.314592
+        },
+        "commit_ms": {
+          "median": 431.070095,
+          "p95": 431.070095,
+          "maximum": 431.070095
+        },
+        "frame_ready_ms": {
+          "median": 1190.49199,
+          "p95": 1190.49199,
+          "maximum": 1190.49199
+        },
+        "total_ms": {
+          "median": 3309.8766769999997,
+          "p95": 3309.8766769999997,
+          "maximum": 3309.8766769999997
+        },
+        "mcp_owner_thread_ms": {
+          "median": 113.47152,
+          "p95": 113.47152,
+          "maximum": 113.47152
+        },
+        "render_frame_ms": {
+          "median": 72.75774383544922,
+          "p95": 72.75774383544922,
+          "maximum": 72.75774383544922
+        }
+      }
+    },
+    {
+      "command_id": "object.edit_tree",
+      "variant": "standard",
+      "name": "Edit Procedural Tree",
+      "category": "Objects",
+      "tier": "medium",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 222.409194,
+            "mcp_owner_thread_ms": 51.63934999999998,
+            "render_frame_ms": 81.10586547851562,
+            "preview_ms": 1413.680681,
+            "frame_ready_ms": 800.597689,
+            "workflow_elapsed_ms": 3237.224274,
+            "total_ms": 2436.687564
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.edit_tree"
+          ],
+          "before_revision": 52,
+          "after_revision": 53,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 1413.680681,
+          "p95": 1413.680681,
+          "maximum": 1413.680681
+        },
+        "commit_ms": {
+          "median": 222.409194,
+          "p95": 222.409194,
+          "maximum": 222.409194
+        },
+        "frame_ready_ms": {
+          "median": 800.597689,
+          "p95": 800.597689,
+          "maximum": 800.597689
+        },
+        "total_ms": {
+          "median": 2436.687564,
+          "p95": 2436.687564,
+          "maximum": 2436.687564
+        },
+        "mcp_owner_thread_ms": {
+          "median": 51.63934999999998,
+          "p95": 51.63934999999998,
+          "maximum": 51.63934999999998
+        },
+        "render_frame_ms": {
+          "median": 81.10586547851562,
+          "p95": 81.10586547851562,
+          "maximum": 81.10586547851562
+        }
+      }
+    },
+    {
+      "command_id": "object.new_tree",
+      "variant": "standard",
+      "name": "New Procedural Tree",
+      "category": "Objects",
+      "tier": "medium",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 159.07361999999998,
+            "mcp_owner_thread_ms": 31.233925999999997,
+            "render_frame_ms": 56.155067443847656,
+            "preview_ms": 602.035082,
+            "frame_ready_ms": 432.005972,
+            "workflow_elapsed_ms": 1622.442699,
+            "total_ms": 1193.114674
+          },
+          "steps": [
+            "object.new_tree"
+          ],
+          "before_revision": 54,
+          "after_revision": 54,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 602.035082,
+          "p95": 602.035082,
+          "maximum": 602.035082
+        },
+        "commit_ms": {
+          "median": 159.07361999999998,
+          "p95": 159.07361999999998,
+          "maximum": 159.07361999999998
+        },
+        "frame_ready_ms": {
+          "median": 432.005972,
+          "p95": 432.005972,
+          "maximum": 432.005972
+        },
+        "total_ms": {
+          "median": 1193.114674,
+          "p95": 1193.114674,
+          "maximum": 1193.114674
+        },
+        "mcp_owner_thread_ms": {
+          "median": 31.233925999999997,
+          "p95": 31.233925999999997,
+          "maximum": 31.233925999999997
+        },
+        "render_frame_ms": {
+          "median": 56.155067443847656,
+          "p95": 56.155067443847656,
+          "maximum": 56.155067443847656
+        }
+      }
+    },
+    {
+      "command_id": "object.edit_tree",
+      "variant": "standard",
+      "name": "Edit Procedural Tree",
+      "category": "Objects",
+      "tier": "high",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 747.561045,
+            "mcp_owner_thread_ms": 38.5146050000003,
+            "render_frame_ms": 366.0215148925781,
+            "preview_ms": 1209.535179,
+            "frame_ready_ms": 801.192195,
+            "workflow_elapsed_ms": 5637.803976,
+            "total_ms": 2758.288419
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.edit_tree"
+          ],
+          "before_revision": 52,
+          "after_revision": 53,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 1209.535179,
+          "p95": 1209.535179,
+          "maximum": 1209.535179
+        },
+        "commit_ms": {
+          "median": 747.561045,
+          "p95": 747.561045,
+          "maximum": 747.561045
+        },
+        "frame_ready_ms": {
+          "median": 801.192195,
+          "p95": 801.192195,
+          "maximum": 801.192195
+        },
+        "total_ms": {
+          "median": 2758.288419,
+          "p95": 2758.288419,
+          "maximum": 2758.288419
+        },
+        "mcp_owner_thread_ms": {
+          "median": 38.5146050000003,
+          "p95": 38.5146050000003,
+          "maximum": 38.5146050000003
+        },
+        "render_frame_ms": {
+          "median": 366.0215148925781,
+          "p95": 366.0215148925781,
+          "maximum": 366.0215148925781
+        }
+      }
+    },
+    {
+      "command_id": "object.new_tree",
+      "variant": "standard",
+      "name": "New Procedural Tree",
+      "category": "Objects",
+      "tier": "high",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 192.43633599999998,
+            "mcp_owner_thread_ms": 35.626944000000094,
+            "render_frame_ms": 366.97589111328125,
+            "preview_ms": 644.279233,
+            "frame_ready_ms": 802.625163,
+            "workflow_elapsed_ms": 2308.56665,
+            "total_ms": 1639.3407320000001
+          },
+          "steps": [
+            "object.new_tree"
+          ],
+          "before_revision": 54,
+          "after_revision": 54,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 644.279233,
+          "p95": 644.279233,
+          "maximum": 644.279233
+        },
+        "commit_ms": {
+          "median": 192.43633599999998,
+          "p95": 192.43633599999998,
+          "maximum": 192.43633599999998
+        },
+        "frame_ready_ms": {
+          "median": 802.625163,
+          "p95": 802.625163,
+          "maximum": 802.625163
+        },
+        "total_ms": {
+          "median": 1639.3407320000001,
+          "p95": 1639.3407320000001,
+          "maximum": 1639.3407320000001
+        },
+        "mcp_owner_thread_ms": {
+          "median": 35.626944000000094,
+          "p95": 35.626944000000094,
+          "maximum": 35.626944000000094
+        },
+        "render_frame_ms": {
+          "median": 366.97589111328125,
+          "p95": 366.97589111328125,
+          "maximum": 366.97589111328125
+        }
+      }
+    },
+    {
+      "command_id": "object.edit_tree",
+      "variant": "standard",
+      "name": "Edit Procedural Tree",
+      "category": "Objects",
+      "tier": "heavy",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "failed",
+      "reason": "undo history needs 451490102 snapshot bytes, over its 268435456 byte budget",
+      "samples": [
+        {
+          "status": "failed",
+          "timings": {},
+          "failure_elapsed_ms": 5344.467676,
+          "error": "undo history needs 451490102 snapshot bytes, over its 268435456 byte budget"
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": null,
+        "frame_ready_ms": null,
+        "total_ms": null,
+        "mcp_owner_thread_ms": null,
+        "render_frame_ms": null
+      }
+    },
+    {
+      "command_id": "object.new_tree",
+      "variant": "standard",
+      "name": "New Procedural Tree",
+      "category": "Objects",
+      "tier": "heavy",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 236.96378900000002,
+            "mcp_owner_thread_ms": 30.28806600000007,
+            "render_frame_ms": 1312.4554443359375,
+            "preview_ms": 1319.905962,
+            "frame_ready_ms": 1668.908024,
+            "workflow_elapsed_ms": 4470.048611,
+            "total_ms": 3225.777775
+          },
+          "steps": [
+            "object.new_tree"
+          ],
+          "before_revision": 52,
+          "after_revision": 52,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": {
+          "median": 1319.905962,
+          "p95": 1319.905962,
+          "maximum": 1319.905962
+        },
+        "commit_ms": {
+          "median": 236.96378900000002,
+          "p95": 236.96378900000002,
+          "maximum": 236.96378900000002
+        },
+        "frame_ready_ms": {
+          "median": 1668.908024,
+          "p95": 1668.908024,
+          "maximum": 1668.908024
+        },
+        "total_ms": {
+          "median": 3225.777775,
+          "p95": 3225.777775,
+          "maximum": 3225.777775
+        },
+        "mcp_owner_thread_ms": {
+          "median": 30.28806600000007,
+          "p95": 30.28806600000007,
+          "maximum": 30.28806600000007
+        },
+        "render_frame_ms": {
+          "median": 1312.4554443359375,
+          "p95": 1312.4554443359375,
+          "maximum": 1312.4554443359375
+        }
+      }
+    }
+  ],
+  "finished_at": "2026-10-28T15:28:12.485078+00:00",
+  "coverage_complete": true
+}

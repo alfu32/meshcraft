@@ -193,7 +193,12 @@ fn tree_branch_count(values: &BTreeMap<String, Value>) -> usize {
     1 + b * (3usize.pow(levels) - 1) / 2
 }
 fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
-    match p.id.as_str() {
+    let source = p
+        .extensions
+        .get(PREVIEW_PROGRAM_SOURCE)
+        .and_then(Value::as_str)
+        .unwrap_or(&p.id);
+    match source {
         meshcraft_core::document::procedural::GRASS
         | meshcraft_core::document::procedural::FOLIAGE
         | meshcraft_core::document::procedural::TREE => num(values, "wind", 0.) > 0.,
@@ -347,6 +352,7 @@ impl Renderer {
                                 self.domains.push(gpu);
                                 self.domains.len() - 1
                             });
+                        self.animated |= p.animated && animation_active(p, &values);
                         self.batches.push(Batch {
                             domain,
                             program: compiled_index,

@@ -484,12 +484,22 @@ fn read(shell: &mut MeshcraftShell, uri: &str) -> Result<Value, String> {
 fn capture(shell: &MeshcraftShell, args: &Value) -> Result<Value, String> {
     use base64::Engine as _;
     use image::ImageEncoder as _;
-    let frame = shell
-        .bridge
+    let preview = args["preview"].as_bool().unwrap_or(false);
+    let bridge = if preview {
+        shell
+            .bridge
+            .preview
+            .lock()
+            .map_err(|_| "renderer is unavailable")?
+            .clone()
+            .ok_or("no active editor preview; retry capture")?
+    } else {
+        shell.bridge.clone()
+    };
+    let frame = bridge
         .latest_frame()
         .ok_or("viewport has not rendered yet; retry capture")?;
-    let requested = *shell
-        .bridge
+    let requested = *bridge
         .redraw
         .0
         .lock()
@@ -539,6 +549,6 @@ fn capture(shell: &MeshcraftShell, args: &Value) -> Result<Value, String> {
     .map_err(|e| e.to_string())?;
     let data = base64::engine::general_purpose::STANDARD.encode(png);
     Ok(
-        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"procedural":{"diagnostics":frame.procedural_diagnostics,"candidateInstances":frame.procedural_candidates,"drawCalls":frame.procedural_draw_calls},"frameSequence":frame.sequence,"renderFrameMs":frame.frame_ms,"fresh":fresh,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate"}),
+        json!({"_mcpContent":[{"type":"image","mimeType":"image/png","data":data}],"width":image.width(),"height":image.height(),"procedural":{"diagnostics":frame.procedural_diagnostics,"candidateInstances":frame.procedural_candidates,"drawCalls":frame.procedural_draw_calls},"frameSequence":frame.sequence,"renderFrameMs":frame.frame_ms,"fresh":fresh,"preview":preview,"revision":shell.session.document_revision(),"generation":shell.session.document_generation(),"includes":"3D viewport only; GPUI labels/panels are separate; revision/generation describe the drawing, not uncommitted editor drafts"}),
     )
 }

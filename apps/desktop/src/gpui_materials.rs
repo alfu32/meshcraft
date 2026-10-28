@@ -1,5 +1,7 @@
 //! Draft material editor and project material list, rendered entirely in GPUI.
 use super::*;
+#[path = "gpui_object_preview.rs"]
+mod object_preview;
 #[path = "gpui_shader_editor.rs"]
 mod shader_editor;
 use gpui_component::checkbox::Checkbox;
@@ -49,6 +51,7 @@ struct ObjectEdit {
 }
 pub(super) struct Editor {
     object: Option<ObjectEdit>,
+    preview: Option<object_preview::Preview>,
     material: Material,
     name: Entity<InputState>,
     color: Entity<InputState>,
@@ -83,6 +86,7 @@ pub(super) fn edit(
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
+    object_preview::detach(shell);
     let is_object = material.procedural.as_ref().is_some_and(|c| {
         shell
             .cached_document
@@ -240,6 +244,7 @@ pub(super) fn edit(
     shell.command_palette_open = false;
     shell.materials.editor = Some(Editor {
         object: None,
+        preview: None,
         material,
         name: name.clone(),
         color,
@@ -338,6 +343,162 @@ pub(super) fn overlay(
         return program_overlay(shell, cx);
     }
     let editor = shell.materials.editor.as_ref()?;
+    let fields = div()
+        .id("material-editor-fields")
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .child(field("Name", &editor.name))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child("Program")
+                .child(Select::new(&editor.program).w_full()),
+        )
+        .child(procedural_fields(shell, editor, cx))
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .items_end()
+                .child(div().flex_1().child(field(
+                    "Color · #RRGGBBAA (AA controls opacity)",
+                    &editor.color,
+                )))
+                .child(ColorPicker::new(&editor.picker)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child("Shading type")
+                .child(Select::new(&editor.shading)),
+        )
+        .child(
+            Checkbox::new("material/pbr")
+                .label("PBR base shading for procedural surfaces")
+                .checked(editor.material.pbr.is_some())
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    if let Some(e) = this.materials.editor.as_mut() {
+                        e.material.pbr = if *checked {
+                            Some(Default::default())
+                        } else {
+                            None
+                        };
+                    }
+                    cx.notify();
+                })),
+        )
+        .when(editor.material.pbr.is_some(), |row| {
+            row.child(
+                div()
+                    .flex()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(field("Roughness · 0–1", &editor.roughness)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(field("Metallic · 0–1", &editor.metallic)),
+                    ),
+            )
+        })
+        .child(field("Texture path (optional)", &editor.texture))
+        .child(
+            div()
+                .flex()
+                .gap(px(10.))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(field("Texture size U (model units)", &editor.u)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .child(field("Texture size V (model units)", &editor.v)),
+                ),
+        );
+    let footer =
+        div()
+            .flex()
+            .flex_col()
+            .when_some(editor.error.clone(), |row, error| {
+                row.child(div().text_color(rgb(0xff9999)).child(error))
+            })
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(Button::new("material/apply-draft").label("Apply").on_click(
+                        cx.listener(|this, _, _, cx| {
+                            if let Err(e) = save(this, cx)
+                                && let Some(editor) = this.materials.editor.as_mut()
+                            {
+                                editor.error = Some(e);
+                            }
+                            this.refresh_scene();
+                            cx.notify();
+                        }),
+                    ))
+                    .child(
+                        Button::new("material/cancel")
+                            .label("Cancel")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                close(this, window, cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("material/save")
+                            .label("Save")
+                            .primary()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let result = save(this, cx);
+                                match result {
+                                    Ok(()) => {
+                                        close(this, window, cx);
+                                        this.refresh_scene();
+                                    }
+                                    Err(error) => {
+                                        if let Some(editor) = this.materials.editor.as_mut() {
+                                            editor.error = Some(error);
+                                        }
+                                    }
+                                }
+                                cx.notify();
+                            })),
+                    ),
+            );
+    let wide = editor.preview.is_some();
+    let content = if wide {
+        div()
+            .flex()
+            .flex_1()
+            .min_h(px(0.))
+            .gap(px(16.))
+            .child(
+                div()
+                    .id("object-settings-scroll")
+                    .w(px(530.))
+                    .max_w(gpui::relative(0.5))
+                    .min_w(px(0.))
+                    .flex_shrink_0()
+                    .overflow_y_scroll()
+                    .child(fields),
+            )
+            .child(object_preview::panel(shell, cx))
+            .into_any_element()
+    } else {
+        fields.into_any_element()
+    };
     Some(
         div()
             .absolute()
@@ -352,9 +513,6 @@ pub(super) fn overlay(
             .child(
                 div()
                     .id("material-editor-body")
-                    .max_h(gpui::relative(0.85))
-                    .overflow_y_scroll()
-                    .w(px(570.))
                     .p(px(18.))
                     .flex()
                     .flex_col()
@@ -363,140 +521,37 @@ pub(super) fn overlay(
                     .border_1()
                     .border_color(rgb(0x60768a))
                     .rounded_lg()
+                    .when(wide, |row| {
+                        row.w(gpui::relative(0.96))
+                            .max_w(px(1500.))
+                            .h(gpui::relative(0.9))
+                    })
+                    .when(!wide, |row| {
+                        row.w(px(570.))
+                            .max_h(gpui::relative(0.85))
+                            .overflow_y_scroll()
+                    })
                     .child(div().text_lg().child(if editor.object.is_some() {
                         "Procedural Object Editor"
                     } else {
                         "Material Editor"
                     }))
-                    .child(field("Name", &editor.name))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child("Program")
-                            .child(Select::new(&editor.program).w_full()),
-                    )
-                    .child(procedural_fields(shell, editor, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .items_end()
-                            .child(div().flex_1().child(field(
-                                "Color · #RRGGBBAA (AA controls opacity)",
-                                &editor.color,
-                            )))
-                            .child(ColorPicker::new(&editor.picker)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.))
-                            .child("Shading type")
-                            .child(Select::new(&editor.shading)),
-                    )
-                    .child(
-                        Checkbox::new("material/pbr")
-                            .label("PBR base shading for procedural surfaces")
-                            .checked(editor.material.pbr.is_some())
-                            .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                if let Some(e) = this.materials.editor.as_mut() {
-                                    e.material.pbr = if *checked {
-                                        Some(Default::default())
-                                    } else {
-                                        None
-                                    };
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .when(editor.material.pbr.is_some(), |row| {
-                        row.child(
-                            div()
-                                .flex()
-                                .gap(px(10.))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(field("Roughness · 0–1", &editor.roughness)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(field("Metallic · 0–1", &editor.metallic)),
-                                ),
-                        )
-                    })
-                    .child(field("Texture path (optional)", &editor.texture))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(10.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .child(field("Texture size U (model units)", &editor.u)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .child(field("Texture size V (model units)", &editor.v)),
-                            ),
-                    )
-                    .when_some(editor.error.clone(), |row, error| {
-                        row.child(div().text_color(rgb(0xff9999)).child(error))
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap(px(8.))
-                            .child(Button::new("material/apply-draft").label("Apply").on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    if let Err(e) = save(this, cx)
-                                        && let Some(editor) = this.materials.editor.as_mut()
-                                    {
-                                        editor.error = Some(e);
-                                    }
-                                    this.refresh_scene();
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(Button::new("material/cancel").label("Cancel").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.materials.editor = None;
-                                    window.focus(&this.focus);
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(
-                                Button::new("material/save")
-                                    .label("Save")
-                                    .primary()
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        let result = save(this, cx);
-                                        match result {
-                                            Ok(()) => {
-                                                this.materials.editor = None;
-                                                this.refresh_scene();
-                                                window.focus(&this.focus);
-                                            }
-                                            Err(error) => {
-                                                if let Some(editor) = this.materials.editor.as_mut()
-                                                {
-                                                    editor.error = Some(error);
-                                                }
-                                            }
-                                        }
-                                        cx.notify();
-                                    })),
-                            ),
-                    ),
+                    .child(content)
+                    .child(footer),
             )
             .into_any_element(),
     )
+}
+
+pub(super) fn close(
+    shell: &mut MeshcraftShell,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    object_preview::detach(shell);
+    shell.materials.editor = None;
+    window.focus(&shell.focus);
+    cx.notify();
 }
 
 fn save(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> Result<(), String> {
@@ -505,6 +560,26 @@ fn save(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> Result<(), 
         .editor
         .as_ref()
         .ok_or("material editor is closed")?;
+    let material = draft_material(editor, cx)?;
+    if let Some(object) = editor.object.clone() {
+        let id = shell.session.save_native_procedural_object(
+            object.definition,
+            object.instance,
+            material,
+        )?;
+        if let Some(e) = shell.materials.editor.as_mut() {
+            e.object.as_mut().unwrap().definition = Some(id);
+        }
+        return Ok(());
+    }
+    let id = material.id.clone();
+    shell.session.save_native_material(material)?;
+    shell.session.choose_native_material(&id)?;
+    shell.materials.selected = Some(id);
+    Ok(())
+}
+
+fn draft_material(editor: &Editor, cx: &Context<MeshcraftShell>) -> Result<Material, String> {
     let mut material = editor.material.clone();
     material.name = editor.name.read(cx).value().to_string();
     let color: gpui::Rgba = gpui::Hsla::parse_hex(editor.color.read(cx).value().as_ref())
@@ -570,22 +645,8 @@ fn save(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> Result<(), 
             .parse()
             .map_err(|_| "Metallic must be a number")?;
     }
-    if let Some(object) = editor.object.clone() {
-        let id = shell.session.save_native_procedural_object(
-            object.definition,
-            object.instance,
-            material,
-        )?;
-        if let Some(e) = shell.materials.editor.as_mut() {
-            e.object.as_mut().unwrap().definition = Some(id);
-        }
-        return Ok(());
-    }
-    let id = material.id.clone();
-    shell.session.save_native_material(material)?;
-    shell.session.choose_native_material(&id)?;
-    shell.materials.selected = Some(id);
-    Ok(())
+    material.validate()?;
+    Ok(material)
 }
 
 fn display_value(v: &Value) -> String {
@@ -945,6 +1006,7 @@ fn procedural_fields(
                 .bridge
                 .latest_frame()
                 .into_iter()
+                .filter(|_| editor.preview.is_none())
                 .flat_map(|f| f.procedural_diagnostics)
                 .map(|d| div().text_xs().text_color(rgb(0xffaa80)).child(d)),
         )
@@ -965,7 +1027,11 @@ fn program_overlay(
     shader_editor::overlay(shell, cx)
 }
 pub(super) fn tick(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>) -> bool {
-    shader_editor::tick(shell, cx)
+    if shell.materials.program_editor.is_some() {
+        shader_editor::tick(shell, cx)
+    } else {
+        object_preview::tick(shell, cx)
+    }
 }
 
 fn read_selection_values(
@@ -1126,6 +1192,7 @@ pub(super) fn edit_tree(
             definition,
             instance: path,
         });
+        object_preview::open(shell, cx);
     } else {
         shell
             .session

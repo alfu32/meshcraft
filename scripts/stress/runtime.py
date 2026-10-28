@@ -92,11 +92,11 @@ class Rpc:
     def select(self, targets):
         return self.call("meshcraft_select", dict(targets=targets))
 
-    def frame(self):
+    def frame(self, preview=False):
         deadline = time.monotonic() + self.timeout
         while True:
             try:
-                result = self.call("meshcraft_capture_view", dict(max_width=64))
+                result = self.call("meshcraft_capture_view", dict(max_width=64, preview=preview))
                 if not result["fresh"]:
                     raise Failure("stale viewport frame")
                 return result

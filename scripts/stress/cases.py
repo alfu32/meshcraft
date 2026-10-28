@@ -842,16 +842,18 @@ class Exercise:
         elif key == "object.refresh_reference":
             self.cmd("object.reference_scene", dict(path=str(self.external)))
             self.cmd(key, stage="commit_ms")
-        elif key == "object.new_tree":
-            self.cmd(key, stage="commit_ms")
         elif key == "object.configure_procedural":
             self.rpc.select([])
             self.mutate(key)
             self.picks("object.place_selected_definition", [(-5, 0, -5)])
-        elif key in ("object.edit_tree", "script.new", "script.edit"):
+        elif key in ("object.new_tree", "object.edit_tree", "script.new", "script.edit"):
             if key == "object.edit_tree":
                 self.cmd("object.configure_procedural")
             self.cmd(key, stage="commit_ms")
+            if key in ("object.new_tree", "object.edit_tree"):
+                frame = self.timed("preview_ms", self.rpc.frame, True)
+                if frame["procedural"]["diagnostics"]:
+                    raise Failure(str(frame["procedural"]["diagnostics"]))
             self.timed(
                 "commit_ms",
                 subprocess.run,

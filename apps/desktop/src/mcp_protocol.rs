@@ -139,9 +139,9 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "meshcraft_capture_view",
-            "Capture the current 3D viewport as a PNG image for visual verification. It includes model, helpers and tool preview, without UI panels or GPUI text labels. Default requires a freshly rendered frame; retry on rendering-pending errors, or set allow_stale=true for the latest available frame. Max width defaults to 1024. Returns image content plus frame/revision metadata.",
+            "Capture the current 3D viewport as a PNG image for visual verification. Set preview=true to capture the active object/material/script editor preview instead of the drawing. Includes 3D geometry and helpers, without UI panels or GPUI text labels. Default requires a freshly rendered frame; retry on rendering-pending errors, or set allow_stale=true for the latest available frame. Max width defaults to 1024. Returns image content plus frame metadata; revision/generation always describe the drawing, not editor drafts.",
             schema(
-                json!({"max_width":{"type":"integer","minimum":64,"maximum":2048},"allow_stale":{"type":"boolean"}}),
+                json!({"max_width":{"type":"integer","minimum":64,"maximum":2048},"allow_stale":{"type":"boolean"},"preview":{"type":"boolean"}}),
                 &[],
             ),
             true,
@@ -483,9 +483,17 @@ mod image_tests {
     use super::*;
     #[test]
     fn viewport_png_is_image_content_and_metadata_stays_structured() {
-        let (_,reply)=dispatch(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meshcraft_capture_view"}}),&BTreeMap::new(),|_,_,_|Ok(json!({"_mcpContent":[{"type":"image","data":"png-data","mimeType":"image/png"}],"fresh":true}))).unwrap();
+        let (_, reply) = dispatch(
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"meshcraft_capture_view","arguments":{"preview":true}}}),
+            &BTreeMap::new(),
+            |_, args, _| {
+                assert_eq!(true, args["arguments"]["preview"]);
+                Ok(json!({"_mcpContent":[{"type":"image","data":"png-data","mimeType":"image/png"}],"fresh":true,"preview":true}))
+            },
+        ).unwrap();
         assert_eq!("image", reply["result"]["content"][0]["type"]);
         assert_eq!(true, reply["result"]["structuredContent"]["fresh"]);
+        assert_eq!(true, reply["result"]["structuredContent"]["preview"]);
         assert!(
             reply["result"]["structuredContent"]
                 .get("_mcpContent")

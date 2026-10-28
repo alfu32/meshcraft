@@ -293,6 +293,34 @@ class StressTests(unittest.TestCase):
             "hotspot.begin_placement", before, dict(revision=8, status="Added hotspot")
         )
 
+    def test_object_editor_recipes_wait_for_preview_and_close_before_root_capture(self):
+        class RpcStub:
+            owner_ms_total = 0.0
+            owner_count = 0
+
+            def command(self, key, args=None):
+                events.append(key)
+
+            def frame(self, preview=False):
+                events.append(("frame", preview))
+                return dict(procedural=dict(diagnostics=diagnostics))
+
+        for key in ("object.new_tree", "object.edit_tree"):
+            for diagnostics in ([], ["shader compile failed"]):
+                events = []
+                exercise = Exercise(RpcStub(), Path("."), {})
+                with patch.object(exercise, "sources"), patch("cases.subprocess.run") as run:
+                    if diagnostics:
+                        with self.assertRaisesRegex(RuntimeError, "shader compile failed"):
+                            exercise.object(key)
+                        run.assert_not_called()
+                    else:
+                        exercise.object(key)
+                        run.assert_called_once()
+                        self.assertEqual(run.call_args.args[0], ["xdotool", "key", "Escape"])
+                self.assertEqual(events[-2:], [key, ("frame", True)])
+                self.assertIn("preview_ms", exercise.timings)
+
     def test_final_commit_timing_rejects_extra_picks_after_early_completion(self):
         class RpcStub:
             owner_ms_total = 0.0

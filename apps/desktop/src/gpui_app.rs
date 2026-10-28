@@ -86,6 +86,7 @@ use raylib::{
 use serde_json::{Value, json};
 
 const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+const PREVIEW_PROGRAM_SOURCE: &str = "meshcraft.previewProgramSource";
 use crate::app::DROPDOWN_MENU_NAMES as MENU_NAMES;
 const RIBBON_TABS: &[&str] = &[
     "Home",
@@ -1084,7 +1085,7 @@ impl Render for RaylibCanvas {
             self.frame_watch_started = true;
             cx.on_release_in(window, |canvas, window, _| {
                 if let Some(image) = canvas.presented_image.take() {
-                    let _ = window.drop_image(image);
+                    retire_viewport_image(window, image);
                 }
             })
             .detach();
@@ -1114,7 +1115,7 @@ impl Render for RaylibCanvas {
                     replace_presented_image(&mut self.presented_image, &frame.image)
                 {
                     // RenderImage's Arc only owns CPU pixels. Atlas entries require explicit eviction.
-                    let _ = window.drop_image(retired);
+                    retire_viewport_image(window, retired);
                 }
                 img(ImageSource::Render(frame.image))
                     .size_full()
@@ -1130,6 +1131,18 @@ impl Render for RaylibCanvas {
                 .into_any_element(),
         }
     }
+}
+
+fn retire_viewport_image(window: &Window, image: Arc<RenderImage>) {
+    // A canvas can disappear after GPUI has queued its atlas upload in this
+    // frame. A callback runs before presentation, so allow one complete frame
+    // between retiring and evicting; immediate eviction leaves
+    // Blade's pending texture initializations pointing at a removed slot.
+    window.on_next_frame(move |window, _| {
+        window.on_next_frame(move |window, _| {
+            let _ = window.drop_image(image);
+        });
+    });
 }
 
 struct MeshcraftShell {
@@ -3481,9 +3494,7 @@ impl Render for MeshcraftShell {
                 }
                 if this.materials.editor.is_some() {
                     if event.keystroke.key == "escape" {
-                        this.materials.editor = None;
-                        window.focus(&this.focus);
-                        cx.notify();
+                        materials::close(this, window, cx);
                         cx.stop_propagation();
                     }
                     return;

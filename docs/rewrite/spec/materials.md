@@ -94,6 +94,21 @@ Reuse the shared program/resource/parameter machinery; mesh shaders and compute
 remain later work. The tree deliverable is a slice of #31, which also asks for a
 bush and broader source-domain/LOD qualification.
 
+### Procedural object settings preview — #29, T65
+
+The procedural object settings dialog has independently scrolling settings on the
+left and a live GPU preview of the object on the right. Keep Apply, Cancel and
+Save visible. Preview the effective prototype or private instance settings in an
+isolated scene, without cloning the full drawing or changing its geometry,
+selection, camera or history. Debounce valid draft updates; invalid input shows
+the error and retains the last valid preview. Orbit, pan, zoom and Fit View affect
+only the preview camera. Returning from the shader program editor restores the
+parent preview and draft. Closing the dialog releases preview resources and
+resumes the drawing; zero-wind previews must let rendering idle. Apply and Save
+retain their existing commit scopes. MCP viewport capture can explicitly request
+the active editor preview for visual verification; its revision metadata continues
+to describe the drawing rather than the draft.
+
 
 ### Shader parameter pickers and foliage — #29/#30, T65
 
