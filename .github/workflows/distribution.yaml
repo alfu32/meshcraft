@@ -72,7 +72,7 @@ jobs:
       - name: Validate release helpers and planning
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends rpm
+          sudo apt-get install -y --no-install-recommends rpm openssl
           python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
           python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v
           python3 -m unittest discover -s scripts -p 'test_export_tool_inventory.py' -v
@@ -259,10 +259,17 @@ jobs:
           name: failed-startup-packages-${{ matrix.target }}
           path: target/release-assets
           if-no-files-found: warn
-      - name: Build Windows MSI and unsigned MSIX
+      - name: Build Windows MSI and Store-associated signed MSIX
         if: matrix.os == 'windows'
         shell: pwsh
+        env:
+          MESHCRAFT_PFX_B64: ${{ secrets.MESHCRAFT_PFX_B64 }}
+          MESHCRAFT_PFX_PASSWORD: ${{ secrets.MESHCRAFT_PFX_PASSWORD }}
         run: ./packaging/windows/package.ps1 -Arch '${{ matrix.arch }}' -Version "$env:RELEASE_VERSION"
+      - name: Check signed MSIX installation, Store identity and command launch
+        if: matrix.os == 'windows'
+        shell: powershell
+        run: ./packaging/windows/check-msix.ps1 -Arch '${{ matrix.arch }}' -Version "$env:RELEASE_VERSION"
       - name: Build macOS application bundle and DMG
         if: matrix.os == 'macos'
         run: bash packaging/macos/package.sh "$RELEASE_VERSION" "$RELEASE_TARGET"
@@ -297,7 +304,7 @@ jobs:
       - name: Verify the complete matrix and publish at the selected existing tag
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends rpm
+          sudo apt-get install -y --no-install-recommends rpm openssl
           python3 scripts/release/verify.py --directory incoming --version "$RELEASE_VERSION" --sha "$RELEASE_SHA"
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$RELEASE_SHA"
           gh release create "$RELEASE_TAG" incoming/* target/SHA256SUMS.txt \

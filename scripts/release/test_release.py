@@ -19,8 +19,10 @@ import portable
 import verify
 import snap as snap_packager
 import linux_packages
+import msix
+from test_msix import certificate_fixture, package_fixture
 
-NATIVE_PACKAGE_TOOLS = all(shutil.which(tool) for tool in ("dpkg-deb", "rpmbuild", "rpm", "rpm2cpio"))
+NATIVE_PACKAGE_TOOLS = all(shutil.which(tool) for tool in ("dpkg-deb", "rpmbuild", "rpm", "rpm2cpio", "openssl"))
 
 
 class ReleaseTests(unittest.TestCase):
@@ -283,14 +285,30 @@ class ReleaseTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     linux_packages.build(archive, self.root / "assets")
         assets = self.root / "assets"
+        certificate = certificate_fixture(self.root)
         for name in verify.expected_assets(self.version):
             p = assets / name
             if p.exists():
                 continue
             if name.endswith(".msix"):
-                with zipfile.ZipFile(p, "w") as a:
-                    a.writestr("AppxManifest.xml", "<Package/>")
-                    a.writestr("AppxBlockMap.xml", "<BlockMap/>")
+                arch = "arm64" if name.endswith("-arm64.msix") else "x64"
+                target = "aarch64-pc-windows-msvc" if arch == "arm64" else "x86_64-pc-windows-msvc"
+                base = "meshcraft-" + self.version + "-" + target
+                with zipfile.ZipFile(assets / (base + ".zip")) as portable_archive:
+                    files = {path[len(base) + 1:]: portable_archive.read(path) for path in portable_archive.namelist()}
+                p.write_bytes(package_fixture(self.version, arch, files))
+                store = msix.identity()
+                with redirect_stdout(io.StringIO()):
+                    common.publish(p, dict(
+                        format="msix", version=self.version, packageVersion=msix.package_version(self.version),
+                        architecture=arch, sourceRevision=self.sha, signed=True,
+                        identityName=store["name"], publisher=store["publisher"],
+                        publisherDisplayName=store["publisherDisplayName"], packageFamilyName=store["packageFamilyName"],
+                        storeId=store["storeId"], certificateSha256=common.sha(certificate),
+                    ))
+                continue
+            elif name.endswith(".cer"):
+                p.write_bytes(certificate)
             elif name.endswith(".msi"):
                 p.write_bytes(bytes.fromhex("d0cf11e0a1b11ae1"))
             elif name.endswith(".AppImage"):
@@ -302,7 +320,7 @@ class ReleaseTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 common.publish(p)
         self.assertEqual(
-            26, len(verify.verify(assets, self.version, self.sha).splitlines())
+            28, len(verify.verify(assets, self.version, self.sha).splitlines())
         )
         native = next(assets.glob("*.deb.manifest.json"))
         original = native.read_text()

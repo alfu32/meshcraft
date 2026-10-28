@@ -14,10 +14,10 @@ Meshcraft uses the same six-target distribution matrix as the Rust Kode referenc
 | Native target | Portable archives | Additional installers |
 | --- | --- | --- |
 | Linux x86_64 / aarch64 | ZIP, tar.gz | AppImage, Snap, DEB, RPM |
-| Windows x64 / ARM64 | ZIP, tar.gz | MSI, unsigned MSIX |
+| Windows x64 / ARM64 | ZIP, tar.gz | MSI, signed MSIX, public signing CER |
 | macOS Intel / Apple Silicon | ZIP, tar.gz | DMG containing Meshcraft.app |
 
-Each release contains 26 primary artifacts, per-file SHA-256 sidecars and a combined
+Each release contains 28 primary artifacts, per-file SHA-256 sidecars and a combined
 `SHA256SUMS.txt`. Portable archives include a file manifest, source revision,
 version, notices and the small dynamic-object example. UI icons/shaders stay embedded
 in the executable. User scenes, configuration, build directories and test projects
@@ -185,10 +185,55 @@ Windows builds use the native SDK, LLVM/libclang for raylib bindings, GPUI's `fx
 shader compiler, and static CRT linking. The CMake toolchain explicitly sets the
 MSVC runtime to `MultiThreaded` for raylib/GLFW, matching Rust `+crt-static`;
 setting only Rust flags leaves CMake targets using the DLL runtime. WiX 5.0.2 produces MSI, and the Windows SDK
-MakeAppx produces **unsigned** MSIX. No signing secret is requested or referenced.
-MSIX signing is deliberately deferred until repository secrets and the publisher
-identity are configured; unsigned MSIX is a packaging output, not a trusted,
-ready-to-install production package.
+MakeAppx produces MSIX packages using the reserved Store identity in
+[`windows/store-identity.json`](windows/store-identity.json), transcribed from the
+publisher's local `.store/microsoft` details. Identity name is
+`K3D0.Meshcraft-desktop`, publisher is `CN=7F0CBC95-8035-4AF2-9B17-C38D58351CE5`,
+and publisher display name is `K3D0`. PFN, package SID and Store ID are recorded
+for validation/reference; they are not extra AppxManifest elements. The desktop
+entry uses the Store name `Meshcraft-desktop`, registers `.octd` files and the
+`meshcraft.exe` execution alias.
+
+Store packages need a positive major version and a zero fourth component. MSIX
+versions map app `major.minor.patch` to `(major + 1).minor.patch.0`: app `0.41.1`
+is MSIX `1.41.1.0`, and future app `1.0.0` is MSIX `2.0.0.0`. This keeps package
+updates monotonic while the user controls the application's major version.
+
+CI requires repository secrets `MESHCRAFT_PFX_B64` and `MESHCRAFT_PFX_PASSWORD`.
+`sign-msix.ps1` checks the PFX's private key, validity, code-signing EKU and exact
+publisher before SHA-256 signing and RFC3161 timestamping. It checks the embedded
+CMS signature and removes the temporary PFX in `finally`. Missing or incompatible
+secrets fail the build. MSI remains unsigned.
+
+The generated self-signed code-signing certificate is backed up under ignored
+`.store/microsoft-signing/`: encrypted PEM key, password-protected PFX, password,
+public DER/PEM certificates and public metadata. The directory is mode 0700 and
+its files are mode 0600. Generate or safely reuse the same material and upload
+it through `gh` stdin (secret values are never command arguments or log output):
+
+```sh
+python3 scripts/release/msix_signing.py --upload-secrets --repo alfu32/meshcraft
+```
+
+The **public** certificate is published per architecture as
+`meshcraft-X.Y.Z-windows-x64.cer` or `meshcraft-X.Y.Z-windows-arm64.cer`; private
+keys and passwords are never release assets. Sideload testers must explicitly
+trust that public certificate in Local Machine Trusted People, then install:
+
+```powershell
+# Elevated PowerShell, using the CER matching the MSIX download:
+Import-Certificate -FilePath .\meshcraft-X.Y.Z-windows-x64.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Add-AppxPackage .\meshcraft-X.Y.Z-windows-x64.msix
+```
+
+Self-signing does not establish public CA/SmartScreen trust. Microsoft signs Store
+submissions during distribution. See Microsoft's [certificate guidance](https://learn.microsoft.com/windows/msix/package/create-certificate-package-signing)
+and [Store version requirements](https://learn.microsoft.com/windows/apps/publish/publish-your-app/package-version-numbering?pivots=store-installer-msix).
+On both Windows runners, CI temporarily trusts the public CER, installs the MSIX,
+checks the installed PFN/publisher/version/architecture, runs its version command,
+then removes the package and temporary trust. Final publication also checks the
+Store manifest, public certificate, source/payload digests, signing metadata and
+every MSIX block-map hash.
 
 macOS uses a deployment target of 11.0, an application bundle/icon and an ad-hoc
 signature, packaged in a verified DMG. Developer ID signing/notarization are not

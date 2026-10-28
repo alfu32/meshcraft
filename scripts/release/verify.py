@@ -9,6 +9,7 @@ import tarfile
 import zipfile
 from common import ROOT, TARGETS, safe, sha, validate_binary
 from linux_packages import ARCHITECTURES, check_package
+import msix
 
 
 def expected_assets(version):
@@ -105,9 +106,28 @@ def verify(directory, version, revision):
         if name.endswith((".zip", ".tar.gz")):
             check_portable(data, name, version, revision)
         elif name.endswith(".msix"):
+            arch = "arm64" if name.endswith("-arm64.msix") else "x64"
+            target = "aarch64-pc-windows-msvc" if arch == "arm64" else "x86_64-pc-windows-msvc"
+            certificate = directory / (name[:-5] + ".cer")
+            metadata = json.loads((directory / (name + ".manifest.json")).read_text(encoding="utf-8-sig"))
+            store = msix.identity()
+            required = dict(
+                schemaVersion=1, format="msix", version=version,
+                packageVersion=msix.package_version(version), architecture=arch,
+                sourceRevision=revision, artifact=name, signed=True,
+                identityName=store["name"], publisher=store["publisher"],
+                publisherDisplayName=store["publisherDisplayName"], packageFamilyName=store["packageFamilyName"],
+                storeId=store["storeId"], certificateSha256=sha(certificate.read_bytes()), sha256=digest, size=len(data),
+            )
+            if any(metadata.get(key) != value for key, value in required.items()):
+                raise ValueError("MSIX signing/source metadata mismatch")
+            portable_name = "meshcraft-" + version + "-" + target
+            with zipfile.ZipFile(directory / (portable_name + ".zip")) as portable:
+                original = json.loads(portable.read(portable_name + "/package-manifest.json"))
             with zipfile.ZipFile(io.BytesIO(data)) as a:
-                if not {"AppxManifest.xml", "AppxBlockMap.xml"}.issubset(a.namelist()):
-                    raise ValueError("Invalid MSIX")
+                msix.check_package(a, version, arch, original)
+        elif name.endswith(".cer"):
+            msix.check_certificate(data)
         elif name.endswith(".msi") and not data.startswith(
             bytes.fromhex("d0cf11e0a1b11ae1")
         ):
@@ -160,7 +180,9 @@ if __name__ == "__main__":
         "AppImage/Snap/DEB/RPM, MSI/MSIX and DMG installers. Linux binaries target glibc 2.27 or older. "
         "DEB and RPM packages use the audited native payload and run without Snap confinement.\n\n"
         "DEB/RPM packages are unsigned GitHub release downloads; APT/RPM repository publishing is not configured.\n\n"
-        "Windows MSI/MSIX packages are unsigned; MSIX certificate signing is deferred. "
+        "Windows MSIX packages use the reserved Microsoft Store identity and a self-signed publisher certificate; "
+        "the matching public CER is provided for Trusted People installation when sideloading. "
+        "MSI packages are unsigned. Microsoft re-signs Store submissions; public certificate trust is not automatic. "
         "macOS bundles are ad-hoc signed, without Developer ID signing or notarization. "
         "Native GUI testing on Windows/macOS and ARM64 remains to be qualified.\n"
     )

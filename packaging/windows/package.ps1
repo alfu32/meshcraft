@@ -6,6 +6,9 @@ $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Installers require a numeric X.Y.Z version' }
 $Target = if ($Arch -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if ([string]::IsNullOrWhiteSpace($env:MESHCRAFT_PFX_B64) -or [string]::IsNullOrWhiteSpace($env:MESHCRAFT_PFX_PASSWORD)) {
+  throw 'MSIX signing requires MESHCRAFT_PFX_B64 and MESHCRAFT_PFX_PASSWORD repository secrets'
+}
 $Assets = Join-Path $Root 'target\release-assets'
 $Package = "meshcraft-$Version-$Target"
 $Archive = Join-Path $Assets "$Package.zip"
@@ -24,7 +27,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Msi)) { throw 'MSI build failed' }
 # WiX emits debug symbol files beside the installer; they are build outputs, not release assets.
 Get-ChildItem -Path $Assets -Filter '*.wixpdb' -File | Remove-Item -Force
 
-# The MSIX contains the same portable payload and a full-trust desktop entry point; signing is intentionally deferred.
+# The MSIX contains the same payload and the reserved Microsoft Store identity.
 $MsixStage = Join-Path $Root "target\msix-package-$Arch"
 if (Test-Path $MsixStage) { Remove-Item $MsixStage -Recurse -Force }
 Copy-Item $Payload $MsixStage -Recurse
@@ -40,32 +43,18 @@ foreach ($spec in @(@('StoreLogo',50),@('Square44x44Logo',44),@('Square150x150Lo
   $bitmap.Save((Join-Path $AssetsDir "$($spec[0]).png"),[System.Drawing.Imaging.ImageFormat]::Png)
   $image.Dispose(); $graphics.Dispose(); $bitmap.Dispose()
 }
-$Manifest = @"
-<?xml version="1.0" encoding="utf-8"?>
-<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap rescap">
-  <Identity Name="Meshcraft.Desktop" Publisher="CN=Meshcraft" Version="$Version.0" ProcessorArchitecture="$Arch" />
-  <Properties><DisplayName>Meshcraft</DisplayName><PublisherDisplayName>Meshcraft</PublisherDisplayName>
-    <Description>Meshcraft 3D modeling</Description><Logo>Assets\StoreLogo.png</Logo></Properties>
-  <Resources><Resource Language="en-us" /></Resources>
-  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" /></Dependencies>
-  <Applications><Application Id="Meshcraft" Executable="meshcraft.exe" EntryPoint="Windows.FullTrustApplication">
-    <uap:VisualElements DisplayName="Meshcraft" Description="Meshcraft 3D modeling" BackgroundColor="transparent"
-      Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
-  </Application></Applications>
-  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
-</Package>
-"@
-Set-Content -Path (Join-Path $MsixStage 'AppxManifest.xml') -Value $Manifest -Encoding UTF8
+python (Join-Path $Root 'scripts\release\msix.py') --version $Version --arch $Arch --output (Join-Path $MsixStage 'AppxManifest.xml')
+if ($LASTEXITCODE -ne 0) { throw 'Store-associated MSIX manifest generation failed' }
 $MakeAppx = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter makeappx.exe |
   Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $MakeAppx) { throw 'Windows SDK makeappx.exe not found' }
 $Msix = Join-Path $Assets "meshcraft-$Version-windows-$Arch.msix"
 & $MakeAppx.FullName pack /d $MsixStage /p $Msix /o
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Msix)) { throw 'MSIX build failed' }
-foreach ($artifact in @($Msi,$Msix)) {
+$PublicCertificate = Join-Path $Assets "meshcraft-$Version-windows-$Arch.cer"
+$SourceRevision = (Get-Content (Join-Path $Payload 'package-manifest.json') -Raw | ConvertFrom-Json).sourceRevision
+& (Join-Path $PSScriptRoot 'sign-msix.ps1') -Msix $Msix -Arch $Arch -Version $Version -SourceRevision $SourceRevision -PublicCertificate $PublicCertificate
+foreach ($artifact in @($Msi,$Msix,$PublicCertificate)) {
   $digest = (Get-FileHash $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
   "$digest  $(Split-Path $artifact -Leaf)" | Set-Content "$artifact.sha256"
 }

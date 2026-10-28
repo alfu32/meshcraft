@@ -1,5 +1,12 @@
 # Dashboard
 
+**0.41.1 Microsoft Store identity and MSIX signing:** packages use the publisher's
+reserved product name and publisher from the local Store metadata. MSIX versions
+use a positive major offset while app SemVer remains user-controlled. CI consumes
+the generated signing secrets, timestamps and verifies the signature, publishes
+the public certificate, and checks native installation/identity/removal on both
+Windows architectures. See [signing evidence](docs/rewrite/handoffs/T44.md#store-associated-msix-signing--0411).
+
 **0.41.0 native Linux installers:** tagged release builds now produce DEB and RPM
 packages for amd64 and ARM64, adding four installers to the required release matrix.
 They use the audited native payload with desktop/MIME integration, and CI checks

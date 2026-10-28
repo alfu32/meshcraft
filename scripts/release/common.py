@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
     "x86_64-unknown-linux-gnu": ("x86_64.AppImage", "amd64.snap", "amd64.deb", "1.x86_64.rpm"),
     "aarch64-unknown-linux-gnu": ("aarch64.AppImage", "arm64.snap", "arm64.deb", "1.aarch64.rpm"),
-    "x86_64-pc-windows-msvc": ("windows-x64.msi", "windows-x64.msix"),
-    "aarch64-pc-windows-msvc": ("windows-arm64.msi", "windows-arm64.msix"),
+    "x86_64-pc-windows-msvc": ("windows-x64.msi", "windows-x64.msix", "windows-x64.cer"),
+    "aarch64-pc-windows-msvc": ("windows-arm64.msi", "windows-arm64.msix", "windows-arm64.cer"),
     "x86_64-apple-darwin": ("macos-x86_64.dmg",),
     "aarch64-apple-darwin": ("macos-aarch64.dmg",),
 }
