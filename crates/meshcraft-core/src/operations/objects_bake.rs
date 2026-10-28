@@ -199,7 +199,7 @@ pub fn bake_objects(
             return Err("The object has no geometry to bake.".into());
         }
         let id = draft.add_definition(
-            &format!(
+            format!(
                 "{} ({})",
                 r.definition.name,
                 if to_shader { "GPU" } else { "mesh" }
@@ -292,9 +292,14 @@ mod tests {
         let original = d.effective_geometry(&a).unwrap().clone();
         let world = d.resolve_occurrence(&a).unwrap().world_transform;
         let old_id = d.resolve_occurrence(&a).unwrap().definition.id;
-        let baked = bake_objects(&mut d, &selection(&[a.clone()]), true, &BTreeMap::new())
-            .unwrap()
-            .remove(0);
+        let baked = bake_objects(
+            &mut d,
+            &selection(std::slice::from_ref(&a)),
+            true,
+            &BTreeMap::new(),
+        )
+        .unwrap()
+        .remove(0);
         assert!(d.is_baked_gpu_object(&baked));
         assert_eq!(world, d.resolve_occurrence(&baked).unwrap().world_transform);
         assert_eq!(old_id, d.resolve_occurrence(&b).unwrap().definition.id);
@@ -391,7 +396,13 @@ mod tests {
             place_definition(&mut d, &EditContext::Document, id, Vec3::ZERO, None, false).unwrap();
         let before = d.clone();
         assert!(
-            bake_objects(&mut d, &selection(&[tree.clone()]), false, &BTreeMap::new()).is_err()
+            bake_objects(
+                &mut d,
+                &selection(std::slice::from_ref(&tree)),
+                false,
+                &BTreeMap::new()
+            )
+            .is_err()
         );
         assert_eq!(before, d);
         let box_path = d

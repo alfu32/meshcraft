@@ -20,6 +20,14 @@ Use Markdown headings and stable IDs already used by the docs: requirements such
 
 Run `verify_plan.py` after changing requirements, tasks, acceptance suites, local links, or inventory evidence. The current acceptance suites describe planned product checks; they are not an executable application test suite. When implementation begins, add and run the task-specific checks defined by `plan.md` and record exact commands and results in the task handoff capsule.
 
+The implemented Rust workspace must also pass the release validation commands
+before publishing a version: `cargo fmt --all --check`,
+`cargo test --workspace --locked`, and
+`cargo clippy --workspace --all-targets --locked -- -D warnings`.
+Targeted tests and `cargo check` do not replace this gate: Clippy checks test code
+as well as production code. Fix warnings rather than suppressing them or relaxing
+the workflow. Record the commands and outcomes in the change's handoff.
+
 ## Commits and Pull Requests
 
 The repository history uses Conventional Commit style (for example, `feat(planning): ...`). Keep commits focused and mention the affected task or document area. PRs should explain the behavior or planning change, link relevant requirement/task/scenario IDs, report validation commands and results, and include screenshots for visual changes. Call out unverified assumptions or blocked checks explicitly.

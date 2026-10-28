@@ -201,11 +201,11 @@ mod tests {
             .title("Resource counters")
             .log_level(TraceLogLevel::LOG_WARNING)
             .build();
-        if let Some(probe) = GlMemoryProbe::new() {
-            if let Some(gpu) = probe.sample() {
-                assert!(gpu.memory.total > 0);
-                assert!(gpu.memory.percent().is_some());
-            }
+        if let Some(probe) = GlMemoryProbe::new()
+            && let Some(gpu) = probe.sample()
+        {
+            assert!(gpu.memory.total > 0);
+            assert!(gpu.memory.percent().is_some());
         }
         unsafe {
             let get: unsafe extern "system" fn() -> u32 =

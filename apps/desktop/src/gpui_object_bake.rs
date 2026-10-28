@@ -126,7 +126,7 @@ fn geometry(data: Vec<[f32; 7]>) -> Result<GeometryBundle, String> {
     let mut geometry = GeometryBundle::default();
     let mut vertices = BTreeMap::new();
     let mut edges = BTreeSet::new();
-    for face in data.chunks_exact(3) {
+    for face in data.as_chunks::<3>().0 {
         if face.iter().flatten().any(|v| !v.is_finite()) {
             return Err("Shader produced non-finite bake geometry".into());
         }
