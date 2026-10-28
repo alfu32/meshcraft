@@ -12,6 +12,13 @@ unsafe fn function<T: Copy>(name: &CStr) -> Result<T, String> {
     Ok(unsafe { std::mem::transmute_copy(&address) })
 }
 pub(super) fn compile(vertex: &str, fragment: &str) -> Result<Shader, String> {
+    compile_feedback(vertex, fragment, &[])
+}
+pub(super) fn compile_feedback(
+    vertex: &str,
+    fragment: &str,
+    varyings: &[&CStr],
+) -> Result<Shader, String> {
     unsafe {
         let create: function_types::CreateShader = function(c"glCreateShader")?;
         let source: function_types::ShaderSource = function(c"glShaderSource")?;
@@ -25,6 +32,8 @@ pub(super) fn compile(vertex: &str, fragment: &str) -> Result<Shader, String> {
         let program_status: function_types::GetProgramiv = function(c"glGetProgramiv")?;
         let program_log: function_types::GetProgramInfoLog = function(c"glGetProgramInfoLog")?;
         let delete_program: function_types::DeleteProgram = function(c"glDeleteProgram")?;
+        let feedback: unsafe extern "system" fn(u32, i32, *const *const std::ffi::c_char, u32) =
+            function(c"glTransformFeedbackVaryings")?;
         let mut shaders = vec![];
         for (kind, text, label) in [(0x8b31, vertex, "Vertex"), (0x8b30, fragment, "Fragment")] {
             let text = match CString::new(text) {
@@ -59,6 +68,10 @@ pub(super) fn compile(vertex: &str, fragment: &str) -> Result<Shader, String> {
         let id = create_program();
         for shader in &shaders {
             attach(id, *shader);
+        }
+        if !varyings.is_empty() {
+            let names: Vec<_> = varyings.iter().map(|v| v.as_ptr()).collect();
+            feedback(id, names.len() as i32, names.as_ptr(), 0x8c8c);
         }
         link(id);
         let mut ok = 0;
@@ -97,4 +110,73 @@ mod function_types {
     pub type GetProgramiv = unsafe extern "system" fn(u32, u32, *mut i32);
     pub type GetProgramInfoLog = unsafe extern "system" fn(u32, i32, *mut i32, *mut c_char);
     pub type DeleteProgram = unsafe extern "system" fn(u32);
+}
+
+/// Synchronous readback is confined to explicit bake commands on the graphics owner.
+/// All functions are resolved before touching GL state; the buffer is size-checked.
+pub(super) unsafe fn capture(
+    vao: u32,
+    vertices: i32,
+    instances: i32,
+) -> Result<Vec<[f32; 7]>, String> {
+    unsafe {
+        let count = (vertices as usize)
+            .checked_mul(instances as usize)
+            .ok_or("Bake size overflow")?;
+        if count > 6_000_000 {
+            return Err("Bake exceeds the two million triangle safety limit".into());
+        }
+        let gen_buffer: unsafe extern "system" fn(i32, *mut u32) = function(c"glGenBuffers")?;
+        let bind: unsafe extern "system" fn(u32, u32) = function(c"glBindBuffer")?;
+        let allocate: unsafe extern "system" fn(u32, isize, *const std::ffi::c_void, u32) =
+            function(c"glBufferData")?;
+        let bind_base: unsafe extern "system" fn(u32, u32, u32) = function(c"glBindBufferBase")?;
+        let begin: unsafe extern "system" fn(u32) = function(c"glBeginTransformFeedback")?;
+        let end: unsafe extern "system" fn() = function(c"glEndTransformFeedback")?;
+        let enable: unsafe extern "system" fn(u32) = function(c"glEnable")?;
+        let disable: unsafe extern "system" fn(u32) = function(c"glDisable")?;
+        let draw: unsafe extern "system" fn(u32, i32, i32, i32) =
+            function(c"glDrawArraysInstanced")?;
+        let read: unsafe extern "system" fn(u32, isize, isize, *mut std::ffi::c_void) =
+            function(c"glGetBufferSubData")?;
+        let delete: unsafe extern "system" fn(i32, *const u32) = function(c"glDeleteBuffers")?;
+        let error: unsafe extern "system" fn() -> u32 = function(c"glGetError")?;
+        // Previous passes may leave unrelated driver errors; isolate this operation.
+        for _ in 0..16 {
+            if error() == 0 {
+                break;
+            }
+        }
+        let mut buffer = 0;
+        let mut output = vec![[0f32; 7]; count];
+        let size = std::mem::size_of_val(output.as_slice()) as isize;
+        gen_buffer(1, &mut buffer);
+        bind(0x8c8e, buffer);
+        allocate(0x8c8e, size, std::ptr::null(), 0x88e1);
+        if error() != 0 {
+            bind(0x8c8e, 0);
+            delete(1, &buffer);
+            return Err("GPU could not allocate bake capture buffer".into());
+        }
+        bind_base(0x8c8e, 0, buffer);
+        raylib::ffi::rlEnableVertexArray(vao);
+        for i in 0..4 {
+            raylib::ffi::rlSetVertexAttributeDivisor(i, instances);
+        }
+        enable(0x8c89);
+        begin(0x0004);
+        draw(0x0004, 0, vertices, instances);
+        end();
+        disable(0x8c89);
+        read(0x8c8e, 0, size, output.as_mut_ptr().cast());
+        let code = error();
+        bind_base(0x8c8e, 0, 0);
+        bind(0x8c8e, 0);
+        delete(1, &buffer);
+        raylib::ffi::rlDisableVertexArray();
+        if code != 0 {
+            return Err(format!("GPU bake capture failed (GL {code:#x})"));
+        }
+        Ok(output)
+    }
 }

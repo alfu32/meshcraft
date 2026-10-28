@@ -2522,6 +2522,9 @@ impl Document {
             crate::selection::EditContext::Definition(id) => *id == r.definition.id,
             crate::selection::EditContext::Document => occurrence.is_scene_root(),
         };
+        if authored && self.is_baked_gpu_object(occurrence) {
+            return None;
+        }
         if authored {
             Some(&r.definition.geometry)
         } else {

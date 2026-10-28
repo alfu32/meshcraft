@@ -802,7 +802,13 @@ class Exercise:
 
     def object(self, key):
         self.sources()
-        if key in ("selection.edit_object", "selection.exit_context"):
+        if key in ("object.bake_to_shader", "object.bake_to_mesh"):
+            if key == "object.bake_to_mesh":
+                self.rpc.select([])
+                self.cmd("object.configure_procedural")
+                self.setup(self.picks, "object.place_selected_definition", [(-5, 0, -5)])
+            self.mutate(key)
+        elif key in ("selection.edit_object", "selection.exit_context"):
             if key.endswith("exit_context"):
                 self.cmd("selection.edit_object")
             self.cmd(key, stage="commit_ms")

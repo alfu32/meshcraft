@@ -21,6 +21,11 @@ four-tier ledger and raw data from a supplied development binary, with one sampl
 per case. It is explicitly separate from released-binary CI measurements. Its
 provenance identifies the frozen executable used by all four local tier workers.
 
+[Object baking qualification, 0.42.0](object-baking-0.42.0/performance.md)
+records the two new commands on all four tiers: six completed operations and two
+heavy-tier failures at the existing Undo snapshot budget. This filtered local run
+is separate from the full-suite release reports.
+
 ## Coverage and model weights
 
 Every inventory entry gets a recipe at **small, medium, high and heavy** sizes.

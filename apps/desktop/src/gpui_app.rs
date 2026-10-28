@@ -354,6 +354,7 @@ struct ViewportBridge {
     frame: Arc<Mutex<Option<ViewFrame>>>,
     redraw: Arc<(Mutex<u64>, Condvar)>,
     preview: Arc<Mutex<Option<ViewportBridge>>>,
+    bakes: Arc<Mutex<Vec<crate::app::BakeCaptureRequest>>>,
 }
 
 impl ViewportBridge {
@@ -365,6 +366,7 @@ impl ViewportBridge {
             frame: Arc::new(Mutex::new(None)),
             redraw: Arc::new((Mutex::new(1), Condvar::new())),
             preview: Arc::new(Mutex::new(None)),
+            bakes: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -532,6 +534,19 @@ fn render_loop(
         };
         rendered_revision = next_revision;
 
+        let bakes = bridge
+            .bakes
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default();
+        for request in bakes {
+            let result = procedural::object_bake::capture(
+                &request.document,
+                &request.paths,
+                lighting.gpu.procedural.capture_time(),
+            );
+            let _ = request.reply.send(result);
+        }
         let active_bridge = bridge
             .preview
             .lock()
@@ -1611,6 +1626,12 @@ impl MeshcraftShell {
             }
         }
         self.session.poll_native_host_work();
+        if let Some(request) = self.session.native_take_bake_capture() {
+            if let Ok(mut queue) = self.bridge.bakes.lock() {
+                queue.push(request);
+            }
+            self.bridge.request_redraw();
+        }
         self.refresh_scene();
     }
 
@@ -1906,6 +1927,12 @@ impl MeshcraftShell {
             }
         }
         self.session.poll_native_host_work();
+        if let Some(request) = self.session.native_take_bake_capture() {
+            if let Ok(mut queue) = self.bridge.bakes.lock() {
+                queue.push(request);
+            }
+            self.bridge.request_redraw();
+        }
         self.refresh_scene();
     }
 
@@ -2615,6 +2642,8 @@ fn ribbon_command_for_key<'a>(
         "exit-object" => &["selection.exit_context"],
         "place-object" => &["object.place_selected_definition"],
         "explode-object" | "explode" => &["object.explode_selection"],
+        "bake-shader" => &["object.bake_to_shader"],
+        "bake-mesh" => &["object.bake_to_mesh"],
         "array" => &["object.array_selection"],
         "dimension" => &["tool.builtin.linear_dimension"],
         "text" => &["tool.builtin.text"],
@@ -2801,6 +2830,12 @@ impl Render for MeshcraftShell {
             window.set_rem_size(rem);
         }
         self.session.poll_native_host_work();
+        if let Some(request) = self.session.native_take_bake_capture() {
+            if let Ok(mut queue) = self.bridge.bakes.lock() {
+                queue.push(request);
+            }
+            self.bridge.request_redraw();
+        }
         if self.cached_document_revision != Some(self.session.native_visual_revision()) {
             self.refresh_scene();
         }

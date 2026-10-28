@@ -431,6 +431,13 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                                             == Some(true)
                                         {
                                             "external"
+                                        } else if prototype
+                                            .extensions
+                                            .get(meshcraft_core::operations::objects::GPU_MESH_KEY)
+                                            .and_then(serde_json::Value::as_bool)
+                                            == Some(true)
+                                        {
+                                            "GPU mesh"
                                         } else {
                                             "internal"
                                         },
@@ -1743,6 +1750,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     &[
                         ("rename-object", "Rename"),
                         ("edit-definition", "Edit Definition"),
+                        ("bake-shader", "Bake to Shader"),
+                        ("bake-mesh", "Bake to Mesh"),
                         ("exit-object", "Finish Editing"),
                     ],
                     bindings,

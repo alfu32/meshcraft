@@ -342,6 +342,14 @@ impl Document {
             .definitions
             .get_mut(&id)
             .ok_or("prototype no longer exists")?;
+        if definition
+            .extensions
+            .get(crate::operations::objects::GPU_MESH_KEY)
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            return Err("Bake the GPU object to mesh before adding an object script".into());
+        }
         definition.extensions.insert(
             SCRIPT_KEY.into(),
             serde_json::to_value(source).map_err(|e| e.to_string())?,

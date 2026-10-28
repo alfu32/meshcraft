@@ -19,6 +19,8 @@ mod mesh_workflow;
 mod numeric_workflow;
 #[path = "object_workflow.rs"]
 mod object_workflow;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use object_workflow::BakeCaptureRequest;
 #[path = "parameter_workflow.rs"]
 pub(crate) mod parameter_workflow;
 #[path = "placement_preview.rs"]
@@ -742,6 +744,7 @@ enum ShellAction {
     UpdateSelectionDisplay,
     CreateObject,
     ExplodeSelection,
+    BakeObjects(bool),
     BeginObjectPlacement,
     ToggleObjectPlaceGlue,
     DeleteUnusedDefinition,
@@ -1604,6 +1607,9 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
+        for (id, label, to_shader) in [("object.bake_to_shader", "Bake to Shader", true), ("object.bake_to_mesh", "Bake to Mesh", false)] {
+            register_shell_command(&mut registry,id,&format!("Objects> {label}"),"Objects","bake freeze convert gpu shader editable mesh",Some("object"),ShellAction::BakeObjects(to_shader));
+        }
         register_shell_command(&mut registry,"object.configure_procedural","Objects> Configure Procedural Object","Objects","tree gpu parameters prototype instance",Some("object"),ShellAction::MaterialAction("object"));
         for (id,name,panel) in [("object.new_tree","Objects> New Procedural Tree","tree_new"),("object.edit_tree","Objects> Edit Procedural Tree","tree_edit"),("script.new","Objects> New Scripted Object","script_new"),("script.edit","Objects> Edit Prototype Script","script_edit")] {
             register_shell_command(&mut registry,id,name,"Objects","javascript script prototype editor preview",Some("object"),ShellAction::OpenPanel(panel));
@@ -1713,6 +1719,7 @@ fn action_kind(action: ShellAction) -> CommandKind {
         ShellAction::SetSelection | ShellAction::UpdateSelectionDisplay => {
             CommandKind::SessionMutation
         }
+        ShellAction::BakeObjects(_) => CommandKind::DocumentMutation,
         ShellAction::SnapshotDocument | ShellAction::About => CommandKind::ReadOnly,
     }
 }
@@ -1735,6 +1742,7 @@ fn action_state_query(action: ShellAction) -> CommandStateQuery {
         ShellAction::ClearSelection => CommandStateQuery::SelectionAvailable,
         ShellAction::CreateObject
         | ShellAction::ExplodeSelection
+        | ShellAction::BakeObjects(_)
         | ShellAction::BeginObjectPlacement => CommandStateQuery::SelectionAvailable,
         ShellAction::ToggleObjectPlaceGlue => {
             CommandStateQuery::ActiveTool("Object Place".to_owned())
@@ -2498,6 +2506,8 @@ pub struct MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pending_object_import: Option<object_workflow::ObjectImportJob>,
     #[cfg(not(target_arch = "wasm32"))]
+    pending_object_bake: Option<object_workflow::ObjectBakeJob>,
+    #[cfg(not(target_arch = "wasm32"))]
     pending_interchange: Option<interchange_workflow::InterchangeJob>,
     hotspot_inspector: Option<(OccurrenceRef, String)>,
     hotspot_defaults: meshcraft_core::document::hotspots::Hotspot,
@@ -2780,6 +2790,7 @@ impl MeshcraftApp {
         self.poll_project_load();
         self.poll_project_save();
         self.poll_object_import();
+        self.poll_object_bake();
         self.poll_interchange();
         let _ = self.poll_autosave(Instant::now());
     }
@@ -2854,6 +2865,9 @@ impl MeshcraftApp {
                 path: target.occurrence.path[..active_depth + 1].to_vec(),
             });
             if let Some(group) = child.filter(|p| self.document.is_object_occurrence(p)) {
+                if self.block_gpu_object_edit(&group) {
+                    return;
+                }
                 self.selection
                     .set_context(EditContext::Occurrence(group.clone()));
                 self.selection_click_tracker.reset();
@@ -2873,6 +2887,9 @@ impl MeshcraftApp {
                     return;
                 }
                 SelectedEntity::Occurrence => {
+                    if self.block_gpu_object_edit(&target.occurrence) {
+                        return;
+                    }
                     self.selection
                         .set_context(EditContext::Occurrence(target.occurrence.clone()));
                     self.selection_click_tracker.reset();
@@ -3120,6 +3137,9 @@ impl MeshcraftApp {
         }
         self.set_selection([occurrence.clone()]);
         self.selection_click_tracker.reset();
+        if edit && self.block_gpu_object_edit(occurrence) {
+            return Ok(());
+        }
         if edit {
             self.selection
                 .set_context(EditContext::Occurrence(occurrence.clone()));
@@ -3628,6 +3648,8 @@ impl MeshcraftApp {
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_object_import: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_object_bake: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_interchange: None,
             hotspot_inspector: None,
@@ -5165,6 +5187,11 @@ impl MeshcraftApp {
     }
 
     pub fn native_target_editable(&self, target: &SelectionTarget) -> bool {
+        if self.document.is_baked_gpu_object(&target.occurrence)
+            && target.entity != SelectedEntity::Occurrence
+        {
+            return false;
+        }
         // Generated architecture facets are selected/edited through their canonical owner.
         if let Some(geometry) = self.document.effective_geometry(&target.occurrence) {
             let generated = match target.entity {
@@ -7075,6 +7102,7 @@ impl MeshcraftApp {
                 self.status = "Selection cleared.".to_owned();
                 return CommandResult::completed();
             }
+            ShellAction::BakeObjects(to_shader) => return self.bake_objects_command(to_shader),
             ShellAction::EnterEditContext => {
                 let selected = self.selected_occurrences();
                 if selected.len() != 1 {
@@ -7084,6 +7112,11 @@ impl MeshcraftApp {
                     .into_iter()
                     .next()
                     .expect("one selection was checked");
+                if self.document.is_baked_gpu_object(&occurrence) {
+                    return CommandResult::failed(
+                        "Use Bake to Mesh before editing a frozen GPU object.",
+                    );
+                }
                 if self.document.procedural_object(&occurrence).is_some() {
                     self.open_panels(&["tree_edit"]);
                     return CommandResult::completed();
@@ -9739,6 +9772,9 @@ impl MeshcraftApp {
                 && let Some(target) = target.as_ref()
             {
                 if let Some(group) = self.editable_group_ancestor(target) {
+                    if self.block_gpu_object_edit(&group) {
+                        return;
+                    }
                     self.selection
                         .set_context(EditContext::Occurrence(group.clone()));
                     self.selection_click_tracker.reset();
@@ -9747,6 +9783,9 @@ impl MeshcraftApp {
                 }
                 match &target.entity {
                     SelectedEntity::Occurrence => {
+                        if self.block_gpu_object_edit(&target.occurrence) {
+                            return;
+                        }
                         self.selection
                             .set_context(EditContext::Occurrence(target.occurrence.clone()));
                         self.selection_click_tracker.reset();
@@ -12388,6 +12427,7 @@ impl MeshcraftApp {
             self.poll_project_load();
             self.poll_project_save();
             self.poll_object_import();
+            self.poll_object_bake();
             self.poll_interchange();
             let autosave_wait = self.poll_autosave(Instant::now());
             if self.pending_project_load.is_some()
@@ -13382,6 +13422,8 @@ mod tests {
             object_browser_selection: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_object_import: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_object_bake: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_interchange: None,
             hotspot_inspector: None,

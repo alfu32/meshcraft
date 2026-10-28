@@ -208,3 +208,37 @@ document/edit context discard the preview without applying a target. Cancel/rele
 must not block on JavaScript or allow late preview results into the document.
 Authoring-mode marker repositioning also stays non-mutating until release; it
 moves the marker without repeatedly rebuilding its prototype or the drawing.
+
+## Bake to Shader and Bake to Mesh
+
+The Objects menu and Object Instance panel expose **Bake to Shader**
+(`object.bake_to_shader`) and **Bake to Mesh** (`object.bake_to_mesh`). These are
+explicit, undoable conversions of selected instances. Unselected instances and
+source prototypes retain their current behavior. Parent and child transforms,
+material assignments, segment direction, face winding and IFC data survive the
+conversion. Nested geometry is flattened in the selected object's local frame.
+
+Bake to Shader freezes the currently evaluated graphical/scripted object into a
+static GPU mesh prototype, marked **GPU mesh** in the prototype browser. It uses
+the existing retained OpenGL surface/line shaders and shared mesh buffers; it does
+not generate a large GLSL source file or run its former script each frame. Source
+mesh data remains serialized for persistence, device recovery and a lossless
+mesh/GPU round trip. Mesh editing requires Bake to Mesh first. This is a snapshot
+of geometry, not a promise that an arbitrary object becomes a procedural generator.
+
+Bake to Mesh converts a frozen GPU mesh back to editable lines and triangles.
+For shader-generated objects (currently trees), capture the actual vertex shader
+output on the graphics owner with transform feedback at the current animation
+time, at full configured detail within the configured instance budget. Weld equal
+positions, retain face orientation and produce directed mesh edges. Do not use a
+separate CPU approximation of the generator. Shader colors are sampled at emitted
+vertices and become face colors; fragment-only masks and textures are not contour
+or texture baking. In particular, tree leaf cards remain cards. Texture-dependent
+generators are explicitly rejected rather than sampled with missing textures.
+
+GPU capture is a host job, discoverable through the normal MCP command catalog and
+job polling interface. A changed document/editing context or graphics/compile/readback failure
+must reject the result without changing the drawing. A two-million-triangle
+capture limit bounds memory use and reports an explicit failure. Unsupported
+semantic annotations require conversion before object baking; never silently
+discard their content. Static mesh conversions do not need GPU readback.

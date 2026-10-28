@@ -1,4 +1,6 @@
 //! GPU surfaces, blades and trees. CPU buffers contain source domains or owner bounds.
+#[path = "gpui_object_bake.rs"]
+pub(super) mod object_bake;
 #[path = "gpui_procedural_shader.rs"]
 mod shader_compiler;
 use super::*;
@@ -202,6 +204,9 @@ fn animation_active(p: &Program, values: &BTreeMap<String, Value>) -> bool {
     }
 }
 impl Renderer {
+    pub(super) fn capture_time(&self) -> f32 {
+        self.time
+    }
     pub fn prepare(
         &mut self,
         rl: &mut raylib::RaylibHandle,

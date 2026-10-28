@@ -1,0 +1,568 @@
+{
+  "schema_version": 1,
+  "version": "0.42.0",
+  "source_revision": "0c7e4e97604b8a8281cf52afa71d08dca285e0c3",
+  "binary_sha256": "b525e5943a925c85d036a3f0ccbb5b86d4c899ee2e4ddd63bdb44f4259a656ae",
+  "supplied_binary": "/home/alfu64/Development/meshcraft/target/debug/meshcraft",
+  "release_artifact": null,
+  "source_state": "local supplied binary; source revision is a working-tree base, not an exact release claim",
+  "started_at": "2026-10-28T04:04:58.720468+00:00",
+  "workflow_url": null,
+  "samples_per_case": 1,
+  "tiers": [
+    "small",
+    "medium",
+    "high",
+    "heavy"
+  ],
+  "inventory_count": 289,
+  "selected_command_count": 2,
+  "benchmark_case_count": 2,
+  "partial": true,
+  "environment": {
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "cpu": "Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz",
+    "cpu_count": 8,
+    "python": "3.12.11 (main, Aug 21 2025, 13:44:19) [GCC 14.2.0]",
+    "rendering": "Mesa software OpenGL / private Xvfb",
+    "viewport_window": [
+      1280,
+      900
+    ],
+    "autosave": false,
+    "antialiasing": "Off",
+    "activity": "local development desktop; normal background activity",
+    "build": "local supplied binary (not assumed release optimized)",
+    "gpu_info": "name of display: :2\ndisplay: :2  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Mesa (0xffffffff)\n    Device: llvmpipe (LLVM 20.1.8, 256 bits) (0xffffffff)\n    Version: 25.2.8\n    Accelerated: no\n    Video memory: 31968MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.5\n    Max compat profile version: 4.5\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.2\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 0 MB, largest block: 0 MB\n    VBO free aux. memory - total: 12608 MB, largest block: 12608 MB\n    Texture free memory - total: 0 MB, largest block: 0 MB\n    Texture free aux. memory - total: 12608 MB, largest block: 12608 MB\n    Renderbuffer free memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free aux. memory - total: 12608 MB, largest block: 12608 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 0 MB\n    Total available memory: 31968 MB\n    Currently available dedicated video memory: 0 MB\nOpenGL vendor string: Mesa\nOpenGL renderer string: llvmpipe (LLVM 20.1.8, 256 bits)\nOpenGL core profile version string: 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL core profile shading language version string: 4.50\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.5 (Compatibility Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL shading language version string: 4.50\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.2 Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.20\n\n"
+  },
+  "fixtures": [
+    {
+      "tier": "small",
+      "quads": 128,
+      "background_vertices": 1792,
+      "background_unique_positions": 512,
+      "background_segments": 512,
+      "background_triangles": 256,
+      "background_primitives": 768,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 24,
+      "sha256": "9444a0d152f343384fad73390cd972ec432747ba72c2219b263f6cb0e2c16d22",
+      "bytes": 91445,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 1792,
+        "segments": 512,
+        "triangles": 256
+      }
+    },
+    {
+      "tier": "medium",
+      "quads": 2048,
+      "background_vertices": 28672,
+      "background_unique_positions": 8192,
+      "background_segments": 8192,
+      "background_triangles": 4096,
+      "background_primitives": 12288,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 192,
+      "sha256": "9e2d187926d0076304adc53ef2c9432f8fd00a9a812c87369114a332c81fee4f",
+      "bytes": 1322501,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 28672,
+        "segments": 8192,
+        "triangles": 4096
+      }
+    },
+    {
+      "tier": "high",
+      "quads": 16384,
+      "background_vertices": 229376,
+      "background_unique_positions": 65536,
+      "background_segments": 65536,
+      "background_triangles": 32768,
+      "background_primitives": 98304,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 1536,
+      "sha256": "23f1de5f778a53fc590cd2f86f2c2d4ce198cb9615cd642bf56d27747b71881c",
+      "bytes": 10863749,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 229376,
+        "segments": 65536,
+        "triangles": 32768
+      }
+    },
+    {
+      "tier": "heavy",
+      "quads": 65536,
+      "background_vertices": 917504,
+      "background_unique_positions": 262144,
+      "background_segments": 262144,
+      "background_triangles": 131072,
+      "background_primitives": 393216,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 6144,
+      "sha256": "75bfdc838d4cca3b072f7013c04c09563c1beb75832768491bd2a82fd179904c",
+      "bytes": 44032189,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 917504,
+        "segments": 262144,
+        "triangles": 131072
+      }
+    }
+  ],
+  "cases": [
+    {
+      "command_id": "object.bake_to_mesh",
+      "variant": "standard",
+      "name": "Bake to Mesh",
+      "category": "Objects",
+      "tier": "small",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 1552.215628,
+            "mcp_owner_thread_ms": 14.51754800000002,
+            "render_frame_ms": 186.91659545898438,
+            "frame_ready_ms": 134.374192,
+            "workflow_elapsed_ms": 3269.340057,
+            "total_ms": 1686.58982
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.place_selected_definition",
+            "pointer.move((-5, 0, -5))",
+            "pointer.click((-5, 0, -5))",
+            "object.bake_to_mesh"
+          ],
+          "before_revision": 52,
+          "after_revision": 55,
+          "result": "Baked 1 object(s) to editable meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 1552.215628,
+          "p95": 1552.215628,
+          "maximum": 1552.215628
+        },
+        "frame_ready_ms": {
+          "median": 134.374192,
+          "p95": 134.374192,
+          "maximum": 134.374192
+        },
+        "total_ms": {
+          "median": 1686.58982,
+          "p95": 1686.58982,
+          "maximum": 1686.58982
+        },
+        "mcp_owner_thread_ms": {
+          "median": 14.51754800000002,
+          "p95": 14.51754800000002,
+          "maximum": 14.51754800000002
+        },
+        "render_frame_ms": {
+          "median": 186.91659545898438,
+          "p95": 186.91659545898438,
+          "maximum": 186.91659545898438
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_shader",
+      "variant": "standard",
+      "name": "Bake to Shader",
+      "category": "Objects",
+      "tier": "small",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 150.144162,
+            "mcp_owner_thread_ms": 43.15448000000001,
+            "render_frame_ms": 19.706260681152344,
+            "frame_ready_ms": 139.79467,
+            "workflow_elapsed_ms": 883.546972,
+            "total_ms": 289.938832
+          },
+          "steps": [
+            "object.bake_to_shader"
+          ],
+          "before_revision": 58,
+          "after_revision": 59,
+          "result": "Baked 1 object(s) to static GPU meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 150.144162,
+          "p95": 150.144162,
+          "maximum": 150.144162
+        },
+        "frame_ready_ms": {
+          "median": 139.79467,
+          "p95": 139.79467,
+          "maximum": 139.79467
+        },
+        "total_ms": {
+          "median": 289.938832,
+          "p95": 289.938832,
+          "maximum": 289.938832
+        },
+        "mcp_owner_thread_ms": {
+          "median": 43.15448000000001,
+          "p95": 43.15448000000001,
+          "maximum": 43.15448000000001
+        },
+        "render_frame_ms": {
+          "median": 19.706260681152344,
+          "p95": 19.706260681152344,
+          "maximum": 19.706260681152344
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_mesh",
+      "variant": "standard",
+      "name": "Bake to Mesh",
+      "category": "Objects",
+      "tier": "medium",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 1563.051687,
+            "mcp_owner_thread_ms": 28.260796000000028,
+            "render_frame_ms": 328.9582824707031,
+            "frame_ready_ms": 145.084694,
+            "workflow_elapsed_ms": 4174.492059,
+            "total_ms": 1708.1363809999998
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.place_selected_definition",
+            "pointer.move((-5, 0, -5))",
+            "pointer.click((-5, 0, -5))",
+            "object.bake_to_mesh"
+          ],
+          "before_revision": 52,
+          "after_revision": 55,
+          "result": "Baked 1 object(s) to editable meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 1563.051687,
+          "p95": 1563.051687,
+          "maximum": 1563.051687
+        },
+        "frame_ready_ms": {
+          "median": 145.084694,
+          "p95": 145.084694,
+          "maximum": 145.084694
+        },
+        "total_ms": {
+          "median": 1708.1363809999998,
+          "p95": 1708.1363809999998,
+          "maximum": 1708.1363809999998
+        },
+        "mcp_owner_thread_ms": {
+          "median": 28.260796000000028,
+          "p95": 28.260796000000028,
+          "maximum": 28.260796000000028
+        },
+        "render_frame_ms": {
+          "median": 328.9582824707031,
+          "p95": 328.9582824707031,
+          "maximum": 328.9582824707031
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_shader",
+      "variant": "standard",
+      "name": "Bake to Shader",
+      "category": "Objects",
+      "tier": "medium",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 284.180062,
+            "mcp_owner_thread_ms": 177.2034349999999,
+            "render_frame_ms": 66.89933013916016,
+            "frame_ready_ms": 139.181592,
+            "workflow_elapsed_ms": 1102.421155,
+            "total_ms": 423.36165400000004
+          },
+          "steps": [
+            "object.bake_to_shader"
+          ],
+          "before_revision": 58,
+          "after_revision": 59,
+          "result": "Baked 1 object(s) to static GPU meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 284.180062,
+          "p95": 284.180062,
+          "maximum": 284.180062
+        },
+        "frame_ready_ms": {
+          "median": 139.181592,
+          "p95": 139.181592,
+          "maximum": 139.181592
+        },
+        "total_ms": {
+          "median": 423.36165400000004,
+          "p95": 423.36165400000004,
+          "maximum": 423.36165400000004
+        },
+        "mcp_owner_thread_ms": {
+          "median": 177.2034349999999,
+          "p95": 177.2034349999999,
+          "maximum": 177.2034349999999
+        },
+        "render_frame_ms": {
+          "median": 66.89933013916016,
+          "p95": 66.89933013916016,
+          "maximum": 66.89933013916016
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_mesh",
+      "variant": "standard",
+      "name": "Bake to Mesh",
+      "category": "Objects",
+      "tier": "high",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 2557.295417,
+            "mcp_owner_thread_ms": 100.71965799999998,
+            "render_frame_ms": 531.4520874023438,
+            "frame_ready_ms": 146.887637,
+            "workflow_elapsed_ms": 9641.297245,
+            "total_ms": 2704.1830539999996
+          },
+          "steps": [
+            "object.configure_procedural",
+            "object.place_selected_definition",
+            "pointer.move((-5, 0, -5))",
+            "pointer.click((-5, 0, -5))",
+            "object.bake_to_mesh"
+          ],
+          "before_revision": 52,
+          "after_revision": 55,
+          "result": "Baked 1 object(s) to editable meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 2557.295417,
+          "p95": 2557.295417,
+          "maximum": 2557.295417
+        },
+        "frame_ready_ms": {
+          "median": 146.887637,
+          "p95": 146.887637,
+          "maximum": 146.887637
+        },
+        "total_ms": {
+          "median": 2704.1830539999996,
+          "p95": 2704.1830539999996,
+          "maximum": 2704.1830539999996
+        },
+        "mcp_owner_thread_ms": {
+          "median": 100.71965799999998,
+          "p95": 100.71965799999998,
+          "maximum": 100.71965799999998
+        },
+        "render_frame_ms": {
+          "median": 531.4520874023438,
+          "p95": 531.4520874023438,
+          "maximum": 531.4520874023438
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_shader",
+      "variant": "standard",
+      "name": "Bake to Shader",
+      "category": "Objects",
+      "tier": "high",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "commit_ms": 1414.481313,
+            "mcp_owner_thread_ms": 1292.9296730000005,
+            "render_frame_ms": 367.4722595214844,
+            "frame_ready_ms": 160.571067,
+            "workflow_elapsed_ms": 2792.073828,
+            "total_ms": 1575.05238
+          },
+          "steps": [
+            "object.bake_to_shader"
+          ],
+          "before_revision": 58,
+          "after_revision": 59,
+          "result": "Baked 1 object(s) to static GPU meshes.",
+          "selected_entities": 1
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": {
+          "median": 1414.481313,
+          "p95": 1414.481313,
+          "maximum": 1414.481313
+        },
+        "frame_ready_ms": {
+          "median": 160.571067,
+          "p95": 160.571067,
+          "maximum": 160.571067
+        },
+        "total_ms": {
+          "median": 1575.05238,
+          "p95": 1575.05238,
+          "maximum": 1575.05238
+        },
+        "mcp_owner_thread_ms": {
+          "median": 1292.9296730000005,
+          "p95": 1292.9296730000005,
+          "maximum": 1292.9296730000005
+        },
+        "render_frame_ms": {
+          "median": 367.4722595214844,
+          "p95": 367.4722595214844,
+          "maximum": 367.4722595214844
+        }
+      }
+    },
+    {
+      "command_id": "object.bake_to_mesh",
+      "variant": "standard",
+      "name": "Bake to Mesh",
+      "category": "Objects",
+      "tier": "heavy",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "failed",
+      "reason": "undo history needs 451490102 snapshot bytes, over its 268435456 byte budget",
+      "samples": [
+        {
+          "status": "failed",
+          "timings": {},
+          "failure_elapsed_ms": 5720.29002,
+          "error": "undo history needs 451490102 snapshot bytes, over its 268435456 byte budget"
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": null,
+        "frame_ready_ms": null,
+        "total_ms": null,
+        "mcp_owner_thread_ms": null,
+        "render_frame_ms": null
+      }
+    },
+    {
+      "command_id": "object.bake_to_shader",
+      "variant": "standard",
+      "name": "Bake to Shader",
+      "category": "Objects",
+      "tier": "heavy",
+      "family": "object",
+      "operation": "Execute the intended prototype/instance/editor operation",
+      "status": "failed",
+      "reason": "undo history needs 451499764 snapshot bytes, over its 268435456 byte budget",
+      "samples": [
+        {
+          "status": "failed",
+          "timings": {
+            "commit_ms": 3219.004267
+          },
+          "failure_elapsed_ms": 4493.79663,
+          "error": "undo history needs 451499764 snapshot bytes, over its 268435456 byte budget"
+        }
+      ],
+      "stats": {
+        "start_ms": null,
+        "input_ms": null,
+        "preview_ms": null,
+        "commit_ms": null,
+        "frame_ready_ms": null,
+        "total_ms": null,
+        "mcp_owner_thread_ms": null,
+        "render_frame_ms": null
+      }
+    }
+  ],
+  "finished_at": "2026-10-28T04:06:14.566125+00:00",
+  "coverage_complete": true,
+  "qualification_notes": [
+    "**Filtered local development qualification: only the two object-bake commands (8 cases), not the full 289-command suite or a released-binary CI baseline.** One sample per tier, development build, Mesa software OpenGL in a private desktop. The working-tree base alone does not reproduce the uncommitted implementation; the recorded SHA-256 identifies the frozen executable actually tested.",
+    "Bake to Shader freezes the fixture cube. Bake to Mesh creates and places a procedural tree as untimed setup, then measures actual GPU readback and mesh commit. The normal GPU-mesh round trip is separately covered by session unit tests.",
+    "Six operation cases completed. Heavy Bake to Shader failed its transaction at the existing Undo budget; Heavy Bake to Mesh failed while creating its prerequisite tree, so the heavy GPU capture itself remains unvalidated. Failures remain failures and have no successful latency values. Fixture weights and the 268435456-byte Undo limit were unchanged.",
+    "The existing manual stress-test.yaml workflow discovers both commands through the same registry and recipes. Same-tag released-binary CI measurements have not run for this version."
+  ]
+}

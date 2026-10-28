@@ -56,6 +56,10 @@ inside the prototype; after leaving edit mode, drag an instance's hotspots to
 change its shape. Each instance keeps its own values. Copies retain them, and
 external scenes can supply referenced prototypes.
 
+**Bake to Shader** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
+turns frozen or shader-generated objects into editable edges and faces, with Undo.
+[Object conversion details](docs/rewrite/spec/objects.md#bake-to-shader-and-bake-to-mesh).
+
 ![Reusable object instances alongside directly modeled geometry](docs/screenshots/dynamic-object-instances.png)
 
 Prototype thumbnails help browse your library. Prototype and instance properties

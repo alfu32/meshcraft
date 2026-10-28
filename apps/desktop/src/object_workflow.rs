@@ -1463,3 +1463,275 @@ mod import_job_tests {
         assert_eq!(cached, app.document);
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct BakeCaptureRequest {
+    pub document: std::sync::Arc<Document>,
+    pub paths: Vec<OccurrenceRef>,
+    pub reply: std::sync::mpsc::Sender<
+        Result<BTreeMap<OccurrenceRef, meshcraft_core::document::GeometryBundle>, String>,
+    >,
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) struct ObjectBakeJob {
+    request: Option<BakeCaptureRequest>,
+    receiver: std::sync::mpsc::Receiver<
+        Result<BTreeMap<OccurrenceRef, meshcraft_core::document::GeometryBundle>, String>,
+    >,
+    selection: SelectionSession,
+    to_shader: bool,
+    generation: u64,
+    revision: u64,
+    job_id: String,
+}
+impl MeshcraftApp {
+    pub(super) fn block_gpu_object_edit(&mut self, path: &OccurrenceRef) -> bool {
+        if !self.document.is_baked_gpu_object(path) {
+            return false;
+        }
+        self.set_selection([path.clone()]);
+        self.status = "Use Bake to Mesh before editing a frozen GPU object.".into();
+        true
+    }
+    pub(super) fn bake_objects_command(&mut self, to_shader: bool) -> CommandResult {
+        let selected = self.selection.selected();
+        if selected.is_empty()
+            || selected
+                .iter()
+                .any(|t| t.entity != SelectedEntity::Occurrence || !self.native_target_editable(t))
+        {
+            return CommandResult::failed("Select editable object instances to bake.");
+        }
+        let roots: Vec<_> = selected.iter().map(|t| t.occurrence.clone()).collect();
+        let paths = match modeling_objects::shader_capture_paths(&self.document, &roots) {
+            Ok(paths) => paths,
+            Err(e) => return CommandResult::failed(e),
+        };
+        if paths.is_empty() {
+            return self.finish_object_bake(self.selection.clone(), to_shader, BTreeMap::new());
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            CommandResult::failed("GPU geometry baking requires the native desktop renderer.")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.pending_object_bake.is_some() {
+                return CommandResult::failed("An object bake is already running.");
+            }
+            let (reply, receiver) = std::sync::mpsc::channel();
+            let job_id = format!("object-bake-{}", self.next_job_id);
+            self.next_job_id += 1;
+            self.pending_object_bake = Some(ObjectBakeJob {
+                request: Some(BakeCaptureRequest {
+                    document: std::sync::Arc::new(self.document.clone()),
+                    paths,
+                    reply,
+                }),
+                receiver,
+                selection: self.selection.clone(),
+                to_shader,
+                generation: self.document_generation,
+                revision: self.document.revision(),
+                job_id: job_id.clone(),
+            });
+            self.status = "Baking shader geometry…".into();
+            let result = CommandResult::pending(
+                job_id.clone(),
+                HostEffect::StartJob {
+                    job_id: job_id.clone(),
+                    kind: "object.bake".into(),
+                    input_revision: Some(self.document.revision()),
+                },
+            );
+            self.job_results.insert(job_id, result.clone());
+            result
+        }
+    }
+    fn finish_object_bake(
+        &mut self,
+        selection: SelectionSession,
+        to_shader: bool,
+        captured: BTreeMap<OccurrenceRef, meshcraft_core::document::GeometryBundle>,
+    ) -> CommandResult {
+        match self.commit_document_edit(
+            if to_shader {
+                "Bake to Shader"
+            } else {
+                "Bake to Mesh"
+            },
+            |d| modeling_objects::bake_objects(d, &selection, to_shader, &captured),
+        ) {
+            Ok(paths) => {
+                self.set_selection(paths.clone());
+                self.status = format!(
+                    "Baked {} object(s) to {}.",
+                    paths.len(),
+                    if to_shader {
+                        "static GPU meshes"
+                    } else {
+                        "editable meshes"
+                    }
+                );
+                command_result_with_occurrences(CommandResult::completed(), &paths)
+            }
+            Err(e) => CommandResult::failed(e),
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn native_take_bake_capture(&mut self) -> Option<BakeCaptureRequest> {
+        self.pending_object_bake.as_mut()?.request.take()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn poll_object_bake(&mut self) {
+        let capture = match self
+            .pending_object_bake
+            .as_ref()
+            .map(|j| j.receiver.try_recv())
+        {
+            Some(Ok(v)) => v,
+            Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+                Err("Graphics worker stopped before completing the bake".into())
+            }
+            _ => return,
+        };
+        let job = self.pending_object_bake.take().unwrap();
+        let result = if job.generation != self.document_generation
+            || job.revision != self.document.revision()
+            || job.selection.context != self.selection.context
+            || job
+                .selection
+                .selected()
+                .iter()
+                .any(|target| !self.native_target_editable(target))
+        {
+            CommandResult::failed(
+                "Drawing changed or editing context changed during GPU capture; bake again.",
+            )
+        } else {
+            match capture {
+                Ok(g) => self.finish_object_bake(job.selection, job.to_shader, g),
+                Err(e) => CommandResult::failed(e),
+            }
+        };
+        if !result.diagnostics.is_empty() {
+            self.status = format!("Object bake failed: {}", result.diagnostics.join("; "));
+        }
+        self.job_results.insert(job.job_id, result);
+    }
+}
+
+#[cfg(test)]
+mod bake_tests {
+    use super::*;
+    #[test]
+    fn gpu_bake_failure_and_stale_result_do_not_mutate_drawing() {
+        let mut d = Document::new();
+        let id = d.create_procedural_tree().unwrap();
+        let path = modeling_objects::place_definition(
+            &mut d,
+            &EditContext::Document,
+            id,
+            Vec3::ZERO,
+            None,
+            false,
+        )
+        .unwrap();
+        let mut app = MeshcraftApp::new_native_session(d, String::new(), None);
+        app.set_selection([path]);
+        for stale in [false, true] {
+            let pending = app
+                .dispatch_command("object.bake_to_mesh", &CommandPayload::default())
+                .result;
+            let CommandCompletion::Pending { job_id } = pending.completion else {
+                panic!("expected a GPU job")
+            };
+            let request = app.native_take_bake_capture().unwrap();
+            if stale {
+                app.commit_document_edit("Change drawing", |d| {
+                    d.add_cuboid("New", Vec3::new(1., 1., 1.), Vec3::X * 20.)
+                        .ok_or_else(|| "Could not create cuboid".to_owned())
+                })
+                .unwrap();
+            }
+            let before = app.document.clone();
+            request
+                .reply
+                .send(if stale {
+                    Ok(BTreeMap::new())
+                } else {
+                    Err("shader capture failed".into())
+                })
+                .unwrap();
+            app.poll_object_bake();
+            assert_eq!(before, app.document);
+            let result = &app.job_results[&job_id];
+            assert_eq!(CommandCompletion::Failed, result.completion);
+            assert!(result.diagnostics[0].contains(if stale {
+                "Drawing changed"
+            } else {
+                "shader capture failed"
+            }));
+        }
+    }
+    #[test]
+    fn object_bake_commands_history_and_project_roundtrip() {
+        let mut d = Document::new();
+        let path = d
+            .add_cuboid("Bake", Vec3::new(2., 3., 4.), Vec3::new(5., 1., 2.))
+            .unwrap();
+        let mut app = MeshcraftApp::new_native_session(d, String::new(), None);
+        app.set_selection([path]);
+        let before = app.document.clone();
+        let baked = app.dispatch_command("object.bake_to_shader", &CommandPayload::default());
+        assert!(baked.result.diagnostics.is_empty(), "{:?}", baked.result);
+        let path = app.selected_occurrences().remove(0);
+        assert!(app.document.is_baked_gpu_object(&path));
+        assert!(
+            !app.dispatch_command("selection.edit_object", &CommandPayload::default())
+                .result
+                .diagnostics
+                .is_empty()
+        );
+        let bytes = meshcraft_io::project::write_project(&app.document, None).unwrap();
+        let loaded = meshcraft_io::project::read_project(&bytes)
+            .unwrap()
+            .document;
+        assert!(
+            loaded
+                .scene_geometry_refs()
+                .unwrap()
+                .iter()
+                .any(|p| loaded.is_baked_gpu_object(p))
+        );
+        let result = app.dispatch_command("object.bake_to_mesh", &CommandPayload::default());
+        assert!(result.result.diagnostics.is_empty(), "{:?}", result.result);
+        let path = app.selected_occurrences().remove(0);
+        assert!(!app.document.is_baked_gpu_object(&path));
+        app.dispatch_command("edit.undo", &CommandPayload::default());
+        assert!(
+            app.document
+                .scene_geometry_refs()
+                .unwrap()
+                .iter()
+                .any(|p| app.document.is_baked_gpu_object(p))
+        );
+        app.dispatch_command("edit.undo", &CommandPayload::default());
+        // Undo advances the revision to invalidate render caches; authored content
+        // and IDs must return exactly to the original snapshot.
+        let authored = |d: &Document| {
+            let mut value = serde_json::to_value(d).unwrap();
+            value.as_object_mut().unwrap().remove("revision");
+            value
+        };
+        assert_eq!(authored(&before), authored(&app.document));
+        app.dispatch_command("edit.redo", &CommandPayload::default());
+        assert!(
+            app.document
+                .scene_geometry_refs()
+                .unwrap()
+                .iter()
+                .any(|p| app.document.is_baked_gpu_object(p))
+        );
+    }
+}

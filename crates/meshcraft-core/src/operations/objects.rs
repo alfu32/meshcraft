@@ -1,5 +1,9 @@
 //! Selection-first object grouping, placement, duplication and materialization.
 
+#[path = "objects_bake.rs"]
+mod bake;
+pub use bake::{GPU_MESH_KEY, bake_objects, shader_capture_paths};
+
 use crate::document::{
     ChildLayout, ChildLayoutId, Definition, DefinitionId, DefinitionKind, Document, GeometryBundle,
     GeometryBundleId, InstanceEdits, LayoutEntry, LayoutEntryId, OccurrenceRef, Segment, SegmentId,

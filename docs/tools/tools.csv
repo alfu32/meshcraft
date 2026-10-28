@@ -130,6 +130,8 @@ Modification 2,Rotate 2,rotate,tool.builtin.rotate_2,tool_activation,desktop,reg
 Modify,Move Copy,copy,tool.move_copy,tool_activation,core,registered,Modify,,,,,
 Modify,Rotate Copy,rotate-copy,tool.rotate_copy,tool_activation,core,registered,Modify,,,,,
 Modify,Squash,squash,tool.squash,tool_activation,desktop,registered,Modify,,,,,
+Objects,Bake to Mesh,object,object.bake_to_mesh,document_mutation,core,registered,Objects,,,,,
+Objects,Bake to Shader,object,object.bake_to_shader,document_mutation,core,registered,Objects,,,,,
 Objects,Configure Procedural Object,object,object.configure_procedural,document_mutation,core,registered,Objects,,,,,
 Objects,Delete Prototype,edit.delete_selection,object.delete_definition,document_mutation,core,registered,Objects,,,,,
 Objects,Delete Unused Definition,object.delete_unused_definition,object.delete_unused_definition,document_mutation,core,registered,Objects,,,,,
