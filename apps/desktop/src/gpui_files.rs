@@ -90,7 +90,20 @@ pub(super) fn popup(
         let owner = cx.entity().downgrade();
         let menu = PopupMenu::build(window, cx, |mut menu, window, cx| {
             menu = menu.action_context(focus).min_w(px(235.)).max_w(px(300.));
+            let mut previous = String::new();
             for (label, command) in entries {
+                let section = command
+                    .as_ref()
+                    .and_then(|c| c.presentation.menu_path.get(1))
+                    .cloned()
+                    .unwrap_or_default();
+                if section != previous {
+                    if !previous.is_empty() {
+                        menu = menu.separator();
+                    }
+                    menu = menu.label(section.clone());
+                    previous = section;
+                }
                 if command
                     .as_ref()
                     .is_some_and(|c| c.id.as_str() == "file.open_recent")

@@ -88,16 +88,7 @@ use serde_json::{Value, json};
 const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 const PREVIEW_PROGRAM_SOURCE: &str = "meshcraft.previewProgramSource";
 use crate::app::DROPDOWN_MENU_NAMES as MENU_NAMES;
-const RIBBON_TABS: &[&str] = &[
-    "Home",
-    "Construction",
-    "Modify",
-    "Arrays",
-    "Architecture",
-    "Inspect",
-    "View",
-    "Settings",
-];
+const RIBBON_TABS: &[&str] = crate::functional_ui::GROUPS;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct ViewportLayout {
@@ -1226,7 +1217,7 @@ impl MeshcraftShell {
             collapsed_settings_panels: Default::default(),
             camera: OrbitCamera::default(),
             layout: ViewportLayout::default(),
-            active_ribbon_tab: "Home",
+            active_ribbon_tab: "2D Construction",
             open_menu: None,
             files: files::Ui::default(),
             menu_bounds: Arc::default(),
@@ -2642,6 +2633,9 @@ fn ribbon_command_for_key<'a>(
     key: &str,
     catalog: &'a [CommandDescriptor],
 ) -> Option<&'a CommandDescriptor> {
+    if let Some(command) = catalog.iter().find(|command| command.id.as_str() == key) {
+        return Some(command);
+    }
     let ids: &[&str] = match key {
         "line" => &["tool.builtin.line", "tool.line"],
         "point" => &["tool.builtin.point"],
@@ -3265,39 +3259,23 @@ impl Render for MeshcraftShell {
             )
             .child(self.resource_hud.clone());
 
-        if self.open_menu != Some("File") {
+        if self.open_menu != Some("Files") {
             self.files = files::Ui::default();
         }
         let popup = self.open_menu.and_then(|menu| {
             let bounds = self.menu_bounds.lock().ok()?.get(menu).copied()?;
             let catalog = MeshcraftApp::command_catalog();
-            let mut entries = layout::menu_items(menu)
-                .iter()
-                .map(|label| {
-                    let key = layout::menu_command_key(label);
-                    let command = ribbon_command_for_key(&key, &catalog).cloned();
-                    ((*label).to_owned(), command)
+            let entries = crate::functional_ui::sections(menu)
+                .flat_map(|s| s.commands.iter())
+                .filter_map(|(id, label)| {
+                    catalog
+                        .iter()
+                        .find(|c| c.id.as_str() == *id)
+                        .cloned()
+                        .map(|command| ((*label).to_owned(), Some(command)))
                 })
                 .collect::<Vec<_>>();
-            let bound_ids = entries
-                .iter()
-                .filter_map(|(_, command)| command.as_ref())
-                .map(|command| command.id.clone())
-                .collect::<Vec<_>>();
-            entries.extend(
-                catalog
-                    .into_iter()
-                    .filter(|command| {
-                        command
-                            .presentation
-                            .menu_path
-                            .first()
-                            .is_some_and(|root| root == menu)
-                            && !bound_ids.contains(&command.id)
-                    })
-                    .map(|command| (command_label(&command).to_owned(), Some(command))),
-            );
-            if menu == "File" {
+            if menu == "Files" {
                 return Some(files::popup(self, entries, bounds, window, cx));
             }
             Some(
@@ -3306,8 +3284,8 @@ impl Render for MeshcraftShell {
                     .absolute()
                     .top(bounds.origin.y + bounds.size.height + px(3.))
                     .left(bounds.origin.x)
-                    .w(px(235.))
-                    .max_h(px(640.))
+                    .w(px(290.))
+                    .max_h(px(680.))
                     .p(px(5.))
                     .flex()
                     .flex_col()
@@ -3322,32 +3300,61 @@ impl Render for MeshcraftShell {
                         this.open_menu = None;
                         cx.notify();
                     }))
-                    .children(entries.into_iter().map(|(label, command)| {
-                        let button =
-                            Button::new(SharedString::from(format!("menu/{menu}/{label}")))
-                                .child(labeled_command(
-                                    label,
-                                    command.as_ref().and_then(command_icon),
-                                    201.,
-                                ))
-                                .small()
-                                .text();
-                        if let Some(command) = command {
-                            let id = command.id.as_str().to_owned();
-                            button
-                                .disabled(!command_enabled(&self.session, &command))
-                                .on_mouse_down(
-                                    gpui::MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.open_menu = None;
-                                        this.dispatch_with_clipboard(&id, cx);
-                                        cx.notify();
-                                    }),
-                                )
-                        } else {
-                            button.disabled(true)
-                        }
-                    }))
+                    .children(
+                        entries
+                            .into_iter()
+                            .scan(String::new(), |previous, (label, command)| {
+                                let section = command
+                                    .as_ref()
+                                    .and_then(|c| c.presentation.menu_path.get(1))
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let heading = (section != *previous).then_some(section.clone());
+                                *previous = section;
+                                Some((label, command, heading))
+                            })
+                            .map(|(label, command, heading)| {
+                                let button =
+                                    Button::new(SharedString::from(format!("menu/{menu}/{label}")))
+                                        .child(labeled_command(
+                                            label,
+                                            command.as_ref().and_then(command_icon),
+                                            256.,
+                                        ))
+                                        .small()
+                                        .text();
+                                let item = if let Some(command) = command {
+                                    let id = command.id.as_str().to_owned();
+                                    button
+                                        .disabled(!command_enabled(&self.session, &command))
+                                        .on_mouse_down(
+                                            gpui::MouseButton::Left,
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.open_menu = None;
+                                                this.dispatch_with_clipboard(&id, cx);
+                                                cx.notify();
+                                            }),
+                                        )
+                                } else {
+                                    button.disabled(true)
+                                };
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .when_some(heading, |row, title| {
+                                        row.child(
+                                            div()
+                                                .px(px(6.))
+                                                .pt(px(7.))
+                                                .text_xs()
+                                                .text_color(rgb(0x9db0c4))
+                                                .child(title),
+                                        )
+                                    })
+                                    .child(item)
+                                    .into_any_element()
+                            }),
+                    )
                     .into_any_element(),
             )
         });
@@ -4123,16 +4130,8 @@ mod tests {
     #[test]
     fn experiment_ribbon_structure_and_command_bindings_are_preserved() {
         let commands = MeshcraftApp::command_catalog();
-        for tab in [
-            "Home",
-            "Construction",
-            "Modify",
-            "Arrays",
-            "Architecture",
-            "Inspect",
-            "View",
-            "Settings",
-        ] {
+        let mut visible = std::collections::BTreeSet::new();
+        for tab in crate::functional_ui::GROUPS {
             let groups = ribbon_groups(tab);
             assert!(!groups.is_empty(), "{tab} has ribbon groups");
             for group in groups {
@@ -4141,6 +4140,13 @@ mod tests {
                     "{tab} / {} has buttons",
                     group.title
                 );
+                for (id, _) in group.commands {
+                    assert!(visible.insert(*id), "duplicate ribbon action {id}");
+                    assert_eq!(
+                        ribbon_command_for_key(id, &commands).unwrap().id.as_str(),
+                        *id
+                    );
+                }
             }
         }
 

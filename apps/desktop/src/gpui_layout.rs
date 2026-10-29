@@ -119,6 +119,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             })
             .or_else(|| command.and_then(|command| crate::assets::gpui_icon(command.id.as_str())));
         let ribbon = namespace.starts_with("ribbon/");
+        let functional = namespace.ends_with("/functional");
         let icon_size = (self.shell.session.native_ui_preferences().toolbar_icon_size as f32
             * 0.75)
             .clamp(18., if ribbon { 22. } else { 32. });
@@ -128,7 +129,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                     .flex()
                     .items_center()
                     .gap(px(4.))
-                    .w(px(80.))
+                    .w(px(if functional { 92. } else { 80. }))
                     .min_w(px(0.))
                     .when_some(icon, |row, icon| {
                         let tile = div()
@@ -153,13 +154,18 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                             .min_w(px(0.))
                             .flex_1()
                             .text_size(px(11.))
-                            .truncate()
+                            .when(!functional, |text| text.truncate())
+                            .when(functional, |text| {
+                                text.whitespace_normal().line_height(px(12.))
+                            })
                             .child(label),
                     ),
             )
             .small()
             .px(px(2.))
-            .h(px(if ribbon {
+            .h(px(if functional {
+                30.
+            } else if ribbon {
                 24.
             } else {
                 self.shell.session.native_ui_preferences().toolbar_icon_size as f32
@@ -803,490 +809,8 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
     }
 }
 
-pub(super) fn menu_command_key(label: &str) -> String {
-    match label {
-        "Planar Mesh" => "closed-mesh",
-        "2-Line" => "double-line",
-        "Mesh 2-Line" => "meshed-double-line",
-        "Object" => "create-object",
-        "Linear Dimension" => "dimension",
-        "Place Instance" => "place-object",
-        "Intersection Curves" => "mesh-intersection",
-        "Real-Time Render" => "realtime-render",
-        "Save Image" => "save-render",
-        _ => return label.trim_end_matches('…').to_lowercase().replace(' ', "-"),
-    }
-    .to_owned()
-}
-
-pub(super) fn menu_items(menu: &str) -> &'static [&'static str] {
-    match menu {
-        "File" => &[
-            "New",
-            "Open…",
-            "Save",
-            "Save As…",
-            "Import Objects…",
-            "Import Mesh…",
-            "Export Mesh…",
-            "Export IFC…",
-            "Recent Files",
-            "Exit",
-        ],
-        "Edit" => &[
-            "Undo",
-            "Redo",
-            "Cut",
-            "Copy",
-            "Paste",
-            "Paste in Place",
-            "Delete",
-            "Select All",
-        ],
-        "View" => &[
-            "Orbit",
-            "Pan",
-            "Zoom",
-            "Fit Model",
-            "Projection",
-            "Permanent Grid",
-            "Guides",
-        ],
-        "Insert" => &[
-            "Point",
-            "Line",
-            "Polyline",
-            "Planar Mesh",
-            "Rectangle",
-            "Circle",
-            "Object",
-            "Text",
-        ],
-        "Format" => &[
-            "Model Settings",
-            "UI Settings",
-            "Material Color",
-            "Dimension Style",
-        ],
-        "Draw" => &[
-            "Line",
-            "Construction Polyline",
-            "2-Line",
-            "Mesh 2-Line",
-            "Rectangle",
-            "Circle",
-            "Arc",
-            "Hotspot",
-        ],
-        "Dimension" => &[
-            "Linear Dimension",
-            "Aligned Dimension",
-            "Angular Dimension",
-            "Radius",
-            "Diameter",
-        ],
-        "Modify" => &[
-            "Move",
-            "Copy",
-            "Rotate 3D",
-            "Scale",
-            "Squash",
-            "Stretch",
-            "Extrude",
-            "Mirror",
-            "Flip Faces",
-            "Fill Loops",
-            "Offset",
-            "Sweep",
-        ],
-        "Solids" => &[
-            "Solid Union",
-            "Solid Intersection",
-            "Solid Difference",
-            "Intersection Curves",
-            "Planar Section",
-        ],
-        "Arrays" => &[
-            "Linear Array",
-            "Planar Array",
-            "Spatial Array",
-            "Rotational Array",
-            "Helical Array",
-            "Surface Array",
-        ],
-        "Object Prototypes" | "Objects" => &[
-            "Make Object",
-            "Edit Definition",
-            "Place Instance",
-            "Explode Object",
-        ],
-        "Tools" => &[
-            "Select",
-            "Window Select",
-            "Snap Settings",
-            "Linear Array",
-            "Planar Array",
-            "Spatial Array",
-            "Distance",
-        ],
-        "Render" => &[
-            "Real-Time Render",
-            "Global Illumination",
-            "Stop Render",
-            "Save Image",
-        ],
-        "Window" => &[
-            "Selection Panel",
-            "Object Panel",
-            "Settings Panel",
-            "Reset Layout",
-        ],
-        "Help" => &["Tutorials", "Keyboard Shortcuts", "About Meshcraft"],
-        _ => &[],
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct RibbonGroup {
-    pub(super) title: &'static str,
-    pub(super) namespace: &'static str,
-    pub(super) commands: &'static [(&'static str, &'static str)],
-}
-
-const HOME_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Construction",
-        namespace: "ribbon/home/construction",
-        commands: &[
-            ("point", "Point"),
-            ("line", "Line"),
-            ("polyline", "Polyline"),
-            ("double-line", "2-Line"),
-            ("meshed-double-line", "Mesh 2-Line"),
-            ("closed-mesh", "Planar Mesh"),
-            ("rectangle", "Rectangle"),
-            ("circle", "Circle"),
-        ],
-    },
-    RibbonGroup {
-        title: "Modify Selection",
-        namespace: "ribbon/home/modify",
-        commands: &[
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("move", "Move"),
-            ("move-copy", "Move Copy"),
-            ("rotate-3d", "Rotate 3D"),
-            ("scale", "Scale"),
-            ("squash", "Squash"),
-            ("stretch", "Stretch"),
-            ("extrude", "Extrude"),
-        ],
-    },
-    RibbonGroup {
-        title: "Arrays & Objects",
-        namespace: "ribbon/home/arrays",
-        commands: &[
-            ("make-object", "Make Object"),
-            ("edit-object", "Edit Object"),
-            ("linear-array", "Linear"),
-            ("planar-array", "Planar"),
-            ("spatial-array", "Spatial"),
-            ("rotational-array", "Rotate"),
-            ("helical-array", "Helical"),
-        ],
-    },
-    RibbonGroup {
-        title: "Entities & View",
-        namespace: "ribbon/home/entities",
-        commands: &[
-            ("dimension", "Dimension"),
-            ("wall", "Wall"),
-            ("slab", "Rectangular Slab"),
-            ("freeform-slab", "Freeform Slab"),
-            ("add-hole", "Add Hole"),
-            ("stair", "Stair"),
-            ("frame", "Frame"),
-            ("orbit", "Orbit"),
-            ("zoom", "Zoom"),
-        ],
-    },
-];
-
-const CONSTRUCTION_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Point Construction",
-        namespace: "ribbon/construction/points",
-        commands: &[
-            ("point", "Point"),
-            ("line", "Line"),
-            ("construction-polyline", "Polyline"),
-            ("double-line", "2-Line"),
-            ("meshed-double-line", "Mesh 2-Line"),
-            ("closed-mesh", "Closed Mesh"),
-            ("rectangle", "Rectangle"),
-            ("circle", "Circle"),
-            ("arc", "Arc"),
-            ("hotspot", "Hotspot"),
-        ],
-    },
-    RibbonGroup {
-        title: "Entity Construction",
-        namespace: "ribbon/construction/entities",
-        commands: &[
-            ("dimension", "Dimension"),
-            ("text", "Text"),
-            ("leader", "Leader"),
-            ("wall", "Wall"),
-            ("slab", "Rectangular Slab"),
-            ("freeform-slab", "Freeform Slab"),
-            ("add-hole", "Add Hole"),
-            ("stair", "Stair"),
-            ("frame", "Frame"),
-        ],
-    },
-    RibbonGroup {
-        title: "Primitives & Services",
-        namespace: "ribbon/construction/primitives",
-        commands: &[
-            ("cuboid", "Cuboid"),
-            ("sphere", "Sphere"),
-            ("cylinder", "Cylinder"),
-            ("cone", "Cone"),
-            ("voxel", "Voxel"),
-            ("pipe", "Pipe"),
-            ("duct", "Duct"),
-        ],
-    },
-];
-
-const MODIFY_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Selection",
-        namespace: "ribbon/modify/selection",
-        commands: &[
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("select-connected", "Connected"),
-            ("select-coplanar", "Coplanar"),
-            ("select-all", "Select All"),
-        ],
-    },
-    RibbonGroup {
-        title: "Transforms",
-        namespace: "ribbon/modify/transforms",
-        commands: &[
-            ("move", "Move"),
-            ("move-copy", "Move Copy"),
-            ("rotate-3d", "Rotate 3D"),
-            ("rotate-copy-3d", "Rotate Copy"),
-            ("scale", "Scale"),
-            ("squash", "Squash"),
-            ("stretch", "Stretch"),
-            ("extrude", "Extrude"),
-            ("mirror", "Mirror"),
-            ("flip", "Flip"),
-        ],
-    },
-    RibbonGroup {
-        title: "Surface & Path",
-        namespace: "ribbon/modify/surface",
-        commands: &[
-            ("offset", "Offset"),
-            ("sweep", "Sweep"),
-            ("fillet", "Fillet"),
-            ("chamfer", "Chamfer"),
-            ("fill-loops", "Fill Loops"),
-        ],
-    },
-    RibbonGroup {
-        title: "Solids",
-        namespace: "ribbon/modify/solids",
-        commands: &[
-            ("solid-union", "Union"),
-            ("solid-intersection", "Intersection"),
-            ("solid-difference", "Difference"),
-            ("mesh-intersection", "Int. Curves"),
-            ("planar-section", "Planar Section"),
-        ],
-    },
-];
-
-const ARRAY_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Selection Arrays",
-        namespace: "ribbon/arrays/spread",
-        commands: &[
-            ("linear-array", "Linear Spread"),
-            ("planar-array", "Planar Spread"),
-            ("spatial-array", "Spatial Spread"),
-            ("surface-array", "Surface Array"),
-        ],
-    },
-    RibbonGroup {
-        title: "Rotational Arrays",
-        namespace: "ribbon/arrays/rotational",
-        commands: &[
-            ("rotational-array", "Rotational"),
-            ("helical-array", "Helical"),
-        ],
-    },
-    RibbonGroup {
-        title: "Objects",
-        namespace: "ribbon/arrays/objects",
-        commands: &[
-            ("make-object", "Make Object"),
-            ("edit-object", "Edit Object"),
-            ("place-object", "Place Instance"),
-            ("explode-object", "Explode"),
-        ],
-    },
-];
-
-const ARCHITECTURE_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Architecture",
-        namespace: "ribbon/architecture/building",
-        commands: &[
-            ("wall", "Wall"),
-            ("slab", "Rectangular Slab"),
-            ("freeform-slab", "Freeform Slab"),
-            ("add-hole", "Add Hole"),
-            ("stair", "Stair"),
-            ("frame", "Frame"),
-            ("door", "Door"),
-            ("window", "Window"),
-        ],
-    },
-    RibbonGroup {
-        title: "Building Services",
-        namespace: "ribbon/architecture/services",
-        commands: &[
-            ("pipe", "Pipe"),
-            ("duct", "Duct"),
-            ("voxel", "Voxel"),
-            ("dimension", "Dimension"),
-            ("text", "Text"),
-        ],
-    },
-];
-
-const INSPECT_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Inspect",
-        namespace: "ribbon/inspect/measure",
-        commands: &[
-            ("distance", "Distance"),
-            ("dimension", "Dimension"),
-            ("selection-info", "Selection Info"),
-            ("object-info", "Object Info"),
-        ],
-    },
-    RibbonGroup {
-        title: "Selection",
-        namespace: "ribbon/inspect/selection",
-        commands: &[
-            ("select", "Select"),
-            ("window-select", "Window"),
-            ("select-connected", "Connected"),
-            ("select-coplanar", "Coplanar"),
-        ],
-    },
-    RibbonGroup {
-        title: "Model",
-        namespace: "ribbon/inspect/model",
-        commands: &[
-            ("objects", "Objects"),
-            ("hotspots", "Hotspots"),
-            ("walls", "Walls"),
-            ("dimensions", "Dimensions"),
-        ],
-    },
-];
-
-const VIEW_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Camera",
-        namespace: "ribbon/view/camera",
-        commands: &[
-            ("orbit", "Orbit"),
-            ("pan", "Pan"),
-            ("zoom", "Zoom"),
-            ("fit-model", "Fit Model"),
-            ("reset-camera", "Reset"),
-        ],
-    },
-    RibbonGroup {
-        title: "Projection & Grid",
-        namespace: "ribbon/view/grid",
-        commands: &[
-            ("perspective", "Perspective"),
-            ("orthographic", "Orthographic"),
-            ("walkthrough", "Walkthrough"),
-            ("permanent-grid", "Grid"),
-            ("guides", "Guides"),
-            ("grid-guide", "3D Grid"),
-            ("axis-guide", "3D Guide"),
-            ("snap-settings", "Snapping"),
-        ],
-    },
-    RibbonGroup {
-        title: "Rendering",
-        namespace: "ribbon/view/render",
-        commands: &[
-            ("realtime-render", "RT"),
-            ("global-illumination", "GI"),
-            ("stop-render", "Stop"),
-            ("save-render", "Save Image"),
-        ],
-    },
-];
-
-const SETTINGS_GROUPS: &[RibbonGroup] = &[
-    RibbonGroup {
-        title: "Model Settings",
-        namespace: "ribbon/settings/model",
-        commands: &[
-            ("unit-name", "Unit Name"),
-            ("unit-size", "Unit Size"),
-            ("grid-size", "Grid Size"),
-            ("circle-segments", "Circle Segments"),
-            ("snap-radius", "Snap Radius"),
-        ],
-    },
-    RibbonGroup {
-        title: "Interface",
-        namespace: "ribbon/settings/ui",
-        commands: &[
-            ("ui-text-size", "Text Size"),
-            ("toolbar-size", "Toolbar Size"),
-            ("permanent-grid", "Permanent Grid"),
-            ("mcp-settings", "MCP Server"),
-        ],
-    },
-    RibbonGroup {
-        title: "Domain Settings",
-        namespace: "ribbon/settings/domain",
-        commands: &[
-            ("architecture-settings", "Architecture"),
-            ("hvac-settings", "HVAC"),
-            ("hotspot-settings", "Hotspots"),
-            ("shader-settings", "Shaders"),
-        ],
-    },
-];
-
-pub(super) fn ribbon_groups(tab: &str) -> &'static [RibbonGroup] {
-    match tab {
-        "Construction" => CONSTRUCTION_GROUPS,
-        "Modify" => MODIFY_GROUPS,
-        "Arrays" => ARRAY_GROUPS,
-        "Architecture" => ARCHITECTURE_GROUPS,
-        "Inspect" => INSPECT_GROUPS,
-        "View" => VIEW_GROUPS,
-        "Settings" => SETTINGS_GROUPS,
-        _ => HOME_GROUPS,
-    }
+pub(super) fn ribbon_groups(tab: &str) -> Vec<&'static crate::functional_ui::Section> {
+    crate::functional_ui::sections(tab).collect()
 }
 
 fn command_row(
@@ -1307,37 +831,6 @@ fn command_row(
     .into_any_element()
 }
 
-fn palette(
-    title: &'static str,
-    namespace: &'static str,
-    commands: &'static [(&'static str, &'static str)],
-    bindings: &mut LayoutBindings<'_, '_, '_>,
-) -> gpui::AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(5.))
-        .p(px(7.))
-        .border_1()
-        .border_color(rgb(0x3b4654))
-        .bg(rgb(0x242b34))
-        .child(
-            div()
-                .text_xs()
-                .font_weight(gpui::FontWeight::BOLD)
-                .text_color(rgb(0xc4d6eb))
-                .child(title),
-        )
-        .child(
-            div().flex().flex_wrap().gap(px(3.)).children(
-                commands
-                    .iter()
-                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(96.))),
-            ),
-        )
-        .into_any_element()
-}
-
 fn ribbon_group(
     title: &'static str,
     namespace: &'static str,
@@ -1348,7 +841,7 @@ fn ribbon_group(
         .flex()
         .flex_col()
         .flex_none()
-        .w(px((commands.len().div_ceil(2) as f32 * 99.) + 14.))
+        .w(px((commands.len().div_ceil(2) as f32 * 111.) + 14.))
         .gap(px(4.))
         .px(px(7.))
         .py(px(4.))
@@ -1365,7 +858,7 @@ fn ribbon_group(
             div().flex().flex_wrap().gap(px(3.)).children(
                 commands
                     .iter()
-                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(96.))),
+                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(108.))),
             ),
         ))
     .into_any_element()
@@ -1384,9 +877,9 @@ pub(super) fn ribbon_content(
         .px(px(5.))
         .bg(rgb(0x20262e))
         .children(
-            ribbon_groups(tab)
-                .iter()
-                .map(|group| ribbon_group(group.title, group.namespace, group.commands, bindings)),
+            ribbon_groups(tab).iter().map(|group| {
+                ribbon_group(group.title, "ribbon/functional", group.commands, bindings)
+            }),
         ))
     .into_any_element()
 }
@@ -1498,211 +991,60 @@ fn stat_row(
 }
 
 pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {
-    (div()
+    let active = bindings.shell.active_ribbon_tab;
+    let roots =
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(3.))
+            .children(crate::functional_ui::GROUPS.iter().map(|root| {
+                let root = *root;
+                Button::new(SharedString::from(format!("toolbar-group/{root}")))
+                    .label(root)
+                    .text_xs()
+                    .w(px(104.))
+                    .px(px(2.))
+                    .small()
+                    .selected(active == root)
+                    .on_click(bindings.cx.listener(move |this, _, _, cx| {
+                        this.active_ribbon_tab = root;
+                        this.open_menu = None;
+                        cx.notify();
+                    }))
+            }));
+    let mut content = div()
+        .id(SharedString::from(format!("toolbar/functional/{active}")))
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .gap(px(6.));
+    for section in crate::functional_ui::sections(active) {
+        content = content
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xa5bbce))
+                    .child(section.title),
+            )
+            .child(command_row(
+                "toolbar/functional",
+                section.commands,
+                bindings,
+            ));
+    }
+    div()
         .w(px(LEFT_PANEL_WIDTH))
         .h_full()
         .flex()
         .flex_col()
-        .gap(px(6.))
+        .gap(px(7.))
         .p(px(7.))
         .bg(rgb(0x1e242c))
-        .id("toolbar/palettes-scroll")
-        .overflow_y_scroll()
-        .child(palette(
-            "Point Construction",
-            "toolbar/point-construction",
-            &[
-                ("point", "Point"),
-                ("line", "Line"),
-                ("polyline", "Pline"),
-                ("double-line", "2-Line"),
-                ("meshed-double-line", "Mesh 2L"),
-                ("closed-mesh", "Planar Mesh"),
-                ("rectangle", "Rect"),
-                ("circle", "Circle"),
-                ("arc", "Arc"),
-                ("hotspot", "Hotspot"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Actions",
-            "toolbar/actions",
-            &[
-                ("open", "Open"),
-                ("save", "Save"),
-                ("undo", "Undo"),
-                ("redo", "Redo"),
-                ("copy", "Copy"),
-                ("delete", "Delete"),
-                ("create-object", "Object"),
-                ("explode", "Explode"),
-                ("paste", "Paste"),
-                ("paste-in-place", "In Place"),
-                ("cut", "Cut"),
-                ("copy-as-script", "Copy Script"),
-                ("array", "Array"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Modification",
-            "toolbar/modification",
-            &[
-                ("select", "Select"),
-                ("move", "Move"),
-                ("rotate-3d", "Rotate 3D"),
-                ("rotate-copy", "Rotate Copy"),
-                ("scale", "Scale"),
-                ("squash", "Squash"),
-                ("stretch", "Stretch"),
-                ("extrude", "Extrude"),
-                ("mirror", "Mirror"),
-                ("flip", "Flip Faces"),
-                ("offset", "Offset"),
-                ("sweep", "Sweep"),
-                ("fillet", "Fillet"),
-                ("chamfer", "Chamfer"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Entity Construction",
-            "toolbar/entity-construction",
-            &[
-                ("dimension", "Dim"),
-                ("text", "Text"),
-                ("leader", "Leader"),
-                ("wall", "Wall"),
-                ("slab", "Rectangular Slab"),
-                ("freeform-slab", "Freeform Slab"),
-                ("add-hole", "Add Hole"),
-                ("stair", "Stair"),
-                ("frame", "Frame"),
-                ("voxel", "Voxel"),
-                ("pipe", "Pipe"),
-                ("duct", "Duct"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Rendering",
-            "toolbar/rendering",
-            &[
-                ("ray-trace", "RT"),
-                ("global-illumination", "GI"),
-                ("stop-render", "Stop"),
-                ("save-render", "Save"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Architecture",
-            "toolbar/architecture",
-            &[
-                ("wall", "Wall"),
-                ("slab", "Rectangular Slab"),
-                ("freeform-slab", "Freeform Slab"),
-                ("add-hole", "Add Hole"),
-                ("stair", "Stair"),
-                ("frame", "Frame"),
-                ("door", "Door"),
-                ("window", "Window"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Camera",
-            "toolbar/camera",
-            &[
-                ("reset-camera", "Reset"),
-                ("front-view", "Front"),
-                ("top-view", "Top"),
-                ("orbit", "Orbit"),
-                ("pan", "Pan"),
-                ("zoom", "Zoom"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Modification 2",
-            "toolbar/modification-2",
-            &[("fill-loops", "Fill Loops")],
-            bindings,
-        ))
-        .child(palette(
-            "Solids",
-            "toolbar/solids",
-            &[
-                ("solid-union", "Union"),
-                ("solid-intersection", "Intersection"),
-                ("solid-difference", "Difference"),
-                ("mesh-intersection", "Int. Curves"),
-                ("planar-section", "Planar Section"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Mech",
-            "toolbar/mech",
-            &[
-                ("beam", "Beam"),
-                ("circle-profile", "Circle"),
-                ("ring-profile", "Ring"),
-                ("spring", "Spring"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Arrays",
-            "toolbar/arrays",
-            &[
-                ("linear-array", "Linear"),
-                ("planar-array", "Planar"),
-                ("spatial-array", "Spatial"),
-                ("rotational-array", "Rotate"),
-                ("helical-array", "Helical"),
-                ("surface-array", "Surface Array"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Primitives",
-            "toolbar/primitives",
-            &[
-                ("sphere", "Sphere"),
-                ("cylinder", "Cylinder"),
-                ("cone", "Cone"),
-                ("tube", "Tube"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "Voxel",
-            "toolbar/voxel",
-            &[
-                ("voxel", "Voxel"),
-                ("voxel-fill", "Fill"),
-                ("voxel-edit", "Edit"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "In-tool Operators",
-            "toolbar/in-tool-operators",
-            &[
-                ("select-operator", "Select"),
-                ("distance-operator", "Distance"),
-            ],
-            bindings,
-        ))
-        .child(palette(
-            "HVAC",
-            "toolbar/hvac",
-            &[("plumbing", "Plumbing"), ("ventilation", "Ventilation")],
-            bindings,
-        )))
-    .into_any_element()
+        .child(roots)
+        .child(content)
+        .into_any_element()
 }
 
 pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {

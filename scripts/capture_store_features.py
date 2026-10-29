@@ -186,10 +186,21 @@ class Capture:
         path = SOURCE/'scenes'/(name+'.py')
         exec(compile(path.read_text(), str(path), 'exec'), scope)
 
+    def group(self, name):
+        # Native left-panel selectors are fixed above their scrolling tools.
+        groups=['2D Construction','Meshing','Solids','Civil','Materials','Objects','Files','Settings']
+        index=groups.index(name)
+        self.xd('mousemove', [60,166][index%2], 212+27*(index//2), 'click', 1)
+        self.rpc.frame()
+
     def capture(self, name):
         project = {'04-javascript-editor':'02-dynamic-instances',
                    '05-shader-editor':'02-dynamic-instances'}.get(name, name)
         self.open(project)
+        self.group({'01-direct-modeling':'Meshing','02-dynamic-instances':'Objects',
+                    '03-architecture':'Civil','04-javascript-editor':'Objects',
+                    '05-shader-editor':'Materials','06-procedural-materials':'Materials',
+                    '07-branching-preview':'Objects','08-architectural-stairs':'Civil'}[name])
         if name == '04-javascript-editor':
             self.rpc.select([self.scene()['objects'][1]['target']])
             self.cmd('script.edit')
@@ -233,11 +244,32 @@ class Capture:
             self.shot(name)
 
 
+def refresh_readme():
+    """Refresh stable README paths with unaltered native app-window images."""
+    import shutil
+    destination=ROOT/'docs/screenshots'
+    manifest=json.loads((destination/'manifest.json').read_text())
+    source_names=['01-direct-modeling','03-architecture','02-dynamic-instances',
+                  '04-javascript-editor','07-branching-preview','06-procedural-materials',
+                  '08-architectural-stairs','05-shader-editor']
+    receipts=json.loads((SOURCE/'captures/capture-receipts.json').read_text())
+    for shot,name in zip(manifest['screenshots'],source_names,strict=True):
+        source=SOURCE/'assets/screenshots'/(name+'.png')
+        shutil.copyfile(source,destination/shot['file'])
+        shot.update(source=str(source.relative_to(ROOT)),capture='Live Meshcraft MCP workflow; unaltered native app-window capture',
+                    applicationVersion=receipts[name]['version'],refresh='complete',sha256=receipts[name]['sha256'])
+    manifest.update(regenerate_after='Future menu/ribbon changes',
+                    policy='Actual native app captures only. Keep filenames stable and refresh after UI changes.',
+                    refreshed_for='0.46.0 functional menu restructuring')
+    (destination/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT/'target/debug/meshcraft')
     parser.add_argument('--scene', choices=NAMES)
     parser.add_argument('--rebuild-scenes', action='store_true')
+    parser.add_argument('--refresh-readme', action='store_true')
     args = parser.parse_args()
     output = SOURCE/'captures'
     output.mkdir(parents=True, exist_ok=True)
@@ -250,6 +282,8 @@ def main():
             capture.capture(name)
         capture.receipt()
         print('Preserved captures and MCP actions in', output, flush=True)
+    if args.refresh_readme:
+        refresh_readme()
 
 
 if __name__ == '__main__':

@@ -1,63 +1,80 @@
 {
   "schema_version": 1,
-  "regenerate_after": "Phase 3 menu and ribbon restructuring",
-  "policy": "Actual application captures only. Preserve these filenames when refreshing. Original captures remain in their evidence locations. Do not imply these older captures show the new app icon.",
+  "regenerate_after": "Future menu/ribbon changes",
+  "policy": "Actual native app captures only. Keep filenames stable and refresh after UI changes.",
   "screenshots": [
     {
       "file": "modeling-workspace.png",
-      "source": "docs/img.png",
+      "source": "packaging/microsoft-store/assets/screenshots/01-direct-modeling.png",
       "scenario": "Direct mesh modeling, extrusion and sweeps. Retake with the modeling demo, matching the broad overview.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "e476b1e7acb5ac29fe4b8eb5e04bcd27aaaa7568243f57cb8827fba404921ebd"
     },
     {
       "file": "architecture-materials-workspace.png",
-      "source": "docs/img_1.png",
+      "source": "packaging/microsoft-store/assets/screenshots/03-architecture.png",
       "scenario": "Walls, paving, grass and a procedural tree. Retake the architectural materials demo with the native workspace visible.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "fecd6b1ec971dd0a90bb872c71379b8fe88c6b00914cc936ce1cdef55c93f84a"
     },
     {
       "file": "dynamic-object-instances.png",
-      "source": "assets/img_1.png",
+      "source": "packaging/microsoft-store/assets/screenshots/02-dynamic-instances.png",
       "scenario": "Reusable object instances and varied geometry. Retake with object prototypes and instances visible.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "c49a36c833dd6b4c49fd8879af002e7f8d7bbebae9df59c3db7f9cca28604c0d"
     },
     {
       "file": "scripted-object-editor.png",
-      "source": "docs/img_2.png",
+      "source": "packaging/microsoft-store/assets/screenshots/04-javascript-editor.png",
       "scenario": "JavaScript object editor with code and orbitable preview. Reopen the tree script in the object editor.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "6df803421687db3d25c7ef35da11bab80baf7c4a2fc95ce25bb44a1384de3c99"
     },
     {
       "file": "procedural-tree.png",
-      "source": "docs/rewrite/references/procedural-presets/tree.png",
+      "source": "packaging/microsoft-store/assets/screenshots/07-branching-preview.png",
       "scenario": "Open examples/procedural-presets.octd; frame a tree and capture the viewport.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "4ac8c3dc3e5143498a65f4c922f84c7f6fa53e61da64594428088f2201c22dd9"
     },
     {
       "file": "procedural-foliage.png",
-      "source": "docs/rewrite/references/foliage/foliage.png",
+      "source": "packaging/microsoft-store/assets/screenshots/06-procedural-materials.png",
       "scenario": "Open examples/foliage-colors.octd; frame the foliage surface and capture the viewport.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "009068d30acbeebb6e752f8957951cd4011802b30aa193115771ebc4035e90a3"
     },
     {
       "file": "architectural-stairs.png",
-      "source": "docs/rewrite/references/stairs/overview.png",
+      "source": "packaging/microsoft-store/assets/screenshots/08-architectural-stairs.png",
       "scenario": "Open examples/architectural-stairs.octd; frame all four stair examples with their guide lines.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "a1e33ca71853b9a0e14e083ca3ae10c335de642dc4a2eb328518a4ca7dc52b4b"
     },
     {
       "file": "shader-editor-preview.png",
-      "source": "docs/rewrite/references/shader-editor/fragment-preview.png",
+      "source": "packaging/microsoft-store/assets/screenshots/05-shader-editor.png",
       "scenario": "Open a custom shader material in the shader editor; show highlighted Fragment code with a valid GPU cube preview.",
-      "capture": "Existing actual application capture, copied without image editing for phase 1",
-      "refresh": "pending phase 3"
+      "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
+      "refresh": "complete",
+      "applicationVersion": "0.46.0",
+      "sha256": "6b31f4ef4b55692bc9d87b2a6baa54ec5f2a0446153afc54201a9c935b6b22b1"
     }
-  ]
+  ],
+  "refreshed_for": "0.46.0 functional menu restructuring"
 }

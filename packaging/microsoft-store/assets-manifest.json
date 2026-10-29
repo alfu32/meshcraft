@@ -1,93 +1,93 @@
 {
-  "minimumApplicationVersion": "0.45.2",
+  "minimumApplicationVersion": "0.46.0",
   "screenshots": [
     {
       "file": "01-direct-modeling.png",
       "source": "packaging/microsoft-store/captures/01-direct-modeling.octd",
-      "sha256": "c48bd654ffafac5fb25953aec9065a5810acaf81f20c5a6019a57b7041db2277",
+      "sha256": "e476b1e7acb5ac29fe4b8eb5e04bcd27aaaa7568243f57cb8827fba404921ebd",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Direct modeling",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "02-dynamic-instances.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "e7c356ea0a235bf8e3b866066bb86be2ad6928b97dd77e071a3878fb39d9918b",
+      "sha256": "c49a36c833dd6b4c49fd8879af002e7f8d7bbebae9df59c3db7f9cca28604c0d",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Dynamic prototypes and instances",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "03-architecture.png",
       "source": "packaging/microsoft-store/captures/03-architecture.octd",
-      "sha256": "5a51bde29a7f18955f0a2a53abd9f97ac9f8273bce5031b67de4ef724804840b",
+      "sha256": "fecd6b1ec971dd0a90bb872c71379b8fe88c6b00914cc936ce1cdef55c93f84a",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Architecture and materials",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "04-javascript-editor.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "af9f9a60dc4fe6bf1e0f16e377a8e10c30b9f1f3494b2fe2c71ae0851a3981e0",
+      "sha256": "6df803421687db3d25c7ef35da11bab80baf7c4a2fc95ce25bb44a1384de3c99",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "JavaScript object editor",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "05-shader-editor.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "0e22a176af319f580623457ae92ca7979cfea062b92a4299fb0111a43f1e2a64",
+      "sha256": "6b31f4ef4b55692bc9d87b2a6baa54ec5f2a0446153afc54201a9c935b6b22b1",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "GLSL/JSON shader editor",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "06-procedural-materials.png",
       "source": "packaging/microsoft-store/captures/06-procedural-materials.octd",
-      "sha256": "e31627c11cfbff48867409bbeb49446ea6599cdd6e44dbdc75bde2b2310a53ba",
+      "sha256": "009068d30acbeebb6e752f8957951cd4011802b30aa193115771ebc4035e90a3",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Procedural materials",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "07-branching-preview.png",
       "source": "packaging/microsoft-store/captures/07-branching-preview.octd",
-      "sha256": "c0cf0f4740fcb63f62414d494c90c6e6aa466b4d8710e3b80d59d5b9cd1275c8",
+      "sha256": "4ac8c3dc3e5143498a65f4c922f84c7f6fa53e61da64594428088f2201c22dd9",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Branching object settings and preview",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     },
     {
       "file": "08-architectural-stairs.png",
       "source": "packaging/microsoft-store/captures/08-architectural-stairs.octd",
-      "sha256": "388c1a2d2ec3e0619137bc7b2f9c4777939d56760a714fa872f100f12fc83428",
+      "sha256": "a1e33ca71853b9a0e14e083ca3ae10c335de642dc4a2eb328518a4ca7dc52b4b",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Architectural stairs and guardrail guides",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.45.2"
+      "applicationVersion": "0.46.0"
     }
   ],
   "artwork": {
@@ -110,8 +110,8 @@
     "viewportEncoding": "Lossless PNG recompression only; decoded RGBA pixels verified identical to the MCP response"
   },
   "notes": [
-    "All eight app-window screenshots were captured anew in Meshcraft 0.45.2 through the saved MCP-driven scene workflow.",
-    "Initial demonstration models were created through MCP in 0.45.1; original modeling calls, saved projects and 0.45.2 capture receipts are preserved.",
+    "All eight app-window screenshots were recaptured in Meshcraft 0.46.0 after functional menu/ribbon restructuring.",
+    "Initial demonstration models were created through MCP in 0.45.1; saved projects, original modeling calls and current capture receipts are retained. Earlier captures remain in Git history.",
     "Full app-window captures include real GPUI panels; the MCP image API itself captures the 3D viewport only.",
     "Store screenshots have no added marketing overlays or reconstructed UI.",
     "Captures are Linux, not Windows validation. The desktop workspace is shared GPUI.",

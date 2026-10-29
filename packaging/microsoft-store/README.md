@@ -6,7 +6,7 @@ select any of the other languages and inspect its captions and feature list.
 The reserved product name is **Meshcraft-desktop**; the publisher is **K3D0**.
 
 This is a prepared import, **not a submitted Partner Center update**. The listing
-describes features in Meshcraft **0.45.2 or later**. Upload a matching current
+describes features in Meshcraft **0.46.0 or later**. Upload a matching current
 MSIX package before submitting it. The application interface is English; the
 listing translations explicitly say so. Translations have not received
 independent native-speaker review.
@@ -165,7 +165,7 @@ the official age-rating questionnaire, publisher declarations and the chosen
 markets/schedule. No official age rating or private publisher contact details
 have been invented, and no secrets are included in this presentation bundle.
 
-## Validation record — 0.45.2
+## Validation record — 0.46.0
 
 Validated locally on 29 October 2026:
 
@@ -176,7 +176,7 @@ Validated locally on 29 October 2026:
 | `python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v` | 12 passed, including a relocated self-contained import folder |
 | `python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v` | 17 passed; default stress capture size unchanged |
 | `cargo fmt --all --check` | Passed |
-| `cargo test --workspace --locked` | 774 passed; 22 platform/GPU checks ignored by default |
+| `cargo test --workspace --locked` | 775 passed; 22 platform/GPU checks ignored by default |
 | Four targeted native GPU checks | Projection/markers, instance reuse, brick/wood rotations and object preview passed |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
 | `cargo build --locked -p meshcraft-desktop --bin meshcraft` | Passed |

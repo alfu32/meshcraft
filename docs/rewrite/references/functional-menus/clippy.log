@@ -1,0 +1,6 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling meshcraft-desktop v0.46.0 (/home/alfu64/Development/meshcraft/apps/desktop)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 21.17s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

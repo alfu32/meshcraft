@@ -1,0 +1,42 @@
+{
+  "version": "0.46.0",
+  "registryCommands": 289,
+  "visibleCommands": 186,
+  "groups": [
+    {
+      "name": "2D Construction",
+      "commands": 34
+    },
+    {
+      "name": "Meshing",
+      "commands": 40
+    },
+    {
+      "name": "Solids",
+      "commands": 19
+    },
+    {
+      "name": "Civil",
+      "commands": 13
+    },
+    {
+      "name": "Materials",
+      "commands": 16
+    },
+    {
+      "name": "Objects",
+      "commands": 27
+    },
+    {
+      "name": "Files",
+      "commands": 13
+    },
+    {
+      "name": "Settings",
+      "commands": 24
+    }
+  ],
+  "duplicateCommandPlacements": 0,
+  "menuAliases": 0,
+  "nonMenuCommands": 103
+}

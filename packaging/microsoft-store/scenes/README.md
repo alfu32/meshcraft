@@ -17,7 +17,7 @@ architecture and object parameters use the same MCP commands as native tools.
 | Stairs | [stairs.py](stairs.py): turning and straight contour/path stairs, materials and guardrail guides | [08-architectural-stairs.octd](../captures/08-architectural-stairs.octd) |
 
 The initial modeling session used 0.45.1. All eight final Store screenshots were
-recaptured in 0.45.2, including its corrected straight winder fronts. The saved
+recaptured in 0.46.0 after the functional menu redesign, including corrected straight winder fronts. The saved
 projects retain their original creation history; opening them regenerates the
 current architectural geometry. Linux/Xvfb/Mesa captures do not certify Windows.
 

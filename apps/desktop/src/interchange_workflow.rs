@@ -604,17 +604,14 @@ mod tests {
         fs::remove_file(file).unwrap();
     }
     #[test]
-    fn command_catalog_exposes_interchange_schemas_and_file_menu_aliases() {
+    fn command_catalog_exposes_interchange_schemas_and_canonical_files_menu() {
         let commands = MeshcraftApp::command_catalog();
         for id in ["import.mesh", "export.mesh", "export.ifc_model"] {
             let c = commands.iter().find(|c| c.id.as_str() == id).unwrap();
             assert_eq!(c.capability, CommandCapability::Desktop);
             assert!(c.parameters.iter().any(|p| p.name == "path"));
-            assert!(
-                c.presentation
-                    .menu_aliases
-                    .contains(&vec!["File".to_owned()])
-            );
+            assert_eq!(c.presentation.menu_path, vec!["Files", "Import & Export"]);
+            assert!(c.presentation.menu_aliases.is_empty());
         }
         let mut app = super::super::tests::test_app();
         let r = app.execute_interchange("formats", &CommandPayload::default());

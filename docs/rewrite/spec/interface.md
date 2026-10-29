@@ -425,3 +425,18 @@ their own colors. In prototype editing, external context remains faded.
 Automation uses `ui.update_preferences` with boolean `black_model_lines`; its
 command schema documents the behavior. A changed line style invalidates the GPU
 frame without rebuilding model geometry or repeatedly scheduling identical frames.
+
+### Functional menu restructuring — 0.46.0
+
+Menus, ribbon and the left panel use the same eight functional groups, in order:
+2D Construction, Meshing, Solids, Civil, Materials, Objects, Files and Settings.
+Every visible command has one canonical group/section per surface. Do not bind
+several aliases to the same visible operation. Keep compatibility/parameterized
+commands in the registry, palette and MCP without duplicate menu entries.
+Preserve shortcuts and legacy search terms, Recent Files, contextual enabled
+states, active modeling input, selection, camera and history during navigation.
+Left group selection synchronizes the ribbon; group selectors remain reachable
+above the scrolling command sections. Preserve user catalog review fields and
+archive edits to generated metadata. Refresh screenshots at stable paths. See
+[the functional layout](../../menu-layout.md) and
+[native evidence](../references/functional-menus/README.md).

@@ -39,8 +39,10 @@ wireframe previews support precise work. Flip reverses face normals and segment
 directions. Perspective, orthographic and walkthrough cameras let you inspect
 what you build, while dimensions, text and leaders annotate it.
 
-The workspace offers menus, a ribbon, labeled toolbars and a searchable command
-palette. Set visibility, editability and wireframe display by entity type, or
+Menus, ribbon tabs and the left tool panel share eight functional groups:
+**2D Construction, Meshing, Solids, Civil, Materials, Objects, Files and Settings**.
+Each visible action has one home per surface; a searchable command palette
+retains every registered command. Set visibility, editability and wireframe display by entity type, or
 show only the UI sections you need. Meshcraft is written in Rust, with a GPUI
 interface and a raylib viewport using persistent GPU meshes and shared instances.
 
@@ -81,7 +83,7 @@ its functions and identifiers. Geometry helpers, transforms and primitives are
 available in scope. Explode freezes the currently generated geometry into editable
 model elements. **Copy as Script** turns a selection into a starting point for code.
 
-![JavaScript object editor with a tree preview](docs/screenshots/scripted-object-editor.png)
+![JavaScript object editor with a pavilion preview](docs/screenshots/scripted-object-editor.png)
 
 Start with the [parameter guide](docs/script-parameters.md),
 [SDK and runtime requirements](docs/rewrite/spec/scripted-objects.md), or
@@ -163,15 +165,15 @@ The [local 0.40.0 qualification](docs/performance/local-0.40.0/performance.md)
 contains the first complete four-tier ledger. It uses a development binary and
 one sample per case; it exposes failures and is not a release-speed claim.
 
-The [tool inventory CSV](docs/tools/tools.csv) is ready for your menu and ribbon
-assignments. [Review instructions](docs/tools/README.md) explain phase 3; current
-menus and screenshot filenames are preserved.
+The [tool inventory CSV](docs/tools/tools.csv) records current command placement
+and preserves your review columns. See the [functional layout](docs/menu-layout.md)
+and [review instructions](docs/tools/README.md) to propose refinements.
 
 The [development dashboard](DASHBOARD.md) records implementation and validation.
 The [rewrite guide](docs/rewrite/README.md) links specifications, architecture and
 remaining work. Screenshots above are actual application captures; their
-[manifest](docs/screenshots/manifest.json) records sources and the refresh plan
-following the menu redesign.
+[manifest](docs/screenshots/manifest.json) records their live MCP sources and
+the completed menu-redesign refresh.
 
 ## Build and run
 
