@@ -1,0 +1,24 @@
+test_private_signing_backup_is_encrypted_reused_and_uploaded_through_stdin (test_msix.MsixTests.test_private_signing_backup_is_encrypted_reused_and_uploaded_through_stdin) ... ok
+test_rejects_wrong_publisher_architecture_and_modified_payload_blocks (test_msix.MsixTests.test_rejects_wrong_publisher_architecture_and_modified_payload_blocks) ... ok
+test_store_identity_both_architectures_and_version_mapping (test_msix.MsixTests.test_store_identity_both_architectures_and_version_mapping) ... ok
+test_native_packages_preserve_payload_and_target_for_both_architectures (test_release.ReleaseTests.test_native_packages_preserve_payload_and_target_for_both_architectures) ... skipped 'install dpkg and rpm for native packaging checks'
+test_native_verifier_rejects_changed_installed_binary (test_release.ReleaseTests.test_native_verifier_rejects_changed_installed_binary) ... skipped 'install dpkg and rpm for native packaging checks'
+test_payload_and_final_verifier_reject_modified_content (test_release.ReleaseTests.test_payload_and_final_verifier_reject_modified_content) ... ok
+test_payload_rejects_traversal_and_links (test_release.ReleaseTests.test_payload_rejects_traversal_and_links) ... ok
+test_portable_formats_are_reproducible_and_manifested (test_release.ReleaseTests.test_portable_formats_are_reproducible_and_manifested) ... ok
+test_rejects_bad_app_version_and_inherited_version (test_release.ReleaseTests.test_rejects_bad_app_version_and_inherited_version) ... ok
+test_rejects_symlinked_input (test_release.ReleaseTests.test_rejects_symlinked_input) ... ok
+test_rejects_wrong_native_cpu_even_with_valid_metadata (test_release.ReleaseTests.test_rejects_wrong_native_cpu_even_with_valid_metadata) ... ok
+test_requires_complete_six_platform_matrix_and_checksums (test_release.ReleaseTests.test_requires_complete_six_platform_matrix_and_checksums) ... skipped 'install dpkg and rpm for native packaging checks'
+test_rpm_reader_rejects_traversal_and_truncated_files (test_release.ReleaseTests.test_rpm_reader_rejects_traversal_and_truncated_files) ... ok
+test_snap_grade_allows_candidate_and_stable_for_both_architectures (test_release.ReleaseTests.test_snap_grade_allows_candidate_and_stable_for_both_architectures) ... ok
+test_tag_dispatch_rejects_branches_mismatched_or_moved_tags (test_release.ReleaseTests.test_tag_dispatch_rejects_branches_mismatched_or_moved_tags) ... ok
+test_coherent_host_pair_preserves_host_library_selection (test_xkb_runtime.XkbRuntimeTests.test_coherent_host_pair_preserves_host_library_selection) ... ok
+test_earlier_bridge_cannot_be_mixed_with_later_core (test_xkb_runtime.XkbRuntimeTests.test_earlier_bridge_cannot_be_mixed_with_later_core) ... ok
+test_earlier_core_cannot_be_mixed_with_later_bridge (test_xkb_runtime.XkbRuntimeTests.test_earlier_core_cannot_be_mixed_with_later_bridge) ... ok
+test_missing_bridge_or_entire_runtime_uses_bundled_pair (test_xkb_runtime.XkbRuntimeTests.test_missing_bridge_or_entire_runtime_uses_bundled_pair) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 1.343s
+
+OK (skipped=3)

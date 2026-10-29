@@ -1598,6 +1598,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("new_wood","New Procedural Wood Material",ShellAction::OpenPanel("material_editor_wood")),
             ("new_grass", "New Procedural Grass Material", ShellAction::OpenPanel("material_editor_grass")),
             ("new", "New Material", ShellAction::OpenPanel("material_editor_new")),
+            ("new_shader", "New Shader", ShellAction::OpenPanel("material_program_new")),
             ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
             ("apply", "Apply Material to Selection", ShellAction::MaterialAction("apply")),
             ("save", "Save Material", ShellAction::MaterialAction("save")),
@@ -14113,7 +14114,11 @@ mod tests {
     }
 
     #[test]
-    fn native_toolbar_catalog_has_eight_unique_functional_groups() {
+    fn native_toolbar_catalog_has_unique_ordered_functional_groups() {
+        assert_eq!(
+            &crate::functional_ui::GROUPS[..3],
+            &["Files", "Clipboard & History", "Selection"]
+        );
         let groups = MeshcraftApp::native_toolbar_catalog();
         assert_eq!(
             crate::functional_ui::GROUPS,
@@ -14140,7 +14145,10 @@ mod tests {
             ("Solids", "tool.builtin.mesh_intersection"),
             ("Civil", "tool.builtin.arch_wall"),
             ("Materials", "material.new_wood"),
-            ("Objects", "hotspot.begin_placement"),
+            ("Materials", "material.new_shader"),
+            ("Objects", "object.delete_definition"),
+            ("Objects", "object.bake_to_shader"),
+            ("Hotspots", "hotspot.begin_placement"),
             ("Files", "file.open"),
             ("Settings", "view.model_settings"),
         ] {
@@ -14169,10 +14177,10 @@ mod tests {
         );
 
         let visibility = session.native_toolbar_visibility();
-        assert_eq!(8, visibility.len());
+        assert_eq!(crate::functional_ui::GROUPS.len(), visibility.len());
         assert!(visibility.iter().all(|shown| *shown));
         session.run_command("view.toolbar.actions.hide");
-        assert!(!session.native_toolbar_visibility()[5]);
+        assert!(!session.native_toolbar_visibility()[8]);
         session.run_command("view.toolbars.toggle");
         assert!(
             session
@@ -14182,7 +14190,7 @@ mod tests {
         );
         session.run_command("view.toolbars.toggle");
         assert!(session.native_toolbar_visibility()[0]);
-        assert!(!session.native_toolbar_visibility()[5]);
+        assert!(!session.native_toolbar_visibility()[8]);
         assert!(session.native_panels_visible());
         session.run_command("view.panels.toggle");
         assert!(!session.native_panels_visible());
@@ -14939,14 +14947,7 @@ mod tests {
         let root = text_center_in_row(&bar, "2D Construction", 48.);
         click_workspace_position(&mut app, &context, root);
         let menu = run_workspace_frame(&mut app, &context, vec![]);
-        for title in [
-            "Selection",
-            "Clipboard & History",
-            "Draw",
-            "Annotations",
-            "Guides",
-            "Input & Settings",
-        ] {
+        for title in ["Draw", "Annotations", "Guides", "Input & Settings"] {
             text_center_in_row(&menu, title, 650.);
         }
         let draw = text_center_in_row(&menu, "Draw", 650.);
@@ -19288,7 +19289,7 @@ mod tests {
                     && ids.contains(&"edit.delete_selection"))
         );
         assert_eq!(
-            vec!["2D Construction", "Clipboard & History"],
+            vec!["Clipboard & History", "Clipboard & History"],
             command.descriptor.presentation.menu_path
         );
     }

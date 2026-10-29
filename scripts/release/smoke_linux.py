@@ -30,7 +30,7 @@ def main():
             if not select.select([read], [], [], 20)[0]:
                 raise RuntimeError("Private Xvfb did not start")
             display = ":" + os.read(read, 32).decode().strip()
-            for name, title in [("offline", "^Meshcraft$"), ("driver-error", "^Meshcraft - Graphics initialization error$")]:
+            for name, title in [("offline", "^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+"), ("driver-error", "^Meshcraft - Graphics initialization error$")]:
                 directory = output / name
                 directory.mkdir(exist_ok=True)
                 env = dict(os.environ)

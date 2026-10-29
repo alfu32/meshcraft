@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "version": "0.46.1",
+  "source_revision": "06d46796364be7ade3e16ce483026038722fe52f",
+  "binary_sha256": "b5b9a9e158b19f32460adaccc03f8419ef6952d61579c7ef1ab64b3d88f9d8f7",
+  "supplied_binary": "/home/alfu64/Development/meshcraft/target/debug/meshcraft",
+  "release_artifact": null,
+  "source_state": "local supplied binary; source revision is a working-tree base, not an exact release claim",
+  "started_at": "2026-10-29T13:13:01.071671+00:00",
+  "workflow_url": null,
+  "samples_per_case": 1,
+  "tiers": [
+    "small",
+    "medium",
+    "high",
+    "heavy"
+  ],
+  "inventory_count": 290,
+  "selected_command_count": 1,
+  "benchmark_case_count": 1,
+  "partial": true,
+  "environment": {
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "cpu": "Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz",
+    "cpu_count": 8,
+    "python": "3.12.11 (main, Aug 21 2025, 13:44:19) [GCC 14.2.0]",
+    "rendering": "Mesa software OpenGL / private Xvfb",
+    "viewport_window": [
+      1280,
+      900
+    ],
+    "autosave": false,
+    "antialiasing": "Off",
+    "activity": "local development desktop; normal background activity",
+    "build": "local supplied binary (not assumed release optimized)",
+    "gpu_info": "name of display: :2\ndisplay: :2  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Mesa (0xffffffff)\n    Device: llvmpipe (LLVM 20.1.8, 256 bits) (0xffffffff)\n    Version: 25.2.8\n    Accelerated: no\n    Video memory: 31968MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.5\n    Max compat profile version: 4.5\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.2\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 0 MB, largest block: 0 MB\n    VBO free aux. memory - total: 9041 MB, largest block: 9041 MB\n    Texture free memory - total: 0 MB, largest block: 0 MB\n    Texture free aux. memory - total: 9041 MB, largest block: 9041 MB\n    Renderbuffer free memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free aux. memory - total: 9041 MB, largest block: 9041 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 0 MB\n    Total available memory: 31968 MB\n    Currently available dedicated video memory: 0 MB\nOpenGL vendor string: Mesa\nOpenGL renderer string: llvmpipe (LLVM 20.1.8, 256 bits)\nOpenGL core profile version string: 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL core profile shading language version string: 4.50\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.5 (Compatibility Profile) Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL shading language version string: 4.50\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.2 Mesa 25.2.8-0ubuntu0.25.10.2\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.20\n\n"
+  },
+  "fixtures": [
+    {
+      "tier": "small",
+      "quads": 128,
+      "background_vertices": 1792,
+      "background_unique_positions": 512,
+      "background_segments": 512,
+      "background_triangles": 256,
+      "background_primitives": 768,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 24,
+      "sha256": "9444a0d152f343384fad73390cd972ec432747ba72c2219b263f6cb0e2c16d22",
+      "bytes": 91445,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 1792,
+        "segments": 512,
+        "triangles": 256
+      }
+    },
+    {
+      "tier": "medium",
+      "quads": 2048,
+      "background_vertices": 28672,
+      "background_unique_positions": 8192,
+      "background_segments": 8192,
+      "background_triangles": 4096,
+      "background_primitives": 12288,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 192,
+      "sha256": "9e2d187926d0076304adc53ef2c9432f8fd00a9a812c87369114a332c81fee4f",
+      "bytes": 1322501,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 28672,
+        "segments": 8192,
+        "triangles": 4096
+      }
+    },
+    {
+      "tier": "high",
+      "quads": 16384,
+      "background_vertices": 229376,
+      "background_unique_positions": 65536,
+      "background_segments": 65536,
+      "background_triangles": 32768,
+      "background_primitives": 98304,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 1536,
+      "sha256": "23f1de5f778a53fc590cd2f86f2c2d4ce198cb9615cd642bf56d27747b71881c",
+      "bytes": 10863749,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 229376,
+        "segments": 65536,
+        "triangles": 32768
+      }
+    },
+    {
+      "tier": "heavy",
+      "quads": 65536,
+      "background_vertices": 917504,
+      "background_unique_positions": 262144,
+      "background_segments": 262144,
+      "background_triangles": 131072,
+      "background_primitives": 393216,
+      "shared_cube_instances": 2,
+      "fragment_primitives": 6144,
+      "sha256": "75bfdc838d4cca3b072f7013c04c09563c1beb75832768491bd2a82fd179904c",
+      "bytes": 44032189,
+      "selected_workload": "Fixed-size source per recipe; background consists of unique, non-instanced quads",
+      "live_verified": true,
+      "live_counts": {
+        "vertices": 917504,
+        "segments": 262144,
+        "triangles": 131072
+      }
+    }
+  ],
+  "cases": [
+    {
+      "command_id": "material.new_shader",
+      "variant": "standard",
+      "name": "New Shader",
+      "category": "Materials",
+      "tier": "small",
+      "family": "material",
+      "operation": "Create/edit/apply the actual material or open its intended editor",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "start_ms": 294.454428,
+            "mcp_owner_thread_ms": 34.33582599999998,
+            "render_frame_ms": 33.83116149902344,
+            "preview_ms": 684.842508,
+            "commit_ms": 17.088525,
+            "frame_ready_ms": 494.115265,
+            "workflow_elapsed_ms": 1783.128585,
+            "total_ms": 1490.500726
+          },
+          "steps": [
+            "material.new_shader"
+          ],
+          "before_revision": 52,
+          "after_revision": 52,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": {
+          "median": 294.454428,
+          "p95": 294.454428,
+          "maximum": 294.454428
+        },
+        "input_ms": null,
+        "preview_ms": {
+          "median": 684.842508,
+          "p95": 684.842508,
+          "maximum": 684.842508
+        },
+        "commit_ms": {
+          "median": 17.088525,
+          "p95": 17.088525,
+          "maximum": 17.088525
+        },
+        "frame_ready_ms": {
+          "median": 494.115265,
+          "p95": 494.115265,
+          "maximum": 494.115265
+        },
+        "total_ms": {
+          "median": 1490.500726,
+          "p95": 1490.500726,
+          "maximum": 1490.500726
+        },
+        "mcp_owner_thread_ms": {
+          "median": 34.33582599999998,
+          "p95": 34.33582599999998,
+          "maximum": 34.33582599999998
+        },
+        "render_frame_ms": {
+          "median": 33.83116149902344,
+          "p95": 33.83116149902344,
+          "maximum": 33.83116149902344
+        }
+      }
+    },
+    {
+      "command_id": "material.new_shader",
+      "variant": "standard",
+      "name": "New Shader",
+      "category": "Materials",
+      "tier": "medium",
+      "family": "material",
+      "operation": "Create/edit/apply the actual material or open its intended editor",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "start_ms": 313.491997,
+            "mcp_owner_thread_ms": 44.597984999999994,
+            "render_frame_ms": 97.85709381103516,
+            "preview_ms": 1278.747265,
+            "commit_ms": 17.276075,
+            "frame_ready_ms": 582.723225,
+            "workflow_elapsed_ms": 2440.288995,
+            "total_ms": 2192.238562
+          },
+          "steps": [
+            "material.new_shader"
+          ],
+          "before_revision": 52,
+          "after_revision": 52,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": {
+          "median": 313.491997,
+          "p95": 313.491997,
+          "maximum": 313.491997
+        },
+        "input_ms": null,
+        "preview_ms": {
+          "median": 1278.747265,
+          "p95": 1278.747265,
+          "maximum": 1278.747265
+        },
+        "commit_ms": {
+          "median": 17.276075,
+          "p95": 17.276075,
+          "maximum": 17.276075
+        },
+        "frame_ready_ms": {
+          "median": 582.723225,
+          "p95": 582.723225,
+          "maximum": 582.723225
+        },
+        "total_ms": {
+          "median": 2192.238562,
+          "p95": 2192.238562,
+          "maximum": 2192.238562
+        },
+        "mcp_owner_thread_ms": {
+          "median": 44.597984999999994,
+          "p95": 44.597984999999994,
+          "maximum": 44.597984999999994
+        },
+        "render_frame_ms": {
+          "median": 97.85709381103516,
+          "p95": 97.85709381103516,
+          "maximum": 97.85709381103516
+        }
+      }
+    },
+    {
+      "command_id": "material.new_shader",
+      "variant": "standard",
+      "name": "New Shader",
+      "category": "Materials",
+      "tier": "high",
+      "family": "material",
+      "operation": "Create/edit/apply the actual material or open its intended editor",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "start_ms": 259.985954,
+            "mcp_owner_thread_ms": 35.54288700000001,
+            "render_frame_ms": 725.8736572265625,
+            "preview_ms": 887.416593,
+            "commit_ms": 17.639078,
+            "frame_ready_ms": 1362.818576,
+            "workflow_elapsed_ms": 2880.184858,
+            "total_ms": 2527.860201
+          },
+          "steps": [
+            "material.new_shader"
+          ],
+          "before_revision": 52,
+          "after_revision": 52,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": {
+          "median": 259.985954,
+          "p95": 259.985954,
+          "maximum": 259.985954
+        },
+        "input_ms": null,
+        "preview_ms": {
+          "median": 887.416593,
+          "p95": 887.416593,
+          "maximum": 887.416593
+        },
+        "commit_ms": {
+          "median": 17.639078,
+          "p95": 17.639078,
+          "maximum": 17.639078
+        },
+        "frame_ready_ms": {
+          "median": 1362.818576,
+          "p95": 1362.818576,
+          "maximum": 1362.818576
+        },
+        "total_ms": {
+          "median": 2527.860201,
+          "p95": 2527.860201,
+          "maximum": 2527.860201
+        },
+        "mcp_owner_thread_ms": {
+          "median": 35.54288700000001,
+          "p95": 35.54288700000001,
+          "maximum": 35.54288700000001
+        },
+        "render_frame_ms": {
+          "median": 725.8736572265625,
+          "p95": 725.8736572265625,
+          "maximum": 725.8736572265625
+        }
+      }
+    },
+    {
+      "command_id": "material.new_shader",
+      "variant": "standard",
+      "name": "New Shader",
+      "category": "Materials",
+      "tier": "heavy",
+      "family": "material",
+      "operation": "Create/edit/apply the actual material or open its intended editor",
+      "status": "passed",
+      "reason": "",
+      "samples": [
+        {
+          "status": "passed",
+          "timings": {
+            "start_ms": 236.665714,
+            "mcp_owner_thread_ms": 41.67003,
+            "render_frame_ms": 1610.4388427734375,
+            "preview_ms": 689.714898,
+            "commit_ms": 16.407075,
+            "frame_ready_ms": 1959.562767,
+            "workflow_elapsed_ms": 3337.505642,
+            "total_ms": 2902.350454
+          },
+          "steps": [
+            "material.new_shader"
+          ],
+          "before_revision": 52,
+          "after_revision": 52,
+          "result": "Opened the requested inspector panel.",
+          "selected_entities": 0
+        }
+      ],
+      "stats": {
+        "start_ms": {
+          "median": 236.665714,
+          "p95": 236.665714,
+          "maximum": 236.665714
+        },
+        "input_ms": null,
+        "preview_ms": {
+          "median": 689.714898,
+          "p95": 689.714898,
+          "maximum": 689.714898
+        },
+        "commit_ms": {
+          "median": 16.407075,
+          "p95": 16.407075,
+          "maximum": 16.407075
+        },
+        "frame_ready_ms": {
+          "median": 1959.562767,
+          "p95": 1959.562767,
+          "maximum": 1959.562767
+        },
+        "total_ms": {
+          "median": 2902.350454,
+          "p95": 2902.350454,
+          "maximum": 2902.350454
+        },
+        "mcp_owner_thread_ms": {
+          "median": 41.67003,
+          "p95": 41.67003,
+          "maximum": 41.67003
+        },
+        "render_frame_ms": {
+          "median": 1610.4388427734375,
+          "p95": 1610.4388427734375,
+          "maximum": 1610.4388427734375
+        }
+      }
+    }
+  ],
+  "finished_at": "2026-10-29T13:13:59.478512+00:00",
+  "coverage_complete": true
+}

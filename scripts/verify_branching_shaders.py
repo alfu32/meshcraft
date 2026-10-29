@@ -26,7 +26,7 @@ def main():
         rpc.command('view.frame_document')
         rpc.command('ui.update_preferences', dict(left_panel_visible=False, ribbon_visible=False,
                                                 show_permanent_grid=False, show_construction_guides=False))
-        window = subprocess.check_output(['xdotool', 'search', '--name', '^Meshcraft$'], env=env, text=True).splitlines()[-1]
+        window = subprocess.check_output(['xdotool', 'search', '--name', '^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+'], env=env, text=True).splitlines()[-1]
         time.sleep(.5)
         subprocess.run(['xdotool', 'mousemove', '430', '400'], env=env, check=True)
         subprocess.run(['xdotool', 'click', '--repeat', '3', '--delay', '80', '4'], env=env, check=True)

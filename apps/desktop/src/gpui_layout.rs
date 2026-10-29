@@ -352,60 +352,6 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(4.))
-                        .child(Button::new("tree/new").label("New Tree").small().on_click(
-                            self.cx.listener(|this, _, window, cx| {
-                                super::materials::edit_tree(this, true, false, window, cx)
-                            }),
-                        ))
-                        .child(
-                            Button::new("tree/edit")
-                                .label("Edit Tree")
-                                .small()
-                                .on_click(self.cx.listener(|this, _, window, cx| {
-                                    super::materials::edit_tree(this, false, false, window, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new("scripts/new")
-                                .label("New Scripted Object")
-                                .small()
-                                .on_click(self.cx.listener(|this, _, window, cx| {
-                                    super::scripts::edit(this, true, window, cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("scripts/edit")
-                                .label("Edit Script")
-                                .small()
-                                .on_click(self.cx.listener(|this, _, window, cx| {
-                                    super::scripts::edit(this, false, window, cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("objects/delete-prototype")
-                                .label("Delete Prototype")
-                                .small()
-                                .disabled(self.shell.session.native_selected_prototype().is_none())
-                                .on_click(self.cx.listener(|this, _, _, cx| {
-                                    if let Some(id) = this.session.native_selected_prototype() {
-                                        let payload = meshcraft_core::commands::CommandPayload {
-                                            values: std::collections::BTreeMap::from([(
-                                                "definition_id".into(),
-                                                serde_json::json!(id.0),
-                                            )]),
-                                            ..Default::default()
-                                        };
-                                        this.dispatch_payload("object.delete_definition", &payload);
-                                        cx.notify();
-                                    }
-                                })),
-                        ),
-                )
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;
                     let count = self
@@ -991,60 +937,39 @@ fn stat_row(
 }
 
 pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {
-    let active = bindings.shell.active_ribbon_tab;
-    let roots =
-        div()
-            .flex()
-            .flex_wrap()
-            .gap(px(3.))
-            .children(crate::functional_ui::GROUPS.iter().map(|root| {
-                let root = *root;
-                Button::new(SharedString::from(format!("toolbar-group/{root}")))
-                    .label(root)
-                    .text_xs()
-                    .w(px(104.))
-                    .px(px(2.))
-                    .small()
-                    .selected(active == root)
-                    .on_click(bindings.cx.listener(move |this, _, _, cx| {
-                        this.active_ribbon_tab = root;
-                        this.open_menu = None;
-                        cx.notify();
-                    }))
-            }));
     let mut content = div()
-        .id(SharedString::from(format!("toolbar/functional/{active}")))
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .flex()
-        .flex_col()
-        .gap(px(6.));
-    for section in crate::functional_ui::sections(active) {
-        content = content
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0xa5bbce))
-                    .child(section.title),
-            )
-            .child(command_row(
-                "toolbar/functional",
-                section.commands,
-                bindings,
-            ));
-    }
-    div()
+        .id("toolbar/function-sections")
         .w(px(LEFT_PANEL_WIDTH))
         .h_full()
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap(px(7.))
         .p(px(7.))
-        .bg(rgb(0x1e242c))
-        .child(roots)
-        .child(content)
-        .into_any_element()
+        .bg(rgb(0x1e242c));
+    for root in crate::functional_ui::GROUPS {
+        for section in crate::functional_ui::sections(root) {
+            let heading = if *root == section.title {
+                (*root).to_owned()
+            } else {
+                format!("{root} · {}", section.title)
+            };
+            content = content
+                .child(
+                    div()
+                        .text_xs()
+                        .py(px(4.))
+                        .text_color(rgb(0xa5bbce))
+                        .child(heading),
+                )
+                .child(command_row(
+                    "toolbar/functional",
+                    section.commands,
+                    bindings,
+                ));
+        }
+    }
+    content.into_any_element()
 }
 
 pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {
@@ -1077,27 +1002,8 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_selection()),
                 )
                 .child(setting_field("Object name", "", bindings))
-                .child(
-                    Button::new("tree/instance")
-                        .label("Edit Procedural Tree")
-                        .small()
-                        .on_click(bindings.cx.listener(|this, _, window, cx| {
-                            super::materials::edit_tree(this, false, true, window, cx)
-                        })),
-                )
                 .child(super::parameters::panel(bindings.shell, bindings.cx))
-                .child(super::ifc::panel(bindings.shell, false, bindings.cx))
-                .child(command_row(
-                    "panel/object",
-                    &[
-                        ("rename-object", "Rename"),
-                        ("edit-definition", "Edit Definition"),
-                        ("bake-shader", "Bake to Shader"),
-                        ("bake-mesh", "Bake to Mesh"),
-                        ("exit-object", "Finish Editing"),
-                    ],
-                    bindings,
-                )),
+                .child(super::ifc::panel(bindings.shell, false, bindings.cx)),
             bindings,
         ))
         .child(setting_section(
@@ -1113,18 +1019,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_summary()),
                 )
                 .child(setting_field("Object list", "Empty scene", bindings))
-                .child(super::ifc::panel(bindings.shell, true, bindings.cx))
-                .child(command_row(
-                    "panel/objects",
-                    &[
-                        ("create-object", "Create Object"),
-                        ("import-objects", "Import Objects"),
-                        ("reference-object", "Reference Scene"),
-                        ("refresh-object", "Refresh Reference"),
-                        ("place-object", "Place Instance"),
-                    ],
-                    bindings,
-                )),
+                .child(super::ifc::panel(bindings.shell, true, bindings.cx)),
             bindings,
         ))
         .child(setting_section(
@@ -1323,19 +1218,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     bindings,
                 ))
                 .child(setting_field("Hotspot color", "338cf2ff", bindings))
-                .child(bindings.hotspot_summary())
-                .child(command_row(
-                    "panel/hotspots",
-                    &[
-                        ("attach-selection", "Attach"),
-                        ("select-attached", "Select Attached"),
-                        ("pick-reference", "Reference"),
-                        ("clear-reference", "Clear Reference"),
-                        ("add-hotspot", "Add At Cursor"),
-                        ("delete-hotspot", "Delete"),
-                    ],
-                    bindings,
-                )),
+                .child(bindings.hotspot_summary()),
             bindings,
         ))
         .child(setting_section(

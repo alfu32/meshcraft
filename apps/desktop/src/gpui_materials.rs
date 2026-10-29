@@ -288,13 +288,6 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
         .clone()
         .filter(|id| materials.iter().any(|m| &m.id == id))
         .unwrap_or_else(|| materials[0].id.clone());
-    let selected_material = materials
-        .iter()
-        .find(|m| m.id == selected)
-        .cloned()
-        .unwrap_or_default();
-    let delete_id = selected.clone();
-    let used = shell.cached_document.material_is_used(&selected);
     div().flex().flex_col().gap(px(5.))
         .on_scroll_wheel(|_,_,cx| cx.stop_propagation())
         .child(div().id("materials/list").max_h(px(240.)).overflow_y_scroll().flex().flex_col().gap(px(3.))
@@ -311,25 +304,6 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     cx.notify();
                 }))
         })))
-        .child(div().flex().flex_wrap().gap(px(4.))
-            .child(Button::new("material/grass").small().label("New Grass").on_click(cx.listener(|this,_,window,cx| {
-                let mut material=this.cached_document.next_material();material.name="Grass".into();material.color=Rgba8::new(65,130,35,255);material.procedural=Some(ProceduralMaterial::default());edit(this,material,window,cx);
-            })))
-            .children([(procedural::FOLIAGE,"New Foliage"),(procedural::WATER,"New Water"),(procedural::BRICK,"New Brick"),(procedural::WOOD,"New Wood")].into_iter().map(|(id,label)|Button::new(SharedString::from(format!("material/{id}"))).small().label(label).on_click(cx.listener(move|this,_,window,cx|{let mut m=this.cached_document.next_material();procedural::apply_preset(&mut m,id);edit(this,m,window,cx);}))))
-            .child(Button::new("material/program").small().label("New Shader").on_click(cx.listener(|this,_,window,cx|open_program(this,Program {id:format!("custom.surface.{}",this.cached_document.procedural_programs().len()),name:"Custom surface".into(),..Default::default()},window,cx))))
-            .child(Button::new("material/new").small().label("New Material").on_click(cx.listener(|this,_,window,cx| {let material=this.cached_document.next_material(); edit(this,material,window,cx);})))
-            .child(Button::new("material/edit").small().label("Edit").on_click(cx.listener(move |this,_,window,cx| edit(this,selected_material.clone(),window,cx))))
-            .child(Button::new("material/delete").small().label("Delete").disabled(used)
-                .tooltip(if used { "Used by geometry or creation defaults" } else { "Delete unused material" })
-                .on_click(cx.listener(move |this,_,_,cx| {
-                    if let Err(error)=this.session.delete_native_material(&delete_id) {this.session.set_native_status(error);}
-                    this.materials.selected=None;
-                    this.refresh_scene(); cx.notify();
-                })))
-            .child(Button::new("material/apply").small().label("Apply to Selection").disabled(!shell.session.native_selection_targets().iter().any(|t|matches!(&t.entity,SelectedEntity::Segment(_)|SelectedEntity::Triangle(_)|SelectedEntity::Occurrence|SelectedEntity::SemanticHandle{kind:meshcraft_core::selection::SelectionKind::Wall|meshcraft_core::selection::SelectionKind::Slab|meshcraft_core::selection::SelectionKind::Frame,..}))).on_click(cx.listener(move |this,_,_,cx| {
-                if let Err(error)=this.session.assign_native_material(&selected) {this.session.set_native_status(error);}
-                this.refresh_scene(); cx.notify();
-            }))))
         .children(shell.bridge.latest_frame().into_iter().filter(|f|f.procedural_candidates>0).map(|f|div().text_xs().text_color(rgb(0xa9b7c5)).child(format!("Procedural GPU: {} candidates · {} draws",f.procedural_candidates,f.procedural_draw_calls))))
         .children(shell.bridge.latest_frame().into_iter().flat_map(|f|f.procedural_diagnostics).map(|d|div().text_xs().text_color(rgb(0xffaa80)).child(d)))
         .child(div().text_xs().text_color(rgb(0xa9b7c5)).child("Double-click to edit. Procedural details are visual; select and snap to the source surface."))
@@ -1023,6 +997,26 @@ fn procedural_fields(
         )
         .into_any_element()
 }
+pub(super) fn new_program(
+    shell: &mut MeshcraftShell,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    open_program(
+        shell,
+        Program {
+            id: format!(
+                "custom.surface.{}",
+                shell.cached_document.procedural_programs().len()
+            ),
+            name: "Custom surface".into(),
+            ..Default::default()
+        },
+        window,
+        cx,
+    );
+}
+
 fn open_program(
     shell: &mut MeshcraftShell,
     program: Program,

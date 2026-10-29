@@ -1,0 +1,14 @@
+{
+  "version": "0.46.1",
+  "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
+  "action": "Select prototype in native list; run object.delete_definition from palette; press Escape",
+  "prototype": "Scripted Object",
+  "definition_id": 2,
+  "instances": 3,
+  "confirmationDisplayed": true,
+  "confirmed": false,
+  "screenshots": {
+    "prototype-inspector.png": "cba7cb801d5c1579546fd958ce3f96887c9bdbb7a8422d3407ce47b6243c46b1",
+    "prototype-delete-confirmation.png": "b848e56b36ff2e9ac4d326c3f0326b45ab4a8265ee404240ced01f2e0317351b"
+  }
+}

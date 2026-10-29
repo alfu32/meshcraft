@@ -426,17 +426,30 @@ Automation uses `ui.update_preferences` with boolean `black_model_lines`; its
 command schema documents the behavior. A changed line style invalidates the GPU
 frame without rebuilding model geometry or repeatedly scheduling identical frames.
 
-### Functional menu restructuring — 0.46.0
+### Functional menu restructuring — 0.46.1
 
-Menus, ribbon and the left panel use the same eight functional groups, in order:
-2D Construction, Meshing, Solids, Civil, Materials, Objects, Files and Settings.
-Every visible command has one canonical group/section per surface. Do not bind
-several aliases to the same visible operation. Keep compatibility/parameterized
-commands in the registry, palette and MCP without duplicate menu entries.
-Preserve shortcuts and legacy search terms, Recent Files, contextual enabled
-states, active modeling input, selection, camera and history during navigation.
-Left group selection synchronizes the ribbon; group selectors remain reachable
-above the scrolling command sections. Preserve user catalog review fields and
-archive edits to generated metadata. Refresh screenshots at stable paths. See
+Menus, ribbon and the left panel share eleven functional groups, in order:
+Files, Clipboard & History, Selection, 2D Construction, Meshing, Solids, Civil,
+Materials, Objects, Hotspots and Settings. Every visible command has one canonical
+group/section per surface. Keep compatibility and parameterized commands in the
+registry, command panel and MCP without duplicate toolbar entries. Preserve
+shortcuts, legacy search terms, Recent Files and contextual availability states.
+The left panel scrolls all function sections without tab-like group selectors.
+Object Instance, Object Prototypes and Materials inspectors contain lists and
+properties; action strips move to the corresponding toolbars. Property editing
+controls and list double-click behavior remain available.
+
+The command panel includes every registered command as `Category > Function Name`.
+Its case-insensitive search includes that string, IDs and legacy keywords.
+Up/Down selects and scrolls results; Enter executes the selected command, and
+clicking executes the clicked command. Show unavailable entries with availability
+state and preserve their usual context/argument requirements. Navigation does not
+change document data, history or active modeling input.
+
+The dropdown row starts with Files, without repeating the application name.
+The native and visible window titles display `Meshcraft x.y.z /path/to/file.octd`,
+or `Meshcraft x.y.z Untitled`, updating on new/open/save-as. Preserve native
+window controls. Keep user catalog review fields unchanged. Store presentation
+assets await the next UI step at the user's request. See
 [the functional layout](../../menu-layout.md) and
-[native evidence](../references/functional-menus/README.md).
+[native evidence](../references/command-panel/README.md).

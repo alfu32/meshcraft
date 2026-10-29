@@ -34,7 +34,7 @@ class Capture:
         self.original_call = rpc.call
         self.rpc.call = self.call
         self.window = subprocess.check_output(
-            ['xdotool', 'search', '--name', '^Meshcraft$'], env=env, text=True
+            ['xdotool', 'search', '--name', '^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+'], env=env, text=True
         ).splitlines()[-1]
         self.rpc.call('k3d_contract')
         self.rpc.call('k3d_list_commands')
@@ -187,10 +187,11 @@ class Capture:
         exec(compile(path.read_text(), str(path), 'exec'), scope)
 
     def group(self, name):
-        # Native left-panel selectors are fixed above their scrolling tools.
-        groups=['2D Construction','Meshing','Solids','Civil','Materials','Objects','Files','Settings']
-        index=groups.index(name)
-        self.xd('mousemove', [60,166][index%2], 212+27*(index//2), 'click', 1)
+        # Native ribbon tabs; the left panel is a continuous list of sections.
+        x={'Files':35,'Clipboard & History':145,'Selection':260,
+           '2D Construction':370,'Meshing':480,'Solids':555,'Civil':618,
+           'Materials':690,'Objects':775,'Hotspots':855,'Settings':944}[name]
+        self.xd('mousemove',x,82,'click',1)
         self.rpc.frame()
 
     def capture(self, name):

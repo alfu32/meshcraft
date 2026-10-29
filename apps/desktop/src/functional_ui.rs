@@ -3,13 +3,16 @@
 use meshcraft_core::commands::CommandDescriptor;
 
 pub(crate) const GROUPS: &[&str] = &[
+    "Files",
+    "Clipboard & History",
+    "Selection",
     "2D Construction",
     "Meshing",
     "Solids",
     "Civil",
     "Materials",
     "Objects",
-    "Files",
+    "Hotspots",
     "Settings",
 ];
 pub(crate) struct Section {
@@ -19,7 +22,7 @@ pub(crate) struct Section {
 }
 pub(crate) const SECTIONS: &[Section] = &[
     Section {
-        root: "2D Construction",
+        root: "Selection",
         title: "Selection",
         commands: &[
             ("tool.select", "Select"),
@@ -28,7 +31,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "2D Construction",
+        root: "Clipboard & History",
         title: "Clipboard & History",
         commands: &[
             ("edit.undo", "Undo"),
@@ -253,6 +256,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         commands: &[
             ("view.panel.materials.toggle", "Material Manager"),
             ("material.new", "New Material"),
+            ("material.new_shader", "New Shader"),
             ("material.edit", "Edit Material"),
             ("material.apply", "Apply Material"),
             ("material.delete", "Delete Unused Material"),
@@ -288,6 +292,7 @@ pub(crate) const SECTIONS: &[Section] = &[
             ("view.objects", "Object Prototypes"),
             ("view.object_info", "Object Instance"),
             ("object.create_from_selection", "Make Object"),
+            ("object.delete_definition", "Delete Prototype"),
             ("object.place_selected_definition", "Place Instance"),
             ("selection.edit_object", "Edit Prototype"),
             ("selection.exit_context", "Finish Editing"),
@@ -319,7 +324,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "Objects",
+        root: "Hotspots",
         title: "Hotspots",
         commands: &[
             ("hotspot.begin_placement", "Place Hotspot"),
@@ -441,6 +446,9 @@ pub(crate) fn present(command: &mut CommandDescriptor) {
 /// Files is new and defaults to visible. Old command IDs remain registered.
 pub(crate) fn toolbar_key(root: &str) -> &'static str {
     match root {
+        "Clipboard & History" => "actions",
+        "Selection" => "in_tool_operators",
+        "Hotspots" => "construction_points",
         "2D Construction" => "construction_points",
         "Meshing" => "modification",
         "Solids" => "solids",

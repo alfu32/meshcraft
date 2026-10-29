@@ -1,0 +1,12 @@
+{
+  "version": "0.46.1",
+  "registeredCommands": 290,
+  "visibleCommands": 188,
+  "uniquePlacements": true,
+  "menuAliases": 0,
+  "priorityGroups": [
+    "Files",
+    "Clipboard & History",
+    "Selection"
+  ]
+}

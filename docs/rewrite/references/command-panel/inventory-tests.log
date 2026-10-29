@@ -1,0 +1,9 @@
+test_category_uses_first_existing_toolbar_without_assigning_review_fields (test_export_tool_inventory.InventoryTests.test_category_uses_first_existing_toolbar_without_assigning_review_fields) ... ok
+test_command_id_icon_fallback_matches_native_toolbar (test_export_tool_inventory.InventoryTests.test_command_id_icon_fallback_matches_native_toolbar) ... ok
+test_duplicate_unknown_icon_and_lost_review_are_rejected (test_export_tool_inventory.InventoryTests.test_duplicate_unknown_icon_and_lost_review_are_rejected) ... ok
+test_regeneration_preserves_quoted_multiline_review_fields_by_id (test_export_tool_inventory.InventoryTests.test_regeneration_preserves_quoted_multiline_review_fields_by_id) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.002s
+
+OK

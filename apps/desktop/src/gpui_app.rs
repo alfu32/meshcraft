@@ -1187,6 +1187,9 @@ struct MeshcraftShell {
     palette_subscription: Option<gpui::Subscription>,
     palette_query: String,
     palette_focus_pending: bool,
+    palette_selected: usize,
+    palette_scroll: gpui::ScrollHandle,
+    window_title: String,
     feedback: Option<ToolFeedback>,
     close_requested: bool,
     host_watch_started: bool,
@@ -1243,6 +1246,9 @@ impl MeshcraftShell {
             palette_subscription: None,
             palette_query: String::new(),
             palette_focus_pending: false,
+            palette_selected: 0,
+            palette_scroll: gpui::ScrollHandle::new(),
+            window_title: String::new(),
             feedback: None,
             close_requested: false,
             host_watch_started: false,
@@ -1290,19 +1296,12 @@ impl MeshcraftShell {
                 |this, input, event: &InputEvent, window, cx| {
                     match event {
                         InputEvent::Change => {
-                            this.palette_query = input.read(cx).value().to_string()
+                            this.palette_query = input.read(cx).value().to_string();
+                            this.palette_selected = 0;
+                            this.palette_scroll.scroll_to_top_of_item(0);
                         }
                         InputEvent::PressEnter { .. } if this.command_palette_open => {
-                            let command =
-                                MeshcraftApp::command_catalog().into_iter().find(|command| {
-                                    palette_matches(command, &this.palette_query)
-                                        && command_enabled(&this.session, command)
-                                });
-                            if let Some(command) = command {
-                                this.command_palette_open = false;
-                                window.focus(&this.focus);
-                                this.dispatch_with_clipboard(command.id.as_str(), cx);
-                            }
+                            this.execute_palette_selection(window, cx);
                         }
                         _ => {}
                     }
@@ -1314,6 +1313,8 @@ impl MeshcraftShell {
         if self.palette_focus_pending {
             self.palette_focus_pending = false;
             self.palette_query.clear();
+            self.palette_selected = 0;
+            self.palette_scroll.scroll_to_top_of_item(0);
             if let Some(input) = self.palette_input.clone() {
                 input.update(cx, |input, cx| {
                     input.set_value("", window, cx);
@@ -1321,6 +1322,57 @@ impl MeshcraftShell {
                 });
             }
         }
+    }
+
+    fn palette_commands(&self) -> Vec<CommandDescriptor> {
+        palette_commands(MeshcraftApp::command_catalog(), &self.palette_query)
+    }
+
+    fn execute_palette_command(
+        &mut self,
+        command: &CommandDescriptor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if command_enabled(&self.session, command) {
+            self.command_palette_open = false;
+            window.focus(&self.focus);
+            self.dispatch_with_clipboard(command.id.as_str(), cx);
+        } else {
+            let reason = self
+                .session
+                .native_command_state(command.id.as_str())
+                .disabled_reason
+                .unwrap_or_else(|| "This command needs arguments or a matching selection.".into());
+            self.session.set_native_status(reason);
+        }
+    }
+
+    fn execute_palette_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(command) = self.palette_commands().get(self.palette_selected).cloned() {
+            self.execute_palette_command(&command, window, cx);
+        }
+    }
+
+    fn palette_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.command_palette_open {
+            return false;
+        }
+        match key {
+            "up" | "down" => {
+                self.palette_selected =
+                    palette_next(self.palette_selected, self.palette_commands().len(), key);
+                self.palette_scroll.scroll_to_item(self.palette_selected);
+            }
+            "enter" => self.execute_palette_selection(window, cx),
+            "escape" => {
+                self.command_palette_open = false;
+                window.focus(&self.focus);
+            }
+            _ => return false,
+        }
+        cx.notify();
+        true
     }
 
     fn refresh_scene(&mut self) {
@@ -1541,7 +1593,15 @@ impl MeshcraftShell {
         else {
             return;
         };
-        let payload = if id == "ui.update_preferences" {
+        let payload = if id == "object.delete_definition" {
+            let Some(id) = self.session.native_selected_prototype() else {
+                return;
+            };
+            CommandPayload {
+                values: BTreeMap::from([("definition_id".into(), json!(id.0))]),
+                ..Default::default()
+            }
+        } else if id == "ui.update_preferences" {
             self.session.native_ui_preferences_payload()
         } else if matches!(id, "material.apply" | "material.delete") {
             let mut payload = CommandPayload::default();
@@ -2130,17 +2190,64 @@ fn walk_key(key: &str) -> Option<usize> {
     }
 }
 
+fn palette_label(command: &CommandDescriptor) -> String {
+    let category = command
+        .presentation
+        .menu_path
+        .get(1)
+        .unwrap_or(&command.category);
+    format!("{category} > {}", command_label(command))
+}
+
 fn palette_matches(command: &CommandDescriptor, query: &str) -> bool {
     let searchable = format!(
-        "{} {} {}",
+        "{} {} {} {} {}",
+        palette_label(command),
+        command.category,
         command.id.as_str(),
-        command_label(command),
-        command.presentation.palette_path
+        command.presentation.palette_path,
+        command.keywords.join(" ")
     )
     .to_lowercase();
     query
         .split_whitespace()
         .all(|word| searchable.contains(&word.to_lowercase()))
+}
+
+fn palette_commands(catalog: Vec<CommandDescriptor>, query: &str) -> Vec<CommandDescriptor> {
+    let mut commands = catalog
+        .into_iter()
+        .filter(|c| palette_matches(c, query))
+        .collect::<Vec<_>>();
+    commands.sort_by_key(|c| (palette_label(c).to_lowercase(), c.id.as_str().to_owned()));
+    commands
+}
+
+fn palette_next(current: usize, count: usize, key: &str) -> usize {
+    let last = count.saturating_sub(1);
+    match key {
+        "up" => current.saturating_sub(1).min(last),
+        "down" => (current + 1).min(last),
+        _ => current.min(last),
+    }
+}
+
+fn application_title(path: Option<&str>) -> String {
+    let file = path.map(|path| {
+        let path = std::path::Path::new(path);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_default().join(path)
+        }
+    });
+    format!(
+        "Meshcraft {} {}",
+        env!("CARGO_PKG_VERSION"),
+        file.as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "Untitled".into())
+    )
 }
 
 fn command_icon(command: &CommandDescriptor) -> Option<Arc<RenderImage>> {
@@ -2616,13 +2723,13 @@ fn command_button_id(area: &str, command: &CommandDescriptor) -> SharedString {
 
 fn command_enabled(session: &MeshcraftApp, command: &CommandDescriptor) -> bool {
     session.native_command_state(command.id.as_str()).enabled
-        && !matches!(
-            command.id.as_str(),
+        && match command.id.as_str() {
+            "object.delete_definition" => session.native_selected_prototype().is_some(),
             "object.delete_unused_definition"
-                | "object.delete_definition"
-                | "selection.update_display"
-                | "view.camera.set_pose"
-        )
+            | "selection.update_display"
+            | "view.camera.set_pose" => false,
+            _ => true,
+        }
 }
 
 fn command_label(command: &CommandDescriptor) -> &str {
@@ -2868,6 +2975,12 @@ impl Render for MeshcraftShell {
             window.set_rem_size(rem);
         }
         self.session.poll_native_host_work();
+        let title = application_title(self.session.current_project_path().as_deref());
+        if title != self.window_title {
+            window.set_window_title(&title);
+            self.window_title = title;
+        }
+
         if let Some(request) = self.session.native_take_bake_capture() {
             if let Ok(mut queue) = self.bridge.bakes.lock() {
                 queue.push(request);
@@ -2878,6 +2991,9 @@ impl Render for MeshcraftShell {
             self.refresh_scene();
         }
         if let Some(panel) = self.session.native_take_panel_focus() {
+            if panel == "material_program_new" {
+                materials::new_program(self, window, cx);
+            }
             if panel == "script_new" || panel == "script_edit" {
                 scripts::edit(self, panel == "script_new", window, cx);
             }
@@ -2933,14 +3049,6 @@ impl Render for MeshcraftShell {
             .gap(px(6.))
             .px(px(8.))
             .bg(rgb(0x171b22))
-            .child(
-                div()
-                    .mr(px(7.))
-                    .text_lg()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(rgb(0xe8eff7))
-                    .child("Meshcraft"),
-            )
             .children(
                 MENU_NAMES
                     .iter()
@@ -2996,13 +3104,6 @@ impl Render for MeshcraftShell {
                             cx.notify();
                         }),
                     ),
-            )
-            .child(
-                div()
-                    .ml(px(8.))
-                    .text_xs()
-                    .text_color(rgb(0x9db0c4))
-                    .child("GPUI · raylib 6"),
             );
 
         let ribbon_tabs = div()
@@ -3360,10 +3461,7 @@ impl Render for MeshcraftShell {
         });
 
         let command_palette = self.command_palette_open.then(|| {
-            let commands = MeshcraftApp::command_catalog()
-                .into_iter()
-                .filter(|command| palette_matches(command, &self.palette_query))
-                .collect::<Vec<_>>();
+            let commands = self.palette_commands();
             let width = (f32::from(window.viewport_size().width) - 32.).clamp(220., 580.);
             let left = ((f32::from(window.viewport_size().width) - width) / 2.).max(0.);
             let list_height = (f32::from(window.viewport_size().height) - 240.).clamp(100., 390.);
@@ -3402,6 +3500,7 @@ impl Render for MeshcraftShell {
                 .child(
                     div()
                         .id("command-palette-results")
+                        .track_scroll(&self.palette_scroll)
                         .max_h(px(list_height))
                         .overflow_y_scroll()
                         .flex()
@@ -3416,22 +3515,27 @@ impl Render for MeshcraftShell {
                                     .child("No matching commands"),
                             )
                         })
-                        .children(commands.into_iter().map(|command| {
+                        .children(commands.into_iter().enumerate().map(|(index, command)| {
                             let id = command.id.as_str().to_owned();
                             Button::new(command_button_id("palette", &command))
                                 .child(labeled_command(
-                                    command.presentation.palette_path.clone(),
+                                    palette_label(&command),
                                     command_icon(&command),
                                     width - 52.,
                                 ))
                                 .small()
                                 .text()
                                 .w_full()
-                                .disabled(!command_enabled(&self.session, &command))
+                                .when(index == self.palette_selected, |button| {
+                                    button.bg(rgb(0x35516a))
+                                })
+                                .when(!command_enabled(&self.session, &command), |button| {
+                                    button.text_color(rgb(0x8c98a5))
+                                })
+                                .tooltip(id)
                                 .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.command_palette_open = false;
-                                    window.focus(&this.focus);
-                                    this.dispatch_with_clipboard(&id, cx);
+                                    this.palette_selected = index;
+                                    this.execute_palette_command(&command, window, cx);
                                     cx.notify();
                                 }))
                         })),
@@ -3440,7 +3544,7 @@ impl Render for MeshcraftShell {
                     div()
                         .text_xs()
                         .text_color(rgb(0xa4b2c1))
-                        .child("Enter: run first available match · Escape: close"),
+                        .child("↑/↓: select · Enter: execute selected · Escape: close"),
                 )
                 .into_any_element()
         });
@@ -3453,7 +3557,8 @@ impl Render for MeshcraftShell {
                     .items_center()
                     .gap(px(6.))
                     .child(gpui::img("branding/meshcraft.png").size(px(24.)))
-                    .child(div().text_sm().child("Meshcraft")),
+                    .min_w(px(0.))
+                    .child(div().text_sm().truncate().child(self.window_title.clone())),
             )
             .on_close_window(move |_, _, cx| {
                 let _ = close_view.update(cx, |shell, cx| {
@@ -3475,6 +3580,10 @@ impl Render for MeshcraftShell {
                     && event.keystroke.key == "v"
                 {
                     this.sync_clipboard(cx);
+                }
+                if this.palette_key(&event.keystroke.key, window, cx) {
+                    cx.stop_propagation();
+                    return;
                 }
                 if scripts::capture_key(this, event, window, cx) {
                     cx.stop_propagation();
@@ -3641,7 +3750,7 @@ pub fn run_native(
                     window_bounds: Some(bounds),
                     app_id: Some("meshcraft".into()),
                     titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("Meshcraft".into()),
+                        title: Some(application_title(None).into()),
                         ..gpui_component::TitleBar::title_bar_options()
                     }),
                     ..Default::default()
@@ -3805,7 +3914,10 @@ mod tests {
     use super::{
         OrbitCamera, ViewportBridge, ViewportLayout, ribbon_command_for_key, viewport_physical_rect,
     };
-    use super::{palette_matches, replace_presented_image};
+    use super::{
+        application_title, palette_commands, palette_label, palette_matches, palette_next,
+        replace_presented_image,
+    };
     use crate::MeshcraftApp;
     use gpui::RenderImage;
     use image::{Frame, ImageBuffer};
@@ -4125,6 +4237,63 @@ mod tests {
         assert!(palette_matches(line, "LINE tool"));
         assert!(palette_matches(line, "tool.builtin line"));
         assert!(!palette_matches(line, "line sphere"));
+    }
+
+    #[test]
+    fn command_panel_lists_every_registered_command_and_searches_category_labels() {
+        let catalog = MeshcraftApp::command_catalog();
+        let all = palette_commands(catalog.clone(), "");
+        assert_eq!(all.len(), catalog.len());
+        let ids = all
+            .iter()
+            .map(|c| c.id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), catalog.len());
+        let wall = all
+            .iter()
+            .find(|c| c.id.as_str() == "tool.builtin.arch_wall")
+            .unwrap();
+        assert_eq!(palette_label(wall), "Architecture > Wall");
+        let architecture = palette_commands(catalog.clone(), "ArChi");
+        for command in catalog
+            .iter()
+            .filter(|c| palette_label(c).to_lowercase().contains("archi"))
+        {
+            assert!(architecture.iter().any(|c| c.id == command.id));
+        }
+        assert!(
+            architecture
+                .iter()
+                .any(|c| c.id.as_str() == "architecture.create_wall")
+        );
+        assert!(all.iter().any(|c| c.id.as_str() == "tool.line"));
+    }
+
+    #[test]
+    fn command_panel_navigation_uses_the_selected_filtered_row() {
+        assert_eq!(palette_next(0, 0, "down"), 0);
+        assert_eq!(palette_next(0, 3, "up"), 0);
+        assert_eq!(palette_next(0, 3, "down"), 1);
+        assert_eq!(palette_next(2, 3, "down"), 2);
+        let matches = palette_commands(MeshcraftApp::command_catalog(), "tool.builtin.line");
+        assert!(!matches.is_empty());
+        for current in 0..matches.len() {
+            assert!(palette_next(current, matches.len(), "down") < matches.len());
+        }
+    }
+
+    #[test]
+    fn application_window_title_contains_version_and_current_file() {
+        let version = env!("CARGO_PKG_VERSION");
+        assert_eq!(
+            application_title(None),
+            format!("Meshcraft {version} Untitled")
+        );
+        let path = std::env::temp_dir().join("A drawing – test.octd");
+        assert_eq!(
+            application_title(path.to_str()),
+            format!("Meshcraft {version} {}", path.display())
+        );
     }
 
     #[test]

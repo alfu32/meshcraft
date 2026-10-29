@@ -902,6 +902,12 @@ class Exercise:
         elif key == "material.delete":
             self.setup(self.material, "material.save")
             self.mutate(key, dict(id="benchmark"))
+        elif key == "material.new_shader":
+            self.cmd(key, stage="start_ms")
+            frame=self.timed("preview_ms",self.rpc.frame,True)
+            if frame["procedural"]["diagnostics"]:
+                raise Failure(str(frame["procedural"]["diagnostics"]))
+            self.timed("commit_ms",subprocess.run,["xdotool","key","Escape"],env=self.env,check=True)
         elif key == "material.program":
             program = self.scene()["proceduralPrograms"][0]
             program["id"] = "benchmark-program"

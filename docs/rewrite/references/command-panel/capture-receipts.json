@@ -1,0 +1,82 @@
+{
+  "hotspots": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 4,
+    "sha256": "5ec10511e1459272b96b6f3fad7b888be56483a43368daca30b77ce135e500f0",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "architecture-search": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 6,
+    "sha256": "4ff5321a6b9ab8d8fb82f756b2748053384548544c5ffa496fe231fea52b2cfe",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "architecture-search-end": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 6,
+    "sha256": "dbf7dbb33e3a64253d8631d37c3bf13d1416e049999dcc2a85f557fec120b8ff",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "keyboard-selection": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 6,
+    "sha256": "cbb5985417ec4a179cfd434580e778ff94df5421250043ecb5557f1a484cd6e8",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "all-commands": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 8,
+    "sha256": "ed0612994b4c25334f6f14faaa6dbde4983e6295fc1fb77cfd785f0b0aa88a36",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "all-commands-end": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 8,
+    "sha256": "721930149849ee6cda96349d4b6bdb427a536f29feddb8b283a82c7caae43839",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "prototype-inspector": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd",
+    "preview": false,
+    "revision": 17,
+    "generation": 1,
+    "frameSequence": 6,
+    "sha256": "cba7cb801d5c1579546fd958ce3f96887c9bdbb7a8422d3407ce47b6243c46b1",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "prototype-delete-confirmation": {
+    "version": "0.46.1",
+    "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd",
+    "preview": false,
+    "revision": 17,
+    "generation": 1,
+    "frameSequence": 6,
+    "sha256": "b848e56b36ff2e9ac4d326c3f0326b45ab4a8265ee404240ced01f2e0317351b",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

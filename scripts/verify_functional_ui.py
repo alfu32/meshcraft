@@ -1,53 +1,102 @@
 #!/usr/bin/env python3
-"""Verify native functional groups and a GUI-dispatched tool in a private desktop."""
+"""Verify native menus, command search/navigation and titles in a private desktop."""
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import time
 
 from capture_store_features import Capture, ROOT, SOURCE
 from runtime import desktop
 
-REFERENCE=ROOT/'docs/rewrite/references/functional-menus'
+REFERENCE = ROOT / 'docs/rewrite/references/command-panel'
+GROUPS = ['Files', 'Clipboard & History', 'Selection', '2D Construction',
+          'Meshing', 'Solids', 'Civil', 'Materials', 'Objects', 'Hotspots', 'Settings']
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary',type=Path,default=ROOT/'target/debug/meshcraft')
-    args=parser.parse_args()
-    REFERENCE.mkdir(parents=True,exist_ok=True)
-    with desktop(args.binary.resolve(),SOURCE/'captures/work/functional-ui-verification',120,True,size=(1920,1080)) as (rpc,app,env):
-        capture=Capture(rpc,env,REFERENCE)
-        capture.open(str(ROOT/'docs/rewrite/references/segment-feedback/model'))
-        before=rpc.status()
-        capture.pose([10,15,15],[0,0,0],36)
-        for name in ['2D Construction','Meshing','Solids','Civil','Materials','Objects','Files','Settings']:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--binary', type=Path, default=ROOT / 'target/debug/meshcraft')
+    args = parser.parse_args()
+    REFERENCE.mkdir(parents=True, exist_ok=True)
+    with desktop(args.binary.resolve(), SOURCE / 'captures/work/command-panel-verification',
+                 120, True, size=(1920, 1080)) as (rpc, app, env):
+        capture = Capture(rpc, env, REFERENCE)
+        project = ROOT / 'docs/rewrite/references/segment-feedback/model.octd'
+        capture.open(str(project.with_suffix('')))
+        before = rpc.status()
+        capture.pose([10, 15, 15], [0, 0, 0], 36)
+        title = subprocess.check_output(['xdotool', 'getwindowname', capture.window],
+                                        env=env, text=True).strip()
+        assert title == f'Meshcraft {capture.version} {project}', title
+        for name in GROUPS:
             capture.group(name)
-        capture.group('2D Construction')
-        # The native left-panel Line button, not a direct activation request.
-        capture.xd('mousemove',50,610,'click',1)
+        capture.group('Hotspots')
+        capture.shot('hotspots', destination=REFERENCE / 'hotspots.png')
+        # Native left-panel Line button, below the priority file/clipboard/selection sections.
+        capture.xd('mousemove', 50, 840, 'click', 1)
         time.sleep(.2)
-        assert rpc.status()['activeTool']=='Line',rpc.status()
+        assert rpc.status()['activeTool'] == 'Line', rpc.status()
         rpc.pointer('cancel')
-        capture.group('Civil')
-        capture.shot('civil',destination=REFERENCE/'civil.png')
-        capture.xd('mousemove',350,51,'click',1)
-        capture.shot('civil-menu',destination=REFERENCE/'civil-menu.png')
-        capture.xd('key','Escape')
-        capture.group('Files')
-        capture.xd('mousemove',524,51,'click',1)
-        capture.shot('files-menu',destination=REFERENCE/'files-menu.png')
-        capture.xd('key','Escape')
-        after=rpc.status()
-        assert before['revision']==after['revision']
-        assert before['history']==after['history']
-        (REFERENCE/'native-validation.json').write_text(json.dumps(dict(
-            version=capture.version,groupsVisited=8,lineActivatedThroughNativeButton=True,
-            revisionUnchanged=True,historyUnchanged=True,platform='Linux Xvfb/Mesa; actual GPUI app',
-        ),indent=2)+'\n')
+
+        def palette(query=''):
+            capture.xd('key', 'ctrl+shift+p')
+            if query:
+                capture.xd('type', '--clearmodifiers', query)
+            time.sleep(.2)
+
+        palette('Archi')
+        capture.shot('architecture-search', destination=REFERENCE / 'architecture-search.png')
+        capture.xd('key', '--repeat', 27, '--delay', 80, 'Down')
+        capture.shot('architecture-search-end', destination=REFERENCE / 'architecture-search-end.png')
+        capture.xd('key', 'Escape')
+        palette('view.ortho.')
+        capture.xd('key', 'Down')
+        capture.shot('keyboard-selection', destination=REFERENCE / 'keyboard-selection.png')
+        capture.xd('key', 'Return')
+        time.sleep(.2)
+        assert 'bottom orthographic' in rpc.status()['status'], rpc.status()
+        palette('view.ortho.')
+        capture.xd('mousemove', 820, 174, 'click', 1)
+        time.sleep(.2)
+        assert 'back orthographic' in rpc.status()['status'], rpc.status()
+        palette()
+        capture.shot('all-commands', destination=REFERENCE / 'all-commands.png')
+        capture.xd('key', '--repeat', 40, '--delay', 80, 'Down')
+        capture.shot('all-commands-end', destination=REFERENCE / 'all-commands-end.png')
+        capture.xd('key', 'Escape')
+        palette('material.new_shader')
+        capture.xd('key', 'Return')
+        time.sleep(.5)
+        preview = rpc.frame(True)
+        assert not preview.get('diagnostics'), preview
+        capture.xd('key', 'Escape')
+        after = rpc.status()
+        assert before['revision'] == after['revision'], after
+        assert before['history'] == after['history'], after
+        saved = SOURCE / 'captures/work/command-panel-title.octd'
+        capture.cmd('file.save_as', path=str(saved))
+        time.sleep(.3)
+        saved_title = subprocess.check_output(['xdotool', 'getwindowname', capture.window],
+                                              env=env, text=True).strip()
+        assert saved_title == f'Meshcraft {capture.version} {saved}', saved_title
+        capture.new()
+        time.sleep(.3)
+        new_title = subprocess.check_output(['xdotool', 'getwindowname', capture.window],
+                                            env=env, text=True).strip()
+        assert new_title == f'Meshcraft {capture.version} Untitled', new_title
+        (REFERENCE / 'native-validation.json').write_text(json.dumps(dict(
+            version=capture.version, groupsVisited=len(GROUPS),
+            lineActivatedThroughNativeButton=True, categorySearch='Archi',
+            arrowEnterExecuted='view.ortho.bottom', mouseExecuted='view.ortho.back',
+            arrowScrollCaptured=True, shaderEditorPreview=True,
+            openedTitle=title, savedTitle=saved_title, newTitle=new_title,
+            revisionUnchangedByNavigation=True, historyUnchangedByNavigation=True,
+            platform='Linux Xvfb/Mesa; actual GPUI app',
+        ), indent=2) + '\n')
         capture.receipt()
-        print('Native functional menu checks passed',flush=True)
+        print('Native command panel/menu/title checks passed', flush=True)
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()

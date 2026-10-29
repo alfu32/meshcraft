@@ -20,7 +20,7 @@ def main():
     output = args.output.resolve()
     with desktop(args.binary.resolve(), output, 60, True) as (rpc, app, env):
         window = subprocess.check_output(
-            ['xdotool', 'search', '--name', '^Meshcraft$'], env=env, text=True
+            ['xdotool', 'search', '--name', '^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+'], env=env, text=True
         ).splitlines()[-1]
 
         def xd(*args):

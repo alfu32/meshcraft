@@ -198,7 +198,7 @@ def desktop(binary, directory, timeout, software, size=(1280, 900)):
                     raise Failure("MCP startup timeout")
                 time.sleep(0.1)
         window = subprocess.check_output(
-            ["xdotool", "search", "--name", "^Meshcraft$"], env=env, text=True
+            ["xdotool", "search", "--name", "^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+"], env=env, text=True
         ).splitlines()[-1]
         for action in ("windowmap", "windowraise", "windowfocus"):
             subprocess.run(["xdotool", action, window], env=env, check=True)

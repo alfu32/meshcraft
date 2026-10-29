@@ -22,7 +22,7 @@ def main():
         time.sleep(3)
         first = rpc.frame()
         window = subprocess.check_output(
-            ['xdotool', 'search', '--name', '^Meshcraft$'], env=env, text=True
+            ['xdotool', 'search', '--name', '^Meshcraft [0-9]+\\.[0-9]+\\.[0-9]+'], env=env, text=True
         ).splitlines()[-1]
         before, after = output / 'status-before.png', output / 'status-after.png'
         subprocess.run(['import', '-window', window, str(before)], env=env, check=True)
