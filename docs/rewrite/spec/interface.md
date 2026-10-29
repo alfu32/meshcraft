@@ -393,7 +393,11 @@ Selection keeps the normal face materials and colors. Only edges/outlines change
 color, with one blue world-space bounding box around the selection. Selection
 bounds and line membership are cached until selection/content changes. Explicitly
 selected segments show red dashed linework, small red endpoints, a green midpoint
-and a green arrow following their stored endpoint order. These glyphs use fixed
+and a green arrow following their stored endpoint order. Endpoint disks and the
+stroked arrow shaft/head have a dark keyline and light halo for contrast against
+linework and materials. Endpoints render last. For segments shorter than 32 screen
+pixels retain point markers and omit the arrow to avoid overlapping glyphs;
+zooming in reveals it. These glyphs use fixed
 screen sizes, cached endpoint buffers and batched GPU projection; navigation must
 not rebuild/upload selection geometry. Object/face selection recolors its lines
 without adding endpoint glyphs to every contained primitive. Preserve the blue

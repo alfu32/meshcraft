@@ -1,6 +1,6 @@
-# Shader material settings preview — 0.45.2
+# Material settings previews
 
-The real Material Editor now previews shader materials using the same isolated
+The real Material Editor previews all materials using the same isolated
 GPU scene and camera controls as procedural object settings. The settings scroll
 independently. Draft edits are debounced; Apply/Save commit, Cancel discards edits
 not already applied. The active drawing is not cloned or edited for preview.
@@ -35,3 +35,27 @@ The GPU rotation test checks unchanged geometry, exact zero-default rendering
 and changed pixels for U, V and combined rotations of both patterns, without
 compiler diagnostics. The object preview still animates and settles when wind
 is zero. Logs: [orientation](gpu-orientation.log), [object preview](gpu-preview.log).
+
+## Conventional material previews — 0.45.3
+
+[Opaque conventional material](conventional.png) and
+[color/opacity draft](conventional-alpha.png) were captured in the live 0.45.3
+app. The earlier Brick images and rotation round-trip evidence above remain
+from 0.45.2. Every material opens with the split settings/preview layout;
+Conventional uses a private cube with the actual material bound to all faces.
+Preview uses the same material color/opacity renderer as the drawing. Existing
+texture/shading metadata is retained without promising additional viewport
+rendering features.
+
+Native UI/MCP checks switched Conventional → Grass → Conventional, checked GPU
+diagnostics and generated candidate counts, edited color/alpha, and closed the
+draft. Drawing revision and history stayed unchanged. See
+[validation](conventional-validation.json), [capture receipts](capture-receipts.json)
+and [MCP actions](mcp-actions.json). The new CPU test
+`conventional_material_preview_retains_color_alpha_and_material_fields` covers
+opaque/transparent settings, texture sizes, shading metadata, actual bindings
+to all 12 cube triangles, and isolation from unrelated source geometry.
+
+Release gates: 775 workspace tests passed (22 platform/GPU checks ignored by
+default); the native selected-line GPU check also passed. Formatting and strict
+workspace Clippy passed.

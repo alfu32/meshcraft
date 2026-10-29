@@ -174,12 +174,13 @@ limits, controls, path encoding and the scope of continuity/topological claims.
 
 ### Material form previews and pattern orientation — #29/#30
 
-Shader material settings use the same split dialog as procedural object settings:
+All material settings use the same split dialog as procedural object settings:
 independently scrolling fields on the left, an isolated live GPU preview on the
-right, with orbit, pan, zoom and Fit. Surface programs use a cube; scattered/water
+right, with orbit, pan, zoom and Fit. Conventional materials and surface programs use a cube; scattered/water
 programs use a plane. Draft changes are debounced; invalid values retain the last
 valid preview. Previewing never modifies the drawing, selection or history.
-Switching to Conventional closes the preview; selecting a shader opens it.
+The preview stays available when switching between Conventional and shader programs.
+Conventional previews use the same material color/opacity rendering as the drawing.
 
 Brick and Wood expose `rotationU` and `rotationV` in degrees (default zero). These
 rotate the local procedural pattern frame about U/X followed by V/Y; the shader

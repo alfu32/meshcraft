@@ -30,3 +30,17 @@ red/green pixels, primitive selection, shared instances, retained GPU resources,
 and unchanged geometry/feedback upload counts during navigation. Exact outputs
 are [line checks](gpu-lines.log) and [instance checks](gpu-sharing.log). This is
 correctness/resource-reuse evidence, not a large-model frame-rate benchmark.
+
+## Readability follow-up — 0.45.3
+
+[Updated native capture](clear-markers.png): endpoint disks now have a larger
+colored center, dark keyline and white halo. Direction arrows use an outlined
+shaft/head instead of a small filled triangle. Four cached GPU passes are
+retained; endpoints draw last so nearby arrows cannot obscure them. Arrows are
+omitted below 32 projected pixels where they cannot fit clearly; point markers
+remain and zoom reveals the arrow. The original 0.45.2 capture stays above for
+comparison.
+
+The [updated GPU check](gpu-lines-0.45.3.log) verifies a visible red area at both
+endpoints, visible shaft/head pixels and reversal of the rendered arrow when
+endpoint order reverses, as well as cached resources across camera navigation.

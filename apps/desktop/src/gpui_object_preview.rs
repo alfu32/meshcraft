@@ -1,4 +1,4 @@
-//! Isolated procedural material/object form preview on the existing graphics owner.
+//! Isolated material/object form preview on the existing graphics owner.
 use super::*;
 
 pub(super) struct Preview {
@@ -79,10 +79,37 @@ pub(super) fn open(shell: &mut MeshcraftShell, cx: &mut Context<MeshcraftShell>)
 }
 fn preview_document(source: &Document, material: &Material) -> Result<Document, String> {
     material.validate()?;
-    let config = material
-        .procedural
-        .as_ref()
-        .ok_or("Shader program is missing")?;
+    let Some(config) = material.procedural.as_ref() else {
+        let mut document = Document::new();
+        let mut material = material.clone();
+        material.id = "material-preview".into();
+        document.put_material(material.clone())?;
+        let occurrence = document
+            .add_cuboid(
+                "Material preview",
+                Vec3::new(4., 4., 4.),
+                Vec3::new(-2., 0., -2.),
+            )
+            .ok_or("Could not create material preview cube")?;
+        let mut selection = meshcraft_core::selection::SelectionSession::default();
+        for face in document
+            .effective_geometry(&occurrence)
+            .ok_or("Material preview cube is missing")?
+            .triangles
+            .keys()
+        {
+            selection.select(SelectionTarget {
+                occurrence: occurrence.clone(),
+                entity: SelectedEntity::Triangle(*face),
+            });
+        }
+        meshcraft_core::operations::transforms::assign_material(
+            &mut document,
+            &selection,
+            &material.id,
+        )?;
+        return Ok(document);
+    };
     let program = source
         .procedural_programs()
         .into_iter()
@@ -101,7 +128,7 @@ fn evaluate(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>, fit: bool)
         .materials
         .editor
         .as_ref()
-        .ok_or("Shader settings are closed".to_owned())
+        .ok_or("Material settings are closed".to_owned())
         .and_then(|e| draft_material(e, cx));
     let document = result
         .as_ref()
@@ -424,6 +451,55 @@ mod tests {
                 preview
                     .effective_geometry(p)
                     .is_some_and(|g| !g.triangles.is_empty())
+            }));
+            assert_eq!(source, before);
+        }
+    }
+
+    #[test]
+    fn conventional_material_preview_retains_color_alpha_and_material_fields() {
+        let mut source = Document::new();
+        source
+            .add_cuboid("Unrelated", Vec3::new(50., 60., 70.), Vec3::ZERO)
+            .unwrap();
+        let before = source.clone();
+        for color in [Rgba8::new(235, 30, 50, 255), Rgba8::new(30, 70, 235, 96)] {
+            let draft = Material {
+                id: "user-material".into(),
+                name: "Paint".into(),
+                color,
+                texture_path: Some("texture.png".into()),
+                texture_scale_u: 2.,
+                texture_scale_v: 3.,
+                shading_type: ShadingType::Gouraud,
+                ..Default::default()
+            };
+            let document = preview_document(&source, &draft).unwrap();
+            let shown = document
+                .materials()
+                .into_iter()
+                .find(|m| m.id == "material-preview")
+                .unwrap();
+            assert_eq!(
+                shown,
+                Material {
+                    id: "material-preview".into(),
+                    ..draft
+                }
+            );
+            let geometry = document
+                .scene_geometry_refs()
+                .unwrap()
+                .into_iter()
+                .map(|p| document.effective_geometry(&p).unwrap().clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                geometry.iter().map(|g| g.triangles.len()).sum::<usize>(),
+                12
+            );
+            assert!(geometry.iter().flat_map(|g| g.triangles.values()).all(|t| {
+                meshcraft_core::document::materials::material_id(&t.extensions)
+                    == Some("material-preview")
             }));
             assert_eq!(source, before);
         }

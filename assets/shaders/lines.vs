@@ -16,6 +16,8 @@ out vec4 color;
 noperspective out vec2 glyphUv;
 noperspective out float distancePixels;
 flat out int feedbackStyle;
+flat out vec2 glyphExtent;
+flat out float glyphScale;
 vec4 project(vec3 point) {
     vec4 p=vec4(point,1.0);
     return viewProjection*vec4(dot(instanceRow0,p),dot(instanceRow1,p),dot(instanceRow2,p),1.0);
@@ -24,7 +26,7 @@ void main() {
     vec4 originalA=project(endpointA), originalB=project(endpointB);
     vec4 a=originalA,b=originalB;
     float da=a.z+a.w, db=b.z+b.w;
-    color=vec4(0.0);glyphUv=vec2(0.0);distancePixels=0.0;feedbackStyle=0;
+    color=vec4(0.0);glyphUv=vec2(0.0);distancePixels=0.0;feedbackStyle=0;glyphExtent=vec2(1.0);glyphScale=1.0;
     if (da<0.0 && db<0.0) {gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
     if (da<0.0) a=mix(a,b,da/(da-db));
     else if (db<0.0) b=mix(b,a,db/(db-da));
@@ -39,17 +41,21 @@ void main() {
     if(glyphMode>0) {
         // Use the real endpoints/midpoint, never a clipped replacement point.
         vec4 center=glyphMode==1?originalA:glyphMode==2?originalB:(originalA+originalB)*0.5;
-        if(center.z+center.w<=0.0 || (glyphMode==4 && lengthPixels<12.0)) {
+        if(center.z+center.w<=0.0 || (glyphMode==4 && lengthPixels<32.0)) {
             gl_Position=vec4(2.0,2.0,2.0,1.0);return;
         }
         glyphUv=vec2(along*2.0-1.0,signSide);
         vec2 offset;
         if(glyphMode==4) {
-            float arrowSize=min(6.0,lengthPixels*0.2);
-            offset=tangent*(glyphUv.x*arrowSize+8.0)+side*glyphUv.y*4.0;
+            // A stroked shaft/head stays recognizable at ordinary viewport size.
+            // Keep it next to the midpoint disk and inside shorter segments.
+            glyphScale=clamp(lengthPixels/64.0,0.55,1.0);
+            glyphExtent=vec2(9.0,6.0)*glyphScale+vec2(3.0);
+            offset=tangent*(glyphUv.x*glyphExtent.x+12.0*glyphScale)+side*glyphUv.y*glyphExtent.y;
             feedbackStyle=3;
         } else {
-            offset=glyphUv*(glyphMode==3?3.0:2.2);
+            glyphExtent=vec2(4.5);
+            offset=glyphUv*glyphExtent;
             feedbackStyle=2;
         }
         center.xy+=offset*2.0/viewportSize*center.w;

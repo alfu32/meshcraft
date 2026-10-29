@@ -870,7 +870,8 @@ impl Scene {
         if let Some(g) = self.overlay.get(3)
             && let Some(mesh) = &g.lines
         {
-            for mode in 1..=4 {
+            // Endpoint disks are last so nearby arrows never cover them.
+            for mode in [4i32, 3, 1, 2] {
                 self.line
                     .set_shader_value(self.line.get_shader_location("glyphMode"), mode);
                 unsafe {
@@ -1568,6 +1569,69 @@ mod tests {
                 > 10,
             "explicit segments need green midpoint and direction glyphs"
         );
+        // Endpoint disks must have a visible colored area around BOTH picked
+        // endpoints. The previous subpixel dots disappeared at normal zoom.
+        let green_center = |image: &image::RgbaImage, camera: OrbitCamera| {
+            let a = project_point(camera, (640., 480.), ends[0]).unwrap();
+            let b = project_point(camera, (640., 480.), ends[1]).unwrap();
+            let m = project_point(camera, (640., 480.), (ends[0] + ends[1]) * 0.5).unwrap();
+            let length = (b.0 - a.0).hypot(b.1 - a.1);
+            let positions = image
+                .enumerate_pixels()
+                .filter(|(_, _, p)| p[1] > 180 && p[0] < 100 && p[2] < 100)
+                .map(|(x, y, _)| {
+                    ((x as f32 - m.0) * (b.0 - a.0) + (y as f32 - m.1) * (b.1 - a.1)) / length
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                positions.len() > 25,
+                "midpoint and stroked arrow must be legible"
+            );
+            positions.iter().sum::<f32>() / positions.len() as f32
+        };
+        assert!(
+            green_center(&selected, camera) > 3.,
+            "arrow needs a visible shaft and head in the segment direction"
+        );
+        for endpoint in ends {
+            let (x, y) = project_point(camera, (640., 480.), endpoint).unwrap();
+            let colored = selected
+                .enumerate_pixels()
+                .filter(|(px, py, p)| {
+                    (*px as f32 - x).abs() < 4.
+                        && (*py as f32 - y).abs() < 4.
+                        && p[2] > 220
+                        && p[0] < 100
+                        && p[1] < 100
+                })
+                .count();
+            assert!(
+                colored >= 15,
+                "endpoint disk must remain visibly red: {colored}"
+            );
+        }
+        // Reversing endpoint order must reverse the visible arrow, not just the
+        // underlying data. Pixel positions use the original A -> B screen axis.
+        let original = Arc::clone(&scene.document);
+        scene.document = Arc::new(make_line([ends[1], ends[0]]));
+        renderer.prepare(&mut rl, &thread, &scene);
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            3,
+            &mut renderer,
+        );
+        let reversed = copy_target_to_gpui_image(&target).unwrap();
+        assert!(
+            green_center(&reversed, camera) < -3.,
+            "reversing a segment must reverse its rendered direction"
+        );
+        scene.document = original;
+        renderer.prepare(&mut rl, &thread, &scene);
+        let uploads = renderer.gpu.stats.geometry_uploads;
         assert_eq!(renderer.gpu.overlay[3].data.lines.len(), 1);
         let feedback_uploads = renderer.gpu.stats.feedback_uploads;
         let glyph_vao = renderer.gpu.overlay[3].lines.as_ref().unwrap().chunks[0].vao;
