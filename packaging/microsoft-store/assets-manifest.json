@@ -1,93 +1,93 @@
 {
-  "minimumApplicationVersion": "0.46.0",
+  "minimumApplicationVersion": "0.46.2",
   "screenshots": [
     {
       "file": "01-direct-modeling.png",
       "source": "packaging/microsoft-store/captures/01-direct-modeling.octd",
-      "sha256": "e476b1e7acb5ac29fe4b8eb5e04bcd27aaaa7568243f57cb8827fba404921ebd",
+      "sha256": "b1030a22e8ddb72a2a80093f986a3606c6b72c939d26da41201214bd3d25d9d0",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Direct modeling",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "02-dynamic-instances.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "c49a36c833dd6b4c49fd8879af002e7f8d7bbebae9df59c3db7f9cca28604c0d",
+      "sha256": "0f98e8c24f977393afe3ceb4dd9dd4c8074e80e08b333fc2d356ad4db3d5cc4b",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Dynamic prototypes and instances",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "03-architecture.png",
       "source": "packaging/microsoft-store/captures/03-architecture.octd",
-      "sha256": "fecd6b1ec971dd0a90bb872c71379b8fe88c6b00914cc936ce1cdef55c93f84a",
+      "sha256": "3a8aa96e53585216ceab789ca83b9bb254221d3905aac528d1efae867de41a6e",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Architecture and materials",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "04-javascript-editor.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "6df803421687db3d25c7ef35da11bab80baf7c4a2fc95ce25bb44a1384de3c99",
+      "sha256": "e2c008ca97fca6e8a0254ff2bd0779d882ae21042206b618eea146eaa2d7e5a3",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "JavaScript object editor",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "05-shader-editor.png",
       "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "6b31f4ef4b55692bc9d87b2a6baa54ec5f2a0446153afc54201a9c935b6b22b1",
+      "sha256": "577bcd976e621d657c3a784bdd9499ac0721ccaba566dc5686ed8052c41c21bb",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "GLSL/JSON shader editor",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "06-procedural-materials.png",
       "source": "packaging/microsoft-store/captures/06-procedural-materials.octd",
-      "sha256": "009068d30acbeebb6e752f8957951cd4011802b30aa193115771ebc4035e90a3",
+      "sha256": "ef8e644805861c9d47212dd52f9e41cfbd3dd97300c601e9c20f2183267ce74a",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Procedural materials",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "07-branching-preview.png",
       "source": "packaging/microsoft-store/captures/07-branching-preview.octd",
-      "sha256": "4ac8c3dc3e5143498a65f4c922f84c7f6fa53e61da64594428088f2201c22dd9",
+      "sha256": "f0782eadb2037ec416371f4dc6c4e3140740b432ba0cc71a3e85a45b8ad2a8d0",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Branching object settings and preview",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     },
     {
       "file": "08-architectural-stairs.png",
       "source": "packaging/microsoft-store/captures/08-architectural-stairs.octd",
-      "sha256": "a1e33ca71853b9a0e14e083ca3ae10c335de642dc4a2eb328518a4ca7dc52b4b",
+      "sha256": "8bd70562b6598625208f154e82b88d74344baed1039ee9490f7625f640f4e585",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Architectural stairs and guardrail guides",
       "recipe": "scripts/capture_store_features.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.46.0"
+      "applicationVersion": "0.46.2"
     }
   ],
   "artwork": {
@@ -110,7 +110,7 @@
     "viewportEncoding": "Lossless PNG recompression only; decoded RGBA pixels verified identical to the MCP response"
   },
   "notes": [
-    "All eight app-window screenshots were recaptured in Meshcraft 0.46.0 after functional menu/ribbon restructuring.",
+    "All eight app-window screenshots were recaptured in Meshcraft 0.46.2 after command-icon repair and the final workspace refinements.",
     "Initial demonstration models were created through MCP in 0.45.1; saved projects, original modeling calls and current capture receipts are retained. Earlier captures remain in Git history.",
     "Full app-window captures include real GPUI panels; the MCP image API itself captures the 3D viewport only.",
     "Store screenshots have no added marketing overlays or reconstructed UI.",

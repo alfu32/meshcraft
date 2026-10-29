@@ -1,0 +1,20 @@
+{
+  "version": "0.46.2",
+  "registeredCommands": 290,
+  "commandOwnedIcons": 290,
+  "explicitDesigns": 290,
+  "reviewColumnsPreserved": [
+    "ribbon-tab",
+    "sub-panel",
+    "comments",
+    "icon-comments"
+  ],
+  "legacyEvidenceUnchanged": {
+    "icons.png": "fe4b0925da1d11547a156e14b4bb1f6f86bc86b1986cd2cf4e8092388d2edf48",
+    "icons.48.png": "3828682c6102f3a3aca0ed98e657a11bec05ef9df3ebcfc2746f70f80ff90a4b",
+    "icons.64.png": "e32b04550dfcd20362c5c72318365b6eddf61fb94daae7675c554c457da19575"
+  },
+  "storeScreenshotsRefreshed": 8,
+  "storeArtworkValidated": 9,
+  "storeLocalesValidated": 35
+}

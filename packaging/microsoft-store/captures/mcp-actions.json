@@ -21,6 +21,15 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "accordion_settings_panels": true
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
       "commandId": "file.open",
       "arguments": {
         "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/01-direct-modeling.octd"

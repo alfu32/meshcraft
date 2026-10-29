@@ -17,11 +17,13 @@ GROUPS = ['Files', 'Clipboard & History', 'Selection', '2D Construction',
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT / 'target/debug/meshcraft')
+    parser.add_argument('--output', type=Path, default=REFERENCE)
     args = parser.parse_args()
-    REFERENCE.mkdir(parents=True, exist_ok=True)
+    reference = args.output.resolve()
+    reference.mkdir(parents=True, exist_ok=True)
     with desktop(args.binary.resolve(), SOURCE / 'captures/work/command-panel-verification',
                  120, True, size=(1920, 1080)) as (rpc, app, env):
-        capture = Capture(rpc, env, REFERENCE)
+        capture = Capture(rpc, env, reference)
         project = ROOT / 'docs/rewrite/references/segment-feedback/model.octd'
         capture.open(str(project.with_suffix('')))
         before = rpc.status()
@@ -32,7 +34,7 @@ def main():
         for name in GROUPS:
             capture.group(name)
         capture.group('Hotspots')
-        capture.shot('hotspots', destination=REFERENCE / 'hotspots.png')
+        capture.shot('hotspots', destination=reference / 'hotspots.png')
         # Native left-panel Line button, below the priority file/clipboard/selection sections.
         capture.xd('mousemove', 50, 840, 'click', 1)
         time.sleep(.2)
@@ -46,13 +48,13 @@ def main():
             time.sleep(.2)
 
         palette('Archi')
-        capture.shot('architecture-search', destination=REFERENCE / 'architecture-search.png')
+        capture.shot('architecture-search', destination=reference / 'architecture-search.png')
         capture.xd('key', '--repeat', 27, '--delay', 80, 'Down')
-        capture.shot('architecture-search-end', destination=REFERENCE / 'architecture-search-end.png')
+        capture.shot('architecture-search-end', destination=reference / 'architecture-search-end.png')
         capture.xd('key', 'Escape')
         palette('view.ortho.')
         capture.xd('key', 'Down')
-        capture.shot('keyboard-selection', destination=REFERENCE / 'keyboard-selection.png')
+        capture.shot('keyboard-selection', destination=reference / 'keyboard-selection.png')
         capture.xd('key', 'Return')
         time.sleep(.2)
         assert 'bottom orthographic' in rpc.status()['status'], rpc.status()
@@ -61,9 +63,9 @@ def main():
         time.sleep(.2)
         assert 'back orthographic' in rpc.status()['status'], rpc.status()
         palette()
-        capture.shot('all-commands', destination=REFERENCE / 'all-commands.png')
+        capture.shot('all-commands', destination=reference / 'all-commands.png')
         capture.xd('key', '--repeat', 40, '--delay', 80, 'Down')
-        capture.shot('all-commands-end', destination=REFERENCE / 'all-commands-end.png')
+        capture.shot('all-commands-end', destination=reference / 'all-commands-end.png')
         capture.xd('key', 'Escape')
         palette('material.new_shader')
         capture.xd('key', 'Return')
@@ -85,7 +87,7 @@ def main():
         new_title = subprocess.check_output(['xdotool', 'getwindowname', capture.window],
                                             env=env, text=True).strip()
         assert new_title == f'Meshcraft {capture.version} Untitled', new_title
-        (REFERENCE / 'native-validation.json').write_text(json.dumps(dict(
+        (reference / 'native-validation.json').write_text(json.dumps(dict(
             version=capture.version, groupsVisited=len(GROUPS),
             lineActivatedThroughNativeButton=True, categorySearch='Archi',
             arrowEnterExecuted='view.ortho.bottom', mouseExecuted='view.ortho.back',

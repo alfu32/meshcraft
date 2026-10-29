@@ -47,5 +47,5 @@ without duplicate toolbar buttons. Files retains its Recent Files submenu.
 
 [Native validation](rewrite/references/command-panel/README.md) covers category
 search, keyboard and mouse dispatch, scrolling, priorities, the left panel and
-window titles. Store artwork and presentation screenshots await the next UI step
-at the user's request; existing published images are retained.
+window titles. Store screenshots and README images were refreshed in 0.46.2 after the
+[command-icon audit](rewrite/references/command-icons/README.md).

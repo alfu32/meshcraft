@@ -6,7 +6,7 @@ select any of the other languages and inspect its captions and feature list.
 The reserved product name is **Meshcraft-desktop**; the publisher is **K3D0**.
 
 This is a prepared import, **not a submitted Partner Center update**. The listing
-describes features in Meshcraft **0.46.0 or later**. Upload a matching current
+describes features in Meshcraft **0.46.2 or later**. Upload a matching current
 MSIX package before submitting it. The application interface is English; the
 listing translations explicitly say so. Translations have not received
 independent native-speaker review.

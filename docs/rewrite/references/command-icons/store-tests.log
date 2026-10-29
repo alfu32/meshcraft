@@ -1,0 +1,17 @@
+test_all_export_locales_and_field_ids_survive (test_microsoft_store.StoreListingTests.test_all_export_locales_and_field_ids_survive) ... ok
+test_csv_unicode_quotes_and_multiline_roundtrip (test_microsoft_store.StoreListingTests.test_csv_unicode_quotes_and_multiline_roundtrip) ... ok
+test_english_first_subset_keeps_original_locale_names (test_microsoft_store.StoreListingTests.test_english_first_subset_keeps_original_locale_names) ... ok
+test_every_screenshot_has_a_durable_mcp_scene_and_receipt (test_microsoft_store.StoreListingTests.test_every_screenshot_has_a_durable_mcp_scene_and_receipt) ... ok
+test_hero_illustrates_model_geometry_without_ui_text_or_resized_logo (test_microsoft_store.StoreListingTests.test_hero_illustrates_model_geometry_without_ui_text_or_resized_logo) ... ok
+test_import_is_self_contained_after_root_is_moved (test_microsoft_store.StoreListingTests.test_import_is_self_contained_after_root_is_moved) ... ok
+test_no_fabricated_trailers_other_devices_or_initial_release_notes (test_microsoft_store.StoreListingTests.test_no_fabricated_trailers_other_devices_or_initial_release_notes) ... ok
+test_reject_changed_partner_center_field_identity (test_microsoft_store.StoreListingTests.test_reject_changed_partner_center_field_identity) ... ok
+test_reject_image_path_traversal_and_missing_root (test_microsoft_store.StoreListingTests.test_reject_image_path_traversal_and_missing_root) ... ok
+test_reject_incomplete_locale_and_keyword_spam (test_microsoft_store.StoreListingTests.test_reject_incomplete_locale_and_keyword_spam) ... ok
+test_reject_missing_image (test_microsoft_store.StoreListingTests.test_reject_missing_image) ... ok
+test_reject_oversize_translation_and_count_utf16 (test_microsoft_store.StoreListingTests.test_reject_oversize_translation_and_count_utf16) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.793s
+
+OK

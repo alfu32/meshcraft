@@ -79,7 +79,8 @@ def csv_text(rows):
     return stream.getvalue()
 
 
-def gallery(rows, version, icons):
+def gallery(rows, version, icons, designs=None):
+    designs = designs or {}
     escape = html.escape
     content = []
     for row in rows:
@@ -87,22 +88,27 @@ def gallery(rows, version, icons):
         glyph = "<span class='icon missing'>—</span>"
         if region:
             glyph = f"<span class='icon' style='background-position:-{region['start_x']}px -{region['start_y']}px' title='{escape(row['icon'])}'></span>"
-        cells = [glyph] + [escape(row[column]) for column in ("category", "name", "command-id", "availability", *REVIEW_COLUMNS)]
+        design = designs.get(row["command-id"], {})
+        meaning = design.get("symbol", "").replace("_", " ")
+        if design.get("overlay"):
+            meaning += " + " + design["overlay"]
+        cells = [glyph] + [escape(row[column]) for column in ("category", "name", "command-id")] + [escape(row["icon"]), escape(meaning)] + [escape(row[column]) for column in ("availability", *REVIEW_COLUMNS)]
         content.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>")
-    headings = ("Icon", "Category", "Name", "Command ID", "Availability", *REVIEW_COLUMNS)
+    headings = ("Icon", "Category", "Name", "Command ID", "Icon ID", "Design", "Availability", *REVIEW_COLUMNS)
     return """<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Meshcraft tool inventory</title>
 <style>
 body{font:15px system-ui;background:#202730;color:#e8eff7;margin:24px}
 a{color:#83cdf5}table{border-collapse:collapse;width:100%}th{position:sticky;top:0;background:#284962;text-align:left}
-td,th{padding:8px;border-bottom:1px solid #43515f}td:nth-child(4){font:12px monospace}
+td,th{padding:8px;border-bottom:1px solid #43515f}td:nth-child(4),td:nth-child(5){font:12px monospace}
 .icon{display:block;width:32px;height:32px;background-image:url('../../assets/tool-icons/icons.svg');flex-shrink:0}
 .missing{background:none;color:#9eacbb}tr:hover{background:#31465b}
 </style>
 """ + f"<h1>Meshcraft {escape(version)} — {len(rows)} tools and commands</h1>\n" + """<p>Edit <a href="tools.csv">tools.csv</a> to assign menus. The last four columns are your review fields.
-This gallery is a generated, read-only view. Deferred entries remain listed; registered commands can require a selection or other context.</p>
-<table><thead><tr>""" + "".join(f"<th>{escape(label)}</th>" for label in headings) + "</tr></thead><tbody>\n" + "\n".join(content) + "\n</tbody></table></html>\n"
+This gallery is a generated, read-only view. Each command owns its icon ID; the Design column explains the subject and action badge. Deferred entries remain listed; registered commands can require a selection or other context.</p>
+<label>Filter category, function or icon: <input id="search" type="search" style="font:inherit;padding:8px;width:380px" autocomplete="off"></label>
+<table><thead><tr>""" + "".join(f"<th>{escape(label)}</th>" for label in headings) + "</tr></thead><tbody>\n" + "\n".join(content) + "\n</tbody></table><script>document.querySelector('#search').addEventListener('input',event=>{const terms=event.target.value.toLowerCase().split(/\\s+/).filter(Boolean);document.querySelectorAll('tbody tr').forEach(row=>{const text=row.textContent.toLowerCase();row.hidden=!terms.every(term=>text.includes(term));});});</script></html>\n"
 
 
 def main():
@@ -115,7 +121,8 @@ def main():
         icons = {row["name"]: row for row in csv.DictReader(stream, delimiter="|")}
     destination = ROOT / "docs/tools"
     rows = inventory(catalog, read_reviews(destination / "tools.csv"), icons)
-    outputs = {"tools.csv": csv_text(rows), "index.html": gallery(rows, catalog["version"], icons)}
+    designs = json.loads((ROOT / "assets/tool-icons/commands.json").read_text())["commands"]
+    outputs = {"tools.csv": csv_text(rows), "index.html": gallery(rows, catalog["version"], icons, designs)}
     for name, value in outputs.items():
         path = destination / name
         if args.check:

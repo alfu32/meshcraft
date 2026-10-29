@@ -450,6 +450,19 @@ The dropdown row starts with Files, without repeating the application name.
 The native and visible window titles display `Meshcraft x.y.z /path/to/file.octd`,
 or `Meshcraft x.y.z Untitled`, updating on new/open/save-as. Preserve native
 window controls. Keep user catalog review fields unchanged. Store presentation
-assets await the next UI step at the user's request. See
+assets were refreshed in 0.46.2 after auditing the command icons. See
 [the functional layout](../../menu-layout.md) and
 [native evidence](../references/command-panel/README.md).
+
+### Command icon semantics — 0.46.2
+
+Each registered command owns an icon tile named by its command ID. Assign vector
+subjects and action badges explicitly; do not infer command semantics through
+substring matching or borrow an unrelated operation's icon. True aliases may
+share a drawing. Preserve compatibility tile coordinates and pinned historical
+PNG evidence. New commands require a design, atlas tile and registry coverage;
+missing assignments fail generation and the Rust coverage check. The searchable
+catalog shows icon IDs and design meanings while preserving all four review
+columns. Store and README captures use the actual updated app through MCP.
+See [icon maintenance](../../../assets/tool-icons/README.md) and
+[validation evidence](../references/command-icons/README.md).

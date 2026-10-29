@@ -1,0 +1,8 @@
+test_different_operations_have_distinct_geometry (test_tool_icons.ToolIconTests.test_different_operations_have_distinct_geometry) ... ok
+test_explicit_designs_cover_the_published_command_inventory (test_tool_icons.ToolIconTests.test_explicit_designs_cover_the_published_command_inventory) ... ok
+test_generation_is_deterministic_and_rejects_an_undesigned_command (test_tool_icons.ToolIconTests.test_generation_is_deterministic_and_rejects_an_undesigned_command) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.276s
+
+OK

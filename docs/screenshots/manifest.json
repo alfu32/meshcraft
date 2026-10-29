@@ -9,8 +9,8 @@
       "scenario": "Direct mesh modeling, extrusion and sweeps. Retake with the modeling demo, matching the broad overview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "e476b1e7acb5ac29fe4b8eb5e04bcd27aaaa7568243f57cb8827fba404921ebd"
+      "applicationVersion": "0.46.2",
+      "sha256": "b1030a22e8ddb72a2a80093f986a3606c6b72c939d26da41201214bd3d25d9d0"
     },
     {
       "file": "architecture-materials-workspace.png",
@@ -18,8 +18,8 @@
       "scenario": "Walls, paving, grass and a procedural tree. Retake the architectural materials demo with the native workspace visible.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "fecd6b1ec971dd0a90bb872c71379b8fe88c6b00914cc936ce1cdef55c93f84a"
+      "applicationVersion": "0.46.2",
+      "sha256": "3a8aa96e53585216ceab789ca83b9bb254221d3905aac528d1efae867de41a6e"
     },
     {
       "file": "dynamic-object-instances.png",
@@ -27,8 +27,8 @@
       "scenario": "Reusable object instances and varied geometry. Retake with object prototypes and instances visible.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "c49a36c833dd6b4c49fd8879af002e7f8d7bbebae9df59c3db7f9cca28604c0d"
+      "applicationVersion": "0.46.2",
+      "sha256": "0f98e8c24f977393afe3ceb4dd9dd4c8074e80e08b333fc2d356ad4db3d5cc4b"
     },
     {
       "file": "scripted-object-editor.png",
@@ -36,8 +36,8 @@
       "scenario": "JavaScript object editor with code and orbitable preview. Reopen the tree script in the object editor.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "6df803421687db3d25c7ef35da11bab80baf7c4a2fc95ce25bb44a1384de3c99"
+      "applicationVersion": "0.46.2",
+      "sha256": "e2c008ca97fca6e8a0254ff2bd0779d882ae21042206b618eea146eaa2d7e5a3"
     },
     {
       "file": "procedural-tree.png",
@@ -45,8 +45,8 @@
       "scenario": "Open examples/procedural-presets.octd; frame a tree and capture the viewport.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "4ac8c3dc3e5143498a65f4c922f84c7f6fa53e61da64594428088f2201c22dd9"
+      "applicationVersion": "0.46.2",
+      "sha256": "f0782eadb2037ec416371f4dc6c4e3140740b432ba0cc71a3e85a45b8ad2a8d0"
     },
     {
       "file": "procedural-foliage.png",
@@ -54,8 +54,8 @@
       "scenario": "Open examples/foliage-colors.octd; frame the foliage surface and capture the viewport.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "009068d30acbeebb6e752f8957951cd4011802b30aa193115771ebc4035e90a3"
+      "applicationVersion": "0.46.2",
+      "sha256": "ef8e644805861c9d47212dd52f9e41cfbd3dd97300c601e9c20f2183267ce74a"
     },
     {
       "file": "architectural-stairs.png",
@@ -63,8 +63,8 @@
       "scenario": "Open examples/architectural-stairs.octd; frame all four stair examples with their guide lines.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "a1e33ca71853b9a0e14e083ca3ae10c335de642dc4a2eb328518a4ca7dc52b4b"
+      "applicationVersion": "0.46.2",
+      "sha256": "8bd70562b6598625208f154e82b88d74344baed1039ee9490f7625f640f4e585"
     },
     {
       "file": "shader-editor-preview.png",
@@ -72,9 +72,9 @@
       "scenario": "Open a custom shader material in the shader editor; show highlighted Fragment code with a valid GPU cube preview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.46.0",
-      "sha256": "6b31f4ef4b55692bc9d87b2a6baa54ec5f2a0446153afc54201a9c935b6b22b1"
+      "applicationVersion": "0.46.2",
+      "sha256": "577bcd976e621d657c3a784bdd9499ac0721ccaba566dc5686ed8052c41c21bb"
     }
   ],
-  "refreshed_for": "0.46.0 functional menu restructuring"
+  "refreshed_for": "Meshcraft 0.46.2 command icons and workspace"
 }

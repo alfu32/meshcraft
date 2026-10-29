@@ -424,6 +424,7 @@ pub(crate) fn placement(id: &str) -> Option<(&'static Section, &'static str)> {
     })
 }
 pub(crate) fn present(command: &mut CommandDescriptor) {
+    command.presentation.icon_key = Some(command.id.as_str().to_owned());
     command.presentation.menu_aliases.clear();
     if let Some((section, label)) = placement(command.id.as_str()) {
         // Old labels remain searchable after the presentation moves.

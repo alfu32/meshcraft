@@ -261,7 +261,7 @@ def refresh_readme():
                     applicationVersion=receipts[name]['version'],refresh='complete',sha256=receipts[name]['sha256'])
     manifest.update(regenerate_after='Future menu/ribbon changes',
                     policy='Actual native app captures only. Keep filenames stable and refresh after UI changes.',
-                    refreshed_for='0.46.0 functional menu restructuring')
+                    refreshed_for=f"Meshcraft {receipts[source_names[0]]['version']} command icons and workspace")
     (destination/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 
 
@@ -276,6 +276,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     with desktop(args.binary.resolve(), output/'.runtime', 120, True, size=(1920,1080)) as (rpc, app, env):
         capture = Capture(rpc, env, output)
+        capture.cmd('ui.update_preferences', accordion_settings_panels=True)
         if args.rebuild_scenes:
             for recipe in ['direct', 'sweep-3d', 'dynamic', 'architecture', 'materials', 'stairs', 'trees']:
                 capture.recipe(recipe)

@@ -177,19 +177,24 @@ mod tests {
     #[test]
     fn every_catalog_command_has_a_named_vector_icon() {
         let icons = icon_regions();
-        let missing = crate::MeshcraftApp::command_catalog()
-            .into_iter()
-            .filter(|command| {
-                !icons.contains_key(command.id.as_str())
-                    && !command
-                        .presentation
-                        .icon_key
-                        .as_deref()
-                        .is_some_and(|name| icons.contains_key(name))
-            })
-            .map(|command| command.id.as_str().to_owned())
-            .collect::<Vec<_>>();
-        assert!(missing.is_empty(), "missing command icons: {missing:?}");
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../assets/tool-icons/commands.json")).unwrap();
+        let designs = manifest["commands"].as_object().unwrap();
+        let catalog = crate::MeshcraftApp::command_catalog();
+        assert_eq!(catalog.len(), designs.len());
+        for command in catalog {
+            let id = command.id.as_str();
+            assert_eq!(
+                command.presentation.icon_key.as_deref(),
+                Some(id),
+                "{id} must use its own command icon"
+            );
+            assert!(icons.contains_key(id), "{id} has no atlas tile");
+            assert!(
+                designs.contains_key(id),
+                "{id} has no explicit semantic design"
+            );
+        }
     }
 
     #[test]

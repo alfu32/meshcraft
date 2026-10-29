@@ -1,0 +1,1165 @@
+{
+  "schema_version": 1,
+  "commands": {
+    "annotation.update": {
+      "symbol": "text",
+      "overlay": "edit"
+    },
+    "app.quit": {
+      "symbol": "exit",
+      "overlay": null
+    },
+    "architecture.add_hole": {
+      "symbol": "hole",
+      "overlay": null
+    },
+    "architecture.create_frame": {
+      "symbol": "window",
+      "overlay": null
+    },
+    "architecture.create_rectangular_slab": {
+      "symbol": "slab",
+      "overlay": null
+    },
+    "architecture.create_slab": {
+      "symbol": "freeform_slab",
+      "overlay": null
+    },
+    "architecture.create_stair": {
+      "symbol": "stairs",
+      "overlay": null
+    },
+    "architecture.create_wall": {
+      "symbol": "wall",
+      "overlay": null
+    },
+    "architecture.move_control": {
+      "symbol": "control",
+      "overlay": null
+    },
+    "architecture.move_slab_vertex": {
+      "symbol": "slab_vertex",
+      "overlay": null
+    },
+    "architecture.remove_hole": {
+      "symbol": "hole",
+      "overlay": "delete"
+    },
+    "architecture.settings": {
+      "symbol": "architecture",
+      "overlay": "settings"
+    },
+    "architecture.stair_contour": {
+      "symbol": "stair_contour",
+      "overlay": null
+    },
+    "architecture.stair_path": {
+      "symbol": "stair_path",
+      "overlay": null
+    },
+    "architecture.update": {
+      "symbol": "architecture",
+      "overlay": "edit"
+    },
+    "document.snapshot": {
+      "symbol": "save",
+      "overlay": "camera"
+    },
+    "edit.clear_selection": {
+      "symbol": "clear_selection",
+      "overlay": null
+    },
+    "edit.copy_as_script": {
+      "symbol": "script",
+      "overlay": "copy"
+    },
+    "edit.copy_selection": {
+      "symbol": "copy",
+      "overlay": null
+    },
+    "edit.cut_rect_hole": {
+      "symbol": "hole",
+      "overlay": null
+    },
+    "edit.cut_selection": {
+      "symbol": "cut",
+      "overlay": null
+    },
+    "edit.delete_selection": {
+      "symbol": "delete",
+      "overlay": null
+    },
+    "edit.duplicate_selection": {
+      "symbol": "copy",
+      "overlay": "plus"
+    },
+    "edit.group": {
+      "symbol": "object",
+      "overlay": "plus"
+    },
+    "edit.new_architecture_group": {
+      "symbol": "wall",
+      "overlay": null
+    },
+    "edit.new_voxel_group": {
+      "symbol": "voxel",
+      "overlay": "plus"
+    },
+    "edit.paste": {
+      "symbol": "paste",
+      "overlay": null
+    },
+    "edit.paste_in_place": {
+      "symbol": "paste_in_place",
+      "overlay": null
+    },
+    "edit.redo": {
+      "symbol": "redo",
+      "overlay": null
+    },
+    "edit.reset_scene_for_capture": {
+      "symbol": "cancel",
+      "overlay": "file"
+    },
+    "edit.undo": {
+      "symbol": "undo",
+      "overlay": null
+    },
+    "edit.ungroup": {
+      "symbol": "explode",
+      "overlay": null
+    },
+    "edit.voxelize_faces": {
+      "symbol": "voxel",
+      "overlay": "mesh"
+    },
+    "export.ifc_model": {
+      "symbol": "ifc",
+      "overlay": null
+    },
+    "export.mesh": {
+      "symbol": "export_mesh",
+      "overlay": null
+    },
+    "export.screenshot": {
+      "symbol": "screenshot",
+      "overlay": null
+    },
+    "export.svg_view": {
+      "symbol": "svg",
+      "overlay": null
+    },
+    "file.cancel_open": {
+      "symbol": "folder",
+      "overlay": "cancel"
+    },
+    "file.new": {
+      "symbol": "file",
+      "overlay": "plus"
+    },
+    "file.open": {
+      "symbol": "folder",
+      "overlay": null
+    },
+    "file.open_recent": {
+      "symbol": "recent",
+      "overlay": null
+    },
+    "file.save": {
+      "symbol": "save",
+      "overlay": null
+    },
+    "file.save_as": {
+      "symbol": "save",
+      "overlay": "edit"
+    },
+    "geometry.add_cuboid": {
+      "symbol": "cuboid",
+      "overlay": null
+    },
+    "geometry.fill_loops": {
+      "symbol": "fill_loop",
+      "overlay": null
+    },
+    "geometry.flip_selection": {
+      "symbol": "flip",
+      "overlay": null
+    },
+    "help.about": {
+      "symbol": "help",
+      "overlay": null
+    },
+    "hotspot.add": {
+      "symbol": "hotspot",
+      "overlay": "plus"
+    },
+    "hotspot.attach": {
+      "symbol": "hotspot_attach",
+      "overlay": null
+    },
+    "hotspot.begin_placement": {
+      "symbol": "hotspot",
+      "overlay": null
+    },
+    "hotspot.cancel_placement": {
+      "symbol": "hotspot",
+      "overlay": "cancel"
+    },
+    "hotspot.clear_reference": {
+      "symbol": "hotspot_reference",
+      "overlay": "cancel"
+    },
+    "hotspot.delete": {
+      "symbol": "hotspot",
+      "overlay": "delete"
+    },
+    "hotspot.reference": {
+      "symbol": "hotspot_reference",
+      "overlay": null
+    },
+    "hotspot.select_attached": {
+      "symbol": "hotspot_select",
+      "overlay": null
+    },
+    "hotspot.target": {
+      "symbol": "hotspot",
+      "overlay": "move"
+    },
+    "hotspot.update": {
+      "symbol": "hotspot",
+      "overlay": "edit"
+    },
+    "import.mesh": {
+      "symbol": "import_mesh",
+      "overlay": null
+    },
+    "interchange.cancel": {
+      "symbol": "import_mesh",
+      "overlay": "cancel"
+    },
+    "interchange.formats": {
+      "symbol": "formats",
+      "overlay": null
+    },
+    "material.apply": {
+      "symbol": "material",
+      "overlay": "check"
+    },
+    "material.delete": {
+      "symbol": "material",
+      "overlay": "delete"
+    },
+    "material.edit": {
+      "symbol": "material",
+      "overlay": "edit"
+    },
+    "material.new": {
+      "symbol": "material",
+      "overlay": "plus"
+    },
+    "material.new_brick": {
+      "symbol": "brick",
+      "overlay": "plus"
+    },
+    "material.new_foliage": {
+      "symbol": "foliage",
+      "overlay": "plus"
+    },
+    "material.new_grass": {
+      "symbol": "grass",
+      "overlay": "plus"
+    },
+    "material.new_shader": {
+      "symbol": "shader",
+      "overlay": "plus"
+    },
+    "material.new_water": {
+      "symbol": "water",
+      "overlay": "plus"
+    },
+    "material.new_wood": {
+      "symbol": "wood",
+      "overlay": "plus"
+    },
+    "material.parameters": {
+      "symbol": "parameters",
+      "overlay": null
+    },
+    "material.program": {
+      "symbol": "shader",
+      "overlay": "save"
+    },
+    "material.save": {
+      "symbol": "material",
+      "overlay": "save"
+    },
+    "model.update_settings": {
+      "symbol": "model_settings",
+      "overlay": null
+    },
+    "object.array_selection": {
+      "symbol": "array_space",
+      "overlay": null
+    },
+    "object.bake_to_mesh": {
+      "symbol": "bake_mesh",
+      "overlay": null
+    },
+    "object.bake_to_shader": {
+      "symbol": "bake_shader",
+      "overlay": null
+    },
+    "object.configure_procedural": {
+      "symbol": "shader",
+      "overlay": "settings"
+    },
+    "object.create_from_selection": {
+      "symbol": "object",
+      "overlay": "plus"
+    },
+    "object.delete_definition": {
+      "symbol": "object",
+      "overlay": "delete"
+    },
+    "object.delete_unused_definition": {
+      "symbol": "object",
+      "overlay": "delete"
+    },
+    "object.edit_tree": {
+      "symbol": "tree",
+      "overlay": "settings"
+    },
+    "object.explode_selection": {
+      "symbol": "explode",
+      "overlay": null
+    },
+    "object.import_scene": {
+      "symbol": "import_mesh",
+      "overlay": "object"
+    },
+    "object.new_tree": {
+      "symbol": "tree",
+      "overlay": "plus"
+    },
+    "object.place_selected_definition": {
+      "symbol": "object_instance",
+      "overlay": "place"
+    },
+    "object.reference_scene": {
+      "symbol": "link",
+      "overlay": "object"
+    },
+    "object.refresh_reference": {
+      "symbol": "link",
+      "overlay": "refresh"
+    },
+    "object.toggle_place_glue": {
+      "symbol": "glue",
+      "overlay": null
+    },
+    "paint.apply_selection": {
+      "symbol": "material",
+      "overlay": "check"
+    },
+    "paint.set_color": {
+      "symbol": "material",
+      "overlay": "picker"
+    },
+    "render.global_illumination": {
+      "symbol": "illumination",
+      "overlay": null
+    },
+    "render.raytrace": {
+      "symbol": "raytrace",
+      "overlay": null
+    },
+    "render.save": {
+      "symbol": "screenshot",
+      "overlay": "save"
+    },
+    "render.stop": {
+      "symbol": "stop",
+      "overlay": null
+    },
+    "script.edit": {
+      "symbol": "script",
+      "overlay": "edit"
+    },
+    "script.new": {
+      "symbol": "script",
+      "overlay": "plus"
+    },
+    "selection.edit_object": {
+      "symbol": "object",
+      "overlay": "edit"
+    },
+    "selection.exit_context": {
+      "symbol": "object",
+      "overlay": "check"
+    },
+    "selection.set": {
+      "symbol": "selection",
+      "overlay": null
+    },
+    "selection.update_display": {
+      "symbol": "selection_display",
+      "overlay": null
+    },
+    "tool.arch_slab_freeform": {
+      "symbol": "freeform_slab",
+      "overlay": null
+    },
+    "tool.builtin.arch_add_hole": {
+      "symbol": "hole",
+      "overlay": null
+    },
+    "tool.builtin.arch_door_frame": {
+      "symbol": "door",
+      "overlay": null
+    },
+    "tool.builtin.arch_slab": {
+      "symbol": "slab",
+      "overlay": null
+    },
+    "tool.builtin.arch_stair": {
+      "symbol": "stairs",
+      "overlay": null
+    },
+    "tool.builtin.arch_wall": {
+      "symbol": "wall",
+      "overlay": null
+    },
+    "tool.builtin.arch_window_frame": {
+      "symbol": "window",
+      "overlay": null
+    },
+    "tool.builtin.axial_grid": {
+      "symbol": "axis_guide",
+      "overlay": null
+    },
+    "tool.builtin.circle": {
+      "symbol": "circle",
+      "overlay": null
+    },
+    "tool.builtin.construction_line": {
+      "symbol": "construction_line",
+      "overlay": null
+    },
+    "tool.builtin.copy_multiple": {
+      "symbol": "array_line",
+      "overlay": null
+    },
+    "tool.builtin.cut_holes": {
+      "symbol": "cut_mesh",
+      "overlay": "hole"
+    },
+    "tool.builtin.cut_holes_2": {
+      "symbol": "cut_mesh",
+      "overlay": "hole"
+    },
+    "tool.builtin.cut_out_3": {
+      "symbol": "cut_mesh",
+      "overlay": null
+    },
+    "tool.builtin.cut_with_plane": {
+      "symbol": "plane_section",
+      "overlay": null
+    },
+    "tool.builtin.double_line": {
+      "symbol": "double_line",
+      "overlay": null
+    },
+    "tool.builtin.extrude_swipe": {
+      "symbol": "sweep",
+      "overlay": null
+    },
+    "tool.builtin.extrude_swipe_3d": {
+      "symbol": "sweep3d",
+      "overlay": null
+    },
+    "tool.builtin.face_outline": {
+      "symbol": "outline",
+      "overlay": null
+    },
+    "tool.builtin.helical_array": {
+      "symbol": "array_helix",
+      "overlay": null
+    },
+    "tool.builtin.helical_array_equalized": {
+      "symbol": "array_helix",
+      "overlay": "equal"
+    },
+    "tool.builtin.helicoidal_rotate_multiple": {
+      "symbol": "array_helix",
+      "overlay": null
+    },
+    "tool.builtin.hvac_plumbing": {
+      "symbol": "hvac_pipe",
+      "overlay": null
+    },
+    "tool.builtin.hvac_ventilation": {
+      "symbol": "hvac_duct",
+      "overlay": null
+    },
+    "tool.builtin.line": {
+      "symbol": "line",
+      "overlay": null
+    },
+    "tool.builtin.line_offset": {
+      "symbol": "offset",
+      "overlay": null
+    },
+    "tool.builtin.linear_dimension": {
+      "symbol": "dimension",
+      "overlay": null
+    },
+    "tool.builtin.mech_circular_hole": {
+      "symbol": "round_hole",
+      "overlay": null
+    },
+    "tool.builtin.mech_cog_wheel": {
+      "symbol": "cog",
+      "overlay": null
+    },
+    "tool.builtin.mech_round_washer": {
+      "symbol": "washer",
+      "overlay": null
+    },
+    "tool.builtin.mech_screw": {
+      "symbol": "screw",
+      "overlay": null
+    },
+    "tool.builtin.mesh": {
+      "symbol": "mesh",
+      "overlay": null
+    },
+    "tool.builtin.mesh_intersection": {
+      "symbol": "intersection_curve",
+      "overlay": null
+    },
+    "tool.builtin.mesh_regularize": {
+      "symbol": "regularize",
+      "overlay": null
+    },
+    "tool.builtin.move": {
+      "symbol": "move",
+      "overlay": null
+    },
+    "tool.builtin.object_cut": {
+      "symbol": "intersection",
+      "overlay": "cut"
+    },
+    "tool.builtin.object_place": {
+      "symbol": "object_instance",
+      "overlay": "place"
+    },
+    "tool.builtin.paint": {
+      "symbol": "paint",
+      "overlay": null
+    },
+    "tool.builtin.planar_grid": {
+      "symbol": "grid_guide",
+      "overlay": null
+    },
+    "tool.builtin.planar_rotate_multiple": {
+      "symbol": "array_rotate",
+      "overlay": null
+    },
+    "tool.builtin.planar_translate_multiple": {
+      "symbol": "array_plane",
+      "overlay": null
+    },
+    "tool.builtin.plane_section": {
+      "symbol": "plane_section",
+      "overlay": null
+    },
+    "tool.builtin.polyline": {
+      "symbol": "polyline",
+      "overlay": null
+    },
+    "tool.builtin.polyline_mesh": {
+      "symbol": "mesh",
+      "overlay": null
+    },
+    "tool.builtin.primitive_cone": {
+      "symbol": "cone",
+      "overlay": null
+    },
+    "tool.builtin.primitive_cylinder": {
+      "symbol": "cylinder",
+      "overlay": null
+    },
+    "tool.builtin.primitive_pill": {
+      "symbol": "pill",
+      "overlay": null
+    },
+    "tool.builtin.primitive_sphere": {
+      "symbol": "sphere",
+      "overlay": null
+    },
+    "tool.builtin.push_pull": {
+      "symbol": "extrude",
+      "overlay": null
+    },
+    "tool.builtin.quad": {
+      "symbol": "surface_rect",
+      "overlay": null
+    },
+    "tool.builtin.random_offset": {
+      "symbol": "random",
+      "overlay": "move"
+    },
+    "tool.builtin.random_surface_array": {
+      "symbol": "random",
+      "overlay": "surface"
+    },
+    "tool.builtin.rectangle": {
+      "symbol": "rectangle",
+      "overlay": null
+    },
+    "tool.builtin.revolve": {
+      "symbol": "revolve",
+      "overlay": null
+    },
+    "tool.builtin.ribbon_3d": {
+      "symbol": "mesh_two_lines",
+      "overlay": null
+    },
+    "tool.builtin.rotate": {
+      "symbol": "rotate",
+      "overlay": null
+    },
+    "tool.builtin.rotate_2": {
+      "symbol": "rotate_two",
+      "overlay": null
+    },
+    "tool.builtin.rotate_stretch": {
+      "symbol": "stretch",
+      "overlay": "rotate"
+    },
+    "tool.builtin.rotational_array": {
+      "symbol": "array_rotate",
+      "overlay": null
+    },
+    "tool.builtin.rotational_array_equalized": {
+      "symbol": "array_rotate",
+      "overlay": "equal"
+    },
+    "tool.builtin.scale": {
+      "symbol": "scale",
+      "overlay": null
+    },
+    "tool.builtin.select": {
+      "symbol": "select",
+      "overlay": null
+    },
+    "tool.builtin.solid_intersection": {
+      "symbol": "intersection",
+      "overlay": null
+    },
+    "tool.builtin.solid_subtraction": {
+      "symbol": "difference",
+      "overlay": null
+    },
+    "tool.builtin.solid_union": {
+      "symbol": "union",
+      "overlay": null
+    },
+    "tool.builtin.stretch": {
+      "symbol": "stretch",
+      "overlay": null
+    },
+    "tool.builtin.stretch_scale": {
+      "symbol": "stretch",
+      "overlay": "scale"
+    },
+    "tool.builtin.surface_rectangle": {
+      "symbol": "surface_rect",
+      "overlay": null
+    },
+    "tool.builtin.surface_remesh": {
+      "symbol": "remesh",
+      "overlay": null
+    },
+    "tool.builtin.text": {
+      "symbol": "text",
+      "overlay": null
+    },
+    "tool.builtin.vector_text": {
+      "symbol": "vector_text",
+      "overlay": null
+    },
+    "tool.builtin.volumetric_translate_multiple": {
+      "symbol": "array_space",
+      "overlay": null
+    },
+    "tool.builtin.voxel": {
+      "symbol": "voxel",
+      "overlay": null
+    },
+    "tool.builtin.voxel_frame": {
+      "symbol": "voxel_frame",
+      "overlay": null
+    },
+    "tool.builtin.voxel_volume": {
+      "symbol": "voxel_volume",
+      "overlay": null
+    },
+    "tool.cancel": {
+      "symbol": "cancel",
+      "overlay": null
+    },
+    "tool.copy_mode": {
+      "symbol": "copy",
+      "overlay": "check"
+    },
+    "tool.cuboid": {
+      "symbol": "cuboid",
+      "overlay": null
+    },
+    "tool.cycle.annotation": {
+      "symbol": "text",
+      "overlay": "cycle"
+    },
+    "tool.cycle.modification": {
+      "symbol": "stretch",
+      "overlay": "cycle"
+    },
+    "tool.cycle.operations": {
+      "symbol": "rotate",
+      "overlay": "cycle"
+    },
+    "tool.cycle.planar_construction": {
+      "symbol": "polyline",
+      "overlay": "cycle"
+    },
+    "tool.distance": {
+      "symbol": "ruler",
+      "overlay": null
+    },
+    "tool.finish": {
+      "symbol": "finish",
+      "overlay": null
+    },
+    "tool.leader": {
+      "symbol": "leader",
+      "overlay": null
+    },
+    "tool.line": {
+      "symbol": "line",
+      "overlay": null
+    },
+    "tool.mirror": {
+      "symbol": "mirror",
+      "overlay": null
+    },
+    "tool.move_copy": {
+      "symbol": "move",
+      "overlay": "copy"
+    },
+    "tool.rectangle": {
+      "symbol": "rectangle",
+      "overlay": null
+    },
+    "tool.rotate_copy": {
+      "symbol": "rotate",
+      "overlay": "copy"
+    },
+    "tool.select": {
+      "symbol": "select",
+      "overlay": null
+    },
+    "tool.squash": {
+      "symbol": "squash",
+      "overlay": null
+    },
+    "tool.undo_point": {
+      "symbol": "undo",
+      "overlay": "point"
+    },
+    "ui.update_preferences": {
+      "symbol": "ui_settings",
+      "overlay": null
+    },
+    "view.architecture_settings": {
+      "symbol": "architecture",
+      "overlay": "settings"
+    },
+    "view.axis_guide": {
+      "symbol": "axis_guide",
+      "overlay": null
+    },
+    "view.camera.orbit": {
+      "symbol": "orbit",
+      "overlay": null
+    },
+    "view.camera.orthographic": {
+      "symbol": "orthographic",
+      "overlay": null
+    },
+    "view.camera.perspective": {
+      "symbol": "perspective",
+      "overlay": null
+    },
+    "view.camera.reset": {
+      "symbol": "camera",
+      "overlay": "refresh"
+    },
+    "view.camera.set_pose": {
+      "symbol": "camera",
+      "overlay": "move"
+    },
+    "view.camera.walkthrough": {
+      "symbol": "walkthrough",
+      "overlay": null
+    },
+    "view.capture_ui_minimal": {
+      "symbol": "camera",
+      "overlay": "hide"
+    },
+    "view.capture_ui_restore": {
+      "symbol": "camera",
+      "overlay": "show"
+    },
+    "view.frame_document": {
+      "symbol": "fit",
+      "overlay": null
+    },
+    "view.grid.toggle": {
+      "symbol": "grid",
+      "overlay": "eye"
+    },
+    "view.grid_guide": {
+      "symbol": "grid_guide",
+      "overlay": null
+    },
+    "view.guide.remove": {
+      "symbol": "guides",
+      "overlay": "delete"
+    },
+    "view.guides.clear": {
+      "symbol": "guides",
+      "overlay": "clear"
+    },
+    "view.guides.toggle": {
+      "symbol": "guides",
+      "overlay": "eye"
+    },
+    "view.help_about": {
+      "symbol": "help",
+      "overlay": null
+    },
+    "view.hotspot_settings": {
+      "symbol": "hotspot",
+      "overlay": "settings"
+    },
+    "view.hvac_settings": {
+      "symbol": "hvac_duct",
+      "overlay": "settings"
+    },
+    "view.lighting": {
+      "symbol": "shader",
+      "overlay": "settings"
+    },
+    "view.model_settings": {
+      "symbol": "model_settings",
+      "overlay": null
+    },
+    "view.object_info": {
+      "symbol": "object_instance",
+      "overlay": null
+    },
+    "view.objects": {
+      "symbol": "prototypes",
+      "overlay": null
+    },
+    "view.orbit": {
+      "symbol": "orbit",
+      "overlay": null
+    },
+    "view.ortho.back": {
+      "symbol": "orthographic",
+      "overlay": "back"
+    },
+    "view.ortho.bottom": {
+      "symbol": "orthographic",
+      "overlay": "bottom"
+    },
+    "view.ortho.front": {
+      "symbol": "orthographic",
+      "overlay": "front"
+    },
+    "view.ortho.left": {
+      "symbol": "orthographic",
+      "overlay": "left"
+    },
+    "view.ortho.right": {
+      "symbol": "orthographic",
+      "overlay": "right"
+    },
+    "view.ortho.top": {
+      "symbol": "orthographic",
+      "overlay": "top"
+    },
+    "view.panel.architecture_frames.toggle": {
+      "symbol": "window",
+      "overlay": "settings"
+    },
+    "view.panel.architecture_slabs.toggle": {
+      "symbol": "slab",
+      "overlay": "settings"
+    },
+    "view.panel.architecture_stairs.toggle": {
+      "symbol": "stairs",
+      "overlay": "settings"
+    },
+    "view.panel.architecture_walls.toggle": {
+      "symbol": "wall",
+      "overlay": "settings"
+    },
+    "view.panel.help.toggle": {
+      "symbol": "help",
+      "overlay": null
+    },
+    "view.panel.hotspots.toggle": {
+      "symbol": "hotspot",
+      "overlay": "settings"
+    },
+    "view.panel.hvac.toggle": {
+      "symbol": "hvac_duct",
+      "overlay": "settings"
+    },
+    "view.panel.materials.toggle": {
+      "symbol": "material",
+      "overlay": "list"
+    },
+    "view.panel.mcp.toggle": {
+      "symbol": "mcp",
+      "overlay": null
+    },
+    "view.panel.model_settings.toggle": {
+      "symbol": "model_settings",
+      "overlay": null
+    },
+    "view.panel.object.toggle": {
+      "symbol": "object_instance",
+      "overlay": null
+    },
+    "view.panel.objects.toggle": {
+      "symbol": "prototypes",
+      "overlay": null
+    },
+    "view.panel.polyline.toggle": {
+      "symbol": "polyline",
+      "overlay": "settings"
+    },
+    "view.panel.profile.toggle": {
+      "symbol": "hybrid",
+      "overlay": null
+    },
+    "view.panel.random.toggle": {
+      "symbol": "random",
+      "overlay": "settings"
+    },
+    "view.panel.selection.toggle": {
+      "symbol": "selection",
+      "overlay": null
+    },
+    "view.panel.shaders.toggle": {
+      "symbol": "shader",
+      "overlay": "settings"
+    },
+    "view.panel.tutorials.toggle": {
+      "symbol": "tutorial",
+      "overlay": null
+    },
+    "view.panel.ui_settings.toggle": {
+      "symbol": "ui_settings",
+      "overlay": null
+    },
+    "view.panel.vector_text.toggle": {
+      "symbol": "vector_text",
+      "overlay": "settings"
+    },
+    "view.panels.toggle": {
+      "symbol": "panel",
+      "overlay": "eye"
+    },
+    "view.plugin_manager": {
+      "symbol": "plugin",
+      "overlay": null
+    },
+    "view.polyline_settings": {
+      "symbol": "polyline",
+      "overlay": "settings"
+    },
+    "view.profile.buttons": {
+      "symbol": "buttons",
+      "overlay": null
+    },
+    "view.profile.hybrid": {
+      "symbol": "hybrid",
+      "overlay": null
+    },
+    "view.profile.menus": {
+      "symbol": "menus",
+      "overlay": null
+    },
+    "view.random_tool_settings": {
+      "symbol": "random",
+      "overlay": "settings"
+    },
+    "view.selection": {
+      "symbol": "selection",
+      "overlay": null
+    },
+    "view.toolbar.actions.hide": {
+      "symbol": "copy",
+      "overlay": "hide"
+    },
+    "view.toolbar.actions.show": {
+      "symbol": "copy",
+      "overlay": "show"
+    },
+    "view.toolbar.advanced_mesh.hide": {
+      "symbol": "remesh",
+      "overlay": "hide"
+    },
+    "view.toolbar.advanced_mesh.show": {
+      "symbol": "remesh",
+      "overlay": "show"
+    },
+    "view.toolbar.architecture.hide": {
+      "symbol": "wall",
+      "overlay": "hide"
+    },
+    "view.toolbar.architecture.show": {
+      "symbol": "wall",
+      "overlay": "show"
+    },
+    "view.toolbar.arrays.hide": {
+      "symbol": "array_plane",
+      "overlay": "hide"
+    },
+    "view.toolbar.arrays.show": {
+      "symbol": "array_plane",
+      "overlay": "show"
+    },
+    "view.toolbar.camera.hide": {
+      "symbol": "camera",
+      "overlay": "hide"
+    },
+    "view.toolbar.camera.show": {
+      "symbol": "camera",
+      "overlay": "show"
+    },
+    "view.toolbar.construction_entities.hide": {
+      "symbol": "dimension",
+      "overlay": "hide"
+    },
+    "view.toolbar.construction_entities.show": {
+      "symbol": "dimension",
+      "overlay": "show"
+    },
+    "view.toolbar.construction_points.hide": {
+      "symbol": "line",
+      "overlay": "hide"
+    },
+    "view.toolbar.construction_points.show": {
+      "symbol": "line",
+      "overlay": "show"
+    },
+    "view.toolbar.hvac.hide": {
+      "symbol": "hvac_duct",
+      "overlay": "hide"
+    },
+    "view.toolbar.hvac.show": {
+      "symbol": "hvac_duct",
+      "overlay": "show"
+    },
+    "view.toolbar.in_tool_operators.hide": {
+      "symbol": "finish",
+      "overlay": "hide"
+    },
+    "view.toolbar.in_tool_operators.show": {
+      "symbol": "finish",
+      "overlay": "show"
+    },
+    "view.toolbar.mech.hide": {
+      "symbol": "cog",
+      "overlay": "hide"
+    },
+    "view.toolbar.mech.show": {
+      "symbol": "cog",
+      "overlay": "show"
+    },
+    "view.toolbar.modification.hide": {
+      "symbol": "move",
+      "overlay": "hide"
+    },
+    "view.toolbar.modification.show": {
+      "symbol": "move",
+      "overlay": "show"
+    },
+    "view.toolbar.modification_2.hide": {
+      "symbol": "fill_loop",
+      "overlay": "hide"
+    },
+    "view.toolbar.modification_2.show": {
+      "symbol": "fill_loop",
+      "overlay": "show"
+    },
+    "view.toolbar.primitives.hide": {
+      "symbol": "sphere",
+      "overlay": "hide"
+    },
+    "view.toolbar.primitives.show": {
+      "symbol": "sphere",
+      "overlay": "show"
+    },
+    "view.toolbar.random.hide": {
+      "symbol": "random",
+      "overlay": "hide"
+    },
+    "view.toolbar.random.show": {
+      "symbol": "random",
+      "overlay": "show"
+    },
+    "view.toolbar.rendering.hide": {
+      "symbol": "raytrace",
+      "overlay": "hide"
+    },
+    "view.toolbar.rendering.show": {
+      "symbol": "raytrace",
+      "overlay": "show"
+    },
+    "view.toolbar.solids.hide": {
+      "symbol": "union",
+      "overlay": "hide"
+    },
+    "view.toolbar.solids.show": {
+      "symbol": "union",
+      "overlay": "show"
+    },
+    "view.toolbar.voxel.hide": {
+      "symbol": "voxel",
+      "overlay": "hide"
+    },
+    "view.toolbar.voxel.show": {
+      "symbol": "voxel",
+      "overlay": "show"
+    },
+    "view.toolbars.toggle": {
+      "symbol": "toolbar",
+      "overlay": "eye"
+    },
+    "view.vector_text_settings": {
+      "symbol": "vector_text",
+      "overlay": "settings"
+    },
+    "view.workspace.reset_layout": {
+      "symbol": "ui_settings",
+      "overlay": "refresh"
+    }
+  }
+}
