@@ -17,6 +17,7 @@ pub enum Kind {
     Number,
     Checkbox,
     List,
+    Material,
     Hotspot,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -76,6 +77,9 @@ impl Declaration {
             Kind::Number => value.as_f64().is_some_and(f64::is_finite),
             Kind::Checkbox => value.is_boolean(),
             Kind::List => value.as_str().is_some_and(|s| self.options.contains_key(s)),
+            Kind::Material => value
+                .as_str()
+                .is_some_and(|s| !s.trim().is_empty() && s.len() <= 4096),
             Kind::Hotspot => {
                 serde_json::from_value::<Vec3>(value.clone()).is_ok_and(|p| p.is_finite())
             }
@@ -200,6 +204,14 @@ impl Document {
             return Err("Use the hotspot handle to change its position".into());
         }
         declaration.validate_value(&value)?;
+        if declaration.kind == Kind::Material
+            && !self
+                .materials()
+                .iter()
+                .any(|m| Some(m.id.as_str()) == value.as_str())
+        {
+            return Err("Selected material is not in the model catalog".into());
+        }
         let mut values = self.script_parameter_values(definition, path);
         let initialized = path
             .and_then(|p| self.initialized_script_parameter(p, id))
@@ -232,6 +244,41 @@ impl Document {
     }
 }
 
+impl Document {
+    /// Includes unplaced prototype defaults and initialized per-instance choices.
+    pub(in crate::document) fn script_material_parameter_is_used(&self, material: &str) -> bool {
+        let paths = std::cell::LazyCell::new(|| self.occurrence_refs().unwrap_or_default());
+        self.definitions.keys().any(|definition| {
+            let declarations = self.script_parameter_declarations(*definition, None);
+            let prototype_values = self.script_parameter_values(*definition, None);
+            declarations
+                .iter()
+                .filter(|d| d.kind == Kind::Material)
+                .any(|d| {
+                    d.default_value.as_str() == Some(material)
+                        || prototype_values.get(&d.id).and_then(Value::as_str) == Some(material)
+                        || paths
+                            .iter()
+                            .filter(|p| {
+                                self.resolve_occurrence(p)
+                                    .is_some_and(|r| r.definition.id == *definition)
+                            })
+                            .any(|p| {
+                                self.script_parameter_values(*definition, Some(p))
+                                    .get(&d.id)
+                                    .and_then(Value::as_str)
+                                    == Some(material)
+                                    || self
+                                        .initialized_script_parameter(p, &d.id)
+                                        .as_ref()
+                                        .and_then(Value::as_str)
+                                        == Some(material)
+                            })
+                })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +293,69 @@ mod tests {
             hotspot_style: None,
         }
     }
+    #[test]
+    fn material_parameters_validate_references_copy_roundtrip_and_protect_unplaced_defaults() {
+        let mut d = Document::new();
+        let first = d
+            .add_cuboid("material params", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let id = d.resolve_occurrence(&first).unwrap().definition.id;
+        for key in ["finish-a", "finish-b"] {
+            d.put_material(materials::Material {
+                id: key.into(),
+                name: key.into(),
+                ..Default::default()
+            })
+            .unwrap();
+        }
+        let declaration = Declaration {
+            id: "finish".into(),
+            label: "Material".into(),
+            scope: Scope::Instance,
+            kind: Kind::Material,
+            default_value: Value::from("finish-a"),
+            options: Default::default(),
+            hotspot_style: None,
+        };
+        d.set_script_parameter_declarations(id, vec![declaration.clone()])
+            .unwrap();
+        assert!(d.material_is_used("finish-a"));
+        assert!(
+            d.set_script_parameter(id, Some(&first), "finish", Value::from("missing"))
+                .is_err()
+        );
+        d.set_script_parameter(id, Some(&first), "finish", Value::from("finish-b"))
+            .unwrap();
+        let copy = d.copy_root_occurrence(&first, Vec3::X * 3.).unwrap();
+        assert_eq!(
+            d.script_parameter_values(id, Some(&copy))["finish"],
+            "finish-b"
+        );
+        assert!(d.remove_material("finish-b").is_err());
+        let restored: Document = serde_json::from_value(serde_json::to_value(&d).unwrap()).unwrap();
+        assert_eq!(
+            restored.script_parameter_values(id, Some(&copy))["finish"],
+            "finish-b"
+        );
+        let unplaced = d.add_definition("unplaced", DefinitionKind::Mesh);
+        let shared = Declaration {
+            scope: Scope::Prototype,
+            default_value: Value::from("finish-b"),
+            ..declaration
+        };
+        d.set_script_parameter_declarations(unplaced, vec![shared])
+            .unwrap();
+        d.set_script_parameter(id, Some(&first), "finish", Value::from("finish-a"))
+            .unwrap();
+        d.set_script_parameter(id, Some(&copy), "finish", Value::from("finish-a"))
+            .unwrap();
+        assert!(
+            d.material_is_used("finish-b"),
+            "unplaced prototype defaults retain the material"
+        );
+        assert!(d.remove_material("finish-b").is_err());
+    }
+
     #[test]
     fn prototype_and_instance_values_copy_and_roundtrip_without_changing_defaults() {
         let mut document = Document::new();

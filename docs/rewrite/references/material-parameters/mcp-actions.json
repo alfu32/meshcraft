@@ -1,0 +1,359 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_object_script",
+    "arguments": {
+      "action": "create",
+      "api_version": 2,
+      "source": "$MATERIAL('prototypeFinish','Shared default material','smoke-white');\nfunction onCreate(){\n  $MATERIAL('finish','Instance material','ansi-grey');\n}\nfunction onAnimationFrame(params){\n  return cuboid(new Point(),new Point(3,2,2),'body',params.finish);\n}\n"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "parameter-wood",
+          "name": "Parameter Wood",
+          "color": {
+            "red": 171,
+            "green": 99,
+            "blue": 41,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {}
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          36
+        ]
+      ],
+      "id": "finish",
+      "value": "parameter-wood"
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        36
+      ],
+      "limit": 100
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        36
+      ],
+      "limit": 100
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            36
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "get"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          6,
+          5,
+          7
+        ],
+        "target": [
+          1.5,
+          1,
+          1
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.object_info",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "parameter-blue",
+          "name": "Renamed Blue",
+          "color": {
+            "red": 35,
+            "green": 85,
+            "blue": 180,
+            "alpha": 255
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "parameter-blue",
+          "name": "Renamed Blue",
+          "color": {
+            "red": 35,
+            "green": 85,
+            "blue": 180,
+            "alpha": 255
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          36
+        ]
+      ],
+      "id": "finish",
+      "value": "parameter-blue"
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        36
+      ],
+      "limit": 100
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        36
+      ],
+      "limit": 100
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.place_selected_definition",
+      "arguments": {
+        "definition_id": 34
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 4,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            36
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            37
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "get"
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          36
+        ],
+        [
+          37
+        ]
+      ],
+      "id": "finish",
+      "value": "parameter-wood"
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            36
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            37
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "get"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/material-parameters/material-parameters.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/material-parameters/material-parameters.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            12,
+            10
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            12,
+            11
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "get"
+    }
+  }
+]

@@ -19,7 +19,7 @@ pub(crate) fn entry(name: &str, signature: &str, insert: &str, help: &str) -> En
 pub(crate) fn is_declaration(name: &str) -> bool {
     matches!(
         name,
-        "$TEXT" | "$NUMBER" | "$CHECKBOX" | "$LIST" | "$HOTSPOT" | "$IFC"
+        "$TEXT" | "$NUMBER" | "$CHECKBOX" | "$LIST" | "$MATERIAL" | "$HOTSPOT" | "$IFC"
     )
 }
 pub(crate) fn prioritize(entries: &mut [Entry]) {
@@ -50,6 +50,12 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "$LIST(id, values, label=id, defaultValue=firstKey)",
             "$LIST('style', {solid: 'Solid', open: 'Open'}, 'Style', 'solid');",
             "Declare a single-choice model parameter. values maps stable stored string keys to display labels; the frame receives the chosen key. Omitted default selects the first key. Declare outside hooks or in onCreate, never in onAnimationFrame.",
+        ),
+        entry(
+            "$MATERIAL",
+            "$MATERIAL(id, label=id, defaultValue='ansi-grey')",
+            "$MATERIAL('finish', 'Material', 'ansi-grey');",
+            "Declare a material picker backed by the current model catalog, including procedural materials. Outside hooks: shared prototype choice; inside onCreate: independent instance choice. The stored value is a material ID; onAnimationFrame receives the resolved Material as params[id], ready for geometry helpers. Choices update when catalog materials are added or renamed. Unknown saved IDs keep their authored value and render the ANSI grey fallback until reassigned. Declare outside hooks or in onCreate, never in onAnimationFrame.",
         ),
         entry(
             "Point",
@@ -554,7 +560,7 @@ pub(crate) fn catalog() -> Vec<Entry> {
             "params",
             "params: readonly model parameter values (API v2)",
             "params.",
-            "First argument of onAnimationFrame in API v2. Contains all $TEXT/$NUMBER/$CHECKBOX/$LIST values plus declared $HOTSPOT objects, with their current position. Prototype values are shared; onCreate declarations are per instance. The argument can be named params, parms, or any valid JS identifier. The instance remains this and model is the second argument.",
+            "First argument of onAnimationFrame in API v2. Contains all $TEXT/$NUMBER/$CHECKBOX/$LIST values and resolved $MATERIAL choices plus declared $HOTSPOT objects, with their current position. Prototype values are shared; onCreate declarations are per instance. The argument can be named params, parms, or any valid JS identifier. The instance remains this and model is the second argument.",
         ),
         entry(
             "onCreate",

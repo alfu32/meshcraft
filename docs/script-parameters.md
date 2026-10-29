@@ -1,6 +1,6 @@
 # Script model parameters
 
-Object scripts declare model parameters with `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST` and
+Object scripts declare model parameters with `$TEXT`, `$NUMBER`, `$CHECKBOX`, `$LIST`, `$MATERIAL` and
 `$HOTSPOT`. The Object Properties panel renders these declarations. Their identifiers are
 bold magenta in the editor and lead Ctrl+Space suggestions; hover shows the same help published
 through MCP. The former `hotspot()` helper is removed; use `$HOTSPOT()`.
@@ -37,6 +37,7 @@ function onAnimationFrame(params, model) {
 | `$NUMBER(id, label=id, defaultValue=0)` | Zero | Finite number in internal model units |
 | `$CHECKBOX(id, label=id, defaultValue=false)` | False | Boolean |
 | `$LIST(id, values, label=id, defaultValue=firstKey)` | First declared choice | Selected string key |
+| `$MATERIAL(id, label=id, defaultValue='ansi-grey')` | ANSI grey | Resolved catalog Material; stored value is its ID |
 | `$HOTSPOT(position, id, label=id, shape=$HOTSPOT_SHAPE_CIRCLE, color="#00ffffff")` | Supplied Point | Hotspot object with `id`, `kind`, `position` |
 
 `values` maps stable keys to display labels. The default must be a valid key. Pass `undefined`
@@ -118,3 +119,59 @@ IFC creation metadata is declared with `$IFC` and read through `this.ifc`; unlik
 shared form parameters, prototype IFC defaults are copied into each new instance.
 See [IFC properties](ifc-properties.md). Only the corrected `$HOTSPOT_SHAPE_*`
 constant spelling is supported; the former misspelled aliases are removed.
+
+## Material parameters
+
+```javascript
+function onCreate() {
+  $MATERIAL('finish', 'Material', 'smoke-white');
+}
+function onAnimationFrame(params) {
+  return cuboid(new Point(), new Point(2, 3, 1), 'body', params.finish);
+}
+```
+
+`$MATERIAL` renders a picker over the **entire current model material catalog**,
+including procedural entries. It is a model declaration with the same scope rules
+as the other inputs: top level shares a choice across the prototype; `onCreate`
+makes it independent for each instance. Choices refresh when materials are added,
+deleted or renamed, without rerunning `onCreate`. A mixed instance selection shows
+an unset selection; changing it applies to all selected instances of that prototype.
+
+Authored values are stable material-ID strings. `onAnimationFrame` receives the
+resolved, immutable Material object in `params.finish`, ready to pass directly to
+geometry helpers. Its color, alpha, shading, texture/PBR and procedural metadata
+are retained. Generated faces carry the catalog ID for GPU shader rendering.
+Changing a catalog material updates its users. Referenced defaults and authored
+choices prevent deletion even if the material is not in the current frame.
+A missing saved ID stays authored and is labelled in the picker; geometry uses
+ANSI grey until reassigned. An explicit edit to a nonexistent ID is rejected.
+
+For MCP edits, pass the ID, not a copied material object:
+
+```json
+{"action":"set","definition_id":42,"paths":[[100]],"id":"finish","value":"smoke-white"}
+```
+
+The existing API also supports querying the complete catalog and building an
+ordinary list, for example at prototype scope:
+
+```javascript
+$LIST('finishId', Object.fromEntries(model.materials.map(m => [m.id, m.name])),
+      'Material', 'ansi-grey');
+function onAnimationFrame(params, model) {
+  return cuboid(new Point(), new Point(2, 3, 1), 'body',
+                model.getMaterial(params.finishId));
+}
+```
+
+Instance `$LIST` options are retained with the initializer; `$MATERIAL` is the
+catalog-backed input whose choices remain live. Material-only queries and inputs
+receive a lightweight catalog snapshot and do not require JavaScript to parse the
+scene's geometry query facade. The old geometry query APIs remain available.
+
+Script-generated finishes come from their script's material inputs. Use the
+Object Instance material fields for components with multiple surfaces, such as a
+frame/glazing pair or drawer box/face. Ordinary paint/assignment edits operate on
+authored mesh geometry; a script that emits a hard-coded finish will generate it
+again on its next evaluation.

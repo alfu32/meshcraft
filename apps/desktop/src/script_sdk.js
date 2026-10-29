@@ -44,7 +44,7 @@ const initialized=state.parameters||{},parameterValues=Object.create(null);
 const prototypeValues=request.prototypeParameters||{},instanceValues=request.instanceParameters||{};
 const apiVersion=request.source.apiVersion||1;
 const reserved=new Set(["__proto__","prototype","constructor"]);
-const validValue=(d,v)=>d.kind==='text'?typeof v==='string'&&v.length<=16384:d.kind==='number'?Number.isFinite(v):d.kind==='checkbox'?typeof v==='boolean':d.kind==='list'?typeof v==='string'&&Object.prototype.hasOwnProperty.call(d.options,v):v&&[v.x,v.y,v.z].every(Number.isFinite);
+const validValue=(d,v)=>d.kind==='text'?typeof v==='string'&&v.length<=16384:d.kind==='number'?Number.isFinite(v):d.kind==='checkbox'?typeof v==='boolean':d.kind==='list'?typeof v==='string'&&Object.prototype.hasOwnProperty.call(d.options,v):d.kind==='material'?typeof v==='string'&&v.trim().length>0&&v.length<=4096:v&&[v.x,v.y,v.z].every(Number.isFinite);
 function declare(kind,id,label,defaultValue,options={},hotspotStyle) {
  if(apiVersion!==2)throw Error('Model declarations require script API v2; switch the editor API selector.');
  if(phase==='frame')throw Error('Declare model inputs outside hooks or inside onCreate, not onAnimationFrame.');
@@ -63,6 +63,7 @@ function declare(kind,id,label,defaultValue,options={},hotspotStyle) {
 const $TEXT=(id,label=id,value="")=>declare('text',id,label,value);
 const $NUMBER=(id,label=id,value=0)=>declare('number',id,label,value);
 const $CHECKBOX=(id,label=id,value=false)=>declare('checkbox',id,label,value);
+const $MATERIAL=(id,label=id,value='ansi-grey')=>declare('material',id,label,value);
 function $LIST(id,values,label=id,value=Object.keys(values||{})[0]) {
  if(!values||Array.isArray(values)||typeof values!=='object'||Object.keys(values).length===0||Object.keys(values).length>256||Object.entries(values).some(([k,v])=>reserved.has(k)||typeof v!=='string'))throw Error('List choices must map nonempty keys to labels (at most 256).');
  return declare('list',id,label,value,values);
@@ -180,8 +181,9 @@ const freeze=o=>{if(o&&typeof o==="object"){Object.freeze(o);for(const v of Obje
 // Most generators only need their own geometry/state. Parse and freeze the scene
 // snapshot only when a script actually queries it, never once per ordinary instance.
 let data;
+const materialCatalog=request.materials?freeze(request.materials):null;
 const snapshot=()=>{if(request.deferModel){needsDeferredModel=true;throw Error("Deferred model query");}return data||(data=freeze(request.model||JSON.parse(__meshcraftModelJson)));};
-const model=Object.freeze({get objects(){return snapshot().objects;},get materials(){return snapshot().materials;},get settings(){return snapshot().settings;},time:request.time,deltaTime:request.deltaTime,getObject:id=>snapshot().objects.find(o=>o.id===id),findObjects:name=>snapshot().objects.filter(o=>o.name===name),getMaterial:id=>snapshot().materials.find(m=>m.id===id),queryGeometry:id=>snapshot().objects.find(o=>o.id===id)?.geometry||[]});
+const model=Object.freeze({get objects(){return snapshot().objects;},get materials(){return materialCatalog||snapshot().materials;},get settings(){return snapshot().settings;},time:request.time,deltaTime:request.deltaTime,getObject:id=>snapshot().objects.find(o=>o.id===id),findObjects:name=>snapshot().objects.filter(o=>o.name===name),getMaterial:id=>(materialCatalog||snapshot().materials).find(m=>m.id===id),queryGeometry:id=>snapshot().objects.find(o=>o.id===id)?.geometry||[]});
 // Compile in a lexical scope containing only the SDK and immutable query facade.
 const compile=(source,name)=> {
  if(/^\s*(?:async\s+)?function\b/.test(source))return eval("("+source+"\n)");
@@ -210,6 +212,9 @@ for(const d of declarations) {
  if(d.kind==='hotspot') {
   const h={kind:'hotspot',id:d.id,position:point(instance.hotspots[d.id]||value),...(d.hotspotStyle||defaultHotspotStyle)};
   parms[d.id]=h;declaredHotspots.push(h);
+ } else if(d.kind==='material') {
+  const catalog=model.materials;
+  parms[d.id]=catalog.find(m=>m.id===value)||catalog.find(m=>m.id==='ansi-grey')||new Material('#c0c0c0');
  } else parms[d.id]=value;
 }
 freeze(parms);

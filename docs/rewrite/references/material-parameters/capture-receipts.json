@@ -1,0 +1,22 @@
+{
+  "material-form": {
+    "version": "0.47.0",
+    "project": null,
+    "preview": false,
+    "revision": 3,
+    "generation": 0,
+    "frameSequence": 8,
+    "sha256": "fb776dade9068b4bbd05fb35bd56fec30d745af874db937c0b906dc0f5cfe2b8",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "material-catalog-update": {
+    "version": "0.47.0",
+    "project": null,
+    "preview": false,
+    "revision": 6,
+    "generation": 0,
+    "frameSequence": 12,
+    "sha256": "7bf298f997c78ea282c19aaf4e57d4faac974cd8c2341a8db15d8b2146425d32",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

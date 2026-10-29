@@ -328,6 +328,9 @@ impl Document {
     /// References include unplaced prototypes, per-instance replacements, scripted
     /// frames, architecture owners and architecture creation defaults.
     pub fn material_is_used(&self, id: &str) -> bool {
+        if self.script_material_parameter_is_used(id) {
+            return true;
+        }
         // These materials are the implicit creation defaults, even in an empty drawing.
         if [
             DEFAULT_LINE_MATERIAL,

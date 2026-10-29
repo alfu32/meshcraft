@@ -275,6 +275,10 @@ fn drawable_extensions(
     if let Some(material) = material {
         material.validate()?;
         extensions.insert(
+            materials::MATERIAL_KEY.into(),
+            Value::String(material.id.clone()),
+        );
+        extensions.insert(
             "k3d.meshcraftScriptMaterial".into(),
             serde_json::to_value(material).map_err(|e| e.to_string())?,
         );
@@ -537,6 +541,58 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_script_materials_keep_catalog_bindings_for_shader_rendering() {
+        let m = materials::Material {
+            id: "wood-choice".into(),
+            name: "Wood".into(),
+            procedural: Some(procedural::ProceduralMaterial {
+                program: procedural::WOOD.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let item = Drawable::Face {
+            id: "generated".into(),
+            points: [
+                ScriptPoint {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                    id: "a".into(),
+                },
+                ScriptPoint {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                    id: "b".into(),
+                },
+                ScriptPoint {
+                    x: 0.,
+                    y: 1.,
+                    z: 0.,
+                    id: "c".into(),
+                },
+            ],
+            color: m.color,
+            material: Some(m.clone()),
+        };
+        let frame = ScriptFrame::build(
+            &GeometryBundle::default(),
+            vec![item],
+            ScriptState::default(),
+        )
+        .unwrap();
+        let face = frame.geometry.triangles.values().next().unwrap();
+        assert_eq!(
+            materials::material_id(&face.extensions),
+            Some("wood-choice")
+        );
+        let retained: materials::Material =
+            serde_json::from_value(face.extensions["k3d.meshcraftScriptMaterial"].clone()).unwrap();
+        assert_eq!(retained, m);
+    }
+
     #[test]
     fn authored_geometry_hooks_keep_material_metadata_and_stable_point_ids() {
         let mut document = Document::new();

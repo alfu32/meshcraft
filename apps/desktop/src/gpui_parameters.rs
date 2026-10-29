@@ -59,12 +59,23 @@ pub(super) fn prepare(
     cx: &mut Context<MeshcraftShell>,
 ) {
     let rows = shell.session.native_script_parameters();
+    let materials = if rows.iter().any(|r| r.declaration.kind == Kind::Material) {
+        shell
+            .cached_document
+            .materials()
+            .into_iter()
+            .map(|m| (m.id, m.name))
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
     let key = format!(
-        "{}:{:?}",
+        "{}:{:?}:{:?}",
         shell.session.document_generation(),
         rows.iter()
             .map(|r| (&r.definition, &r.paths, &r.declaration))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        materials
     );
     if shell.parameters.key != key {
         shell.parameters = Ui {
@@ -130,17 +141,35 @@ pub(super) fn prepare(
                     ));
                     field.input = Some(input);
                 }
-                Kind::List => {
+                Kind::List | Kind::Material => {
                     let binding_key = shell.parameters.key.clone();
-                    let choices = row
-                        .declaration
-                        .options
-                        .iter()
-                        .map(|(key, label)| Choice {
-                            key: key.clone(),
-                            label: label.clone(),
-                        })
-                        .collect::<Vec<_>>();
+                    let mut choices = if row.declaration.kind == Kind::Material {
+                        materials
+                            .iter()
+                            .map(|(id, name)| Choice {
+                                key: id.clone(),
+                                label: name.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        row.declaration
+                            .options
+                            .iter()
+                            .map(|(key, label)| Choice {
+                                key: key.clone(),
+                                label: label.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    if row.declaration.kind == Kind::Material
+                        && let Some(id) = row.value.as_ref().and_then(Value::as_str)
+                        && !choices.iter().any(|c| c.key == id)
+                    {
+                        choices.push(Choice {
+                            key: id.into(),
+                            label: format!("Missing material: {id}"),
+                        });
+                    }
                     let selected = row
                         .value
                         .as_ref()

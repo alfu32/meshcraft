@@ -274,6 +274,7 @@ impl Sweep {
             };
             let input = json!({"id":format!("{:?}",path.path),"source":source,"state":state,
                 "geometry":meshcraft_core::document::scripts::geometry_drawables(&authored),
+                "materials":self.request.query_model.as_ref().unwrap_or(document).materials(),
                 "prototypeIfc":document.prototype_ifc(r.definition.id),
                 "prototypeIfcOmissions":document.prototype_ifc_omissions(r.definition.id),
                 "instanceIfc":document.instance_ifc(&path),
@@ -524,7 +525,7 @@ fn evaluate_once_with(
         delta: 0.,
     });
     worker(json!({"prepareModel":sweep.model()}))?;
-    let out: Output=serde_json::from_value(worker(json!({"id":"mcp-once","source":source,"state":{"initializer":"","properties":properties},"geometry":[],"hotspots":{},"time":0.,"deltaTime":0.}))?).map_err(|e|format!("Invalid script output: {e}"))?;
+    let out: Output=serde_json::from_value(worker(json!({"id":"mcp-once","source":source,"state":{"initializer":"","properties":properties},"geometry":[],"hotspots":{},"materials":sweep.request.document.materials(),"time":0.,"deltaTime":0.}))?).map_err(|e|format!("Invalid script output: {e}"))?;
     ScriptFrame::build(&Default::default(), out.items, out.state)
 }
 pub struct Clock {

@@ -217,3 +217,20 @@ edits; onCreate may override a copied prototype default for a new instance.
 The same metadata survives one-shot baking. See the [IFC guide](../../ifc-properties.md)
 for all property kinds, units and advanced options. Hotspot shape constants use
 only the corrected `$HOTSPOT_SHAPE_*` spelling.
+
+### Material model parameters — 0.47.0
+
+`$MATERIAL(id,label=id,defaultValue='ansi-grey')` declares a catalog-backed picker
+at prototype scope or inside `onCreate` at instance scope. Store material IDs;
+resolve them into immutable Material values in the frame parameter object. Lists
+track all current catalog entries, including procedural materials, and refresh
+on additions/renames without rerunning the initializer. Mixed selection edits
+apply transactionally to all matching selected instances. Defaults and authored
+choices retain their catalog materials. Missing saved IDs remain repairable with
+a visible missing label and ANSI-grey rendering; explicit unknown IDs are rejected.
+Generated faces preserve the selected catalog binding so the renderer uses its
+shader/PBR settings. The editor and MCP publish the signature and help; declaration
+identifiers get the existing special highlight and completion priority. Material
+queries can use a lightweight catalog without parsing scene query geometry in JS.
+See [the API examples](../../script-parameters.md#material-parameters) and
+[native evidence](../references/material-parameters/README.md).

@@ -53,12 +53,19 @@ Use `edit.undo` to undo an edit. Open/save/import can return a pending job.
 ## Script model parameters
 
 Use `api_version: 2` with `meshcraft_object_script` to declare `$TEXT`, `$NUMBER`, `$CHECKBOX`,
-`$LIST` and `$HOTSPOT` model parameters. Top-level calls declare shared prototype properties;
+`$LIST`, `$MATERIAL` and `$HOTSPOT` model parameters. Top-level calls declare shared prototype properties;
 `onCreate` calls declare independent instance properties. Read combined values through
 `onAnimationFrame(params, model)`, with the instance still bound to `this`. `$HOTSPOT` replaces
 the old unprefixed helper. `meshcraft_parameters` gets the current selection's typed property forms
 or sets a shared prototype value / values for explicit instance paths in one Undo transaction.
 See [declarations, persistence and exact examples](script-parameters.md).
+
+Material fields use `$MATERIAL(id,label=id,defaultValue='ansi-grey')`. Its stored
+value is a catalog material ID; frame parameters contain the resolved Material.
+`meshcraft_parameters` reports `kind:"material"` and accepts an ID string for set.
+`model.materials` queries the whole catalog, and `model.getMaterial(id)` resolves
+an ID. Native material pickers update as catalog entries change. See the material
+example in [script model parameters](script-parameters.md#material-parameters).
 
 ## JavaScript objects
 

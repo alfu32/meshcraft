@@ -106,7 +106,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "meshcraft_parameters",
-            "Read Object Properties parameter forms for the current selection, or set an authored prototype/instance parameter in one undoable transaction. set requires definition_id,id,value; omit paths for shared prototype scope, or pass occurrence paths for instance scope. Values are strictly typed. Declare with $TEXT/$NUMBER/$CHECKBOX/$LIST/$HOTSPOT, using script api_version=2.",
+            "Read Object Properties parameter forms for the current selection, or set an authored prototype/instance parameter in one undoable transaction. set requires definition_id,id,value; omit paths for shared prototype scope, or pass occurrence paths for instance scope. Values are strictly typed. Declare with $TEXT/$NUMBER/$CHECKBOX/$LIST/$MATERIAL/$HOTSPOT, using script api_version=2.",
             schema(
                 json!({"action":{"enum":["get","set"]},"definition_id":{"type":"integer","minimum":0},"paths":{"type":"array","items":{"type":"array","items":{"type":"integer","minimum":0}}},"id":{"type":"string"},"value":{}}),
                 &["action"],

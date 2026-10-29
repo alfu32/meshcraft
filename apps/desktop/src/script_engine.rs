@@ -594,6 +594,52 @@ function onAnimationFrame(params,model){
 }
 "#;
     #[test]
+    fn material_inputs_resolve_live_catalog_without_loading_scene_geometry() {
+        let engine = unsafe { Engine::load() }.unwrap();
+        let source = "$MATERIAL('shared','Shared','ansi-grey'); function onCreate(){ $MATERIAL('finish','Finish','ansi-grey'); this.created=(this.created||0)+1; } function onAnimationFrame(p){ this.choice=p.finish.id; this.shared=p.shared.id; this.label=p.finish.name; this.catalogFrozen=Object.isFrozen(model.materials)&&Object.isFrozen(model.getMaterial(p.finish.id)); return cuboid(new Point(),new Point(1,1,1),'body',p.finish); }";
+        let grey = serde_json::to_value(
+            meshcraft_core::document::materials::default_palette()
+                .into_iter()
+                .find(|m| m.id == "ansi-grey")
+                .unwrap(),
+        )
+        .unwrap();
+        let mut wood = grey.clone();
+        wood["id"] = json!("wood");
+        wood["name"] = json!("Wood");
+        wood["procedural"] = json!({"program":"meshcraft.wood.v1","parameters":{}});
+        let mut request = json!({"id":"test","source":{"source":source,"apiVersion":2},"state":{},"geometry":[],"hotspots":{},"time":0,"deltaTime":0,"deferModel":true,"materials":[grey,wood],"prototypeParameters":{"shared":"wood"},"instanceParameters":{"finish":"wood"}});
+        let first = engine.evaluate(&request).unwrap();
+        assert_eq!(first["state"]["properties"]["choice"], "wood");
+        assert_eq!(first["state"]["properties"]["catalogFrozen"], true);
+        assert_eq!(first["state"]["properties"]["shared"], "wood");
+        assert_eq!(first["state"]["parameters"]["finish"], "wood");
+        let items: Vec<meshcraft_core::document::scripts::Drawable> =
+            serde_json::from_value(first["items"].clone()).unwrap();
+        let frame = meshcraft_core::document::scripts::ScriptFrame::build(
+            &Default::default(),
+            items,
+            Default::default(),
+        )
+        .unwrap();
+        assert!(frame.geometry.triangles.values().all(|f| {
+            meshcraft_core::document::materials::material_id(&f.extensions) == Some("wood")
+        }));
+        request["state"] = first["state"].clone();
+        request["materials"][1]["name"] = json!("Renamed wood");
+        let next = engine.evaluate(&request).unwrap();
+        assert_eq!(next["state"]["properties"]["label"], "Renamed wood");
+        assert_eq!(next["state"]["properties"]["created"], 1);
+        request["instanceParameters"]["finish"] = json!("missing");
+        let fallback = engine.evaluate(&request).unwrap();
+        assert_eq!(fallback["state"]["properties"]["choice"], "ansi-grey");
+        assert_eq!(fallback["state"]["parameters"]["finish"], "missing");
+        request["source"]["source"] =
+            json!("function onAnimationFrame(){ $MATERIAL('bad'); return []; }");
+        assert!(engine.evaluate(&request).is_err());
+    }
+
+    #[test]
     fn model_inputs_preserve_scope_values_initializer_and_hotspot_positions_across_frames() {
         let engine = unsafe { Engine::load() }.unwrap();
         let first = evaluate(&engine, SOURCE, json!({}), json!({}), json!({}), json!({})).unwrap();

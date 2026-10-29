@@ -1,0 +1,11 @@
+{
+  "version": "0.47.0",
+  "prototypeAndInstancePickers": true,
+  "materialAddedAndRenamed": true,
+  "proceduralFaceBinding": "parameter-wood",
+  "mixedSelection": true,
+  "selectionWideEdit": true,
+  "usedMaterialDeletionRejected": true,
+  "saveOpenPreservesMaterial": true,
+  "platform": "Linux private Xvfb/Mesa; actual GPUI app"
+}
