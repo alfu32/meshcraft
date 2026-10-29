@@ -196,3 +196,5 @@ for portable archives, AppImage, Snap, MSI, MSIX and DMG. MSIX signing is deferr
 
 Meshcraft is licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE).
 Third-party asset notices retain their respective terms.
+
+Read the [Privacy Policy](docs/PRIVACY_POLICY.md) for data storage, network access and privacy contact details.
