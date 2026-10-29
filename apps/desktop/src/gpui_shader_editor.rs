@@ -361,9 +361,6 @@ fn save(shell: &mut MeshcraftShell, window: &mut Window, cx: &mut Context<Meshcr
             if let Some((material, object)) = parent {
                 edit(shell, material, window, cx);
                 shell.materials.editor.as_mut().unwrap().object = object;
-                if shell.materials.editor.as_ref().unwrap().object.is_some() {
-                    super::object_preview::open(shell, cx);
-                }
             }
         }
         Err(error) => {

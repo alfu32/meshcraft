@@ -1,0 +1,526 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/01-direct-modeling.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          18,
+          14,
+          24
+        ],
+        "target": [
+          0,
+          2,
+          -1.5
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            5071,
+            5068
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.selection.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            13,
+            11
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.object.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/03-architecture.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            13,
+            10
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "script.edit",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.new_water",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/07-branching-preview.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            21,
+            18
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.edit_tree",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/08-architectural-stairs.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          30,
+          16,
+          -24
+        ],
+        "target": [
+          10,
+          3,
+          6
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        6
+      ],
+      "limit": 1
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            6
+          ],
+          "kind": "semantic_handle",
+          "semantic_kind": "stair",
+          "id": "meshcraft:domain:2:architectureStairs:1"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.architecture_stairs.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            55
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "selection.edit_object",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        55
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "22"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "23"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "24"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "25"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "26"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "27"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "28"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "29"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "30"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "31"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "32"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "33"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "34"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "35"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "36"
+        },
+        {
+          "path": [
+            55
+          ],
+          "kind": "segment",
+          "id": "37"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          10,
+          15,
+          15
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "field_of_view": 36
+      }
+    }
+  }
+]

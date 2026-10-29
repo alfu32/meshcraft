@@ -171,3 +171,19 @@ and backend work limits through the editor and MCP. Previews, shadows and explic
 mesh bake share the same shader. Preserve prototype/instance properties, copy,
 history and persistence. See [the shader contract](../../branching-shaders.md) for
 limits, controls, path encoding and the scope of continuity/topological claims.
+
+### Material form previews and pattern orientation — #29/#30
+
+Shader material settings use the same split dialog as procedural object settings:
+independently scrolling fields on the left, an isolated live GPU preview on the
+right, with orbit, pan, zoom and Fit. Surface programs use a cube; scattered/water
+programs use a plane. Draft changes are debounced; invalid values retain the last
+valid preview. Previewing never modifies the drawing, selection or history.
+Switching to Conventional closes the preview; selecting a shader opens it.
+
+Brick and Wood expose `rotationU` and `rotationV` in degrees (default zero). These
+rotate the local procedural pattern frame about U/X followed by V/Y; the shader
+applies the inverse transform when sampling. Wood's grain-axis selection remains
+available. Source geometry, object transforms and mesh topology stay unchanged.
+Material defaults and per-assignment overrides use the existing parameter
+resolution, save/reopen and Undo/Redo paths; the schema is published through MCP.

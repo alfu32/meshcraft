@@ -1,0 +1,79 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/stair-fronts/multiple-turns.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          40,
+          30,
+          -34
+        ],
+        "target": [
+          15,
+          3,
+          8
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        6
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        6
+      ],
+      "offset": 1000,
+      "limit": 1000
+    }
+  }
+]

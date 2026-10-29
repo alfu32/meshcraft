@@ -44,6 +44,13 @@ height handle for a wireframe preview; release commits once, Escape cancels.
 Treads and support have separate material selectors. Copy/paste, move/rotate,
 Explode and Undo/Redo retain normal architectural behavior.
 
+Tread fronts are straight cross-sections perpendicular to the local walking
+direction. Sharp path corners form circular winders within the contour; the
+original path remains editable. Closely spaced corners that cannot fit a valid
+winder are rejected. U- and S-shaped flights use local contour intersections so a
+step cannot cut the opposite flight. See the
+[geometry and native MCP regression record](rewrite/references/stair-fronts/README.md).
+
 Select a slab to show its blue profile controls. Drag a control freely in 3D,
 with the same movement whether Shift is held or not. Geometry and guide snaps
 supply precise positions, including the ground grid. Without a snap, movement
@@ -177,5 +184,7 @@ accept both conventional and procedural IDs and retain them through regeneration
 and reopen.
 
 ![Architectural stairs](rewrite/references/stairs/overview.png)
+
+![Corrected straight tread fronts on winding stairs](rewrite/references/stair-fronts/after.png)
 
 ![Procedural material applied through the slab inspector](rewrite/references/stairs/procedural-material.png)

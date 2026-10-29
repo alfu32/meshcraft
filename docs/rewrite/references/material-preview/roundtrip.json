@@ -1,0 +1,57 @@
+{
+  "version": "0.45.2",
+  "material": {
+    "id": "material-1",
+    "name": "Brick",
+    "color": {
+      "red": 148,
+      "green": 48,
+      "blue": 23,
+      "alpha": 255
+    },
+    "shadingType": "phong",
+    "texturePath": null,
+    "textureScaleU": 1.0,
+    "textureScaleV": 1.0,
+    "procedural": {
+      "program": "meshcraft.brick.v1",
+      "parameters": {
+        "brickColor": [
+          0.58,
+          0.19,
+          0.09,
+          1.0
+        ],
+        "brickHeight": 0.25,
+        "brickWidth": 0.6,
+        "mortar": 0.08,
+        "mortarColor": [
+          0.65,
+          0.62,
+          0.54,
+          1.0
+        ],
+        "relief": 0.12,
+        "rotationU": 35,
+        "rotationV": 60,
+        "seed": 1,
+        "stagger": 0.5,
+        "variation": 0.22
+      },
+      "baseMaterial": null,
+      "lodDistance": 100.0,
+      "maxInstances": 50000,
+      "showBounds": false
+    },
+    "pbr": {
+      "roughness": 0.72,
+      "metallic": 0.0
+    }
+  },
+  "undoRedo": true,
+  "saveReopen": true,
+  "shaderDiagnostics": [],
+  "reopenedGeneration": 7,
+  "previousGeneration": 6,
+  "reopenedPath": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/work/material-roundtrip.octd"
+}

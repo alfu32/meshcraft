@@ -6,7 +6,7 @@ select any of the other languages and inspect its captions and feature list.
 The reserved product name is **Meshcraft-desktop**; the publisher is **K3D0**.
 
 This is a prepared import, **not a submitted Partner Center update**. The listing
-describes features in Meshcraft **0.45.0 or later**. Upload a matching current
+describes features in Meshcraft **0.45.2 or later**. Upload a matching current
 MSIX package before submitting it. The application interface is English; the
 listing translations explicitly say so. Translations have not received
 independent native-speaker review.
@@ -23,7 +23,7 @@ python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v
 
 The standard-library builder produces:
 
-| Output under `target/microsoft-store/` | Purpose |
+| Output under `packaging/microsoft-store/dist/` | Purpose |
 | --- | --- |
 | `meshcraft-store-english.zip` | English-first import: `en-us` and neutral `en` |
 | `meshcraft-store-all-languages.zip` | All 35 locale columns from the supplied export |
@@ -82,7 +82,7 @@ Shared screenshots intentionally show the English application interface.
 
 | CSV field | PNG dimensions |
 | --- | --- |
-| DesktopScreenshot1–8 | Native captures, 1882–1920 × 1051–1080 |
+| DesktopScreenshot1–8 | 1920 × 1080 native app-window captures |
 | StoreLogo300x300 | 300 × 300, transparent |
 | StoreLogoOverride150x150 / 71x71 | 150 × 150 / 71 × 71, transparent |
 | StoreLogo720x1080 | 720 × 1080 poster |
@@ -92,30 +92,55 @@ Shared screenshots intentionally show the English application interface.
 | OptionalPromo1000x800 | 1000 × 800 |
 | OptionalPromo414x180 | 414 × 180 |
 
-The hero is separate promotional artwork, not a fabricated app screenshot. It
-has no title, text or interface and keeps the primary icon in the upper central
-area. Xbox, mobile, Surface Hub and holographic slots do not apply to this desktop
-app. Sizes and asset usage are based on
-[Microsoft's MSIX screenshot and image guidance](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images).
+The six promotional illustrations show modeled features: the machined housing,
+12-edge I-section swept through two right-angle turns, extruded profile, dynamic pavilion, courtyard house, procedural
+materials and GPU trees. The hero is a text-free, UI-free vector illustration
+of actual world-space geometry queried through MCP. Other promotional layouts
+combine those geometry illustrations with genuine MCP viewport captures. Only
+the three small identity PNGs are resized logos. Xbox, mobile, Surface Hub and
+holographic slots do not apply. Sizes follow
+[Microsoft's MSIX image guidance](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images).
 
-[assets-manifest.json](assets-manifest.json) records screenshot provenance,
-hashes and scenarios. Captures 1–6 are the repository's existing app captures;
-7–8 were captured from the live 0.45.0 Linux app in an isolated 1920 × 1080
-desktop. These are not claims of Windows runtime validation. The stair capture
-uses [stair-demo.octd](stair-demo.octd); the tree capture uses
-[branching-families.octd](../../examples/branching-families.octd).
+All eight screenshots were captured anew from the live Linux app after modeling
+through MCP. They have no composited UI or marketing overlays. Their application
+version, source projects, hashes and capture methods are recorded in
+[assets-manifest.json](assets-manifest.json) and
+[capture-receipts.json](captures/capture-receipts.json). These are not claims of
+Windows runtime validation. The
+[modeling recipes and saved scenes](scenes/README.md) preserve the work and
+explain each feature demonstration.
 
-Promotional SVG layouts reuse the existing
-[application icon](../../assets/branding/meshcraft.png). To regenerate their PNGs:
+Saved models, recipes, transcripts, original render inputs, final PNGs and
+import ZIPs live under **packaging/microsoft-store**, outside Cargo's `target`.
+`cargo clean` can remove the executable; it cannot delete these assets. Private
+runtime caches and intermediate working captures are ignored, also outside
+`target`. The source assets and saved demonstration projects are versioned.
+
+To reopen the saved projects, operate Meshcraft through MCP and recapture all
+screenshots (Linux; Xvfb, Mesa, xdotool and ImageMagick required):
+
+```sh
+python3 scripts/capture_store_features.py
+```
+
+`--scene 04-javascript-editor` captures one demonstration. Add `--rebuild-scenes`
+to model the demonstrations again through MCP using the checked-in recipes.
+The transcript in [modeling-actions-0.45.1.json](captures/modeling-actions-0.45.1.json)
+records their original creation; [mcp-actions.json](captures/mcp-actions.json)
+records the latest capture session. Neither is a performance benchmark.
+
+To regenerate promotional SVG/PNG layouts from their saved MCP geometry and
+viewport inputs:
 
 ```sh
 python3 -m pip install CairoSVG
 python3 scripts/prepare_store_art.py
 ```
 
-ImageMagick's `convert` is also required for icon resizing and PNG metadata
-stripping. It is not required to import the already-generated bundle. This
-generator never alters screenshots.
+ImageMagick's `convert` is required for logo resizing and PNG metadata stripping.
+The generator never edits the Store screenshots. The raw viewport PNGs used in
+promotional layouts have only been losslessly re-encoded, with pixel equality
+checked against the MCP response images.
 
 ## Fields outside the CSV
 
@@ -126,31 +151,33 @@ certification notes. Set the main category to **Multimedia design**, subcategory
 tools**. These values match
 [Microsoft's category table](https://learn.microsoft.com/en-us/windows/uwp/publish/category-and-subcategory-table).
 
-Use the public [privacy notice](../../docs/privacy.md) and GitHub issue tracker for
-support. The supplied privacy URL becomes available after this branch is pushed.
-The notice explains local files/settings, optional loopback MCP access and
-external agent services. The prepared personal-information response is **Yes**:
-user-chosen files may contain personal information and connected clients can read
-model content. It does not imply automatic analytics or developer uploads.
-See [Microsoft's support and privacy fields](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/support-info).
+Use the public [privacy policy](../../docs/PRIVACY_POLICY.md), adapted from k3d's
+policy with the application name changed to Meshcraft. The policy includes the
+publisher's privacy contact. The former [privacy URL](../../docs/privacy.md)
+continues to point readers to the current policy. GitHub issues remain the support
+contact. The prepared personal-information response is **Yes**: user-chosen files
+may contain personal information and connected MCP clients can read model
+content. It does not imply automatic analytics or developer uploads. See
+[Microsoft's support and privacy fields](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/support-info).
 
 Partner Center still requires its authenticated account steps: package upload,
 the official age-rating questionnaire, publisher declarations and the chosen
 markets/schedule. No official age rating or private publisher contact details
 have been invented, and no secrets are included in this presentation bundle.
 
-## Validation record — 0.45.1
+## Validation record — 0.45.2
 
-Validated locally on 28 October 2026:
+Validated locally on 29 October 2026:
 
 | Check | Result |
 | --- | --- |
 | `python3 scripts/microsoft_store.py --update-export` | Both import folders and ZIPs built; 35 locales and 17 images |
 | `python3 scripts/microsoft_store.py --check` | Export metadata, content limits, source hashes, dimensions and paths passed |
-| `python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v` | 10 passed, including a relocated self-contained import folder |
+| `python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v` | 12 passed, including a relocated self-contained import folder |
 | `python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v` | 17 passed; default stress capture size unchanged |
 | `cargo fmt --all --check` | Passed |
-| `cargo test --workspace --locked` | 769 passed; 21 existing ignored tests |
+| `cargo test --workspace --locked` | 774 passed; 22 platform/GPU checks ignored by default |
+| Four targeted native GPU checks | Projection/markers, instance reuse, brick/wood rotations and object preview passed |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
 | `cargo build --locked -p meshcraft-desktop --bin meshcraft` | Passed |
 | `python3 scripts/export_tool_inventory.py --check` | 289 entries checked; user review columns preserved |
@@ -158,6 +185,6 @@ Validated locally on 28 October 2026:
 
 Both ZIPs passed CRC checks and contain one CSV plus 17 PNGs beneath the expected
 root. A headless Chromium check of the offline review rendered all ten English
-features and eight screenshot entries. The images were also inspected visually.
+features, eight screenshot entries and six feature-art images. The images were also inspected visually.
 Partner Center import/certification and independent translation review were not
 performed; this record does not claim otherwise.

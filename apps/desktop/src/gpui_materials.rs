@@ -237,6 +237,26 @@ pub(super) fn edit(
                 editor.parameters =
                     parameter_fields(&editor.material, &this.cached_document, window, cx);
             }
+            let procedural = this
+                .materials
+                .editor
+                .as_ref()
+                .is_some_and(|e| e.material.procedural.is_some());
+            if procedural {
+                if this
+                    .materials
+                    .editor
+                    .as_ref()
+                    .is_some_and(|e| e.preview.is_none())
+                {
+                    object_preview::open(this, cx);
+                }
+            } else {
+                object_preview::detach(this);
+                if let Some(editor) = this.materials.editor.as_mut() {
+                    editor.preview = None;
+                }
+            }
             cx.notify();
         },
     );
@@ -265,6 +285,14 @@ pub(super) fn edit(
         _subscription: subscription,
         _color_subscription: color_subscription,
     });
+    if shell
+        .materials
+        .editor
+        .as_ref()
+        .is_some_and(|e| e.material.procedural.is_some())
+    {
+        object_preview::open(shell, cx);
+    }
     name.update(cx, |state, cx| state.focus(window, cx));
     cx.notify();
 }
@@ -1192,7 +1220,14 @@ pub(super) fn edit_tree(
             definition,
             instance: path,
         });
-        object_preview::open(shell, cx);
+        if shell
+            .materials
+            .editor
+            .as_ref()
+            .is_some_and(|e| e.preview.is_none())
+        {
+            object_preview::open(shell, cx);
+        }
     } else {
         shell
             .session

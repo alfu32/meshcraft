@@ -1,0 +1,12 @@
+{
+  "after-multiple-turns": {
+    "version": "0.45.2",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/stair-fronts/multiple-turns.octd",
+    "preview": false,
+    "revision": 8,
+    "generation": 1,
+    "frameSequence": 4,
+    "sha256": "425c20f076eef5df3899a2f3d1a95dedbb59aebf393fd828b57b8c21a19e88b2",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

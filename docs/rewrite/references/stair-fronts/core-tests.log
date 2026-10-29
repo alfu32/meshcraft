@@ -1,0 +1,17 @@
+   Compiling meshcraft-core v0.1.0 (/home/alfu64/Development/meshcraft/crates/meshcraft-core)
+    Finished `test` profile [optimized + debuginfo] target(s) in 47.85s
+     Running unittests src/lib.rs (target/debug/deps/meshcraft_core-47bbe005504e7f5e)
+
+running 10 tests
+test document::architecture::stairs::tests::stair_bad_inputs_are_rejected_before_installing_geometry ... ok
+test document::architecture::stairs::tests::stair_straight_shell_is_closed_and_reaches_requested_height ... ok
+test document::architecture::stairs::tests::stair_multiple_turns_have_single_perpendicular_tread_fronts ... ok
+test document::architecture::stairs::tests::stair_curved_flight_is_closed_and_preserves_its_outline ... ok
+test document::architecture::stairs::tests::stair_collinear_path_vertices_do_not_change_winder_geometry ... ok
+test document::architecture::stairs::tests::stair_guides_copy_both_sides_at_exact_spacing_and_count ... ok
+test document::architecture::stairs::tests::stair_walking_line_can_follow_the_contour_edge ... ok
+test document::architecture::stairs::tests::stair_turning_contours_keep_treads_inside_and_shells_closed ... ok
+test document::architecture::stairs::tests::stair_three_turns_cover_the_contour_with_straight_winder_fronts ... ok
+test document::architecture::stairs::tests::stair_owner_materials_regeneration_and_height_control_roundtrip ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 317 filtered out; finished in 0.02s

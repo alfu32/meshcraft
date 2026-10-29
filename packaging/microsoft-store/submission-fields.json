@@ -13,7 +13,7 @@
     "inAppPurchases": "None",
     "website": "https://github.com/alfu32/meshcraft",
     "supportContact": "https://github.com/alfu32/meshcraft/issues",
-    "privacyPolicy": "https://github.com/alfu32/meshcraft/blob/work/docs/privacy.md",
+    "privacyPolicy": "https://github.com/alfu32/meshcraft/blob/work/docs/PRIVACY_POLICY.md",
     "accessesPersonalInformation": "Yes — user-selected project files and their metadata may contain personal information; optional local MCP clients can access the model. No automatic developer analytics or project upload.",
     "deviceFamily": "Windows.Desktop",
     "packageArchitectures": ["x64", "arm64"],

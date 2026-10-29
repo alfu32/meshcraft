@@ -391,8 +391,14 @@ and guide-grid points inside the configured screen snap radius outrank attractio
 to a segment; model endpoints/midpoints retain their explicit-point priority.
 Selection keeps the normal face materials and colors. Only edges/outlines change
 color, with one blue world-space bounding box around the selection. Selection
-bounds and line membership are cached until selection/content changes. Identical
-scene publications must not schedule another GPU frame: an idle selected scene
+bounds and line membership are cached until selection/content changes. Explicitly
+selected segments show red dashed linework, small red endpoints, a green midpoint
+and a green arrow following their stored endpoint order. These glyphs use fixed
+screen sizes, cached endpoint buffers and batched GPU projection; navigation must
+not rebuild/upload selection geometry. Object/face selection recolors its lines
+without adding endpoint glyphs to every contained primitive. Preserve the blue
+bounding box and ordinary face materials. See the [requested rendering](../references/segment-feedback/requested.png).
+Identical scene publications must not schedule another GPU frame: an idle selected scene
 remains still while mouse/camera/tool/script changes continue to invalidate it.
 
 Modify menus/toolbars include Flip Faces (also reversing selected segments), Mirror

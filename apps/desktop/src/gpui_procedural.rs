@@ -1386,6 +1386,98 @@ mod tests {
         }
     }
     #[test]
+    #[ignore = "requires private X11/OpenGL; verifies brick/wood orientation uniforms"]
+    fn procedural_brick_wood_rotations_change_the_pattern_without_changing_geometry() {
+        use meshcraft_core::document::procedural::{self, BRICK, WOOD};
+        let (mut rl, thread) = raylib::init()
+            .size(480, 480)
+            .hidden()
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut target = rl.load_render_texture(&thread, 480, 480).unwrap();
+        let mut renderer = lighting::Renderer::new(&mut rl, &thread);
+        for id in [BRICK, WOOD] {
+            let mut d = drawing();
+            let mut material = d.materials().into_iter().find(|m| m.id == "grass").unwrap();
+            procedural::apply_preset(&mut material, id);
+            let mut images = vec![];
+            let mut geometry = None;
+            for values in [
+                None,
+                Some((0., 0.)),
+                Some((35., 0.)),
+                Some((0., 60.)),
+                Some((35., 60.)),
+            ] {
+                material.procedural.as_mut().unwrap().parameters = values
+                    .map(|(u, v)| {
+                        BTreeMap::from([
+                            ("rotationU".into(), json!(u)),
+                            ("rotationV".into(), json!(v)),
+                        ])
+                    })
+                    .unwrap_or_default();
+                d.put_material(material.clone()).unwrap();
+                let scene = RenderScene {
+                    document: Arc::new(d.clone()),
+                    grid_visible: false,
+                    guides_visible: false,
+                    ..Default::default()
+                };
+                let mesh = scene
+                    .document
+                    .scene_geometry_refs()
+                    .unwrap()
+                    .into_iter()
+                    .map(|p| scene.document.effective_geometry(&p).unwrap().clone())
+                    .collect::<Vec<_>>();
+                if let Some(ref previous) = geometry {
+                    assert_eq!(previous, &mesh);
+                } else {
+                    geometry = Some(mesh);
+                }
+                let camera = OrbitCamera {
+                    distance: 14.,
+                    yaw: 0.7,
+                    pitch: 0.5,
+                    ..Default::default()
+                };
+                renderer.prepare(&mut rl, &thread, &scene);
+                assert!(
+                    renderer.gpu.procedural.diagnostics.is_empty(),
+                    "{:?}",
+                    renderer.gpu.procedural.diagnostics
+                );
+                draw_offscreen_scene(
+                    &mut rl,
+                    &thread,
+                    &mut target,
+                    camera,
+                    &scene,
+                    0,
+                    &mut renderer,
+                );
+                images.push(copy_target_to_gpui_image(&target).unwrap());
+            }
+            assert_eq!(
+                images[0], images[1],
+                "{id}: zero rotations preserve old materials"
+            );
+            for i in 2..images.len() {
+                assert!(
+                    images[0]
+                        .pixels()
+                        .zip(images[i].pixels())
+                        .filter(|(a, b)| a != b)
+                        .count()
+                        > 100,
+                    "{id}: each orientation must change the visible pattern"
+                );
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "requires private X11/OpenGL; validates foliage scatter, buffers, wind and alpha"]
     fn procedural_foliage_gpu_scatter_seed_wind_and_alpha() {
         use meshcraft_core::document::procedural::{self, FOLIAGE};

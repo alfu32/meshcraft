@@ -10,31 +10,60 @@ uniform mat4 viewProjection;
 uniform vec2 viewportSize;
 uniform vec2 lineWidths;
 uniform int blackLines;
+// 0: ribbon; 1/2: endpoint; 3: midpoint; 4: direction arrow.
+uniform int glyphMode;
 out vec4 color;
+noperspective out vec2 glyphUv;
+noperspective out float distancePixels;
+flat out int feedbackStyle;
 vec4 project(vec3 point) {
     vec4 p=vec4(point,1.0);
     return viewProjection*vec4(dot(instanceRow0,p),dot(instanceRow1,p),dot(instanceRow2,p),1.0);
 }
 void main() {
-    vec4 a=project(endpointA), b=project(endpointB);
+    vec4 originalA=project(endpointA), originalB=project(endpointB);
+    vec4 a=originalA,b=originalB;
     float da=a.z+a.w, db=b.z+b.w;
-    if (da<0.0 && db<0.0) {gl_Position=vec4(2.0,2.0,2.0,1.0);color=vec4(0.0);return;}
+    color=vec4(0.0);glyphUv=vec2(0.0);distancePixels=0.0;feedbackStyle=0;
+    if (da<0.0 && db<0.0) {gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
     if (da<0.0) a=mix(a,b,da/(da-db));
     else if (db<0.0) b=mix(b,a,db/(db-da));
-    vec2 delta=(b.xy/b.w-a.xy/a.w)*viewportSize;
+    vec2 delta=(b.xy/b.w-a.xy/a.w)*viewportSize*0.5;
     float lengthPixels=length(delta);
-    vec2 side=lengthPixels>0.00001 ? vec2(-delta.y,delta.x)/lengthPixels : vec2(0.0);
+    vec2 tangent=lengthPixels>0.00001 ? delta/lengthPixels:vec2(1.0,0.0);
+    vec2 side=vec2(-tangent.y,tangent.x);
     int corner=gl_VertexID%6;
     float along=(corner==1 || corner==2 || corner==4) ? 1.0:0.0;
     float signSide=(corner==2 || corner==4 || corner==5) ? 1.0:-1.0;
     bool selected=instanceFlags.z>0.5;
+    if(glyphMode>0) {
+        // Use the real endpoints/midpoint, never a clipped replacement point.
+        vec4 center=glyphMode==1?originalA:glyphMode==2?originalB:(originalA+originalB)*0.5;
+        if(center.z+center.w<=0.0 || (glyphMode==4 && lengthPixels<12.0)) {
+            gl_Position=vec4(2.0,2.0,2.0,1.0);return;
+        }
+        glyphUv=vec2(along*2.0-1.0,signSide);
+        vec2 offset;
+        if(glyphMode==4) {
+            float arrowSize=min(6.0,lengthPixels*0.2);
+            offset=tangent*(glyphUv.x*arrowSize+8.0)+side*glyphUv.y*4.0;
+            feedbackStyle=3;
+        } else {
+            offset=glyphUv*(glyphMode==3?3.0:2.2);
+            feedbackStyle=2;
+        }
+        center.xy+=offset*2.0/viewportSize*center.w;
+        gl_Position=center;
+        color=glyphMode<=2?vec4(1.0,0.15,0.15,1.0):vec4(0.12,0.85,0.25,1.0);
+        return;
+    }
     float width=selected ? lineWidths.y:lineWidths.x;
     vec4 p=mix(a,b,along);
     p.xy+=side*signSide*width/viewportSize*p.w;
-    // Keep physical depth: a constant NDC bias exposes hidden edges in distant models.
-    // The face pass already supplies a small eye-depth-aware fill offset.
     gl_Position=p;
-    color=selected ? vec4(245.0/255.0,128.0/255.0,46.0/255.0,1.0)
+    distancePixels=along*lengthPixels;
+    feedbackStyle=selected?1:0;
+    color=selected ? vec4(1.0,0.15,0.15,1.0)
         : instanceFlags.y>0.5 ? vec4(130.0/255.0,147.0/255.0,161.0/255.0,1.0)
         : blackLines!=0 ? vec4(0.0,0.0,0.0,1.0) : vertexColor;
 }

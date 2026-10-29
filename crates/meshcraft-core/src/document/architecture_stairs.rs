@@ -1,5 +1,8 @@
 //! Contour-bounded stairs, with sampled walking stations and editable rail guides.
 use super::*;
+#[path = "architecture_stair_path.rs"]
+mod walking;
+use walking::WalkingLine;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -86,24 +89,6 @@ fn unit(v: Vec2) -> Result<Vec2, String> {
 fn key(p: Vec2) -> [i64; 2] {
     [(p.x / EPS).round() as i64, (p.y / EPS).round() as i64]
 }
-fn sample(path: &[Vec2], lengths: &[f64], mut d: f64) -> Result<(Vec2, Vec2), String> {
-    for (i, &l) in lengths.iter().enumerate() {
-        if d <= l + EPS || i == lengths.len() - 1 {
-            let tangent = unit(path[i + 1] - path[i])?;
-            let tangent = if (d - l).abs() <= EPS && i + 1 < lengths.len() {
-                unit(tangent + unit(path[i + 2] - path[i + 1])?)?
-            } else {
-                tangent
-            };
-            return Ok((
-                path[i] + (path[i + 1] - path[i]) * (d / l).clamp(0., 1.),
-                tangent,
-            ));
-        }
-        d -= l;
-    }
-    Err("Walking path is empty.".into())
-}
 fn station(p: Vec2, ring: &[Vec2]) -> Result<(), String> {
     let on_boundary = ring.iter().enumerate().any(|(i, a)| {
         let d = ring[(i + 1) % ring.len()] - *a;
@@ -124,6 +109,156 @@ fn station(p: Vec2, ring: &[Vec2]) -> Result<(), String> {
     }
     Ok(())
 }
+// Preserve boundary coordinates exactly. Per-cell float/integer polygon
+// normalization can round an endpoint differently on its two neighboring treads.
+fn triangulate_cell(points: &[Vec2]) -> Result<Vec<[usize; 3]>, String> {
+    let mut remaining = (0..points.len()).collect::<Vec<_>>();
+    let mut triangles = vec![];
+    while remaining.len() > 3 {
+        let ear = (0..remaining.len())
+            .find(|&i| {
+                let a = remaining[(i + remaining.len() - 1) % remaining.len()];
+                let b = remaining[i];
+                let c = remaining[(i + 1) % remaining.len()];
+                if cross(points[b] - points[a], points[c] - points[b]) <= EPS * EPS {
+                    return false;
+                }
+                !remaining.iter().any(|&j| {
+                    j != a
+                        && j != b
+                        && j != c
+                        && cross(points[b] - points[a], points[j] - points[a]) >= -EPS * EPS
+                        && cross(points[c] - points[b], points[j] - points[b]) >= -EPS * EPS
+                        && cross(points[a] - points[c], points[j] - points[c]) >= -EPS * EPS
+                })
+            })
+            .ok_or("Could not triangulate a perpendicular stair section.")?;
+        triangles.push([
+            remaining[(ear + remaining.len() - 1) % remaining.len()],
+            remaining[ear],
+            remaining[(ear + 1) % remaining.len()],
+        ]);
+        remaining.remove(ear);
+    }
+    triangles.push([remaining[0], remaining[1], remaining[2]]);
+    Ok(triangles)
+}
+
+// Split only the contour interval containing this walking station. An infinite
+// half-plane would cut unrelated later flights of a U/S-shaped stair as well.
+fn split_cross_section(
+    ring: &[Vec2],
+    point: Vec2,
+    tangent: Vec2,
+) -> Result<(Vec<Vec2>, Vec<Vec2>), String> {
+    let across = Vec2::new(-tangent.y, tangent.x);
+    let mut hits = vec![];
+    for i in 0..ring.len() {
+        let a = ring[i];
+        let b = ring[(i + 1) % ring.len()];
+        let da = dot(a - point, tangent);
+        let db = dot(b - point, tangent);
+        if da.abs() <= EPS {
+            hits.push(a);
+        }
+        if (da < -EPS && db > EPS) || (da > EPS && db < -EPS) {
+            hits.push(a + (b - a) * (da / (da - db)));
+        }
+    }
+    hits.sort_by(|a, b| dot(*a - point, across).total_cmp(&dot(*b - point, across)));
+    hits.dedup_by(|a, b| length(*a - *b) <= EPS);
+    // A walking line may follow a contour edge. Its station is then one end
+    // of the cross-section, rather than having width on both sides.
+    let on_station = hits.iter().find(|p| dot(**p - point, across).abs() <= EPS);
+    let left = hits
+        .iter()
+        .rev()
+        .find(|p| dot(**p - point, across) < -EPS)
+        .or(on_station);
+    let right = hits
+        .iter()
+        .find(|p| dot(**p - point, across) > EPS)
+        .or(on_station);
+    let (Some(&left), Some(&right)) = (left, right) else {
+        return Err(
+            "The walking path needs room for a perpendicular tread line at every step.".into(),
+        );
+    };
+    if length(right - left) <= EPS {
+        return Err("A perpendicular tread section has no width.".into());
+    }
+    let mut boundary = vec![];
+    for i in 0..ring.len() {
+        let a = ring[i];
+        let b = ring[(i + 1) % ring.len()];
+        boundary.push(a);
+        let delta = b - a;
+        let mut inserted = [left, right]
+            .into_iter()
+            .filter_map(|p| {
+                let t = dot(p - a, delta) / dot(delta, delta);
+                (t > EPS
+                    && t < 1. - EPS
+                    && cross(delta, p - a).abs() <= EPS * length(delta).max(1.))
+                .then_some((t, p))
+            })
+            .collect::<Vec<_>>();
+        inserted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        boundary.extend(inserted.into_iter().map(|(_, p)| p));
+    }
+    let index = |p| {
+        boundary
+            .iter()
+            .position(|v| length(*v - p) <= EPS)
+            .ok_or("Could not connect the tread line to its contour.")
+    };
+    let a = index(left)?;
+    let b = index(right)?;
+    let arc = |start: usize, end: usize| {
+        (0..=(end + boundary.len() - start) % boundary.len())
+            .map(|i| boundary[(start + i) % boundary.len()])
+            .collect::<Vec<_>>()
+    };
+    let first = arc(a, b);
+    let second = arc(b, a);
+    let forward = point + tangent * (EPS * 100.);
+    let first_forward = station(forward, &first).is_ok();
+    let second_forward = station(forward, &second).is_ok();
+    let (tread, remaining) = match (first_forward, second_forward) {
+        (true, false) => (second, first),
+        (false, true) => (first, second),
+        _ => {
+            return Err(
+                "A tread line cannot separate this walking path; adjust the contour or path."
+                    .into(),
+            );
+        }
+    };
+    if tread.len() < 3
+        || remaining.len() < 3
+        || area(&tread) <= EPS * EPS
+        || area(&remaining) <= EPS * EPS
+    {
+        return Err("A perpendicular tread section has zero area.".into());
+    }
+    Ok((tread, remaining))
+}
+
+fn tread_cells(ring: &[Vec2], path: &WalkingLine, count: u32) -> Result<Vec<Vec<Vec2>>, String> {
+    let total = path.length;
+    let mut remaining = ring.to_vec();
+    let mut cells = Vec::with_capacity(count as usize);
+    for step in 1..count {
+        let (point, tangent) = path.sample(total * f64::from(step) / f64::from(count))?;
+        station(point, &remaining)?;
+        let (cell, next) = split_cross_section(&remaining, point, tangent)?;
+        cells.push(cell);
+        remaining = next;
+    }
+    cells.push(remaining);
+    Ok(cells)
+}
+
 #[derive(Clone)]
 struct Side {
     a: Vec2,
@@ -188,7 +323,6 @@ pub(super) fn mesh(stair: &Stair) -> Result<Mesh, String> {
             }
         }
     }
-    let total: f64 = lengths.iter().sum();
     // Validate intermediate points too: concave contours can contain segment ends
     // while the segment itself crosses outside the footprint.
     for pair in path.windows(2) {
@@ -211,86 +345,51 @@ pub(super) fn mesh(stair: &Stair) -> Result<Mesh, String> {
             station(pair[0] + d * ((ts[0] + ts[1]) * 0.5), ring)?;
         }
     }
-    let mut field = outer.triangulate().map_err(|e| e.message.to_owned())?;
-    let progress = |point: Vec2| nearest_progress(point, &path, &lengths).0 / total;
-    let mut values = field
-        .points
-        .iter()
-        .copied()
-        .map(progress)
-        .collect::<Vec<_>>();
-    // Constrain the interpolated field along the actual walking path, including
-    // its bends. Contour triangles partition the whole footprint exactly once.
-    // A straight flight spanning the contour already has an exact affine
-    // progress field. Avoid subdividing it at every walking station.
-    let affine = path.len() == 2
-        && field.points.iter().zip(&values).all(|(p, value)| {
-            let unbounded = dot(*p - path[0], path[1] - path[0]) / (total * total);
-            (unbounded - *value).abs() <= EPS
-        });
-    if !affine {
-        let mut travelled = 0.;
-        for (i, &point) in path.iter().enumerate() {
-            insert_field_point(
-                &mut field.points,
-                &mut field.triangles,
-                &mut values,
-                point,
-                travelled / total,
-            );
-            if i < lengths.len() {
-                travelled += lengths[i];
-            }
+    let path = WalkingLine::new(&path, ring)?;
+    let total = path.length;
+    let cells = tread_cells(ring, &path, stair.step_count)?;
+    // Shared boundary positions have one underside height. At converging
+    // sections the lowest adjoining tread bounds it, preserving support below
+    // every tread while keeping a continuous underside rather than floating slabs.
+    let mut nodes = BTreeMap::<[i64; 2], (Vec2, f64)>::new();
+    for (step, cell) in cells.iter().enumerate() {
+        let high = (step + 1) as f64 / f64::from(stair.step_count);
+        for &point in cell {
+            let value = (path.nearest(point).0 / total).min(high);
+            let node = nodes.entry(key(point)).or_insert((point, value));
+            node.1 = node.1.min(value);
         }
-        for i in 0..=stair.step_count {
-            let (point, _) = sample(
-                &path,
-                &lengths,
-                total * f64::from(i) / f64::from(stair.step_count),
-            )?;
-            insert_field_point(
-                &mut field.points,
-                &mut field.triangles,
-                &mut values,
-                point,
-                f64::from(i) / f64::from(stair.step_count),
-            );
-        }
-    }
-    if field
-        .triangles
-        .len()
-        .saturating_mul(stair.step_count as usize)
-        > 2_000_000
-    {
-        return Err(
-            "Stair sampling exceeds the construction budget; simplify the path or reduce steps."
-                .into(),
-        );
     }
     let mut mesh = Mesh::default();
     let mut sides = BTreeMap::<[[i64; 2]; 2], Vec<Side>>::new();
     let material = |slot: &str| stair.materials.get(slot).map(String::as_str);
-    for i in 0..stair.step_count {
-        let low = f64::from(i) / f64::from(stair.step_count);
-        let high = f64::from(i + 1) / f64::from(stair.step_count);
+    for (i, contour) in cells.iter().enumerate() {
+        let high = (i + 1) as f64 / f64::from(stair.step_count);
         let top = stair.height * high;
-        for triangle in &field.triangles {
-            let vertices = triangle.map(|j| (field.points[j as usize], values[j as usize]));
-            let min = vertices.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-            let max = vertices
-                .iter()
-                .map(|p| p.1)
-                .fold(f64::NEG_INFINITY, f64::max);
-            if max - min <= EPS
-                && (min * f64::from(stair.step_count))
-                    .floor()
-                    .clamp(0., f64::from(stair.step_count - 1)) as u32
-                    != i
-            {
-                continue;
-            }
-            let cell = clip_progress(clip_progress(vertices.to_vec(), low, true), high, false);
+        let mut points = vec![];
+        for (j, &a) in contour.iter().enumerate() {
+            points.push(a);
+            let d = contour[(j + 1) % contour.len()] - a;
+            let mut inner = nodes
+                .values()
+                .filter_map(|&(point, _)| {
+                    let t = dot(point - a, d) / dot(d, d);
+                    (t > EPS
+                        && t < 1. - EPS
+                        && cross(d, point - a).abs() <= EPS * length(d).max(1.))
+                    .then_some((t, point))
+                })
+                .collect::<Vec<_>>();
+            inner.sort_by(|a, b| a.0.total_cmp(&b.0));
+            points.extend(inner.into_iter().map(|(_, p)| p));
+        }
+        points.dedup_by(|a, b| length(*a - *b) <= EPS);
+        let triangles = triangulate_cell(&points)?;
+        if triangles.len().saturating_mul(stair.step_count as usize) > 2_000_000 {
+            return Err("Stair sampling exceeds the construction budget; simplify the path or reduce steps.".into());
+        }
+        for triangle in &triangles {
+            let cell = triangle.map(|j| (points[j], nodes[&key(points[j])].1));
             if cell.len() < 3 {
                 continue;
             }
@@ -333,6 +432,19 @@ pub(super) fn mesh(stair: &Stair) -> Result<Mesh, String> {
         if edges.len() == 2 && (edges[0].top - edges[1].top).abs() <= EPS {
             continue;
         }
+        if edges.len() == 2 {
+            let step = (edge.top / stair.height * f64::from(stair.step_count)).round() - 1.;
+            let (point, tangent) = path.sample(total * step / f64::from(stair.step_count))?;
+            if [edge.a, edge.b]
+                .iter()
+                .any(|p| dot(*p - point, tangent).abs() > EPS * 100.)
+            {
+                return Err(
+                    "The walking path turns too tightly for straight tread fronts; adjust the contour or path."
+                        .into(),
+                );
+            }
+        }
         let (low_a, low_b) = if edges.len() == 2 {
             let other = edges.iter().min_by(|a, b| a.top.total_cmp(&b.top)).unwrap();
             (other.top, other.top)
@@ -357,7 +469,7 @@ pub(super) fn mesh(stair: &Stair) -> Result<Mesh, String> {
             continue;
         }
         let mid = (edge.a + edge.b) * 0.5;
-        let (distance, tangent, projected) = nearest_progress(mid, &path, &lengths);
+        let (distance, tangent, projected) = path.nearest(mid);
         let side = dot(mid - projected, Vec2::new(-tangent.y, tangent.x));
         if (distance <= EPS || distance >= total - EPS)
             && dot(edge.b - edge.a, tangent).abs() <= EPS
@@ -466,106 +578,6 @@ fn conform_vertical_edges(mesh: &mut Mesh, plane: Plane) -> Result<(), String> {
     Ok(())
 }
 
-// Linear clipping of a conforming scalar field keeps adjacent tread boundaries identical.
-fn clip_progress(input: Vec<(Vec2, f64)>, cut: f64, above: bool) -> Vec<(Vec2, f64)> {
-    let mut out = vec![];
-    if input.is_empty() {
-        return out;
-    }
-    for i in 0..input.len() {
-        let a = input[i];
-        let b = input[(i + 1) % input.len()];
-        let inside = |v: f64| {
-            if above {
-                v >= cut - EPS
-            } else {
-                v <= cut + EPS
-            }
-        };
-        if inside(a.1) {
-            out.push(a);
-        }
-        if inside(a.1) != inside(b.1) && (b.1 - a.1).abs() > EPS {
-            let t = ((cut - a.1) / (b.1 - a.1)).clamp(0., 1.);
-            out.push((a.0 + (b.0 - a.0) * t, cut));
-        }
-    }
-    out.dedup_by(|a, b| length(a.0 - b.0) <= EPS);
-    if out.len() > 1 && length(out[0].0 - out.last().unwrap().0) <= EPS {
-        out.pop();
-    }
-    out
-}
-fn nearest_progress(p: Vec2, path: &[Vec2], lengths: &[f64]) -> (f64, Vec2, Vec2) {
-    let mut best = f64::INFINITY;
-    let mut distance = 0.;
-    let mut tangent = Vec2::new(1., 0.);
-    let mut projected = p;
-    let mut offset = 0.;
-    for (i, &l) in lengths.iter().enumerate() {
-        let d = path[i + 1] - path[i];
-        let t = (dot(p - path[i], d) / (l * l)).clamp(0., 1.);
-        let q = path[i] + d * t;
-        let error = dot(p - q, p - q);
-        if error < best - EPS {
-            best = error;
-            distance = offset + l * t;
-            tangent = d * (1. / l);
-            projected = q;
-        } else if (error - best).abs() <= EPS {
-            distance = (distance + offset + l * t) * 0.5;
-            let n = tangent + d * (1. / l);
-            if let Ok(n) = unit(n) {
-                tangent = n;
-            }
-            projected = (projected + q) * 0.5;
-        }
-        offset += l;
-    }
-    (distance, tangent, projected)
-}
-fn insert_field_point(
-    points: &mut Vec<Vec2>,
-    triangles: &mut Vec<[u32; 3]>,
-    values: &mut Vec<f64>,
-    point: Vec2,
-    value: f64,
-) {
-    if let Some(i) = points.iter().position(|p| length(*p - point) <= EPS) {
-        values[i] = value;
-        return;
-    }
-    let mut output = vec![];
-    let new = points.len() as u32;
-    let mut inserted = false;
-    for t in triangles.iter().copied() {
-        let p = t.map(|i| points[i as usize]);
-        let signs = [
-            cross(p[1] - p[0], point - p[0]),
-            cross(p[2] - p[1], point - p[1]),
-            cross(p[0] - p[2], point - p[2]),
-        ];
-        if signs.iter().any(|s| *s < -EPS) {
-            output.push(t);
-            continue;
-        }
-        inserted = true;
-        if let Some(e) = signs.iter().position(|s| s.abs() <= EPS) {
-            output.extend([
-                [t[e], new, t[(e + 2) % 3]],
-                [new, t[(e + 1) % 3], t[(e + 2) % 3]],
-            ]);
-        } else {
-            output.extend([[t[0], t[1], new], [t[1], t[2], new], [t[2], t[0], new]]);
-        }
-    }
-    if inserted {
-        points.push(point);
-        values.push(value);
-        *triangles = output;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -632,6 +644,15 @@ mod tests {
                 .all(|(t, _)| t.iter().all(|i| m.points[*i].is_finite()))
         );
     }
+    #[test]
+    fn stair_walking_line_can_follow_the_contour_edge() {
+        let mut stair = straight();
+        stair.walking_path = vec![Vec3::ZERO, Vec3::Z * 12.];
+        let generated = mesh(&stair).unwrap();
+        assert_closed(&generated);
+        assert_straight_tread_fronts(&stair, &generated);
+    }
+
     #[test]
     fn stair_guides_copy_both_sides_at_exact_spacing_and_count() {
         let mut s = straight();
@@ -704,6 +725,200 @@ mod tests {
             assert_closed(&m);
         }
     }
+    // A tread front is a geometric straight cross-section, independent of the
+    // triangulation used to fill either neighboring horizontal surface.
+    fn assert_straight_tread_fronts(stair: &Stair, mesh: &Mesh) {
+        let plane = stair.plane().unwrap();
+        let path = stair
+            .walking_path
+            .iter()
+            .map(|p| plane.project(*p))
+            .collect::<Vec<_>>();
+        let ring = stair
+            .contour
+            .iter()
+            .map(|p| plane.project(*p))
+            .collect::<Vec<_>>();
+        let path = WalkingLine::new(&path, &ring).unwrap();
+        let total = path.length;
+        let mut boundaries = BTreeMap::<[[i64; 2]; 2], (Vec2, Vec2, BTreeMap<u32, usize>)>::new();
+        for (face, _) in &mesh.faces {
+            let points = face.map(|i| mesh.points[i]);
+            let heights = points.map(|p| (p - plane.origin).dot(plane.normal));
+            if heights.iter().any(|h| (*h - heights[0]).abs() > EPS) {
+                continue;
+            }
+            let level = (heights[0] / stair.height * f64::from(stair.step_count)).round();
+            if level < 1.
+                || level > f64::from(stair.step_count)
+                || (heights[0] - level * stair.height / f64::from(stair.step_count)).abs() > EPS
+            {
+                continue;
+            }
+            for edge in 0..3 {
+                let a = plane.project(points[edge]);
+                let b = plane.project(points[(edge + 1) % 3]);
+                let mut k = [key(a), key(b)];
+                k.sort();
+                let entry = boundaries
+                    .entry(k)
+                    .or_insert_with(|| (a, b, BTreeMap::new()));
+                *entry.2.entry(level as u32 - 1).or_default() += 1;
+            }
+        }
+        let mut fronts = BTreeSet::new();
+        for (_, (a, b, levels)) in boundaries {
+            let levels = levels
+                .into_iter()
+                .filter(|(_, count)| count % 2 == 1)
+                .map(|(level, _)| level)
+                .collect::<Vec<_>>();
+            if levels.len() < 2 {
+                continue;
+            }
+            let cut = *levels.last().unwrap();
+            let (point, tangent) = path
+                .sample(total * f64::from(cut) / f64::from(stair.step_count))
+                .unwrap();
+            for endpoint in [a, b] {
+                assert!(
+                    dot(endpoint - point, tangent).abs() < EPS * 100.,
+                    "tread front {cut} bends away from its perpendicular section: {endpoint:?}, station={point:?}, tangent={tangent:?}"
+                );
+            }
+            fronts.insert(cut);
+        }
+        assert_eq!(
+            fronts.len(),
+            stair.step_count as usize - 1,
+            "Each step must have a shared straight front"
+        );
+    }
+
+    #[test]
+    fn stair_multiple_turns_have_single_perpendicular_tread_fronts() {
+        // U-shaped flight: the same infinite cut line crosses both legs, so only
+        // the finite contour interval containing the walking station is valid.
+        let stair = Stair {
+            contour: [
+                (0., 0.),
+                (8., 0.),
+                (8., 10.),
+                (5., 10.),
+                (5., 3.),
+                (3., 3.),
+                (3., 10.),
+                (0., 10.),
+            ]
+            .map(|(x, z)| Vec3::new(x, 0., z))
+            .to_vec(),
+            walking_path: [(1.5, 10.), (1.5, 1.5), (6.5, 1.5), (6.5, 10.)]
+                .map(|(x, z)| Vec3::new(x, 0., z))
+                .to_vec(),
+            rail_left: false,
+            rail_right: false,
+            step_count: 22,
+            ..Default::default()
+        };
+        let generated = mesh(&stair).unwrap();
+        assert_straight_tread_fronts(&stair, &generated);
+        assert_closed(&generated);
+    }
+
+    #[test]
+    fn stair_three_turns_cover_the_contour_with_straight_winder_fronts() {
+        let mut stair = Stair {
+            contour: [
+                (0., 0.),
+                (0., 9.5),
+                (7.5, 9.5),
+                (7.5, 17.5),
+                (17.5, 17.5),
+                (17.5, 14.5),
+                (10.5, 14.5),
+                (10.5, 6.5),
+                (3., 6.5),
+                (3., 0.),
+            ]
+            .map(|(x, z)| Vec3::new(x, 0., z))
+            .to_vec(),
+            walking_path: [(1.5, 0.), (1.5, 8.), (9., 8.), (9., 16.), (17.5, 16.)]
+                .map(|(x, z)| Vec3::new(x, 0., z))
+                .to_vec(),
+            rail_left: false,
+            rail_right: false,
+            step_count: 30,
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let generated = mesh(&stair).unwrap();
+            assert_straight_tread_fronts(&stair, &generated);
+            assert_closed(&generated);
+            let plane = stair.plane().unwrap();
+            let footprint = area(
+                &stair
+                    .contour
+                    .iter()
+                    .map(|p| plane.project(*p))
+                    .collect::<Vec<_>>(),
+            )
+            .abs();
+            let tops: f64 = generated
+                .faces
+                .iter()
+                .filter_map(|(face, _)| {
+                    let p = face.map(|i| generated.points[i]);
+                    let normal = (p[1] - p[0]).cross(p[2] - p[0]);
+                    (normal.dot(plane.normal) > EPS && normal.cross(plane.normal).length() < EPS)
+                        .then_some(normal.length() * 0.5)
+                })
+                .sum();
+            assert!(
+                (tops - footprint).abs() < EPS * footprint,
+                "Treads must tile the whole contour once: {tops} vs {footprint}"
+            );
+            stair.contour.reverse();
+        }
+    }
+
+    #[test]
+    fn stair_collinear_path_vertices_do_not_change_winder_geometry() {
+        let mut stair = Stair {
+            contour: [
+                (0., 0.),
+                (8., 0.),
+                (8., 10.),
+                (5., 10.),
+                (5., 3.),
+                (3., 3.),
+                (3., 10.),
+                (0., 10.),
+            ]
+            .map(|(x, z)| Vec3::new(x, 0., z))
+            .to_vec(),
+            walking_path: [(1.5, 10.), (1.5, 1.5), (6.5, 1.5), (6.5, 10.)]
+                .map(|(x, z)| Vec3::new(x, 0., z))
+                .to_vec(),
+            rail_left: false,
+            rail_right: false,
+            ..Default::default()
+        };
+        let original = mesh(&stair).unwrap();
+        let original_path = stair.walking_path.clone();
+        stair.walking_path.clear();
+        for pair in original_path.windows(2) {
+            stair.walking_path.push(pair[0]);
+            stair
+                .walking_path
+                .push(pair[0] + (pair[1] - pair[0]) * 0.95);
+        }
+        stair.walking_path.push(*original_path.last().unwrap());
+        let refined = mesh(&stair).unwrap();
+        assert_eq!(original.points, refined.points);
+        assert_eq!(original.faces, refined.faces);
+        assert_eq!(original.edges, refined.edges);
+    }
+
     #[test]
     fn stair_curved_flight_is_closed_and_preserves_its_outline() {
         let points = |radius: f64, reverse: bool| {

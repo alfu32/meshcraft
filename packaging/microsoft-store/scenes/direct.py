@@ -1,0 +1,7 @@
+new()
+source=(root/'packaging/microsoft-store/scenes/direct-modeling.js').read_text()
+run(source,'Flange',dict(part='flange'))
+run(source,'Housing body',dict(part='body'))
+run(source,'Fasteners',dict(part='fasteners'))
+run(source.replace("'housing';","'profile';"),'Extruded profile')
+rpc.select([]);pose([11,10,15],[-.5,1,-1.5],36);save('01-direct-modeling')

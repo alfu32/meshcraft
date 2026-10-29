@@ -296,6 +296,7 @@ impl Renderer {
                 outlines: &self.outlines,
                 partial: &partial,
                 bounds: &self.selection_box,
+                segments: &self.direction_edges,
             }),
         );
         let direction = scene.lighting.direction();
@@ -530,7 +531,6 @@ impl Renderer {
         camera: OrbitCamera,
         size: (f32, f32),
     ) {
-        let height = size.1;
         let eye = camera.position();
         let settings = scene.lighting;
         let shader = &mut self.lit;
@@ -581,19 +581,6 @@ impl Renderer {
         }
         self.gpu.draw_surfaces(scene, camera, self.map.texture().id);
         self.gpu.draw_lines(scene, size);
-        // Draw direction feedback together above the surface, including coplanar model edges.
-        unsafe {
-            raylib::ffi::rlDrawRenderBatchActive();
-            raylib::ffi::rlDisableDepthTest();
-        }
-        for edge in &self.direction_edges {
-            direction_arrow(view, *edge, scene.thick_line_width, camera, height);
-        }
-        unsafe {
-            raylib::ffi::rlDrawRenderBatchActive();
-            raylib::ffi::rlEnableDepthTest();
-            raylib::ffi::rlEnableBackfaceCulling();
-        }
         for point in &self.selected_points {
             view.draw_sphere(ray_vec3(*point), 0.06, Color::new(227, 57, 49, 255));
         }
@@ -646,58 +633,6 @@ pub(super) fn stroke(
         } * factor);
     triangle(view, [a - offset_a, b - offset_b, b + offset_b], color);
     triangle(view, [a - offset_a, b + offset_b, a + offset_a], color);
-}
-
-/// A constant-pixel arrowhead on each explicitly selected segment, following endpoint order.
-fn direction_arrow(
-    view: &mut impl RaylibDraw3D,
-    [a, b]: [Vec3; 2],
-    width: f32,
-    camera: OrbitCamera,
-    height: f32,
-) {
-    let (Some(pa), Some(pb)) = (
-        project_point(camera, (height * 2., height), a),
-        project_point(camera, (height * 2., height), b),
-    ) else {
-        return;
-    };
-    let length = f64::from((pb.0 - pa.0).hypot(pb.1 - pa.1));
-    if length < 8. {
-        return;
-    }
-    let midpoint = (a + b) * 0.5;
-    let eye = camera.position();
-    let forward = (camera.target - eye)
-        .try_normalized(1e-12)
-        .unwrap_or(-Vec3::Z);
-    let right = forward
-        .cross(camera.up)
-        .try_normalized(1e-12)
-        .unwrap_or(Vec3::X);
-    let up = right.cross(forward);
-    let depth = if camera.orthographic {
-        f64::from(camera.distance)
-    } else {
-        (midpoint - eye).dot(forward)
-    };
-    let units = 2. * depth * (f64::from(camera.field_of_view).to_radians() * 0.5).tan()
-        / f64::from(height.max(1.));
-    let along = (b - a) / length;
-    let perpendicular = (right * -f64::from(pb.1 - pa.1) - up * f64::from(pb.0 - pa.0)) / length;
-    let arrow = 10_f64.min(length * 0.35);
-    let tip = midpoint + along * (arrow * 0.5) - forward * (units * 0.1);
-    let back = tip - along * arrow;
-    for side in [-1., 1.] {
-        stroke(
-            view,
-            [back + perpendicular * (side * arrow * units * 0.45), tip],
-            Color::new(190, 55, 20, 255),
-            width.max(2.),
-            camera,
-            height,
-        );
-    }
 }
 
 fn triangle(view: &mut impl RaylibDraw3D, [a, b, c]: [Vec3; 3], color: Color) {

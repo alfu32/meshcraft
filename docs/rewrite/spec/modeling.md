@@ -306,8 +306,20 @@ upper side outlines, including riser transitions, at spacing × levels 1..N;
 solid rail assemblies. Treads and support bind materials, including procedural
 materials, with normal architecture selection/visibility/editability semantics.
 
-The contour is partitioned by walking progress into nonoverlapping tread regions,
-with a continuous support underside and consistently oriented closed triangles.
+**Straight tread fronts (2026-10-29).** Partition the contour with one straight
+cross-section per walking station, perpendicular to its local walking tangent.
+Do not derive tread fronts from triangle-interpolated scalar contours: those
+produce zigzags at triangulation seams. Clip only the local contour interval;
+a U/S flight's cut must not remove an unrelated future flight. At sharp corners,
+use a contour-contained circular winder with analytic positions and tangents,
+retaining the original editable path. Curvature centers lie on the inner contour
+so adjacent sections do not cross inside the treads. Redundant collinear path
+points do not change geometry. Corners too close to fit a valid winder fail
+explicitly instead of producing overlapping treads.
+
+Tread regions tile the footprint once, with a continuous support underside and
+consistently oriented, watertight triangles. Neighboring tread fronts share
+exact boundary coordinates and subdivisions.
 Support straight, turning and sampled curved planar paths; resource limits must
 fail explicitly. Copy, transform, explode, history and project persistence retain
 canonical stair records and material references. Explode yields ordinary meshes

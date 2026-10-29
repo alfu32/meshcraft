@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 import microsoft_store as store
 
@@ -98,6 +99,22 @@ class StoreListingTests(unittest.TestCase):
             if row[0].startswith(("Trailer", "Mobile", "Xbox", "Holographic", "SurfaceHub")) \
                     or row[0] in ["ReleaseNotes", "PromoImage2400x1200"]:
                 self.assertFalse(any(row[3:]), row[0])
+
+    def test_every_screenshot_has_a_durable_mcp_scene_and_receipt(self):
+        receipts = json.loads((store.SOURCE / "captures/capture-receipts.json").read_text())
+        for shot in self.manifest["screenshots"]:
+            self.assertEqual(shot["captureTool"], "Meshcraft MCP + native app-window capture")
+            self.assertTrue((store.ROOT / shot["source"]).is_relative_to(store.SOURCE))
+            self.assertTrue((store.ROOT / shot["source"]).is_file())
+            self.assertFalse(shot["edited"])
+            self.assertEqual(receipts[Path(shot["file"]).stem]["sha256"], shot["sha256"])
+
+    def test_hero_illustrates_model_geometry_without_ui_text_or_resized_logo(self):
+        root = ET.parse(store.SOURCE / "assets/art/hero-1920x1080.svg").getroot()
+        ns = {"svg": "http://www.w3.org/2000/svg"}
+        self.assertGreater(len(root.findall(".//svg:polygon", ns)), 100)
+        self.assertFalse(root.findall(".//svg:text", ns))
+        self.assertFalse(root.findall(".//svg:image", ns))
 
 
 if __name__ == "__main__":

@@ -551,6 +551,7 @@ pub(super) struct Feedback<'a> {
     pub outlines: &'a [([Vec3; 2], bool, Rgba8)],
     pub partial: &'a [([Vec3; 2], Rgba8)],
     pub bounds: &'a [[Vec3; 2]],
+    pub segments: &'a [[Vec3; 2]],
 }
 pub(super) struct Scene {
     pub procedural: procedural::Renderer,
@@ -634,7 +635,12 @@ impl Scene {
                 }
             }
             if let Some(feedback) = feedback {
-                self.prepare_overlay(feedback.outlines, feedback.partial, feedback.bounds);
+                self.prepare_overlay(
+                    feedback.outlines,
+                    feedback.partial,
+                    feedback.bounds,
+                    feedback.segments,
+                );
             }
         }
         self.stats.groups = self.groups.len();
@@ -679,8 +685,9 @@ impl Scene {
         outlines: &[([Vec3; 2], bool, Rgba8)],
         partial: &[([Vec3; 2], Rgba8)],
         bounds: &[[Vec3; 2]],
+        segments: &[[Vec3; 2]],
     ) {
-        let mut sets: [MeshData; 3] = std::array::from_fn(|_| MeshData::default());
+        let mut sets: [MeshData; 4] = std::array::from_fn(|_| MeshData::default());
         for (e, selected, c) in outlines {
             sets[usize::from(*selected)].lines.push(LineVertex {
                 start: xyz(e[0]),
@@ -700,6 +707,15 @@ impl Scene {
                 start: xyz(e[0]),
                 end: xyz(e[1]),
                 color: [45, 128, 245, 255],
+            });
+        }
+        // Explicit segment order is retained. Glyphs are projected in the shader,
+        // sharing one cached endpoint buffer across four batched draws.
+        for e in segments {
+            sets[3].lines.push(LineVertex {
+                start: xyz(e[0]),
+                end: xyz(e[1]),
+                color: [255, 45, 45, 255],
             });
         }
         let mut old = std::mem::take(&mut self.overlay);
@@ -806,6 +822,21 @@ impl Scene {
     }
     pub fn draw_lines(&mut self, scene: &RenderScene, size: (f32, f32)) {
         flush();
+        // Bounds go behind selection: a planar box can share its border with
+        // selected segments and must not paint over their red dashed feedback.
+        self.line_settings(size, 1.5, 1.5, false);
+        unsafe {
+            raylib::ffi::rlEnableShader(self.line.id);
+            raylib::ffi::rlDisableDepthTest();
+        }
+        if let Some(g) = self.overlay.get(2)
+            && let Some(mesh) = &g.lines
+        {
+            mesh.draw(&g.buffer, 1);
+        }
+        unsafe {
+            raylib::ffi::rlEnableDepthTest();
+        }
         self.line_settings(
             size,
             scene.normal_line_width,
@@ -833,15 +864,20 @@ impl Scene {
                 mesh.draw(&g.buffer, 1);
             }
         }
-        self.line_settings(size, 1.5, 1.5, false);
         unsafe {
-            raylib::ffi::rlEnableShader(self.line.id);
             raylib::ffi::rlDisableDepthTest();
         }
-        if let Some(g) = self.overlay.get(2)
+        if let Some(g) = self.overlay.get(3)
             && let Some(mesh) = &g.lines
         {
-            mesh.draw(&g.buffer, 1);
+            for mode in 1..=4 {
+                self.line
+                    .set_shader_value(self.line.get_shader_location("glyphMode"), mode);
+                unsafe {
+                    raylib::ffi::rlEnableShader(self.line.id);
+                }
+                mesh.draw(&g.buffer, 1);
+            }
         }
         unsafe {
             raylib::ffi::rlEnableDepthTest();
@@ -888,6 +924,8 @@ impl Scene {
     }
     fn line_settings(&mut self, size: (f32, f32), normal: f32, selected: f32, black: bool) {
         vp(&mut self.line);
+        self.line
+            .set_shader_value(self.line.get_shader_location("glyphMode"), 0i32);
         self.line.set_shader_value(
             self.line.get_shader_location("viewportSize"),
             raylib::prelude::Vector2::new(size.0.max(1.), size.1.max(1.)),
@@ -1264,10 +1302,10 @@ mod tests {
         assert!(
             image
                 .pixels()
-                .filter(|p| p[2] > 220 && p[1] > 90 && p[1] < 160 && p[0] < 80)
+                .filter(|p| p[2] > 220 && p[1] < 90 && p[0] < 90)
                 .count()
                 > 20,
-            "selected instance lines must be orange"
+            "selected instance lines must be red"
         );
         // Camera modes and width/color preferences are uniforms, not mesh uploads.
         let uploads = renderer.gpu.stats.geometry_uploads;
@@ -1517,11 +1555,40 @@ mod tests {
         assert!(
             selected
                 .pixels()
-                .filter(|p| p[2] > 220 && p[1] > 100 && p[1] < 150 && p[0] < 80)
+                .filter(|p| p[2] > 220 && p[1] < 90 && p[0] < 90)
                 .count()
                 > 40,
-            "partial primitive selection must use the orange shader overlay"
+            "partial primitive selection must use the red dashed shader overlay"
         );
+        assert!(
+            selected
+                .pixels()
+                .filter(|p| p[1] > 180 && p[0] < 100 && p[2] < 100)
+                .count()
+                > 10,
+            "explicit segments need green midpoint and direction glyphs"
+        );
+        assert_eq!(renderer.gpu.overlay[3].data.lines.len(), 1);
+        let feedback_uploads = renderer.gpu.stats.feedback_uploads;
+        let glyph_vao = renderer.gpu.overlay[3].lines.as_ref().unwrap().chunks[0].vao;
+        // Screen-space glyphs follow navigation without rebuilding or uploading feedback.
+        camera.yaw += 0.15;
+        renderer.prepare(&mut rl, &thread, &scene);
+        draw_offscreen_scene(
+            &mut rl,
+            &thread,
+            &mut target,
+            camera,
+            &scene,
+            3,
+            &mut renderer,
+        );
+        assert_eq!(renderer.gpu.stats.feedback_uploads, feedback_uploads);
+        assert_eq!(
+            renderer.gpu.overlay[3].lines.as_ref().unwrap().chunks[0].vao,
+            glyph_vao
+        );
+        assert_eq!(renderer.gpu.stats.geometry_uploads, uploads);
         scene.selection.clear();
         scene.black_model_lines = false;
         camera.orthographic = false;

@@ -1,5 +1,6 @@
 float woodPattern() {
-    vec3 p=u_axis==0?localPosition.yxz:(u_axis==2?localPosition.xzy:localPosition);
+    vec3 p=patternCoordinates(localPosition);
+    p=u_axis==0?p.yxz:(u_axis==2?p.xzy:p);
     float warp=patternNoise(p*vec3(1.5,0.18,1.5))*u_turbulence;
     float rings=length(p.xz+vec2(warp,-warp*0.7))*u_ringScale;
     float bands=0.5+0.5*sin(rings*6.2831853);

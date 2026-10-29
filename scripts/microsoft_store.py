@@ -127,6 +127,9 @@ def load_source(source=SOURCE):
     shots = manifest["screenshots"]
     require(len(shots) == 8, "Expected eight desktop screenshots")
     for shot in shots:
+        source_project = (ROOT / shot["source"]).resolve()
+        require(source_project.is_relative_to(source.resolve()) and source_project.is_file(),
+                f"Missing durable source project: {source_project}")
         path = source / "assets/screenshots" / shot["file"]
         require(Path(shot["file"]).name == shot["file"], "Invalid screenshot filename")
         width, height = png_size(path)
@@ -228,7 +231,11 @@ The app interface is English. Translations have not had native-speaker review.</
 <h2>Search terms</h2><p id="terms"></p><h2>Hardware</h2><ul id="hardware"></ul><div id="gallery"></div></section>
 <h2>Store artwork</h2><p class="notice">Promotional artwork, separate from screenshots.</p>
 <div class="art"><img src="assets/art/hero-1920x1080.png" alt="Text-free hero art">
-<img src="assets/art/square-1080x1080.png" alt="Square Store art"></div>
+<img src="assets/art/square-1080x1080.png" alt="Dynamic pavilion, architecture and GPU trees">
+<img src="assets/art/poster-720x1080.png" alt="Mesh modeling, courtyard architecture and materials poster">
+<img src="assets/art/promo-1000x800.png" alt="Dynamic instances and procedural material showcase">
+<img src="assets/art/promo-358x358.png" alt="Editable mesh forms">
+<img src="assets/art/promo-414x180.png" alt="Mesh and dynamic object illustrations"></div>
 <p><a href="README.md">Import instructions and submission fields</a></p></main>
 <script id="data" type="application/json">DATA</script><script>
 const data=JSON.parse(document.getElementById('data').textContent),files=FILES;
@@ -293,7 +300,7 @@ def build(destination, source=SOURCE, update_export=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "target/microsoft-store")
+    parser.add_argument("--output", type=Path, default=SOURCE / "dist")
     parser.add_argument("--update-export", action="store_true",
                         help="Also fill the original Partner Center export in assets/")
     parser.add_argument("--check", action="store_true", help="Validate without rebuilding")

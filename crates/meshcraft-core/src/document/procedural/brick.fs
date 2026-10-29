@@ -1,7 +1,8 @@
 vec2 brickUv() {
-    vec3 n=abs(sourceNormal);
-    if(n.y>n.x&&n.y>n.z)return localPosition.xz;
-    return n.x>n.z?localPosition.zy:localPosition.xy;
+    vec3 n=abs(patternCoordinates(sourceNormal));
+    vec3 p=patternCoordinates(localPosition);
+    if(n.y>n.x&&n.y>n.z)return p.xz;
+    return n.x>n.z?p.zy:p.xy;
 }
 vec3 brickPattern() {
     vec2 size=vec2(u_brickWidth,u_brickHeight),p=brickUv()/size;
@@ -11,7 +12,7 @@ vec3 brickPattern() {
     float aa=max(length(fwidth(brickUv())),0.00001);
     float inside=smoothstep(gap-aa,gap+aa,min(edge.x,edge.y));
     float variation=patternHash(vec3(cell,float(u_seed)));
-    return vec3(inside,variation,patternNoise(localPosition*85.));
+    return vec3(inside,variation,patternNoise(patternCoordinates(localPosition)*85.));
 }
 vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv) {
     vec3 b=brickPattern();return patternBump(n,u_relief*(b.x*0.035+b.z*0.002));

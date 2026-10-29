@@ -1,0 +1,3127 @@
+[
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_resolve_document",
+    "arguments": {
+      "action": "discard"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_object_script",
+    "arguments": {
+      "action": "create",
+      "api_version": 2,
+      "source": "// Shared declarations become prototype parameters. onCreate declares instance inputs.\n$NUMBER('depth', 'Depth \u00b7 shared', 4);\n$NUMBER('spacing', 'Louver spacing \u00b7 shared', 0.55);\nfunction onCreate() {\n  $NUMBER('width', 'Span', 5);\n  $NUMBER('height', 'Height', 3.5);\n  $LIST('finish', {teal:'Lagoon',amber:'Amber',ivory:'Ivory'}, 'Finish', 'teal');\n  $HOTSPOT(new Point(5,3.5,0), 'size', 'Corner', $HOTSPOT_SHAPE_DIAMOND, '#00d9ffff');\n}\nfunction onAnimationFrame(params) {\n  const {depth,spacing,finish}=params;\n  const width=params.width+params.size.position.x-5;\n  const height=params.height+params.size.position.y-3.5;\n  const P=(x,y,z)=>new Point(x,y,z);\n  const colors={teal:'#238b9c',amber:'#d99548',ivory:'#e4dfd1'};\n  const frame=phong(colors[finish]),slat=phong('#e4c68e');\n  const out=[];const box=(a,b,id,m=frame)=>out.push(cuboid(P(...a),P(...b),id,m));\n  for(const x of [0,width-.2])for(const z of [0,depth-.2])box([x,0,z],[x+.2,height,z+.2],'post'+x+':'+z);\n  box([-.15,height-.25,-.15],[width+.15,height+.1,.15],'front');\n  box([-.15,height-.25,depth-.15],[width+.15,height+.1,depth+.15],'back');\n  for(let x=0,i=0;x<=width;x+=spacing,i++)box([x,height,-.2],[x+.13,height+.24,depth+.2],'louver'+i,slat);\n  for(let i=0;i<7;i++)box([.22,1.5+i*.2,depth-.22],[width-.22,1.59+i*.2,depth-.13],'screen'+i);\n  box([-.35,-.18,-.35],[width+.35,0,depth+.35],'deck',phong('#b7b9ae'));\n  return [this.geometry,out];\n}\n"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            36
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "tool.builtin.move",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": -9,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.place_selected_definition",
+      "arguments": {
+        "definition_id": 34
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.place_selected_definition",
+      "arguments": {
+        "definition_id": 34
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 9,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {
+      "query": "name"
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          36
+        ]
+      ],
+      "id": "width",
+      "value": 6
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          37
+        ]
+      ],
+      "id": "height",
+      "value": 5
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          37
+        ]
+      ],
+      "id": "finish",
+      "value": "amber"
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          38
+        ]
+      ],
+      "id": "width",
+      "value": 7
+    }
+  },
+  {
+    "tool": "meshcraft_parameters",
+    "arguments": {
+      "action": "set",
+      "definition_id": 34,
+      "paths": [
+        [
+          38
+        ]
+      ],
+      "id": "finish",
+      "value": "ivory"
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            37
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          25,
+          15,
+          27
+        ],
+        "target": [
+          3,
+          2,
+          2
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.object.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "obsidian",
+          "name": "Obsidian",
+          "color": {
+            "red": 43,
+            "green": 55,
+            "blue": 64,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "sand",
+          "name": "Warm plaster",
+          "color": {
+            "red": 225,
+            "green": 214,
+            "blue": 190,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1
+        }
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_resolve_document",
+    "arguments": {
+      "action": "discard"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "obsidian",
+          "name": "Obsidian",
+          "color": {
+            "red": 43,
+            "green": 55,
+            "blue": 64,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "sand",
+          "name": "Warm plaster",
+          "color": {
+            "red": 225,
+            "green": 214,
+            "blue": 190,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "cedar",
+          "name": "Cedar",
+          "color": {
+            "red": 168,
+            "green": 102,
+            "blue": 48,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {},
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "pool",
+          "name": "Pool water",
+          "color": {
+            "red": 30,
+            "green": 144,
+            "blue": 175,
+            "alpha": 220
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.water.v1",
+            "parameters": {
+              "speed": 0,
+              "amplitude": 0.055,
+              "opacity": 0.88,
+              "resolution": 10
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "lawn",
+          "name": "Meadow",
+          "color": {
+            "red": 78,
+            "green": 119,
+            "blue": 45,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.grass.v1",
+            "parameters": {
+              "density": 18,
+              "height": 0.24,
+              "width": 0.025,
+              "wind": 0
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -2,
+          0.4,
+          -2
+        ],
+        "end": [
+          22,
+          0.4,
+          17
+        ],
+        "slab_thickness": 0.4,
+        "slab_top_material": "side-grey",
+        "name": "Landscape terrace"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          0,
+          0.7,
+          0
+        ],
+        "end": [
+          18,
+          0.7,
+          10
+        ],
+        "slab_thickness": 0.3,
+        "slab_top_material": "cedar",
+        "name": "Living floor"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_wall",
+      "arguments": {
+        "start": [
+          0,
+          0.7,
+          0
+        ],
+        "end": [
+          18,
+          0.7,
+          0
+        ],
+        "wall_height": 4.8,
+        "wall_thickness": 0.35,
+        "wall_offset": 0.5,
+        "wall_exterior_material": "sand",
+        "wall_interior_material": "smoke-white",
+        "name": "Garden wall"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_wall",
+      "arguments": {
+        "start": [
+          0,
+          0.7,
+          0
+        ],
+        "end": [
+          0,
+          0.7,
+          10
+        ],
+        "wall_height": 4.8,
+        "wall_thickness": 0.35,
+        "wall_offset": 0.5,
+        "wall_exterior_material": "sand",
+        "wall_interior_material": "smoke-white",
+        "name": "West wall"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_wall",
+      "arguments": {
+        "start": [
+          18,
+          0.7,
+          0
+        ],
+        "end": [
+          18,
+          0.7,
+          10
+        ],
+        "wall_height": 4.8,
+        "wall_thickness": 0.35,
+        "wall_offset": 0.5,
+        "wall_exterior_material": "sand",
+        "wall_interior_material": "smoke-white",
+        "name": "East wall"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_wall",
+      "arguments": {
+        "start": [
+          0,
+          0.7,
+          10
+        ],
+        "end": [
+          18,
+          0.7,
+          10
+        ],
+        "wall_height": 4.8,
+        "wall_thickness": 0.35,
+        "wall_exterior_material": "sand",
+        "name": "Glazed frontage"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.add_hole",
+      "arguments": {
+        "start": [
+          1,
+          1.2,
+          10
+        ],
+        "end": [
+          7.4,
+          4.9,
+          10
+        ]
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.add_hole",
+      "arguments": {
+        "start": [
+          9,
+          0.7,
+          10
+        ],
+        "end": [
+          17,
+          5,
+          10
+        ]
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          1,
+          1.2,
+          10.2
+        ],
+        "end": [
+          3.08,
+          4.9,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 0"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          3.16,
+          1.2,
+          10.2
+        ],
+        "end": [
+          5.24,
+          4.9,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 1"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          5.32,
+          1.2,
+          10.2
+        ],
+        "end": [
+          7.4,
+          4.9,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 2"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          9,
+          0.7,
+          10.2
+        ],
+        "end": [
+          11.6,
+          5,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 3"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          11.7,
+          0.7,
+          10.2
+        ],
+        "end": [
+          14.3,
+          5,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 4"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_frame",
+      "arguments": {
+        "start": [
+          14.4,
+          0.7,
+          10.2
+        ],
+        "end": [
+          17,
+          5,
+          10.2
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "frame_width": 0.075,
+        "frame_depth": 0.16,
+        "frame_material": "obsidian",
+        "glazing_material": "glass",
+        "name": "Courtyard glazing 5"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -0.7,
+          5.6,
+          -0.7
+        ],
+        "end": [
+          18.7,
+          5.6,
+          10.7
+        ],
+        "slab_thickness": 0.3,
+        "slab_top_material": "smoke-white",
+        "name": "Cantilever roof"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -1,
+          0.65,
+          10.7
+        ],
+        "end": [
+          19,
+          0.65,
+          14
+        ],
+        "slab_thickness": 0.25,
+        "slab_top_material": "cedar",
+        "name": "Cedar deck"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          21,
+          0.42,
+          0
+        ],
+        "end": [
+          29,
+          0.42,
+          12
+        ],
+        "slab_thickness": 0.2,
+        "slab_top_material": "pool",
+        "name": "Reflecting pool"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -8,
+          0.42,
+          -2
+        ],
+        "end": [
+          -3,
+          0.42,
+          13
+        ],
+        "slab_thickness": 0.2,
+        "slab_top_material": "lawn",
+        "name": "Meadow strip"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_stair",
+      "arguments": {
+        "contour": [
+          {
+            "x": 7,
+            "y": 0,
+            "z": 14
+          },
+          {
+            "x": 12,
+            "y": 0,
+            "z": 14
+          },
+          {
+            "x": 12,
+            "y": 0,
+            "z": 17
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "z": 17
+          }
+        ],
+        "walking_path": [
+          {
+            "x": 9.5,
+            "y": 0,
+            "z": 17
+          },
+          {
+            "x": 9.5,
+            "y": 0,
+            "z": 14
+          }
+        ],
+        "stair_height": 0.65,
+        "stair_steps": 4,
+        "stair_left": false,
+        "stair_right": false,
+        "stair_levels": 0,
+        "stair_tread_material": "side-grey",
+        "name": "Entrance steps"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "const p=(x,y,z)=>new Point(x,y,z),out=[];const box=(a,b,id,c)=>out.push(cuboid(p(...a),p(...b),id,phong(c)));\nfor(let i=0;i<17;i++)box([1+i*.43,5.72,7],[1.18+i*.43,6.12,10.6],'slat'+i,'#b98751');\nbox([2,1,11.2],[5.8,1.35,12.6],'bench','#414c54');box([2.2,.7,11.4],[2.4,1,12.4],'leg0','#414c54');box([5.4,.7,11.4],[5.6,1,12.4],'leg1','#414c54');\nbox([10,1.2,11],[13,1.35,12.5],'table','#dfc28c');\nfor(let x of [10.1,12.6])for(let z of [11.1,12.1])box([x,.7,z],[x+.2,1.2,z+.2],'tableleg'+x+z,'#414c54');return out;",
+      "name": "Courtyard furnishings",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "settings": {
+          "name": "Garden tree",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "form": "broadleaf",
+              "height": 8,
+              "radius": 3.2,
+              "seed": 13,
+              "wind": 0,
+              "leaves": 1600
+            },
+            "maxInstances": 12000,
+            "lodDistance": 250
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": -5,
+      "worldY": 0.45,
+      "worldZ": 3
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "settings": {
+          "name": "Terrace tree",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "form": "conifer",
+              "height": 10,
+              "radius": 2.5,
+              "seed": 31,
+              "wind": 0,
+              "leaves": 1600
+            },
+            "maxInstances": 12000,
+            "lodDistance": 250
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 22,
+      "worldY": 0.45,
+      "worldZ": -2
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          43,
+          30,
+          47
+        ],
+        "target": [
+          10,
+          2.6,
+          6
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/03-architecture.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            13,
+            11
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "script.edit",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.new_water",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "water",
+          "name": "Lagoon water",
+          "color": {
+            "red": 31,
+            "green": 137,
+            "blue": 157,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.water.v1",
+            "parameters": {
+              "speed": 0,
+              "amplitude": 0.09,
+              "resolution": 12,
+              "opacity": 0.95
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "brick",
+          "name": "Terracotta brick",
+          "color": {
+            "red": 176,
+            "green": 84,
+            "blue": 53,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.brick.v1",
+            "parameters": {
+              "brickWidth": 0.9,
+              "brickHeight": 0.34
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "wood",
+          "name": "Cedar wood",
+          "color": {
+            "red": 160,
+            "green": 107,
+            "blue": 63,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {
+              "ringScale": 2.8,
+              "grain": 35
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "grass",
+          "name": "Meadow grass",
+          "color": {
+            "red": 58,
+            "green": 113,
+            "blue": 37,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.grass.v1",
+            "parameters": {
+              "density": 35,
+              "height": 0.65,
+              "width": 0.055,
+              "wind": 0,
+              "seed": 19
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "leaves",
+          "name": "Ground foliage",
+          "color": {
+            "red": 62,
+            "green": 121,
+            "blue": 40,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.foliage.v1",
+            "parameters": {
+              "density": 18,
+              "size": 0.55,
+              "height": 0.5,
+              "wind": 0,
+              "seed": 7
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return cuboid(new Point(this.x-3,-.3,this.z-2.5),new Point(this.x+3,0,this.z+2.5),\"plinth\",phong(\"#e5e1d7\"));",
+      "name": "Brick plinth",
+      "properties": {
+        "x": -8,
+        "z": -4
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return cuboid(new Point(this.x-3,-.3,this.z-2.5),new Point(this.x+3,0,this.z+2.5),\"plinth\",phong(\"#e5e1d7\"));",
+      "name": "Wood plinth",
+      "properties": {
+        "x": 0,
+        "z": -4
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return cuboid(new Point(this.x-3,-.3,this.z-2.5),new Point(this.x+3,0,this.z+2.5),\"plinth\",phong(\"#e5e1d7\"));",
+      "name": "Water plinth",
+      "properties": {
+        "x": 8,
+        "z": -4
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return cuboid(new Point(this.x-3,-.3,this.z-2.5),new Point(this.x+3,0,this.z+2.5),\"plinth\",phong(\"#e5e1d7\"));",
+      "name": "Grass plinth",
+      "properties": {
+        "x": -4,
+        "z": 4
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return cuboid(new Point(this.x-3,-.3,this.z-2.5),new Point(this.x+3,0,this.z+2.5),\"plinth\",phong(\"#e5e1d7\"));",
+      "name": "Foliage plinth",
+      "properties": {
+        "x": 4,
+        "z": 4
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return translate(new Point(-8,0,-4),(()=>{return cuboid(new Point(-2,0,-1.5),new Point(2,3.5,1.5),\"brick\");})());",
+      "name": "Brick sample",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            235
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.apply",
+      "arguments": {
+        "id": "brick"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return translate(new Point(0,0,-4),(()=>{return cylinder(new Point(0,0,0),1.7,3.8,\"wood\",undefined,40);})());",
+      "name": "Wood sample",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            604
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.apply",
+      "arguments": {
+        "id": "wood"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return translate(new Point(8,0,-4),(()=>{return rectangle(new Point(-2.8,.03,-2.3),new Point(2.8,.03,2.3),\"pool\");})());",
+      "name": "Water sample",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            621
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.apply",
+      "arguments": {
+        "id": "water"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return translate(new Point(-4,0,4),(()=>{return rectangle(new Point(-2.8,.03,-2.3),new Point(2.8,.03,2.3),\"lawn\");})());",
+      "name": "Grass sample",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            638
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.apply",
+      "arguments": {
+        "id": "grass"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "return translate(new Point(4,0,4),(()=>{return rectangle(new Point(-2.8,.03,-2.3),new Point(2.8,.03,2.3),\"bed\");})());",
+      "name": "Leaves sample",
+      "properties": {}
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            655
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.apply",
+      "arguments": {
+        "id": "leaves"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          23,
+          22,
+          32
+        ],
+        "target": [
+          0,
+          1,
+          0
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "cedar",
+          "name": "Cedar treads",
+          "color": {
+            "red": 160,
+            "green": 100,
+            "blue": 56,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {
+              "axis": "x",
+              "ringScale": 2,
+              "grain": 30
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "steel",
+          "name": "Graphite supports",
+          "color": {
+            "red": 52,
+            "green": 65,
+            "blue": 75,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_stair",
+      "arguments": {
+        "name": "Courtyard turning stair",
+        "contour": [
+          {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "z": 8
+          },
+          {
+            "x": 12,
+            "y": 0,
+            "z": 8
+          },
+          {
+            "x": 12,
+            "y": 0,
+            "z": 12
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "z": 12
+          }
+        ],
+        "walking_path": [
+          {
+            "x": 2,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 2,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "x": 12,
+            "y": 0,
+            "z": 10
+          }
+        ],
+        "stair_height": 6,
+        "stair_steps": 22,
+        "stair_support": 0.25,
+        "stair_left": true,
+        "stair_right": true,
+        "stair_spacing": 0.6,
+        "stair_levels": 3,
+        "stair_tread_material": "cedar",
+        "stair_support_material": "steel"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_stair",
+      "arguments": {
+        "name": "Straight companion",
+        "contour": [
+          {
+            "x": 16,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 20,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 20,
+            "y": 0,
+            "z": 12
+          },
+          {
+            "x": 16,
+            "y": 0,
+            "z": 12
+          }
+        ],
+        "walking_path": [
+          {
+            "x": 18,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 18,
+            "y": 0,
+            "z": 12
+          }
+        ],
+        "stair_height": 6,
+        "stair_steps": 18,
+        "stair_support": 0.25,
+        "stair_left": true,
+        "stair_right": false,
+        "stair_spacing": 0.6,
+        "stair_levels": 2,
+        "stair_tread_material": "smoke-white",
+        "stair_support_material": "steel"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -1,
+          -0.15,
+          -1
+        ],
+        "end": [
+          22,
+          -0.15,
+          14
+        ],
+        "slab_thickness": 0.2,
+        "name": "Study platform"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [],
+          "kind": "semantic_handle",
+          "semantic_kind": "stair",
+          "id": "meshcraft:architecture:2"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          28,
+          22,
+          33
+        ],
+        "target": [
+          9,
+          2.8,
+          6
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.architecture_stairs.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/08-architectural-stairs.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            637
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            1789,
+            638
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            1789,
+            639
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {
+      "query": "Edit Definition"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        1789,
+        637
+      ],
+      "limit": 10
+    }
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {
+      "query": "prototype"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            637
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "selection.edit_object",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        1789,
+        637
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            637
+          ],
+          "kind": "triangle",
+          "id": "588"
+        },
+        {
+          "path": [
+            1789,
+            637
+          ],
+          "kind": "triangle",
+          "id": "589"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "geometry.flip_selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            638
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "selection.edit_object",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        1789,
+        638
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            638
+          ],
+          "kind": "triangle",
+          "id": "601"
+        },
+        {
+          "path": [
+            1789,
+            638
+          ],
+          "kind": "triangle",
+          "id": "602"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "geometry.flip_selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            639
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "selection.edit_object",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        1789,
+        639
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            639
+          ],
+          "kind": "triangle",
+          "id": "614"
+        },
+        {
+          "path": [
+            1789,
+            639
+          ],
+          "kind": "triangle",
+          "id": "615"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "geometry.flip_selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          18,
+          16,
+          24
+        ],
+        "target": [
+          0,
+          1,
+          0
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1789,
+            637
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            1789,
+            638
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            1789,
+            639
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "edit.delete_selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          5.2,
+          0.08,
+          -6.3
+        ],
+        "end": [
+          10.8,
+          0.08,
+          -1.7
+        ],
+        "slab_thickness": 0.08,
+        "slab_top_material": "water",
+        "name": "Water sample"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          -6.8,
+          0.08,
+          1.7
+        ],
+        "end": [
+          -1.2,
+          0.08,
+          6.3
+        ],
+        "slab_thickness": 0.08,
+        "slab_top_material": "grass",
+        "name": "Grass sample"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_rectangular_slab",
+      "arguments": {
+        "start": [
+          1.2,
+          0.08,
+          1.7
+        ],
+        "end": [
+          6.8,
+          0.08,
+          6.3
+        ],
+        "slab_thickness": 0.08,
+        "slab_top_material": "leaves",
+        "name": "Foliage sample"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        1789,
+        635
+      ],
+      "limit": 100
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "settings": {
+          "name": "Broadleaf grove",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "form": "broadleaf",
+              "height": 9,
+              "radius": 4,
+              "seed": 17,
+              "wind": 0,
+              "leaves": 6500
+            },
+            "maxInstances": 12000,
+            "lodDistance": 250
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": -7,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "settings": {
+          "name": "Conifer",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "form": "conifer",
+              "height": 11,
+              "radius": 3,
+              "seed": 9,
+              "wind": 0,
+              "leaves": 4500
+            },
+            "maxInstances": 12000,
+            "lodDistance": 250
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 4,
+      "worldY": 0,
+      "worldZ": -1
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "settings": {
+          "name": "Weeping willow",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "form": "weeping",
+              "height": 8,
+              "radius": 4,
+              "seed": 21,
+              "wind": 0,
+              "leaves": 5000
+            },
+            "maxInstances": 12000,
+            "lodDistance": 250
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 13,
+      "worldY": 0,
+      "worldZ": 2
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          27,
+          15,
+          30
+        ],
+        "target": [
+          2,
+          3,
+          0
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/07-branching-preview.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            4
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.edit_tree",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/scenes/01-direct-modeling.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590,
+        4586
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590,
+        4586
+      ],
+      "offset": 1000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590,
+        4587
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590,
+        4588
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        4590,
+        4589
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/02-dynamic-instances.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        13
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        13,
+        10
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        13,
+        11
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        13,
+        12
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/03-architecture.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        821
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        821,
+        815
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        821,
+        816
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        821,
+        817
+      ],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/06-procedural-materials.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/08-architectural-stairs.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          30,
+          16,
+          -24
+        ],
+        "target": [
+          10,
+          3,
+          6
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/target/store-feature-capture/08-architectural-stairs.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        6
+      ],
+      "limit": 1
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.new",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_stair",
+      "arguments": {
+        "name": "Two-turn U stair",
+        "contour": [
+          {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "z": 3
+          },
+          {
+            "x": 3,
+            "y": 0,
+            "z": 3
+          },
+          {
+            "x": 3,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "z": 10
+          }
+        ],
+        "walking_path": [
+          {
+            "x": 1.5,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "x": 1.5,
+            "y": 0,
+            "z": 1.5
+          },
+          {
+            "x": 6.5,
+            "y": 0,
+            "z": 1.5
+          },
+          {
+            "x": 6.5,
+            "y": 0,
+            "z": 10
+          }
+        ],
+        "stair_height": 8,
+        "stair_steps": 22,
+        "stair_support": 0.25,
+        "stair_left": false,
+        "stair_right": false,
+        "stair_levels": 0
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "architecture.create_stair",
+      "arguments": {
+        "name": "Three-turn S stair",
+        "contour": [
+          {
+            "x": 14,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 14,
+            "y": 0,
+            "z": 9.5
+          },
+          {
+            "x": 21.5,
+            "y": 0,
+            "z": 9.5
+          },
+          {
+            "x": 21.5,
+            "y": 0,
+            "z": 17.5
+          },
+          {
+            "x": 31.5,
+            "y": 0,
+            "z": 17.5
+          },
+          {
+            "x": 31.5,
+            "y": 0,
+            "z": 14.5
+          },
+          {
+            "x": 24.5,
+            "y": 0,
+            "z": 14.5
+          },
+          {
+            "x": 24.5,
+            "y": 0,
+            "z": 6.5
+          },
+          {
+            "x": 17,
+            "y": 0,
+            "z": 6.5
+          },
+          {
+            "x": 17,
+            "y": 0,
+            "z": 0
+          }
+        ],
+        "walking_path": [
+          {
+            "x": 15.5,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 15.5,
+            "y": 0,
+            "z": 8
+          },
+          {
+            "x": 23,
+            "y": 0,
+            "z": 8
+          },
+          {
+            "x": 23,
+            "y": 0,
+            "z": 16
+          },
+          {
+            "x": 31.5,
+            "y": 0,
+            "z": 16
+          }
+        ],
+        "stair_height": 8,
+        "stair_steps": 30,
+        "stair_support": 0.25,
+        "stair_left": false,
+        "stair_right": false,
+        "stair_levels": 0
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          40,
+          30,
+          -34
+        ],
+        "target": [
+          15,
+          3,
+          8
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.selection.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/stair-fronts/multiple-turns.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 0,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 1000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 2000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 3000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 4000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 5000,
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "offset": 6000,
+      "limit": 1000
+    }
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "version": "0.45.2",
+  "stairs": [
+    {
+      "name": "Two-turn U stair",
+      "steps": 22,
+      "fronts": 21,
+      "triangles": 344,
+      "failures": []
+    },
+    {
+      "name": "Three-turn S stair",
+      "steps": 30,
+      "fronts": 29,
+      "triangles": 464,
+      "failures": []
+    }
+  ],
+  "failures": 0
+}

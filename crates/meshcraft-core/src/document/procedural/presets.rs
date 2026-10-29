@@ -299,11 +299,28 @@ pub fn brick_program() -> Program {
             ),
             color("brickColor", "Brick color", [0.58, 0.19, 0.09, 1.]),
             color("mortarColor", "Mortar color", [0.65, 0.62, 0.54, 1.]),
+            scalar(
+                "rotationU",
+                "Rotation U (degrees)",
+                0.,
+                -360.,
+                360.,
+                "Rotate the pattern around its local U (X) axis, then around V (Y).",
+            ),
+            scalar(
+                "rotationV",
+                "Rotation V (degrees)",
+                0.,
+                -360.,
+                360.,
+                "Rotate the pattern around its local V (Y) axis after the U rotation.",
+            ),
             seed(),
         ],
         fragment: format!(
-            "{}\n{}",
+            "{}\n{}\n{}",
             include_str!("patterns.glsl"),
+            include_str!("orientation.glsl"),
             include_str!("brick.fs")
         ),
         ..Default::default()
@@ -365,11 +382,28 @@ pub fn wood_program() -> Program {
             },
             color("lightColor", "Light wood", [0.67, 0.39, 0.16, 1.]),
             color("darkColor", "Dark wood", [0.22, 0.075, 0.025, 1.]),
+            scalar(
+                "rotationU",
+                "Rotation U (degrees)",
+                0.,
+                -360.,
+                360.,
+                "Rotate the pattern around its local U (X) axis, then around V (Y).",
+            ),
+            scalar(
+                "rotationV",
+                "Rotation V (degrees)",
+                0.,
+                -360.,
+                360.,
+                "Rotate the pattern around its local V (Y) axis after the U rotation.",
+            ),
             seed(),
         ],
         fragment: format!(
-            "{}\n{}",
+            "{}\n{}\n{}",
             include_str!("patterns.glsl"),
+            include_str!("orientation.glsl"),
             include_str!("wood.fs")
         ),
         ..Default::default()

@@ -15,3 +15,7 @@ octodraw.octd
 __pycache__/
 .store
 dist
+# Private display/cache and durable scratch captures; final Store assets and scenes are tracked.
+/packaging/microsoft-store/captures/.runtime/
+/packaging/microsoft-store/captures/work/
+/docs/rewrite/references/stair-fronts/.runtime/

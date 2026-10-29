@@ -16,6 +16,14 @@ There is no application build or runtime command yet. Use the existing planning 
 
 Use Markdown headings and stable IDs already used by the docs: requirements such as `F01`, scenarios such as `C01`, and tasks such as `T00`. Keep task dependencies and acceptance links in `tasks.json` authoritative. Preserve JSON validity and the existing two-space indentation. Python scripts use the standard library and four-space indentation; keep utilities small and deterministic. Record observed behavior separately from proposed changes, and do not present static source inspection as live validation.
 
+Keep authored models, modeling recipes, screenshots, promotional artwork and
+validation evidence in durable source directories, never Cargo's `target`.
+`cargo clean` must not delete that work. Store presentation assets and saved MCP
+demonstrations belong under `packaging/microsoft-store`; only reproducible build
+products such as the executable may be read from `target`. Final assets and
+their source models/recipes must be versioned; ignored scratch captures are not
+a substitute for keeping the finished work in Git.
+
 ## Validation and Testing
 
 Run `verify_plan.py` after changing requirements, tasks, acceptance suites, local links, or inventory evidence. The current acceptance suites describe planned product checks; they are not an executable application test suite. When implementation begins, add and run the task-specific checks defined by `plan.md` and record exact commands and results in the task handoff capsule.

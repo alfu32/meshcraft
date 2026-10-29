@@ -1,0 +1,25 @@
+{
+  "prototypeDeletion": null,
+  "pendingDialog": null,
+  "history": {
+    "cursor": 3,
+    "entries": 3
+  },
+  "version": "0.45.1",
+  "revision": 11,
+  "generation": 16,
+  "activeTool": "Select",
+  "numericInput": "",
+  "toolInstructions": "",
+  "status": "Saved /home/alfu64/Development/meshcraft/docs/rewrite/references/stair-fronts/multiple-turns.octd. Imported undo snapshots were discarded because they predate these edits; current session history was saved when available.",
+  "editContext": {
+    "kind": "document"
+  },
+  "selection": [],
+  "projectPath": "/home/alfu64/Development/meshcraft/docs/rewrite/references/stair-fronts/multiple-turns.octd",
+  "unsavedChanges": false,
+  "clipboard": {
+    "available": false,
+    "bytes": 0
+  }
+}

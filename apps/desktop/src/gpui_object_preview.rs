@@ -1,4 +1,4 @@
-//! Isolated procedural-object form preview on the existing graphics owner.
+//! Isolated procedural material/object form preview on the existing graphics owner.
 use super::*;
 
 pub(super) struct Preview {
@@ -82,15 +82,12 @@ fn preview_document(source: &Document, material: &Material) -> Result<Document, 
     let config = material
         .procedural
         .as_ref()
-        .ok_or("Object program is missing")?;
+        .ok_or("Shader program is missing")?;
     let program = source
         .procedural_programs()
         .into_iter()
         .find(|p| p.id == config.program)
-        .ok_or("Object program is unavailable")?;
-    if !program.is_object_generator() {
-        return Err("Choose an object-generation program for this object".into());
-    }
+        .ok_or("Shader program is unavailable")?;
     program.resolve(&config.parameters, &BTreeMap::new())?;
     let base = config
         .base_material
@@ -104,7 +101,7 @@ fn evaluate(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>, fit: bool)
         .materials
         .editor
         .as_ref()
-        .ok_or("Object settings are closed".to_owned())
+        .ok_or("Shader settings are closed".to_owned())
         .and_then(|e| draft_material(e, cx));
     let document = result
         .as_ref()
@@ -394,6 +391,44 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn material_form_preview_uses_the_draft_without_editing_the_drawing() {
+        let source = Document::new();
+        let before = source.clone();
+        for id in [
+            procedural::BRICK,
+            procedural::WOOD,
+            procedural::WATER,
+            procedural::GRASS,
+            procedural::FOLIAGE,
+        ] {
+            let mut draft = Material::default();
+            procedural::apply_preset(&mut draft, id);
+            if matches!(id, procedural::BRICK | procedural::WOOD) {
+                draft.procedural.as_mut().unwrap().parameters.extend([
+                    ("rotationU".into(), json!(25.)),
+                    ("rotationV".into(), json!(-60.)),
+                ]);
+            }
+            let preview = preview_document(&source, &draft).unwrap();
+            let configured = preview
+                .materials()
+                .into_iter()
+                .find(|m| m.id == "shader-preview")
+                .unwrap();
+            assert_eq!(
+                configured.procedural.as_ref().unwrap().parameters,
+                draft.procedural.as_ref().unwrap().parameters
+            );
+            assert!(preview.scene_geometry_refs().unwrap().iter().any(|p| {
+                preview
+                    .effective_geometry(p)
+                    .is_some_and(|g| !g.triangles.is_empty())
+            }));
+            assert_eq!(source, before);
+        }
+    }
+
     #[test]
     fn object_form_preview_uses_private_values_and_preserves_the_source() {
         let mut source = Document::new();
