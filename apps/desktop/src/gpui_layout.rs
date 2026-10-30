@@ -784,16 +784,15 @@ fn ribbon_group(
     commands: &'static [(&'static str, &'static str)],
     bindings: &mut LayoutBindings<'_, '_, '_>,
 ) -> gpui::AnyElement {
+    let columns = commands
+        .len()
+        .div_ceil(if namespace.contains("/home/") { 3 } else { 2 });
+    let width = (columns as f32 * 111. + 14.).max(title.len() as f32 * 8. + 14.);
     (div()
         .flex()
         .flex_col()
         .flex_none()
-        .w(px((commands
-            .len()
-            .div_ceil(if namespace.contains("/home/") { 3 } else { 2 })
-            as f32
-            * 111.)
-            + 14.))
+        .w(px(width))
         .gap(px(4.))
         .px(px(7.))
         .py(px(4.))
@@ -804,6 +803,7 @@ fn ribbon_group(
                 .text_xs()
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .line_height(px(12.))
+                .whitespace_nowrap()
                 .text_color(rgb(0x9caec3))
                 .child(title),
         )

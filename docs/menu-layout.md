@@ -40,6 +40,8 @@ the Selection section and transforms. Selection remains an early menu/left-panel
 group; there is no separate Selection ribbon tab. Modify contains the former
 Meshing Modify and Arrays sections. Other ribbon tabs retain their functional
 sections. Long strips scroll horizontally without growing the ribbon vertically.
+Group headings stay on one line; their minimum width accommodates their caption,
+including Home's Guides & Hotspots heading.
 
 Home and Materials contain the same material picker. It displays the selected
 entities' material or **Multiple materials** when their finishes differ. Picking

@@ -10255,6 +10255,11 @@ impl MeshcraftApp {
             if let Some(rotation) = self.transform_tool_state.rotation_feedback(point) {
                 edges.extend(rotation.edges());
             }
+            if self.transform_tool_state.active() == Some(TransformTool::Move)
+                && let Some(origin) = self.transform_tool_state.points().first()
+            {
+                edges.push([*origin, point]);
+            }
             if !edges.is_empty() {
                 return Some(ToolPreview::Transform { edges });
             }
@@ -16582,6 +16587,28 @@ mod tests {
             &definition_geometry_before,
             &app.document.definition(definition_id).unwrap().geometry
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn move_feedback_keeps_reference_line_with_phantom_in_move_and_copy_modes() {
+        for copy in [false, true] {
+            let mut app = test_app();
+            app.run_command("geometry.add_cuboid");
+            let before = app.document.clone();
+            app.activate_tool("Move");
+            app.transform_tool_state.set_copy_mode(copy);
+            let origin = Vec3::new(7., 2., 5.);
+            app.transform_tool_state.pick(origin);
+            let target = origin + Vec3::new(4., 3., -2.);
+            let (preview, _) = app.native_tool_feedback_at(target, Pos2::ZERO);
+            let Some(ToolPreview::Transform { edges }) = preview else {
+                panic!("move preview missing")
+            };
+            assert!(edges.contains(&[origin, target]));
+            assert!(edges.len() > 1, "retain the selection phantom");
+            assert_eq!(before, app.document, "preview must not modify the model");
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

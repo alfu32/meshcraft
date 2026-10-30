@@ -1,0 +1,166 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "geometry.add_cuboid",
+      "arguments": {
+        "dimensions": [
+          3,
+          2,
+          2
+        ],
+        "origin": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/move-feedback/move.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          16,
+          13,
+          22
+        ],
+        "target": [
+          4,
+          1,
+          3
+        ],
+        "field_of_view": 42
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "tool.builtin.move",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "move",
+      "worldX": 7,
+      "worldY": 0,
+      "worldZ": 5
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "tool.move_copy",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "move",
+      "worldX": 7,
+      "worldY": 0,
+      "worldZ": 5
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  }
+]

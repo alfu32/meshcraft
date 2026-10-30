@@ -1,0 +1,22 @@
+{
+  "move": {
+    "version": "0.48.2",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/move-feedback/move.octd",
+    "preview": false,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 8,
+    "sha256": "952783167d4975d917da7aa4ce5db1dc097aa6ef751da16bbc863d219d6c9cf0",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "move-copy": {
+    "version": "0.48.2",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/move-feedback/move.octd",
+    "preview": false,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 12,
+    "sha256": "7345453afbd295d3aa5b5252c2527d883f7b3dceee6595d0adbfb13bc1a29d58",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}
