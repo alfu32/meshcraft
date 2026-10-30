@@ -242,3 +242,24 @@ must reject the result without changing the drawing. A two-million-triangle
 capture limit bounds memory use and reports an explicit failure. Unsupported
 semantic annotations require conversion before object baking; never silently
 discard their content. Static mesh conversions do not need GPU readback.
+
+### Make Object anchor — 0.48.1
+
+Creating a prototype from a mesh selection or a selection of instances uses the
+selection's lower-left-front bounding-box corner as its insertion anchor:
+`A = (minimum X, minimum Y, maximum Z)` with Y up and +Z front. Bounds and rebasing
+use the active parent's coordinate axes, so nested editing preserves its basis.
+Use actual referenced vertex positions, including reference offsets, and realized
+selected contents, including nested placements and current deformation/script
+geometry. Finishes and handles do not enlarge geometry bounds.
+
+New mesh vertices become `P - A`; translate the new instance by `A`. Positional
+annotation/architectural records must shift with the geometry; normal/direction
+vectors and vertex reference offsets remain vectors. For grouped instances,
+translate child placements and their transform overrides by `-A` and the new
+parent placement by `A`. Preserve shared child prototypes, materials, topology
+and world geometry. Empty placements fall back to bounds of their insertion
+points. New placements of the resulting prototype put its origin at the picked
+point. Undo/Redo and native save/reopen preserve this behavior.
+
+See [anchor validation](../references/object-anchor/README.md).

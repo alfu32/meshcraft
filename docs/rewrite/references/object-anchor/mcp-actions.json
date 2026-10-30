@@ -1,0 +1,490 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "tool.builtin.rectangle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 4,
+      "worldY": 2,
+      "worldZ": 8
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 9,
+      "worldY": 2,
+      "worldZ": 12
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [],
+          "kind": "segment",
+          "id": "6"
+        },
+        {
+          "path": [],
+          "kind": "segment",
+          "id": "7"
+        },
+        {
+          "path": [],
+          "kind": "segment",
+          "id": "8"
+        },
+        {
+          "path": [],
+          "kind": "segment",
+          "id": "9"
+        },
+        {
+          "path": [],
+          "kind": "triangle",
+          "id": "10"
+        },
+        {
+          "path": [],
+          "kind": "triangle",
+          "id": "11"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.create_from_selection",
+      "arguments": {
+        "name": "Anchored plate"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        24
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          18,
+          13,
+          24
+        ],
+        "target": [
+          8,
+          2,
+          10
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "edit.undo",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "edit.redo",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            24
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          24,
+          20,
+          32
+        ],
+        "target": [
+          9,
+          3,
+          9
+        ],
+        "field_of_view": 45
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.place_selected_definition",
+      "arguments": {
+        "definition_id": 23
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "move",
+      "worldX": 14,
+      "worldY": 4,
+      "worldZ": 7
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 14,
+      "worldY": 4,
+      "worldZ": 7
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        25
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        24
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        25
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            24
+          ],
+          "kind": "occurrence",
+          "id": null
+        },
+        {
+          "path": [
+            25
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.create_from_selection",
+      "arguments": {
+        "name": "Combined plates"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        31
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        31
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        31,
+        27
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        31,
+        28
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.place_selected_definition",
+      "arguments": {
+        "definition_id": 29
+      }
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": -10,
+      "worldY": 1,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        32
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        32,
+        27
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        32,
+        28
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/object-anchor/anchor.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/object-anchor/anchor.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        36
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        36,
+        33
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        36,
+        34
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        37
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        37,
+        33
+      ],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        38,
+        37,
+        34
+      ],
+      "limit": 1000
+    }
+  }
+]

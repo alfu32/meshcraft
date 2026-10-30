@@ -1002,6 +1002,12 @@ mod nested_edit_tests {
             occurrence: original.clone(),
             entity: SelectedEntity::Occurrence,
         });
+        let previous_z = d
+            .resolve_occurrence(&other_original)
+            .unwrap()
+            .world_transform
+            .translation
+            .z;
         d.edit_prototype(&parent, |d| {
             transforms::transform_selection(
                 d,
@@ -1012,7 +1018,7 @@ mod nested_edit_tests {
         })
         .unwrap();
         assert_eq!(
-            1.,
+            previous_z + 1.,
             d.resolve_occurrence(&other_original)
                 .unwrap()
                 .world_transform

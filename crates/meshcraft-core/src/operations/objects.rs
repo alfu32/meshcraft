@@ -1,5 +1,8 @@
 //! Selection-first object grouping, placement, duplication and materialization.
 
+#[path = "objects_anchor.rs"]
+mod anchor;
+
 #[path = "objects_bake.rs"]
 mod bake;
 pub use bake::{GPU_MESH_KEY, bake_objects, shader_capture_paths};
@@ -1257,6 +1260,24 @@ pub fn group_mesh_selection(
         // Invalid unrelated legacy records remain opaque, just as on import.
         candidate.regenerate_architecture();
     }
+    let origin = {
+        let definition = candidate
+            .definitions
+            .get_mut(&object_definition)
+            .expect("new object definition");
+        let origin = anchor::mesh_anchor(&definition.geometry, &definition.extensions)?;
+        anchor::rebase_mesh(&mut definition.geometry, &mut definition.extensions, origin)?;
+        origin
+    };
+    candidate
+        .child_layouts
+        .get_mut(&target_layout)
+        .expect("new object layout")
+        .entries
+        .iter_mut()
+        .find(|e| e.id == entry_id)
+        .expect("new object entry")
+        .transform = Affine3::from_translation(origin);
     candidate.validate()?;
     let grouped = if target_parent.is_scene_root() {
         OccurrenceRef::root(entry_id)
@@ -1312,14 +1333,7 @@ pub fn group_occurrences(
         return Err("one or more selected objects are no longer present".to_owned());
     }
 
-    let origin = selected_entries
-        .iter()
-        .map(|entry| entry.transform.translation)
-        .fold(Vec3::ZERO, |sum, position| sum + position)
-        * (1.0 / selected_entries.len() as f64);
-    if !origin.is_finite() {
-        return Err("selected object origins are not finite".to_owned());
-    }
+    let origin = anchor::instances_anchor(&candidate, occurrences, &parent)?;
 
     let mut child_id_map = BTreeMap::new();
     let child_layout_id = ChildLayoutId(candidate.allocate_id());
@@ -3199,20 +3213,28 @@ mod tests {
         assert_eq!(serde_json::json!([]), source.extensions["k3d.texts"]);
         let grouped_definition = document.resolve_occurrence(&grouped).unwrap().definition;
         assert_eq!(
+            document
+                .resolve_occurrence(&grouped)
+                .unwrap()
+                .world_transform
+                .translation,
+            Vec3::new(0., 0., 6.)
+        );
+        assert_eq!(
             crate::document::DefinitionKind::Hybrid,
             grouped_definition.kind
         );
         assert_eq!(1, grouped_definition.geometry.triangles.len());
         assert_eq!(
             serde_json::json!([{
-                "start": {"x": 1, "y": 2, "z": 3}
+                "start": {"x": 1.0, "y": 2.0, "z": -3.0}
             }]),
             grouped_definition.extensions["k3d.dimensions"]
         );
         assert_eq!(
             serde_json::json!([{
                 "text": "Door",
-                "position": {"x": 4, "y": 5, "z": 6}
+                "position": {"x": 4.0, "y": 5.0, "z": 0.0}
             }]),
             grouped_definition.extensions["k3d.texts"]
         );
@@ -3253,14 +3275,14 @@ mod tests {
         assert_eq!(serde_json::json!([]), source_prototype["texts"]);
         assert_eq!(
             serde_json::json!([{
-                "start": {"x": 1, "y": 2, "z": 3}
+                "start": {"x": 1.0, "y": 2.0, "z": -3.0}
             }]),
             grouped_prototype["dimensions"]
         );
         assert_eq!(
             serde_json::json!([{
                 "text": "Door",
-                "position": {"x": 4, "y": 5, "z": 6}
+                "position": {"x": 4.0, "y": 5.0, "z": 0.0}
             }]),
             grouped_prototype["texts"]
         );

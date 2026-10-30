@@ -20630,6 +20630,8 @@ mod tests {
             .default_child_layout
             .unwrap();
         let child_entry = app.document.child_layout(shared_layout).unwrap().entries[0].id;
+        let child_transform =
+            app.document.child_layout(shared_layout).unwrap().entries[0].transform;
         let child = parent.child(child_entry);
         app.selection
             .set_context(EditContext::Occurrence(parent.clone()));
@@ -20653,8 +20655,9 @@ mod tests {
         assert_eq!(2, private_entries.len());
         let original_entry = private_entries
             .iter()
-            .find(|entry| entry.transform.translation == Vec3::ZERO)
+            .find(|entry| entry.id == child_entry)
             .unwrap();
+        assert_eq!(original_entry.transform, child_transform);
         assert!(
             app.document
                 .resolve_occurrence(&parent.child(original_entry.id))

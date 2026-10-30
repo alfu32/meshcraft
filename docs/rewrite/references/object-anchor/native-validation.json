@@ -1,0 +1,29 @@
+{
+  "version": "0.48.1",
+  "cornerConvention": "X min, Y min, Z max; Y up, +Z front",
+  "rawMeshAnchor": [
+    4,
+    2,
+    12
+  ],
+  "localGeometryCorner": [
+    0,
+    0,
+    0
+  ],
+  "worldGeometryUnchanged": true,
+  "undoRedo": true,
+  "newInsertionCorner": [
+    14,
+    4,
+    7
+  ],
+  "groupedInstancesUseBoundingBox": true,
+  "nestedInsertionCorner": [
+    -10,
+    1,
+    0
+  ],
+  "saveOpenRetainsAnchors": true,
+  "platform": "Actual GPUI app; isolated Linux Xvfb/Mesa"
+}
