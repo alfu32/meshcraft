@@ -60,9 +60,15 @@ GPU-generated shader objects retain their generator settings; use Shader Object
 Settings, or bake to mesh before assigning a surface finish.
 
 Object Instance, Object Prototypes and Materials inspectors retain their lists,
-properties and parameter editing. Action commands live in toolbars. Material
-and prototype list double-click behavior, prototype deletion confirmation and
-Files' Recent Files submenu remain available.
+properties and parameter editing. Contextual management actions sit beside the
+items they manage: material creation/editing/deletion/application below the material
+list; prototype creation, script/shader editing, insertion, deletion and external
+reference management below the prototype list; editing, exploding and baking next
+to instance properties. Catalog lists scroll within a bounded area so their actions
+stay adjacent even in drawings with many items. These use the same command handlers, availability rules,
+and deletion safeguards as their menu/toolbar shortcuts. General modeling tools
+remain in toolbars. Material and prototype list double-click behavior, prototype
+deletion confirmation and Files' Recent Files submenu remain available.
 
 The command panel lists every registered command as `Category > Function Name`.
 Search also includes command IDs and legacy keywords. Up/Down selects and scrolls;
@@ -75,5 +81,6 @@ The dropdown row starts with Files. The title displays
 [functional_ui.rs](../apps/desktop/src/functional_ui.rs) defines canonical and
 ribbon placements. The [tool catalog](tools/tools.csv) records canonical placement;
 regeneration preserves all four user review columns by command ID. See
-[workspace validation](rewrite/references/workspace-controls/README.md) and the
+[workspace validation](rewrite/references/workspace-controls/README.md),
+[contextual inspector actions](rewrite/references/panel-actions/README.md) and the
 [README screenshot manifest](screenshots/manifest.json).

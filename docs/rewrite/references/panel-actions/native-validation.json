@@ -1,0 +1,47 @@
+{
+  "version": "0.48.3",
+  "prototypeDeleteConfirmationAndCancel": true,
+  "newScriptedEditorFromPanel": true,
+  "instancePlacementFromPanel": true,
+  "editMaterialFromPanel": true,
+  "applyMaterialFromPanel": "ansi-black",
+  "newMaterialEditorFromPanel": true,
+  "clicks": [
+    {
+      "action": "Select prototype list item",
+      "x": 1670,
+      "y": 315
+    },
+    {
+      "action": "Delete Prototype",
+      "x": 1560,
+      "y": 437
+    },
+    {
+      "action": "New Scripted",
+      "x": 1670,
+      "y": 370
+    },
+    {
+      "action": "Place Instance",
+      "x": 1760,
+      "y": 405
+    },
+    {
+      "action": "Edit first material without an explicit list selection",
+      "x": 1660,
+      "y": 494
+    },
+    {
+      "action": "Apply to Selection",
+      "x": 1560,
+      "y": 529
+    },
+    {
+      "action": "New Material",
+      "x": 1560,
+      "y": 494
+    }
+  ],
+  "platform": "Actual GPUI app; isolated Linux Xvfb/Mesa desktop"
+}

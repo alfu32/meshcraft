@@ -1,0 +1,52 @@
+{
+  "prototypes": {
+    "version": "0.48.3",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/panel-actions/catalogs.octd",
+    "preview": false,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 6,
+    "sha256": "bf60dce0a46abadf020774c46ee350a262b1feef7ae0cb62630948909e1d599a",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "materials": {
+    "version": "0.48.3",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/panel-actions/catalogs.octd",
+    "preview": false,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 12,
+    "sha256": "19dd806c0b5f62cdbf72ba34d932049c0485093a26d1210a336d0162c696b9c0",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "instance": {
+    "version": "0.48.3",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/panel-actions/catalogs.octd",
+    "preview": false,
+    "revision": 3,
+    "generation": 0,
+    "frameSequence": 22,
+    "sha256": "cd63f5dc5bf23ed68af9345b557ec9134731057d3c2fd26532231643c36444aa",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "delete-confirmation": {
+    "version": "0.48.3",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/panel-actions/catalogs.octd",
+    "preview": false,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 6,
+    "sha256": "817964247cd24c879bb11112a1909893133ee7b16141ff43492d5ce99ac5a4df",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "material-editor": {
+    "version": "0.48.3",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/panel-actions/catalogs.octd",
+    "preview": true,
+    "revision": 1,
+    "generation": 0,
+    "frameSequence": 15,
+    "sha256": "6e65bf550df4a31d9896121a6a417d933d375d832b861c2ffa6126314890ed78",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

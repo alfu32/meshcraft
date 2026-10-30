@@ -1615,10 +1615,11 @@ impl MeshcraftShell {
             payload.values.insert(
                 "id".into(),
                 serde_json::Value::String(
-                    self.materials
-                        .selected
-                        .clone()
-                        .unwrap_or_else(|| "ansi-grey".into()),
+                    materials::selected_material(
+                        &self.cached_document,
+                        self.materials.selected.as_deref(),
+                    )
+                    .id,
                 ),
             );
             payload
@@ -3032,12 +3033,10 @@ impl Render for MeshcraftShell {
             } else if panel == "material_editor_new" {
                 materials::edit(self, self.cached_document.next_material(), window, cx);
             } else if panel == "material_editor" {
-                let material = self
-                    .cached_document
-                    .materials()
-                    .into_iter()
-                    .find(|m| self.materials.selected.as_ref() == Some(&m.id))
-                    .unwrap_or_default();
+                let material = materials::selected_material(
+                    &self.cached_document,
+                    self.materials.selected.as_deref(),
+                );
                 materials::edit(self, material, window, cx);
             } else if let Some((index, title)) = layout::panel_location(&panel) {
                 self.open_settings_panel = Some(title);

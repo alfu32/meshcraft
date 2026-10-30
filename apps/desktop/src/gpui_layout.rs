@@ -353,6 +353,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                 .flex()
                 .flex_col()
                 .gap(px(2.))
+                .id("objects/prototypes-list")
+                .max_h(px(280.))
+                .overflow_y_scroll()
                 .children(prototypes.into_iter().map(|prototype| {
                     let id = prototype.id;
                     let count = self
@@ -400,6 +403,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
                         )
                         .w_full()
                         .h(px(64.))
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .tooltip("Double-click to insert an instance of this prototype")
@@ -1081,6 +1085,22 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
 }
 
 pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {
+    let material_actions = command_row(
+        "panel/materials/functional",
+        &[
+            ("material.new", "New Material"),
+            ("material.edit", "Edit"),
+            ("material.delete", "Delete Unused"),
+            ("material.apply", "Apply to Selection"),
+            ("material.new_shader", "New Shader"),
+            ("material.new_grass", "New Grass"),
+            ("material.new_foliage", "New Foliage"),
+            ("material.new_water", "New Water"),
+            ("material.new_brick", "New Brick"),
+            ("material.new_wood", "New Wood"),
+        ],
+        bindings,
+    );
     (div()
         .w(px(RIGHT_PANEL_WIDTH))
         .h_full()
@@ -1110,6 +1130,19 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_selection()),
                 )
                 .child(setting_field("Object name", "", bindings))
+                .child(command_row(
+                    "panel/object-instance/functional",
+                    &[
+                        ("selection.edit_object", "Edit Prototype"),
+                        ("selection.exit_context", "Finish Editing"),
+                        ("object.explode_selection", "Explode"),
+                        ("script.edit", "Edit Script"),
+                        ("object.edit_tree", "Shader Settings"),
+                        ("object.bake_to_shader", "Bake to Shader"),
+                        ("object.bake_to_mesh", "Bake to Mesh"),
+                    ],
+                    bindings,
+                ))
                 .child(super::parameters::panel(bindings.shell, bindings.cx))
                 .child(super::ifc::panel(bindings.shell, false, bindings.cx)),
             bindings,
@@ -1127,12 +1160,28 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         .child(bindings.object_summary()),
                 )
                 .child(setting_field("Object list", "Empty scene", bindings))
+                .child(command_row(
+                    "panel/prototypes/functional",
+                    &[
+                        ("object.create_from_selection", "Make Object"),
+                        ("script.new", "New Scripted"),
+                        ("object.new_tree", "New Shader Object"),
+                        ("script.edit", "Edit Script"),
+                        ("object.edit_tree", "Shader Settings"),
+                        ("object.place_selected_definition", "Place Instance"),
+                        ("object.delete_definition", "Delete Prototype"),
+                        ("object.import_scene", "Import Prototype"),
+                        ("object.reference_scene", "Reference Scene"),
+                        ("object.refresh_reference", "Refresh Reference"),
+                    ],
+                    bindings,
+                ))
                 .child(super::ifc::panel(bindings.shell, true, bindings.cx)),
             bindings,
         ))
         .child(setting_section(
             "Materials",
-            super::materials::panel(bindings.shell, bindings.cx),
+            super::materials::panel(bindings.shell, bindings.cx, material_actions),
             bindings,
         ))
         .child(setting_section(

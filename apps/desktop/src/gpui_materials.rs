@@ -280,14 +280,27 @@ pub(super) fn edit(
     cx.notify();
 }
 
-pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) -> gpui::AnyElement {
+pub(super) fn selected_material(
+    document: &meshcraft_core::document::Document,
+    selected: Option<&str>,
+) -> Material {
+    let materials = document.materials();
+    materials
+        .iter()
+        .find(|material| Some(material.id.as_str()) == selected)
+        .or_else(|| materials.first())
+        .cloned()
+        .unwrap_or_default()
+}
+
+pub(super) fn panel(
+    shell: &MeshcraftShell,
+    cx: &mut Context<MeshcraftShell>,
+    actions: gpui::AnyElement,
+) -> gpui::AnyElement {
     let materials = shell.cached_document.materials();
-    let selected = shell
-        .materials
-        .selected
-        .clone()
-        .filter(|id| materials.iter().any(|m| &m.id == id))
-        .unwrap_or_else(|| materials[0].id.clone());
+    let selected =
+        selected_material(&shell.cached_document, shell.materials.selected.as_deref()).id;
     div().flex().flex_col().gap(px(5.))
         .on_scroll_wheel(|_,_,cx| cx.stop_propagation())
         .child(div().id("materials/list").max_h(px(240.)).overflow_y_scroll().flex().flex_col().gap(px(3.))
@@ -304,6 +317,7 @@ pub(super) fn panel(shell: &MeshcraftShell, cx: &mut Context<MeshcraftShell>) ->
                     cx.notify();
                 }))
         })))
+        .child(actions)
         .children(shell.bridge.latest_frame().into_iter().filter(|f|f.procedural_candidates>0).map(|f|div().text_xs().text_color(rgb(0xa9b7c5)).child(format!("Procedural GPU: {} candidates · {} draws",f.procedural_candidates,f.procedural_draw_calls))))
         .children(shell.bridge.latest_frame().into_iter().flat_map(|f|f.procedural_diagnostics).map(|d|div().text_xs().text_color(rgb(0xffaa80)).child(d)))
         .child(div().text_xs().text_color(rgb(0xa9b7c5)).child("Double-click to edit. Procedural details are visual; select and snap to the source surface."))
