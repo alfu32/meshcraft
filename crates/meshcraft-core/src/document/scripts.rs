@@ -441,6 +441,7 @@ impl Document {
         next.extend(frames);
         self.script_cache.frames = Arc::new(next);
         if visual_change {
+            self.hotspot_cache.clear_materials();
             self.script_cache.generation = self.script_cache.generation.wrapping_add(1);
         }
     }

@@ -188,3 +188,20 @@ applies the inverse transform when sampling. Wood's grain-axis selection remains
 available. Source geometry, object transforms and mesh topology stay unchanged.
 Material defaults and per-assignment overrides use the existing parameter
 resolution, save/reopen and Undo/Redo paths; the schema is published through MCP.
+
+### Selection and instance finishes — 0.48.0
+
+Home and Materials expose a catalog picker for the selection's current material,
+or a multiple-material state. Changing it applies to all editable selected mesh
+primitives, object instances and architectural owners in one Undo step. With no
+selection it chooses the current construction/paint material.
+
+A mesh/script object finish is a persistent instance material binding. It applies
+to that instance's complete geometry, including nested contents, without baking
+or replacing topology, modifying its prototype, or changing sibling placements.
+Painting a parent replaces older child finishes only within that parent; later
+child painting can specialize it again. Instance bindings survive copying,
+schema-17 save/open and material-ID remapping on subscene import. Their materials
+cannot be deleted while referenced. Generated script updates retain the finish.
+Within prototype editing, direct face/edge painting still edits that authored
+geometry. Architectural owners update their surface slots; hotspots keep colors.

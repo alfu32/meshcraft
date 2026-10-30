@@ -1,0 +1,82 @@
+{
+  "home": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 0,
+    "generation": 0,
+    "frameSequence": 2,
+    "sha256": "342d2041f75f31267054e4d351b36e4f3a30fb53229349a7cf9b4f61e10ccf0e",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "shelf-search": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 0,
+    "generation": 0,
+    "frameSequence": 2,
+    "sha256": "40d6af34cd7a56fc82e73396f1f3ae8778add1afab92cc3a6230fc0c308cdf0c",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "shelf-resized": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 0,
+    "generation": 0,
+    "frameSequence": 5,
+    "sha256": "442d8de857549fe1d11bb456f1518fbc8bcdc43fdedaa3a70760449fcea80bcd",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "material-multiple": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 5,
+    "generation": 0,
+    "frameSequence": 17,
+    "sha256": "934618eca820630dfb644e85d427cca6b589724137bee5801bf0b687da5bdfeb",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "material-assignment": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 6,
+    "generation": 0,
+    "frameSequence": 18,
+    "sha256": "4c9411862bb1eb18dd436f69e8f2fe91b1077ed115138276ab23bf88219a0207",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "materials-ribbon": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 7,
+    "generation": 0,
+    "frameSequence": 19,
+    "sha256": "a4d8e135ce15137370fa13f3aad533a932ae82e66f389090273ca00fecd28048",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "object-insertion": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 10,
+    "generation": 0,
+    "frameSequence": 25,
+    "sha256": "1444e96a575cbf1cfe25ef5d7542e25399273781853689625f00cdd27b9ef1f4",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "instance-paint": {
+    "version": "0.48.0",
+    "project": null,
+    "preview": false,
+    "revision": 12,
+    "generation": 0,
+    "frameSequence": 34,
+    "sha256": "c9367a9453111d4af5654e7e3399c64b0cc908773246bf7d115b1098656b09c3",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

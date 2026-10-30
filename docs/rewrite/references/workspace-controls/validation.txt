@@ -1,0 +1,18 @@
+Meshcraft 0.48.0 validation
+
+cargo fmt --all --check: PASS
+cargo test --workspace --locked: PASS (792 passed, 22 ignored, no failures)
+cargo clippy --workspace --all-targets --locked -- -D warnings: PASS
+cargo build -p meshcraft-desktop --locked: PASS
+python3 docs/rewrite/scripts/verify_plan.py: PASS
+python3 scripts/export_tool_inventory.py --binary target/debug/meshcraft --check: PASS (290 commands)
+Actual Git HEAD/new catalog comparison: PASS (IDs and all four review columns identical)
+python3 -m unittest discover -s scripts -p 'test_export_tool_inventory.py' -v: PASS (4 tests)
+python3 -m unittest discover -s scripts -p 'test_tool_icons.py' -v: PASS (3 tests)
+python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v: PASS (12 tests)
+python3 scripts/verify_workspace_controls.py: PASS
+python3 scripts/verify_functional_ui.py --output packaging/microsoft-store/captures/work/workspace-command-panel: PASS
+python3 scripts/capture_store_features.py --refresh-readme: PASS (8 native captures refreshed)
+
+git diff --check: PASS
+Cargo retains the existing proc-macro-error2 2.0.1 future-incompatibility notice.

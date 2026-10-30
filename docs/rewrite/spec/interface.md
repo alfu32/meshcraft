@@ -466,3 +466,35 @@ catalog shows icon IDs and design meanings while preserving all four review
 columns. Store and README captures use the actual updated app through MCP.
 See [icon maintenance](../../../assets/tool-icons/README.md) and
 [validation evidence](../references/command-icons/README.md).
+
+### Searchable shelf, Home and ribbon projection — 0.48.0
+
+The left command panel has a fixed search input above its scrolling sections.
+Match all query words against category/name/ID/legacy keywords without case
+sensitivity; hide empty sections. Its right edge resizes the panel and viewport
+in logical pixels at every DPI. Persist width in UI preferences (180–600), limit
+it for narrow windows, and avoid changing drawing history while searching/resizing.
+
+Canonical menus/left sections keep Files, Clipboard & History and Selection first.
+Rename 2D Construction to Construction; place transforms there. Move Meshing's
+Modify and Arrays sections to Modify. Ribbon projection adds Selection to
+Construction, removes its separate Selection tab, and adds Home as the initial
+tab. Home shortcuts use the existing commands and icons, with no duplicates within
+Home; their canonical placements remain available elsewhere. See the complete
+[layout and Home list](../../menu-layout.md).
+
+Home and Materials provide a live catalog material picker reflecting all selected
+entity finishes, with a multiple-material state. A change applies transactionally
+to the editable selection; with no selection choose the current drawing material.
+Home's prototype picker starts normal insertion mode and its wireframe preview.
+Catalog pickers support text search. Preserve context/readonly checks, command
+IDs, shortcuts, icon ownership and all four user tool-review columns.
+
+Paint normalizes hits to the editable context's object/architectural owner.
+For ordinary/scripted mesh objects, author one instance finish instead of a
+triangle replacement or prototype edit. Evaluate its colored mesh only on a new
+immutable snapshot, cache it, and preserve script topology and shared sibling
+instances. Recompute after geometry/catalog changes. Primitive painting within
+prototype edit mode retains face/edge scope. Store and copy instance finishes,
+remap their catalog IDs on import, and protect referenced materials from deletion.
+See [native and automated evidence](../references/workspace-controls/README.md).

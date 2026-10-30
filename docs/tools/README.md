@@ -2,8 +2,8 @@
 
 Edit [tools.csv](tools.csv) in a spreadsheet or text editor. There is one row per
 command ID in the live application registry, including tools, menu actions,
-settings commands and deferred entries. Each visible action now has one functional home across menus, ribbon and the
-left panel. Editing this review file does not change the running app.
+settings commands and deferred entries. Each visible action has one canonical home in menus and the left panel.
+The Home ribbon repeats common actions as shortcuts. Editing this review file does not change the running app.
 
 The first columns identify the current **category**, **name** and **icon**.
 Category uses the functional toolbar group where present, then the command's
@@ -57,7 +57,7 @@ Move and Rotate variants. It runs locally and through the manually tagged
 published as Markdown/CSV/JSON assets on that release. Deferred commands and actual
 failures stay visible; no command activation is passed off as completed modeling.
 
-Phase 3 is implemented in 0.46.0 with the [eight functional groups](../menu-layout.md).
+Phase 3 is implemented in 0.46.0 with the [functional groups](../menu-layout.md).
 The original edited metadata is archived unchanged in
 [reviewed-tools-0.45.3.csv](reviewed-tools-0.45.3.csv); the live export preserves all
 four review fields by command ID. Further review notes can refine this layout.

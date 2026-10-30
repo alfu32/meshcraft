@@ -48,6 +48,83 @@ impl MeshcraftApp {
         Ok(value)
     }
 
+    pub(crate) fn native_selection_materials(&self) -> std::collections::BTreeSet<String> {
+        use std::collections::{BTreeSet, HashMap};
+        let mut result = BTreeSet::new();
+        let mut groups = BTreeSet::new();
+        let mut paths = BTreeSet::new();
+        let mut primitives = BTreeMap::<OccurrenceRef, Vec<&SelectedEntity>>::new();
+        for target in self.selection.selected() {
+            if target.entity == SelectedEntity::Occurrence {
+                let Some(r) = self.document.resolve_occurrence(&target.occurrence) else {
+                    continue;
+                };
+                let children = r
+                    .edits
+                    .and_then(|e| e.child_layout)
+                    .or(r.definition.default_child_layout)
+                    .and_then(|l| self.document.child_layout(l))
+                    .is_some_and(|l| !l.entries.is_empty());
+                if children {
+                    groups.insert(target.occurrence.path.clone());
+                } else if let Some(binding) = self.document.instance_material(&target.occurrence) {
+                    result.insert(binding.id);
+                } else {
+                    paths.insert(target.occurrence.clone());
+                }
+            } else if matches!(target.entity, SelectedEntity::SemanticHandle { .. }) {
+                if let Some(owner) = self.document.architecture_element(target) {
+                    result.extend(owner.element.surface_materials().values().cloned());
+                }
+            } else {
+                primitives
+                    .entry(target.occurrence.clone())
+                    .or_default()
+                    .push(&target.entity);
+            }
+        }
+        if !groups.is_empty() {
+            for path in self.document.scene_geometry_refs().unwrap_or_default() {
+                if (0..=path.path.len()).any(|depth| groups.contains(&path.path[..depth])) {
+                    paths.insert(path);
+                }
+            }
+        }
+        // Shared prototypes are scanned once, and selected primitive IDs are
+        // grouped by owner. Never decode a script or walk the scene per face.
+        let mut sources = HashMap::new();
+        for path in paths {
+            if let Some(g) = self.document.effective_geometry(&path) {
+                let ids = sources.entry(g as *const _ as usize).or_insert_with(|| {
+                    g.segments
+                        .values()
+                        .map(|e| &e.extensions)
+                        .chain(g.triangles.values().map(|f| &f.extensions))
+                        .filter_map(meshcraft_core::document::materials::material_id)
+                        .map(str::to_owned)
+                        .collect::<BTreeSet<_>>()
+                });
+                result.extend(ids.iter().cloned());
+            }
+        }
+        for (path, entities) in primitives {
+            let Some(g) = self.document.effective_geometry(&path) else {
+                continue;
+            };
+            for entity in entities {
+                let ext = match entity {
+                    SelectedEntity::Segment(id) => g.segments.get(id).map(|e| &e.extensions),
+                    SelectedEntity::Triangle(id) => g.triangles.get(id).map(|e| &e.extensions),
+                    _ => None,
+                };
+                if let Some(id) = ext.and_then(meshcraft_core::document::materials::material_id) {
+                    result.insert(id.to_owned());
+                }
+            }
+        }
+        result
+    }
+
     pub fn choose_native_material(&mut self, id: &str) -> Result<(), String> {
         let material = self
             .document
@@ -131,10 +208,63 @@ impl MeshcraftApp {
                 .ok_or("Program unavailable")?
                 .resolve(&p.parameters, values)?;
         }
+        self.assign_material_targets(
+            id,
+            parameters,
+            self.selection.selected().iter().cloned().collect(),
+        )
+    }
+
+    pub(super) fn paint_material_targets(
+        &mut self,
+        targets: Vec<SelectionTarget>,
+    ) -> Result<(), String> {
+        let color = self.current_face_color();
+        if let Some(id) = self.current_paint_material.clone().or_else(|| {
+            self.document
+                .materials()
+                .into_iter()
+                .find(|m| m.procedural.is_none() && m.color == color)
+                .map(|m| m.id)
+        }) {
+            return self.assign_material_targets(&id, None, targets);
+        }
+        let mut material = self.document.next_material();
+        material.color = color;
+        material.name = format!(
+            "Color #{:02x}{:02x}{:02x}{:02x}",
+            color.red, color.green, color.blue, color.alpha
+        );
+        let id = material.id.clone();
+        self.assign_material_targets_with_new(&id, None, targets, Some(material))
+    }
+
+    pub(super) fn assign_material_targets(
+        &mut self,
+        id: &str,
+        parameters: Option<BTreeMap<String, Value>>,
+        targets: Vec<SelectionTarget>,
+    ) -> Result<(), String> {
+        self.assign_material_targets_with_new(id, parameters, targets, None)
+    }
+    fn assign_material_targets_with_new(
+        &mut self,
+        id: &str,
+        parameters: Option<BTreeMap<String, Value>>,
+        targets: Vec<SelectionTarget>,
+        new_material: Option<Material>,
+    ) -> Result<(), String> {
+        if new_material.is_none() && !self.document.materials().iter().any(|m| m.id == id) {
+            return Err("Material missing".into());
+        }
         let mut selection = SelectionSession::default();
         selection.set_context(self.selection.context.clone());
         let mut architecture = Vec::new();
-        for target in self.selection.selected() {
+        let mut instances = std::collections::BTreeSet::new();
+        for target in targets {
+            if !self.native_target_editable(&target) {
+                continue;
+            }
             if matches!(
                 &target.entity,
                 SelectedEntity::SemanticHandle {
@@ -144,56 +274,38 @@ impl MeshcraftApp {
             ) {
                 continue;
             }
-            if let Some(element) = self.document.architecture_element(target) {
-                if self.native_architecture_editable(target) {
+            if let Some(element) = self.document.architecture_element(&target) {
+                if self.native_architecture_editable(&target) {
                     architecture.push(element);
                 }
-                continue;
-            }
-            if matches!(target.entity, SelectedEntity::Occurrence) {
-                for occurrence in self.document.scene_geometry_refs()? {
-                    if !occurrence.path.starts_with(&target.occurrence.path) {
-                        continue;
-                    }
-                    let Some(geometry) = self.document.effective_geometry(&occurrence) else {
-                        continue;
-                    };
-                    for entity in geometry
-                        .segments
-                        .keys()
-                        .copied()
-                        .map(SelectedEntity::Segment)
-                        .chain(
-                            geometry
-                                .triangles
-                                .keys()
-                                .copied()
-                                .map(SelectedEntity::Triangle),
-                        )
-                    {
-                        let target = SelectionTarget {
-                            occurrence: occurrence.clone(),
-                            entity,
-                        };
-                        if self
-                            .selection_display_policy
-                            .can_edit_target(&self.document, &target)
-                        {
-                            selection.select(target);
-                        }
-                    }
-                }
-            } else if self
-                .selection_display_policy
-                .can_edit_target(&self.document, target)
+            } else if target.entity == SelectedEntity::Occurrence
+                && self.document.is_object_occurrence(&target.occurrence)
             {
-                selection.select(target.clone());
+                instances.insert(target.occurrence);
+            } else if matches!(
+                target.entity,
+                SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+            ) {
+                selection.select(target);
             }
         }
-        if selection.selected().is_empty() && architecture.is_empty() {
-            return Err("Select editable 3D geometry; hotspots use their own colors".into());
+        if selection.selected().is_empty() && architecture.is_empty() && instances.is_empty() {
+            return Err(
+                "Select editable geometry or object instances; hotspots use their own colors"
+                    .into(),
+            );
         }
         self.commit_document_edit("Assign material", |document| {
+            if let Some(material) = new_material {
+                document.put_material(material)?;
+            }
+            for instance in instances {
+                document.set_instance_material(
+                    &instance,
+                    id,
+                    parameters.clone().unwrap_or_default(),
+                )?;
+            }
             for owner in architecture {
                 let mut element = owner.element;
                 let slots = match &element {
@@ -249,6 +361,125 @@ impl MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paint_promotes_picked_object_facets_but_prototype_editing_keeps_facet_scope() {
+        let mut d = Document::new();
+        let a = d
+            .add_cuboid("box", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        let b = d.copy_root_occurrence(&a, Vec3::X * 3.).unwrap();
+        let face = *d
+            .effective_geometry(&a)
+            .unwrap()
+            .triangles
+            .keys()
+            .next()
+            .unwrap();
+        let mut app = MeshcraftApp::new_native_session(d, "Ready".into(), None);
+        app.choose_native_material("ansi-red").unwrap();
+        app.paint_native_target(Some(SelectionTarget {
+            occurrence: a.clone(),
+            entity: SelectedEntity::Triangle(face),
+        }));
+        assert_eq!(app.document.instance_material(&a).unwrap().id, "ansi-red");
+        assert!(app.document.instance_material(&b).is_none());
+        assert!(
+            app.document
+                .occurrence_edits(&a)
+                .unwrap()
+                .geometry_replacement
+                .is_none()
+        );
+        app.undo_document();
+        assert!(app.document.instance_material(&a).is_none());
+        app.selection
+            .set_context(EditContext::Occurrence(a.clone()));
+        app.paint_native_target(Some(SelectionTarget {
+            occurrence: a.clone(),
+            entity: SelectedEntity::Triangle(face),
+        }));
+        assert!(app.document.instance_material(&a).is_none());
+        assert_eq!(
+            1,
+            app.document
+                .resolve_occurrence(&a)
+                .unwrap()
+                .definition
+                .geometry
+                .triangles
+                .values()
+                .filter(|f| f.color == Rgba8::new(128, 0, 0, 255))
+                .count()
+        );
+    }
+    #[test]
+    fn mixed_mesh_instance_and_architecture_material_assignment_is_one_undo_step() {
+        use meshcraft_core::document::architecture::{Element, Wall};
+        let mut d = Document::new();
+        let a = d
+            .add_cuboid("box", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        let line =
+            d.append_line_segment_to_scene_root(Vec3::new(5., 0., 0.), Vec3::new(6., 0., 0.));
+        let root = d.ensure_scene_root();
+        let wall = d
+            .put_architecture(
+                root,
+                None,
+                Element::Wall(Wall {
+                    end: Vec3::X * 5.,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        let mut app = MeshcraftApp::new_native_session(d, "Ready".into(), None);
+        app.selection.select(SelectionTarget {
+            occurrence: a.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        for id in line.unwrap().affected_segments {
+            app.selection.select(SelectionTarget {
+                occurrence: OccurrenceRef::scene_root(),
+                entity: SelectedEntity::Segment(id),
+            });
+        }
+        app.selection.select(SelectionTarget {
+            occurrence: OccurrenceRef::scene_root(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: meshcraft_core::selection::SelectionKind::Wall,
+                id: wall,
+            },
+        });
+        let before = app.document.clone();
+        assert!(app.native_selection_materials().len() > 1);
+        let mut targets = app.selection.selected().iter().cloned().collect::<Vec<_>>();
+        let vertex = *app
+            .document
+            .effective_geometry(&a)
+            .unwrap()
+            .vertices
+            .keys()
+            .next()
+            .unwrap();
+        targets.push(SelectionTarget {
+            occurrence: a.clone(),
+            entity: SelectedEntity::Vertex(vertex),
+        });
+        app.assign_material_targets("ansi-blue", None, targets)
+            .unwrap();
+        assert_eq!(
+            app.native_selection_materials(),
+            std::collections::BTreeSet::from(["ansi-blue".into()])
+        );
+        assert_eq!(app.history.entries().len(), 1);
+        app.undo_document();
+        assert_eq!(
+            app.document.scene_root_definition(),
+            before.scene_root_definition()
+        );
+        assert!(app.document.instance_material(&a).is_none());
+        assert_eq!(app.document.materials(), before.materials());
+    }
     #[test]
     fn deleting_unused_materials_is_undoable_and_defaults_remain_available() {
         let mut app = MeshcraftApp::new_native_session(Document::new(), "Ready".into(), None);

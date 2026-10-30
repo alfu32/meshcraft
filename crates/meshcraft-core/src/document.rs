@@ -11,6 +11,7 @@ pub mod derived;
 pub mod hotspots;
 pub mod ifc;
 mod insertion;
+pub mod instance_materials;
 pub mod materials;
 pub mod procedural;
 pub mod scripts;
@@ -2533,6 +2534,16 @@ impl Document {
     }
 
     pub fn effective_geometry(&self, occurrence: &OccurrenceRef) -> Option<&GeometryBundle> {
+        if self.instance_material(occurrence).is_some() {
+            return self
+                .hotspot_cache
+                .material_geometry(self, occurrence)
+                .or_else(|| self.unpainted_geometry(occurrence));
+        }
+        self.unpainted_geometry(occurrence)
+    }
+
+    pub(crate) fn unpainted_geometry(&self, occurrence: &OccurrenceRef) -> Option<&GeometryBundle> {
         let resolved = self.resolve_occurrence(occurrence)?;
         if self
             .script(resolved.definition.id)

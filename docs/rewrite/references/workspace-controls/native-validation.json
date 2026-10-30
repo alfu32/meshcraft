@@ -1,0 +1,17 @@
+{
+  "version": "0.48.0",
+  "nativeSearchEnter": true,
+  "nativeSearchEscape": true,
+  "persistedLeftWidth": 380.00232,
+  "viewportTracksResize": true,
+  "searchAndResizeLeaveHistoryUnchanged": true,
+  "nativeMaterialPickerAssignsEntireSelection": true,
+  "materialsRibbonPicker": true,
+  "materialUndoRedo": true,
+  "nativePrototypePickerStartsFloatingInsertion": true,
+  "nativePaintTargetsWholeScriptInstance": true,
+  "siblingsUnchanged": true,
+  "saveOpenPreservesFinishes": true,
+  "paintSmallFixtureSeconds": 0.24264636891894042,
+  "platform": "Actual GPUI app on isolated Linux Xvfb/Mesa"
+}

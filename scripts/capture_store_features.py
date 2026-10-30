@@ -187,11 +187,23 @@ class Capture:
         exec(compile(path.read_text(), str(path), 'exec'), scope)
 
     def group(self, name):
-        # Native ribbon tabs; the left panel is a continuous list of sections.
-        x={'Files':35,'Clipboard & History':145,'Selection':260,
-           '2D Construction':370,'Meshing':480,'Solids':555,'Civil':618,
-           'Materials':690,'Objects':775,'Hotspots':855,'Settings':944}[name]
-        self.xd('mousemove',x,82,'click',1)
+        # Use measured native tab bounds so captions/layout changes do not break captures.
+        name = {'2D Construction': 'Construction', 'Selection': 'Construction'}.get(name, name)
+        state = self.rpc.status().get('workspace')
+        if state:
+            bounds = state['controls']['ribbon/' + name]
+            self.xd('mousemove', round(bounds['x'] + bounds['width'] / 2),
+                    round(bounds['y'] + bounds['height'] / 2), 'click', 1)
+            deadline = time.monotonic() + 5
+            while self.rpc.status()['workspace']['ribbonTab'] != name:
+                if time.monotonic() > deadline:
+                    raise RuntimeError('Native ribbon tab did not activate: ' + name)
+                time.sleep(.02)
+        else:
+            x = {'Files': 35, 'Clipboard & History': 145, 'Construction': 370,
+                 'Meshing': 480, 'Solids': 555, 'Civil': 618, 'Materials': 690,
+                 'Objects': 775, 'Hotspots': 855, 'Settings': 944}[name]
+            self.xd('mousemove', x, 82, 'click', 1)
         self.rpc.frame()
 
     def capture(self, name):

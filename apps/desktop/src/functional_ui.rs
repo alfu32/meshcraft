@@ -6,8 +6,9 @@ pub(crate) const GROUPS: &[&str] = &[
     "Files",
     "Clipboard & History",
     "Selection",
-    "2D Construction",
+    "Construction",
     "Meshing",
+    "Modify",
     "Solids",
     "Civil",
     "Materials",
@@ -45,7 +46,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "2D Construction",
+        root: "Construction",
         title: "Draw",
         commands: &[
             ("tool.builtin.line", "Line"),
@@ -57,7 +58,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "2D Construction",
+        root: "Construction",
         title: "Annotations",
         commands: &[
             ("tool.builtin.linear_dimension", "Linear Dimension"),
@@ -67,7 +68,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "2D Construction",
+        root: "Construction",
         title: "Guides",
         commands: &[
             ("view.axis_guide", "Add Axis Guide"),
@@ -79,7 +80,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "2D Construction",
+        root: "Construction",
         title: "Input & Settings",
         commands: &[
             ("tool.distance", "Distance Input"),
@@ -109,7 +110,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "Meshing",
+        root: "Construction",
         title: "Transform",
         commands: &[
             ("tool.builtin.move", "Move"),
@@ -127,7 +128,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "Meshing",
+        root: "Modify",
         title: "Modify",
         commands: &[
             ("tool.builtin.line_offset", "Line Offset"),
@@ -138,7 +139,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         ],
     },
     Section {
-        root: "Meshing",
+        root: "Modify",
         title: "Arrays",
         commands: &[
             ("tool.builtin.copy_multiple", "Copy Multiple"),
@@ -450,8 +451,8 @@ pub(crate) fn toolbar_key(root: &str) -> &'static str {
         "Clipboard & History" => "actions",
         "Selection" => "in_tool_operators",
         "Hotspots" => "construction_points",
-        "2D Construction" => "construction_points",
-        "Meshing" => "modification",
+        "Construction" => "construction_points",
+        "Meshing" | "Modify" => "modification",
         "Solids" => "solids",
         "Civil" => "architecture",
         "Materials" => "rendering",
@@ -459,4 +460,95 @@ pub(crate) fn toolbar_key(root: &str) -> &'static str {
         "Files" => "files",
         _ => "camera",
     }
+}
+
+/// Ribbon shortcuts are independent of canonical menu/palette command placement.
+pub(crate) const RIBBON_TABS: &[&str] = &[
+    "Home",
+    "Files",
+    "Clipboard & History",
+    "Construction",
+    "Meshing",
+    "Modify",
+    "Solids",
+    "Civil",
+    "Materials",
+    "Objects",
+    "Hotspots",
+    "Settings",
+];
+pub(crate) const HOME: &[Section] = &[
+    Section {
+        root: "Home",
+        title: "Select & Move",
+        commands: &[("tool.select", "Select"), ("tool.builtin.move", "Move")],
+    },
+    Section {
+        root: "Home",
+        title: "Clipboard & History",
+        commands: &[
+            ("edit.undo", "Undo"),
+            ("edit.redo", "Redo"),
+            ("edit.cut_selection", "Cut"),
+            ("edit.copy_selection", "Copy"),
+            ("edit.paste", "Paste"),
+            ("edit.paste_in_place", "Paste in Place"),
+        ],
+    },
+    Section {
+        root: "Home",
+        title: "Draw",
+        commands: &[
+            ("tool.builtin.line", "Line"),
+            ("tool.builtin.polyline", "Polyline"),
+            ("tool.builtin.double_line", "Double Line"),
+            ("tool.builtin.rectangle", "Rectangle"),
+            ("tool.builtin.circle", "Circle"),
+        ],
+    },
+    Section {
+        root: "Home",
+        title: "Mesh",
+        commands: &[
+            ("tool.builtin.polyline_mesh", "Polyline Mesh"),
+            ("tool.builtin.mesh", "3D Mesh"),
+            ("tool.builtin.push_pull", "Extrude"),
+            ("tool.builtin.extrude_swipe", "Sweep"),
+        ],
+    },
+    Section {
+        root: "Home",
+        title: "Transform",
+        commands: &[
+            ("tool.move_copy", "Move Copy"),
+            ("tool.builtin.rotate", "Rotate"),
+            ("tool.builtin.scale", "Scale"),
+        ],
+    },
+    Section {
+        root: "Home",
+        title: "Guides & Hotspots",
+        commands: &[
+            ("view.axis_guide", "Axis Guide"),
+            ("view.grid_guide", "Grid Guide"),
+            ("hotspot.begin_placement", "Hotspot"),
+        ],
+    },
+    Section {
+        root: "Home",
+        title: "Solids",
+        commands: &[
+            ("tool.cuboid", "Cuboid"),
+            ("tool.builtin.primitive_sphere", "Sphere"),
+        ],
+    },
+];
+pub(crate) fn ribbon_sections(tab: &str) -> Vec<&'static Section> {
+    if tab == "Home" {
+        return HOME.iter().collect();
+    }
+    SECTIONS
+        .iter()
+        .filter(|s| s.root == tab || (tab == "Construction" && s.root == "Selection"))
+        .collect()
 }

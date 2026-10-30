@@ -408,7 +408,14 @@ impl Document {
                     .values()
                     .flat_map(|l| l.entries.iter().map(|e| &e.default_edits)),
             )
-            .any(|e| e.geometry_replacement.as_ref().is_some_and(geometry_uses))
+            .any(|e| {
+                e.geometry_replacement.as_ref().is_some_and(geometry_uses)
+                    || e.values
+                        .get(super::instance_materials::KEY)
+                        .and_then(|v| v.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(id)
+            })
             || self
                 .script_cache
                 .frames

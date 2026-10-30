@@ -1958,6 +1958,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("menu_visibility", CommandValueType::Object),
             ("ribbon_visible", CommandValueType::Boolean),
             ("left_panel_visible", CommandValueType::Boolean),
+            ("left_panel_width", CommandValueType::Number),
             ("ui_text_scale", CommandValueType::Number),
             ("auto_collapse_toolbars", CommandValueType::Boolean),
             ("accordion_settings_panels", CommandValueType::Boolean),
@@ -2143,6 +2144,7 @@ struct Preferences {
     menu_visibility: BTreeMap<String, bool>,
     ribbon_visible: bool,
     left_panel_visible: bool,
+    left_panel_width: f32,
     toolbars_visible: bool,
     toolbar_visibility: BTreeMap<String, bool>,
     toolbar_positions: BTreeMap<String, [f32; 2]>,
@@ -2177,6 +2179,7 @@ pub(crate) struct NativeUiPreferences {
     pub menu_visibility: BTreeMap<String, bool>,
     pub ribbon_visible: bool,
     pub left_panel_visible: bool,
+    pub left_panel_width: f32,
     pub ui_text_scale: f32,
     pub auto_collapse_toolbars: bool,
     pub accordion_settings_panels: bool,
@@ -2214,6 +2217,7 @@ impl Default for Preferences {
             menu_visibility: BTreeMap::new(),
             ribbon_visible: true,
             left_panel_visible: true,
+            left_panel_width: 230.,
             toolbars_visible: true,
             toolbar_visibility: LEGACY_TOOLBARS
                 .iter()
@@ -2421,11 +2425,18 @@ impl MeshcraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn native_ui_preferences(&self) -> NativeUiPreferences {
+        let mut menu_visibility = self.preferences.menu_visibility.clone();
+        if let Some(visible) = menu_visibility.remove("2D Construction") {
+            menu_visibility
+                .entry("Construction".into())
+                .or_insert(visible);
+        }
         NativeUiPreferences {
             menu_bar_visible: self.preferences.menu_bar_visible,
-            menu_visibility: self.preferences.menu_visibility.clone(),
+            menu_visibility,
             ribbon_visible: self.preferences.ribbon_visible,
             left_panel_visible: self.preferences.left_panel_visible,
+            left_panel_width: self.preferences.left_panel_width,
             ui_text_scale: self.preferences.ui_text_scale,
             auto_collapse_toolbars: self.preferences.auto_collapse_toolbars,
             accordion_settings_panels: self.preferences.accordion_settings_panels,
@@ -2469,6 +2480,10 @@ impl MeshcraftApp {
             (
                 "left_panel_visible".into(),
                 json!(preferences.left_panel_visible),
+            ),
+            (
+                "left_panel_width".into(),
+                json!(preferences.left_panel_width),
             ),
             ("ui_text_scale".to_owned(), json!(preferences.ui_text_scale)),
             (
@@ -2841,37 +2856,18 @@ impl MeshcraftApp {
         self.prune_uneditable_selection();
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn paint_native_target(&mut self, target: Option<SelectionTarget>) {
         let Some(target) = target else {
-            self.status = "Paint: click a visible edge or face.".to_owned();
+            self.status = "Paint: click an object, edge, face or architectural element.".into();
             return;
         };
+        let target = self.native_normalize_selection_target(target);
         if !self.native_target_editable(&target) {
             self.status = "Paint: this entity is hidden or read-only.".into();
             return;
         }
-        if !matches!(
-            target.entity,
-            SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
-        ) {
-            self.status = "Paint applies to edges and faces.".to_owned();
-            return;
-        }
-        let mut target_selection = SelectionSession::default();
-        target_selection.set_context(self.selection.context.clone());
-        target_selection.select(target);
-        let color = self.current_face_color();
-        let material = self.current_paint_material.clone();
-        match self.commit_document_edit("Paint entity", |document| {
-            Self::paint_with_material(document, &target_selection, color, material.as_deref())
-        }) {
-            Ok(report) => {
-                self.status = format!(
-                    "Painted {} edge(s) and {} face(s).",
-                    report.painted_segments, report.painted_triangles
-                );
-            }
+        match self.paint_material_targets(vec![target]) {
+            Ok(()) => self.status = "Painted the picked element.".into(),
             Err(error) => self.status = error,
         }
     }
@@ -3055,6 +3051,16 @@ impl MeshcraftApp {
         mut snap: SnapResult,
         screen_position: egui::Pos2,
     ) -> (Option<ToolPreview>, Option<ToolFeedback>) {
+        if self.active_tool == "Paint" {
+            return (
+                None,
+                Some(ToolFeedback {
+                    screen_position,
+                    text: "Paint · click an object instance, architectural element, edge or face"
+                        .into(),
+                }),
+            );
+        }
         if self.object_place_tool_state.active_definition().is_some() {
             self.object_place_tool_state
                 .update_pointer(Some(PlacementHit {
@@ -3226,7 +3232,7 @@ impl MeshcraftApp {
             scope,
             &self.selection_display_policy,
         )?;
-        let target = if self.active_tool == "Select" {
+        let target = if matches!(self.active_tool.as_str(), "Select" | "Paint") {
             self.native_normalize_selection_target(target)
         } else {
             target
@@ -6720,6 +6726,19 @@ impl MeshcraftApp {
                 };
             }
             ShellAction::PaintSelection => {
+                if self.selection.selected().iter().any(|t| {
+                    !matches!(
+                        t.entity,
+                        SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
+                    )
+                }) {
+                    return match self
+                        .paint_material_targets(self.selection.selected().iter().cloned().collect())
+                    {
+                        Ok(()) => CommandResult::completed(),
+                        Err(error) => CommandResult::failed(error),
+                    };
+                }
                 let selection = self.selection.clone();
                 let color = self.current_face_color();
                 let material = self.current_paint_material.clone();
@@ -7555,6 +7574,12 @@ impl MeshcraftApp {
         let numeric_preferences = [
             ("ui_text_scale", &mut preferences.ui_text_scale, 0.5, 2.0),
             (
+                "left_panel_width",
+                &mut preferences.left_panel_width,
+                180.,
+                600.,
+            ),
+            (
                 "normal_grid_width",
                 &mut preferences.normal_grid_width,
                 0.25,
@@ -7638,6 +7663,7 @@ impl MeshcraftApp {
             for (name, value) in menus {
                 if !DROPDOWN_MENU_NAMES.contains(&name.as_str())
                     && ![
+                        "2D Construction",
                         "File",
                         "Edit",
                         "View",
@@ -9435,29 +9461,7 @@ impl MeshcraftApp {
                 self.status = "Paint: click a visible edge or face.".to_owned();
                 return;
             };
-            if !matches!(
-                target.entity,
-                SelectedEntity::Segment(_) | SelectedEntity::Triangle(_)
-            ) {
-                self.status = "Paint applies to edges and faces.".to_owned();
-                return;
-            }
-            let mut target_selection = SelectionSession::default();
-            target_selection.set_context(self.selection.context.clone());
-            target_selection.select(target);
-            let color = self.current_face_color();
-            let material = self.current_paint_material.clone();
-            match self.commit_document_edit("Paint entity", |document| {
-                Self::paint_with_material(document, &target_selection, color, material.as_deref())
-            }) {
-                Ok(report) => {
-                    self.status = format!(
-                        "Painted {} edge(s) and {} face(s).",
-                        report.painted_segments, report.painted_triangles
-                    );
-                }
-                Err(error) => self.status = error,
-            }
+            self.paint_native_target(Some(target));
             return;
         }
 
@@ -13648,7 +13652,7 @@ mod tests {
         let menu = run_workspace_frame(&mut app, &context, Vec::new());
 
         assert!(egui::Popup::is_any_open(&context));
-        let root = text_center_in_row(&menu, "2D Construction", 850.);
+        let root = text_center_in_row(&menu, "Construction", 850.);
         run_workspace_frame(&mut app, &context, vec![Event::PointerMoved(root)]);
         let submenu = run_workspace_frame(&mut app, &context, vec![]);
         let draw = text_center_in_row(&submenu, "Draw", 850.);
@@ -14140,7 +14144,7 @@ mod tests {
             }
         }
         for (root, id) in [
-            ("2D Construction", "tool.builtin.polyline"),
+            ("Construction", "tool.builtin.polyline"),
             ("Meshing", "geometry.fill_loops"),
             ("Solids", "tool.builtin.mesh_intersection"),
             ("Civil", "tool.builtin.arch_wall"),
@@ -14179,8 +14183,12 @@ mod tests {
         let visibility = session.native_toolbar_visibility();
         assert_eq!(crate::functional_ui::GROUPS.len(), visibility.len());
         assert!(visibility.iter().all(|shown| *shown));
+        let objects = crate::functional_ui::GROUPS
+            .iter()
+            .position(|root| *root == "Objects")
+            .unwrap();
         session.run_command("view.toolbar.actions.hide");
-        assert!(!session.native_toolbar_visibility()[8]);
+        assert!(!session.native_toolbar_visibility()[objects]);
         session.run_command("view.toolbars.toggle");
         assert!(
             session
@@ -14190,7 +14198,7 @@ mod tests {
         );
         session.run_command("view.toolbars.toggle");
         assert!(session.native_toolbar_visibility()[0]);
-        assert!(!session.native_toolbar_visibility()[8]);
+        assert!(!session.native_toolbar_visibility()[objects]);
         assert!(session.native_panels_visible());
         session.run_command("view.panels.toggle");
         assert!(!session.native_panels_visible());
@@ -14450,6 +14458,45 @@ mod tests {
         let legacy: Preferences = serde_json::from_str("{}").unwrap();
         assert!(legacy.menu_bar_visible && legacy.ribbon_visible && legacy.left_panel_visible);
         assert!(legacy.menu_visibility.is_empty());
+    }
+
+    #[test]
+    fn left_panel_width_roundtrips_and_rejects_out_of_range_updates() {
+        let mut app = test_app();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("left_panel_width".into(), json!(370.));
+        assert_eq!(
+            app.dispatch_command("ui.update_preferences", &payload)
+                .result
+                .completion,
+            CommandCompletion::Completed
+        );
+        assert_eq!(app.native_ui_preferences().left_panel_width, 370.);
+        let saved = app.preferences.clone();
+        assert_eq!(
+            saved,
+            serde_json::from_str::<Preferences>(&serde_json::to_string(&saved).unwrap()).unwrap()
+        );
+        for value in [100., 601., -10.] {
+            payload
+                .values
+                .insert("left_panel_width".into(), json!(value));
+            assert_eq!(
+                app.dispatch_command("ui.update_preferences", &payload)
+                    .result
+                    .completion,
+                CommandCompletion::Failed
+            );
+            assert_eq!(saved, app.preferences);
+        }
+        assert_eq!(
+            serde_json::from_str::<Preferences>("{}")
+                .unwrap()
+                .left_panel_width,
+            230.
+        );
     }
 
     #[test]
@@ -14944,7 +14991,7 @@ mod tests {
         let context = egui::Context::default();
         let mut app = test_app();
         let bar = run_workspace_frame(&mut app, &context, vec![]);
-        let root = text_center_in_row(&bar, "2D Construction", 48.);
+        let root = text_center_in_row(&bar, "Construction", 48.);
         click_workspace_position(&mut app, &context, root);
         let menu = run_workspace_frame(&mut app, &context, vec![]);
         for title in ["Draw", "Annotations", "Guides", "Input & Settings"] {

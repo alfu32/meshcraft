@@ -486,6 +486,12 @@ fn remap_edits(
     if let Some(geometry) = edits.geometry_replacement.as_ref() {
         copy.geometry_replacement = Some(remap_geometry(geometry, ids, document));
     }
+    if let Some(binding) = copy.values.get_mut(super::instance_materials::KEY)
+        && let Some(id) = binding.get_mut("id")
+        && let Some(replacement) = id.as_str().and_then(|id| ids.materials.get(id))
+    {
+        *id = Value::from(replacement.clone());
+    }
     remap_procedural_object(&mut copy.extensions, ids)?;
     copy.child_layout = edits.child_layout.map(|id| ids.layouts[&id]);
     Ok(copy)

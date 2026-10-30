@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "gpui_workspace_controls.rs"]
+mod workspace_controls;
+
 #[path = "gpui_resource_stats.rs"]
 mod resource_stats;
 
@@ -88,7 +91,7 @@ use serde_json::{Value, json};
 const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 const PREVIEW_PROGRAM_SOURCE: &str = "meshcraft.previewProgramSource";
 use crate::app::DROPDOWN_MENU_NAMES as MENU_NAMES;
-const RIBBON_TABS: &[&str] = crate::functional_ui::GROUPS;
+const RIBBON_TABS: &[&str] = crate::functional_ui::RIBBON_TABS;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct ViewportLayout {
@@ -1137,6 +1140,7 @@ fn retire_viewport_image(window: &Window, image: Arc<RenderImage>) {
 }
 
 struct MeshcraftShell {
+    workspace_controls: workspace_controls::Ui,
     annotations: annotations::Ui,
     architecture: architecture::Ui,
     mcp: automation::Ui,
@@ -1204,6 +1208,9 @@ impl MeshcraftShell {
         });
         let resource_hud = cx.new(|_| resource_stats::Hud::new(bridge.clone()));
         let mut this = Self {
+            workspace_controls: workspace_controls::Ui::new(
+                session.native_ui_preferences().left_panel_width,
+            ),
             annotations: Default::default(),
             architecture: Default::default(),
             mcp: Default::default(),
@@ -1220,7 +1227,7 @@ impl MeshcraftShell {
             collapsed_settings_panels: Default::default(),
             camera: OrbitCamera::default(),
             layout: ViewportLayout::default(),
-            active_ribbon_tab: "2D Construction",
+            active_ribbon_tab: "Home",
             open_menu: None,
             files: files::Ui::default(),
             menu_bounds: Arc::default(),
@@ -2284,6 +2291,7 @@ fn viewport_physical_rect(
     menu_bar_visible: bool,
     ribbon_visible: bool,
     left_panel_visible: bool,
+    left_panel_width: f32,
 ) -> ViewportLayout {
     use layout::{RIGHT_PANEL_WIDTH as RIGHT_PANEL, STATUS_HEIGHT as STATUS};
     let header = layout::TITLE_BAR_HEIGHT
@@ -2298,7 +2306,7 @@ fn viewport_physical_rect(
             0.
         };
     let left = if left_panel_visible {
-        layout::LEFT_PANEL_WIDTH
+        left_panel_width
     } else {
         0.
     };
@@ -2328,6 +2336,7 @@ fn publish_layout(
         preferences.menu_bar_visible,
         preferences.ribbon_visible,
         preferences.left_panel_visible,
+        preferences.left_panel_width,
     );
     bridge.publish_layout(layout);
     layout
@@ -2951,7 +2960,9 @@ impl Render for MeshcraftShell {
             self.camera.target = eye + forward * f64::from(self.camera.distance);
             self.bridge.publish_camera(self.camera);
         }
-        let preferences = self.session.native_ui_preferences();
+        workspace_controls::prepare(self, window, cx);
+        let mut preferences = self.session.native_ui_preferences();
+        preferences.left_panel_width = self.workspace_controls.width;
         let old_scale = self.layout.scale;
         self.layout = publish_layout(&self.bridge, window, &preferences);
         if self.layout.scale != old_scale {
@@ -3126,11 +3137,18 @@ impl Render for MeshcraftShell {
                             cx.notify();
                         }),
                     );
-                if active {
+                let button = if active {
                     button.primary()
                 } else {
                     button.ghost()
-                }
+                };
+                div()
+                    .relative()
+                    .child(button)
+                    .child(workspace_controls::bounds_probe(
+                        self,
+                        format!("ribbon/{tab}"),
+                    ))
             }));
 
         let (ribbon, left_panel, right_panel) = {
@@ -3151,12 +3169,22 @@ impl Render for MeshcraftShell {
                 cx.notify();
             });
         let viewport_bridge_move = cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+            if this.workspace_controls.resizing {
+                workspace_controls::resize_move(this, event, window, cx);
+                cx.stop_propagation();
+                return;
+            }
             let (x, y) = this.viewport_point(event.position, window);
             this.pointer_move(x, y, event.modifiers, event.pressed_button);
             cx.notify();
         });
         let viewport_bridge_up_left =
             cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                if this.workspace_controls.resizing {
+                    workspace_controls::finish_resize(this, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 let (x, y) = this.viewport_point(event.position, window);
                 this.pointer_up(event.button, x, y);
                 cx.notify();
@@ -3576,6 +3604,10 @@ impl Render for MeshcraftShell {
             .bg(rgb(0x1b2027))
             .text_color(rgb(0xe3e8ee))
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if workspace_controls::capture_key(this, event, window, cx) {
+                    cx.stop_propagation();
+                    return;
+                }
                 if (event.keystroke.modifiers.control || event.keystroke.modifiers.platform)
                     && event.keystroke.key == "v"
                 {
@@ -3668,6 +3700,17 @@ impl Render for MeshcraftShell {
                 this.shortcut(event);
                 cx.notify();
             }))
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    workspace_controls::resize_move(this, event, window, cx);
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    workspace_controls::finish_resize(this, cx);
+                }),
+            )
             .on_key_up(cx.listener(|this, event: &gpui::KeyUpEvent, _, _| {
                 if let Some(index) = walk_key(&event.keystroke.key) {
                     this.walk_keys[index] = false;
@@ -4176,7 +4219,8 @@ mod tests {
                 (false, false, 0.),
             ] {
                 for (left, margin) in [(true, 230.), (false, 0.)] {
-                    let bounds = viewport_physical_rect(1882., 1043., scale, menu, ribbon, left);
+                    let bounds =
+                        viewport_physical_rect(1882., 1043., scale, menu, ribbon, left, 230.);
                     assert_eq!(bounds.x, (margin * scale) as i32);
                     assert_eq!(bounds.y, ((header + 34.) * scale).round() as i32);
                     assert_eq!(
@@ -4189,6 +4233,73 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn resizing_left_panel_changes_only_the_viewport_origin_and_width_at_each_dpi() {
+        for scale in [1., 1.5, 2.] {
+            let small = viewport_physical_rect(1920., 1080., scale, true, true, true, 200.);
+            let large = viewport_physical_rect(1920., 1080., scale, true, true, true, 380.);
+            assert_eq!(large.x - small.x, (180. * scale) as i32);
+            assert_eq!(small.width - large.width, (180. * scale) as u32);
+            assert_eq!(small.height, large.height);
+            assert_eq!(small.y, large.y);
+        }
+    }
+    #[test]
+    fn ribbon_projection_has_home_and_moves_requested_sections_without_duplicating_canonical_commands()
+     {
+        use crate::functional_ui as ui;
+        assert!(ui::GROUPS.contains(&"Construction"));
+        assert!(!ui::GROUPS.contains(&"2D Construction"));
+        assert!(!ui::RIBBON_TABS.contains(&"Selection"));
+        let construction = ribbon_groups("Construction");
+        assert!(
+            construction
+                .iter()
+                .any(|s| s.root == "Selection" && s.title == "Selection")
+        );
+        assert!(construction.iter().any(|s| s.title == "Transform"));
+        assert!(ribbon_groups("Modify").iter().any(|s| s.title == "Arrays"));
+        assert!(ribbon_groups("Modify").iter().any(|s| s.title == "Modify"));
+        assert!(
+            !ribbon_groups("Meshing")
+                .iter()
+                .any(|s| ["Modify", "Arrays", "Transform"].contains(&s.title))
+        );
+        let home = ribbon_groups("Home")
+            .iter()
+            .flat_map(|s| s.commands.iter().map(|(id, _)| *id))
+            .collect::<Vec<_>>();
+        for id in [
+            "tool.select",
+            "tool.builtin.move",
+            "tool.move_copy",
+            "edit.undo",
+            "edit.redo",
+            "edit.cut_selection",
+            "edit.copy_selection",
+            "edit.paste",
+            "edit.paste_in_place",
+            "tool.builtin.line",
+            "tool.builtin.polyline",
+            "tool.builtin.polyline_mesh",
+            "tool.builtin.double_line",
+            "tool.builtin.mesh",
+            "tool.builtin.rotate",
+            "tool.builtin.scale",
+            "tool.builtin.push_pull",
+            "tool.builtin.extrude_swipe",
+            "view.axis_guide",
+            "view.grid_guide",
+            "hotspot.begin_placement",
+            "tool.builtin.rectangle",
+            "tool.builtin.circle",
+            "tool.cuboid",
+            "tool.builtin.primitive_sphere",
+        ] {
+            assert!(home.contains(&id), "missing Home shortcut {id}");
         }
     }
 
@@ -4299,8 +4410,8 @@ mod tests {
     #[test]
     fn experiment_ribbon_structure_and_command_bindings_are_preserved() {
         let commands = MeshcraftApp::command_catalog();
-        let mut visible = std::collections::BTreeSet::new();
-        for tab in crate::functional_ui::GROUPS {
+        for tab in crate::functional_ui::RIBBON_TABS {
+            let mut visible = std::collections::BTreeSet::new();
             let groups = ribbon_groups(tab);
             assert!(!groups.is_empty(), "{tab} has ribbon groups");
             for group in groups {

@@ -10,8 +10,8 @@ from capture_store_features import Capture, ROOT, SOURCE
 from runtime import desktop
 
 REFERENCE = ROOT / 'docs/rewrite/references/command-panel'
-GROUPS = ['Files', 'Clipboard & History', 'Selection', '2D Construction',
-          'Meshing', 'Solids', 'Civil', 'Materials', 'Objects', 'Hotspots', 'Settings']
+GROUPS = ['Home', 'Files', 'Clipboard & History', 'Construction', 'Meshing',
+          'Modify', 'Solids', 'Civil', 'Materials', 'Objects', 'Hotspots', 'Settings']
 
 
 def main():
@@ -35,11 +35,18 @@ def main():
             capture.group(name)
         capture.group('Hotspots')
         capture.shot('hotspots', destination=reference / 'hotspots.png')
-        # Native left-panel Line button, below the priority file/clipboard/selection sections.
-        capture.xd('mousemove', 50, 840, 'click', 1)
+        # Native command shelf search keeps this independent of section heights.
+        search = rpc.status()['workspace']['controls']['left/search']
+        search_x = round(search['x'] + search['width'] / 2)
+        search_y = round(search['y'] + search['height'] / 2)
+        capture.xd('mousemove', search_x, search_y, 'click', 1)
+        capture.xd('type', '--clearmodifiers', 'tool.builtin.line')
+        capture.xd('key', 'Return')
         time.sleep(.2)
         assert rpc.status()['activeTool'] == 'Line', rpc.status()
         rpc.pointer('cancel')
+        capture.xd('mousemove', search_x, search_y, 'click', 1)
+        capture.xd('key', 'ctrl+a', 'BackSpace', 'Escape')
 
         def palette(query=''):
             capture.xd('key', 'ctrl+shift+p')
@@ -89,7 +96,7 @@ def main():
         assert new_title == f'Meshcraft {capture.version} Untitled', new_title
         (reference / 'native-validation.json').write_text(json.dumps(dict(
             version=capture.version, groupsVisited=len(GROUPS),
-            lineActivatedThroughNativeButton=True, categorySearch='Archi',
+            lineActivatedThroughNativeShelf=True, categorySearch='Archi',
             arrowEnterExecuted='view.ortho.bottom', mouseExecuted='view.ortho.back',
             arrowScrollCaptured=True, shaderEditorPreview=True,
             openedTitle=title, savedTitle=saved_title, newTitle=new_title,

@@ -173,7 +173,10 @@ impl Default for Hotspot {
 
 /// Cache equality and cloning deliberately ignore derived meshes. History contains authored state.
 #[derive(Debug, Default)]
-pub(crate) struct EvaluationCache(OnceLock<BTreeMap<OccurrenceRef, Evaluation>>);
+pub(crate) struct EvaluationCache {
+    evaluations: OnceLock<BTreeMap<OccurrenceRef, Evaluation>>,
+    materials: OnceLock<BTreeMap<OccurrenceRef, GeometryBundle>>,
+}
 impl Clone for EvaluationCache {
     fn clone(&self) -> Self {
         Self::default()
@@ -191,14 +194,69 @@ pub struct Evaluation {
 }
 impl EvaluationCache {
     pub fn clear(&mut self) {
-        self.0.take();
+        self.evaluations.take();
+        self.clear_materials();
+    }
+    pub(crate) fn clear_materials(&mut self) {
+        self.materials.take();
+    }
+    pub(crate) fn material_geometry<'a>(
+        &'a self,
+        document: &Document,
+        occurrence: &OccurrenceRef,
+    ) -> Option<&'a GeometryBundle> {
+        self.materials
+            .get_or_init(|| {
+                let catalog = document
+                    .materials()
+                    .into_iter()
+                    .map(|m| (m.id.clone(), m))
+                    .collect::<BTreeMap<_, _>>();
+                document
+                    .scene_geometry_refs()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|path| {
+                        let binding = document.instance_material(path)?;
+                        let material = catalog.get(&binding.id)?;
+                        let mut geometry = document.unpainted_geometry(path)?.clone();
+                        for (extensions, color) in geometry
+                            .segments
+                            .values_mut()
+                            .map(|e| (&mut e.extensions, &mut e.color))
+                            .chain(
+                                geometry
+                                    .triangles
+                                    .values_mut()
+                                    .map(|f| (&mut f.extensions, &mut f.color)),
+                            )
+                        {
+                            extensions.insert(
+                                materials::MATERIAL_KEY.into(),
+                                Value::from(binding.id.clone()),
+                            );
+                            if binding.parameters.is_empty() {
+                                extensions.remove(procedural::OVERRIDES_KEY);
+                            } else {
+                                extensions.insert(
+                                    procedural::OVERRIDES_KEY.into(),
+                                    serde_json::to_value(&binding.parameters).unwrap(),
+                                );
+                            }
+                            *color = material.color;
+                        }
+                        Some((path.clone(), geometry))
+                    })
+                    .collect()
+            })
+            .get(occurrence)
     }
     pub fn get<'a>(
         &'a self,
         document: &Document,
         occurrence: &OccurrenceRef,
     ) -> Option<&'a Evaluation> {
-        self.0
+        self.evaluations
             .get_or_init(|| {
                 document
                     .scene_geometry_refs()
@@ -235,6 +293,9 @@ impl Document {
         edits.hotspot_positions.clear();
         edits.geometry_replacement = None;
         edits.child_layout = None;
+        edits
+            .values
+            .insert(super::instance_materials::KEY.into(), Value::Null);
         view.occurrence_edits
             .retain(|path, _| !path.path.starts_with(&occurrence.path));
         view.occurrence_edits.insert(occurrence.clone(), edits);

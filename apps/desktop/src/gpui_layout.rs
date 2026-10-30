@@ -3,7 +3,6 @@
 
 use super::{MeshcraftShell, command_enabled, ribbon_command_for_key};
 
-pub(super) const LEFT_PANEL_WIDTH: f32 = 230.0;
 pub(super) const RIGHT_PANEL_WIDTH: f32 = 420.0;
 const SELECTION_COUNT_WIDTH: f32 = 68.0;
 pub(super) const TITLE_BAR_HEIGHT: f32 = 34.0;
@@ -163,7 +162,9 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
             )
             .small()
             .px(px(2.))
-            .h(px(if functional {
+            .h(px(if namespace.contains("/home/") {
+                22.
+            } else if functional {
                 30.
             } else if ribbon {
                 24.
@@ -756,7 +757,7 @@ impl<'view, 'cx, 'app> LayoutBindings<'view, 'cx, 'app> {
 }
 
 pub(super) fn ribbon_groups(tab: &str) -> Vec<&'static crate::functional_ui::Section> {
-    crate::functional_ui::sections(tab).collect()
+    crate::functional_ui::ribbon_sections(tab)
 }
 
 fn command_row(
@@ -787,7 +788,12 @@ fn ribbon_group(
         .flex()
         .flex_col()
         .flex_none()
-        .w(px((commands.len().div_ceil(2) as f32 * 111.) + 14.))
+        .w(px((commands
+            .len()
+            .div_ceil(if namespace.contains("/home/") { 3 } else { 2 })
+            as f32
+            * 111.)
+            + 14.))
         .gap(px(4.))
         .px(px(7.))
         .py(px(4.))
@@ -797,6 +803,7 @@ fn ribbon_group(
             div()
                 .text_xs()
                 .font_weight(gpui::FontWeight::MEDIUM)
+                .line_height(px(12.))
                 .text_color(rgb(0x9caec3))
                 .child(title),
         )
@@ -814,20 +821,47 @@ pub(super) fn ribbon_content(
     tab: &'static str,
     bindings: &mut LayoutBindings<'_, '_, '_>,
 ) -> gpui::AnyElement {
-    (div()
+    let mut ribbon = div()
         .id("ribbon-strip")
         .overflow_x_scroll()
         .h(px(RIBBON_HEIGHT))
         .flex()
         .gap(px(3.))
         .px(px(5.))
-        .bg(rgb(0x20262e))
-        .children(
-            ribbon_groups(tab).iter().map(|group| {
-                ribbon_group(group.title, "ribbon/functional", group.commands, bindings)
-            }),
-        ))
-    .into_any_element()
+        .bg(rgb(0x20262e));
+    for (index, group) in ribbon_groups(tab).iter().enumerate() {
+        ribbon = ribbon.child(ribbon_group(
+            group.title,
+            if tab == "Home" {
+                "ribbon/home/functional"
+            } else {
+                "ribbon/functional"
+            },
+            group.commands,
+            bindings,
+        ));
+        if tab == "Home" && index == 0 {
+            ribbon = ribbon
+                .child(super::workspace_controls::picker(
+                    bindings.shell,
+                    false,
+                    "home/material",
+                ))
+                .child(super::workspace_controls::picker(
+                    bindings.shell,
+                    true,
+                    "home/object",
+                ));
+        }
+    }
+    if tab == "Materials" {
+        ribbon = ribbon.child(super::workspace_controls::picker(
+            bindings.shell,
+            false,
+            "materials/material",
+        ));
+    }
+    ribbon.into_any_element()
 }
 
 fn setting_field(
@@ -937,18 +971,35 @@ fn stat_row(
 }
 
 pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {
+    let query = bindings.shell.workspace_controls.query.clone();
     let mut content = div()
         .id("toolbar/function-sections")
-        .w(px(LEFT_PANEL_WIDTH))
-        .h_full()
+        .flex_1()
+        .min_h(px(0.))
         .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap(px(7.))
-        .p(px(7.))
-        .bg(rgb(0x1e242c));
+        .p(px(7.));
+    let mut count = 0;
     for root in crate::functional_ui::GROUPS {
         for section in crate::functional_ui::sections(root) {
+            let commands = section
+                .commands
+                .iter()
+                .filter(|(id, _)| {
+                    bindings
+                        .catalog
+                        .iter()
+                        .find(|c| c.id.as_str() == *id)
+                        .is_some_and(|c| super::workspace_controls::matches(c, &query))
+                })
+                .copied()
+                .collect::<Vec<_>>();
+            if commands.is_empty() {
+                continue;
+            }
+            count += commands.len();
             let heading = if *root == section.title {
                 (*root).to_owned()
             } else {
@@ -962,14 +1013,71 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
                         .text_color(rgb(0xa5bbce))
                         .child(heading),
                 )
-                .child(command_row(
-                    "toolbar/functional",
-                    section.commands,
-                    bindings,
-                ));
+                .child(
+                    div().flex().flex_wrap().gap(px(4.)).children(
+                        commands
+                            .iter()
+                            .map(|(id, label)| bindings.button("toolbar/functional", id, label)),
+                    ),
+                );
         }
     }
-    content.into_any_element()
+    if count == 0 {
+        content = content.child(div().text_sm().child("No matching tools"));
+    }
+    div()
+        .id("toolbar/left-panel")
+        .relative()
+        .w(px(bindings.shell.workspace_controls.width))
+        .flex_none()
+        .h_full()
+        .flex()
+        .flex_col()
+        .bg(rgb(0x1e242c))
+        .child(
+            div()
+                .px(px(7.))
+                .pt(px(6.))
+                .pr(px(12.))
+                .child(super::workspace_controls::search(bindings.shell)),
+        )
+        .child(content)
+        .child(
+            div()
+                .id("toolbar/resize")
+                .absolute()
+                .right_0()
+                .top_0()
+                .h_full()
+                .w(px(6.))
+                .cursor_col_resize()
+                .child(super::workspace_controls::bounds_probe(
+                    bindings.shell,
+                    "left/resize".into(),
+                ))
+                .hover(|s| s.bg(rgb(0x58799a)))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    bindings
+                        .cx
+                        .listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                            window.focus(&this.focus);
+                            super::workspace_controls::start_resize(
+                                this,
+                                f32::from(event.position.x),
+                            );
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                )
+                .on_mouse_up_out(
+                    gpui::MouseButton::Left,
+                    bindings.cx.listener(|this, _, _, cx| {
+                        super::workspace_controls::finish_resize(this, cx)
+                    }),
+                ),
+        )
+        .into_any_element()
 }
 
 pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::AnyElement {

@@ -236,6 +236,7 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
             state["server"] = json!({"running":running(shell),"port":shell.mcp.server.as_ref().map(|s|s.port),"configuredPort":shell.session.native_mcp_port()});
             state["camera"] = json!({"position":shell.camera.position(),"target":shell.camera.target,"orthographic":shell.camera.orthographic,"walkthrough":shell.walking,"fieldOfView":shell.camera.field_of_view});
             state["scriptErrors"] = json!(shell.scripts.errors);
+            state["workspace"] = super::workspace_controls::status(shell);
             Ok(state)
         }
         "k3d_list_commands" => Ok(shell.session.mcp_commands(args)),

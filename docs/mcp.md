@@ -380,3 +380,13 @@ GPU time are separate. `meshcraft_capture_view.renderFrameMs` reports the raylib
 offscreen frame's measured rendering/readback work. Neither value is an end-to-end
 GUI latency guarantee or pure GPU timer. World-point input also supports hotspot
 placement and reference picking while the main tool remains Select.
+
+## Native workspace state
+
+On the GPUI desktop, `k3d_status.workspace` reports the active ribbon tab,
+available tabs, left-panel query/width, selected material IDs and the measured
+bounds of visible ribbon tabs, shelf search/resize grip and catalog pickers.
+`controls` uses stable keys such as `ribbon/Home`, `left/search`, `left/resize`,
+`home/material`, `home/object` and `materials/material`. Bounds are in window
+logical pixels; use their centers for native pointer automation. These are
+read-only observations of the actual rendered controls, not command replacements.
