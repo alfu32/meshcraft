@@ -31,7 +31,9 @@
     "Material yoki obyekt ko‘rinishi yonida GLSL sheyderlarini tahrirlang.",
     "Barglar, suv, g‘isht va yog‘och kabi protsedurali GPU materiallarini o‘rganing.",
     "Sozlamalar ko‘rinishida sheyder yaratgan daraxtlar va shoxlarni moslang.",
-    "Zinapoyalarni ko‘ring, pog‘onalar, tayanchlar va panjara yo‘naltiruvchilarini sozlang."
+    "Zinapoyalarni ko‘ring, pog‘onalar, tayanchlar va panjara yo‘naltiruvchilarini sozlang.",
+    "Nasoslar, quvurlar va fazoviy yo‘l bo‘ylab cho‘zilgan profil bilan mexanik yig‘ma yarating.",
+    "O‘lcham belgilari va ortografik kamera yordamida jihozlangan ish joyini rejalashtiring."
   ],
   "minimumHardware": [
     "OpenGL 3.3 va DirectX 11 qo‘llaydigan grafik drayverlar",

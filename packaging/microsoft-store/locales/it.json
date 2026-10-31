@@ -31,7 +31,9 @@
     "Modifica shader GLSL accanto all’anteprima del materiale o dell’oggetto.",
     "Esplora materiali GPU procedurali come fogliame, acqua, mattoni e legno.",
     "Regola alberi e ramificazioni generati da shader nell’anteprima delle impostazioni.",
-    "Esamina le scale e configura gradini, supporti e guide dei parapetti."
+    "Esamina le scale e configura gradini, supporti e guide dei parapetti.",
+    "Modella un assieme meccanico con pompe, tubazioni e un profilo estruso lungo un percorso 3D.",
+    "Progetta uno spazio di lavoro arredato con quote e una camera ortografica."
   ],
   "minimumHardware": [
     "Driver grafici compatibili con OpenGL 3.3 e DirectX 11",

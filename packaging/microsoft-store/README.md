@@ -6,7 +6,7 @@ select any of the other languages and inspect its captions and feature list.
 The reserved product name is **Meshcraft-desktop**; the publisher is **K3D0**.
 
 This is a prepared import, **not a submitted Partner Center update**. The listing
-describes features in Meshcraft **0.46.2 or later**. Upload a matching current
+describes features in Meshcraft **0.48.5 or later**. Upload a matching current
 MSIX package before submitting it. The application interface is English; the
 listing translations explicitly say so. Translations have not received
 independent native-speaker review.
@@ -50,7 +50,7 @@ breaks, accents and right-to-left text.
 ## Listing coverage
 
 Each locale has a description, short description, ten feature entries, seven
-search terms, eight screenshot captions, minimum and recommended hardware text.
+search terms, ten screenshot captions, minimum and recommended hardware text.
 The title, publisher, copyright, license identifiers and artwork are shared.
 The `default` column contains English fallback values. The builder validates
 field limits and preserves the supplied locale identifiers verbatim, including
@@ -75,14 +75,14 @@ listing. Text follows the limits in
 
 ## Images
 
-There are **eight unaltered app screenshots** and **nine Store artwork PNGs**.
+There are **ten unaltered app screenshots** and **nine Store artwork PNGs**.
 Screenshots are at least 1366 × 768; no marketing frames, captions or logos have
 been painted over the application. The captions live in the listing fields.
 Shared screenshots intentionally show the English application interface.
 
 | CSV field | PNG dimensions |
 | --- | --- |
-| DesktopScreenshot1–8 | 1920 × 1080 native app-window captures |
+| DesktopScreenshot1–10 | 1920 × 1080 native app-window captures |
 | StoreLogo300x300 | 300 × 300, transparent |
 | StoreLogoOverride150x150 / 71x71 | 150 × 150 / 71 × 71, transparent |
 | StoreLogo720x1080 | 720 × 1080 poster |
@@ -101,7 +101,7 @@ the three small identity PNGs are resized logos. Xbox, mobile, Surface Hub and
 holographic slots do not apply. Sizes follow
 [Microsoft's MSIX image guidance](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images).
 
-All eight screenshots were captured anew from the live Linux app after modeling
+All ten screenshots were captured anew from the live Linux app after modeling
 through MCP. They have no composited UI or marketing overlays. Their application
 version, source projects, hashes and capture methods are recorded in
 [assets-manifest.json](assets-manifest.json) and
@@ -116,18 +116,26 @@ import ZIPs live under **packaging/microsoft-store**, outside Cargo's `target`.
 runtime caches and intermediate working captures are ignored, also outside
 `target`. The source assets and saved demonstration projects are versioned.
 
-To reopen the saved projects, operate Meshcraft through MCP and recapture all
-screenshots (Linux; Xvfb, Mesa, xdotool and ImageMagick required):
+The ten views cover nine complete projects: an exploded instrument controller,
+a fitted kitchen, a courtyard residence, configurable casework, a pocket park,
+a roof terrace, a furnished loft, a pump skid and a home office. Each preserves
+its editable model and source recipe. The two park views show the actual shader
+editor and object settings preview.
+
+To reopen the saved projects and recapture all screenshots (Linux; Xvfb, Mesa,
+xdotool and ImageMagick required):
 
 ```sh
-python3 scripts/capture_store_features.py
+python3 scripts/capture_store_projects.py --capture-only
 ```
 
-`--scene 04-javascript-editor` captures one demonstration. Add `--rebuild-scenes`
-to model the demonstrations again through MCP using the checked-in recipes.
-The transcript in [modeling-actions-0.45.1.json](captures/modeling-actions-0.45.1.json)
-records their original creation; [mcp-actions.json](captures/mcp-actions.json)
-records the latest capture session. Neither is a performance benchmark.
+Use `--shot 04-javascript-editor` for one view. Omit `--capture-only` to rebuild
+all nine projects through MCP first. See the [recipes and view mapping](scenes/README.md).
+[project-modeling-actions.json](captures/project-modeling-actions.json) records
+creation; [mcp-actions.json](captures/mcp-actions.json) records the latest capture
+session. Neither is a performance benchmark. Both final import ZIPs, their
+checksums and validation report are versioned; expanded import trees remain
+reproducible build outputs.
 
 To regenerate promotional SVG/PNG layouts from their saved MCP geometry and
 viewport inputs:
@@ -165,26 +173,25 @@ the official age-rating questionnaire, publisher declarations and the chosen
 markets/schedule. No official age rating or private publisher contact details
 have been invented, and no secrets are included in this presentation bundle.
 
-## Validation record — 0.46.0
+## Validation record — 0.48.5
 
-Validated locally on 29 October 2026:
+Validated locally on 31 October 2026:
 
 | Check | Result |
 | --- | --- |
-| `python3 scripts/microsoft_store.py --update-export` | Both import folders and ZIPs built; 35 locales and 17 images |
-| `python3 scripts/microsoft_store.py --check` | Export metadata, content limits, source hashes, dimensions and paths passed |
-| `python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v` | 12 passed, including a relocated self-contained import folder |
-| `python3 -m unittest discover -s scripts/stress -p 'test_*.py' -v` | 17 passed; default stress capture size unchanged |
+| `python3 scripts/capture_store_projects.py --capture-only` | Ten native 1920 × 1080 captures from nine editable projects; no renderer diagnostics or script errors |
+| `python3 scripts/microsoft_store.py --update-export` | Both import folders and ZIPs built; 35 locales and 19 images |
+| `python3 scripts/microsoft_store.py --check` | Export metadata, field limits, source hashes, dimensions and paths passed |
+| `python3 -m unittest discover -s scripts -p 'test_microsoft_store.py' -v` | 13 passed, including all ten screenshot/caption slots and a relocated import folder |
 | `cargo fmt --all --check` | Passed |
-| `cargo test --workspace --locked` | 775 passed; 22 platform/GPU checks ignored by default |
-| Four targeted native GPU checks | Projection/markers, instance reuse, brick/wood rotations and object preview passed |
+| `cargo test --workspace --locked` | 797 passed; 22 platform/GPU checks ignored by default |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
 | `cargo build --locked -p meshcraft-desktop --bin meshcraft` | Passed |
-| `python3 scripts/export_tool_inventory.py --check` | 289 entries checked; user review columns preserved |
+| `python3 scripts/export_tool_inventory.py --check` | 290 entries checked; user review columns preserved |
 | `python3 docs/rewrite/scripts/verify_plan.py` | Passed |
 
-Both ZIPs passed CRC checks and contain one CSV plus 17 PNGs beneath the expected
-root. A headless Chromium check of the offline review rendered all ten English
-features, eight screenshot entries and six feature-art images. The images were also inspected visually.
-Partner Center import/certification and independent translation review were not
-performed; this record does not claim otherwise.
+All ten images were visually reviewed. Both ZIPs passed CRC checks and contain
+one CSV plus 19 PNGs beneath the expected root, with ten screenshot/caption slots
+per included locale. The eight stable README image paths also use these new
+captures. Partner Center import/certification and independent translation review
+were not performed.

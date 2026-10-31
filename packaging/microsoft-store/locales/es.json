@@ -31,7 +31,9 @@
     "Edita shaders GLSL junto a la vista previa del material o del objeto.",
     "Explora materiales GPU procedurales como follaje, agua, ladrillo y madera.",
     "Ajusta árboles y ramificaciones generados por shaders desde su vista previa.",
-    "Inspecciona escaleras y configura peldaños, soportes y guías de barandilla."
+    "Inspecciona escaleras y configura peldaños, soportes y guías de barandilla.",
+    "Modela un conjunto mecánico con bombas, tuberías y un perfil barrido a lo largo de una trayectoria 3D.",
+    "Planifica un espacio de trabajo amueblado con cotas y una cámara ortográfica."
   ],
   "minimumHardware": [
     "Controladores gráficos compatibles con OpenGL 3.3 y DirectX 11",

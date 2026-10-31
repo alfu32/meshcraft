@@ -31,7 +31,9 @@
     "Materialyň ýa-da obýektiň deslapky synynyň ýanynda GLSL şeýderlerini redaktirläň.",
     "Ýaprak, suw, kerpiç we agaç ýaly prosedural GPU materiallaryny öwreniň.",
     "Sazlamalaryň deslapky synynda şeýder arkaly döredilen agaçlary we şahalary sazlaň.",
-    "Basgançaklary gözden geçiriň we ädimleri, daýançlary hem germew ugrukdyryjylaryny sazlaň."
+    "Basgançaklary gözden geçiriň we ädimleri, daýançlary hem germew ugrukdyryjylaryny sazlaň.",
+    "Nasoslar, turbalar we giňişlikdäki ýol boýunça uzaldylan profil bilen mehaniki ýygyndy dörediň.",
+    "Ölçeg bellikleri we ortografik kamera bilen mebelli iş ýerini meýilleşdiriň."
   ],
   "minimumHardware": [
     "OpenGL 3.3 we DirectX 11 goldaýan grafiki draýwerler",

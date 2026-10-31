@@ -109,6 +109,14 @@ class StoreListingTests(unittest.TestCase):
             self.assertFalse(shot["edited"])
             self.assertEqual(receipts[Path(shot["file"]).stem]["sha256"], shot["sha256"])
 
+    def test_all_ten_desktop_screenshots_and_captions_are_exported(self):
+        self.assertEqual(len(self.manifest['screenshots']), 10)
+        self.assertEqual(len({s['sha256'] for s in self.manifest['screenshots']}), 10)
+        fields = {row[0]: row for row in self.rows[1:] if row and row[0]}
+        for index in range(1, 11):
+            for prefix in ['DesktopScreenshot', 'DesktopScreenshotCaption']:
+                self.assertTrue(all(fields[f'{prefix}{index}'][3:]))
+
     def test_hero_illustrates_model_geometry_without_ui_text_or_resized_logo(self):
         root = ET.parse(store.SOURCE / "assets/art/hero-1920x1080.svg").getroot()
         ns = {"svg": "http://www.w3.org/2000/svg"}

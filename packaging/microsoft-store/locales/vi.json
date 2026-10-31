@@ -31,7 +31,9 @@
     "Chỉnh sửa shader GLSL bên cạnh bản xem trước vật liệu hoặc đối tượng.",
     "Khám phá vật liệu GPU thủ tục như tán lá, nước, gạch và gỗ.",
     "Điều chỉnh cây và nhánh do shader tạo trong bản xem trước cài đặt.",
-    "Kiểm tra cầu thang và thiết lập bậc, phần đỡ cùng đường hướng dẫn lan can."
+    "Kiểm tra cầu thang và thiết lập bậc, phần đỡ cùng đường hướng dẫn lan can.",
+    "Dựng cụm cơ khí với máy bơm, đường ống và biên dạng quét theo đường dẫn 3D.",
+    "Lập phương án không gian làm việc có nội thất, chú thích kích thước và camera trực giao."
   ],
   "minimumHardware": [
     "Trình điều khiển đồ họa hỗ trợ OpenGL 3.3 và DirectX 11",

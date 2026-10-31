@@ -31,7 +31,9 @@
     "Redaguokite GLSL šešėliuokles šalia medžiagos arba objekto peržiūros.",
     "Atraskite procedūrines GPU medžiagas: lapiją, vandenį, plytas ir medieną.",
     "Derinkite generuojamus medžius ir šakas nustatymų peržiūroje.",
-    "Apžiūrėkite laiptus ir nustatykite pakopas, atramas bei turėklų pagalbines linijas."
+    "Apžiūrėkite laiptus ir nustatykite pakopas, atramas bei turėklų pagalbines linijas.",
+    "Kurkite mechaninį mazgą su siurbliais, vamzdynais ir erdvine trajektorija vedamu profiliu.",
+    "Planuokite apstatytą darbo erdvę su matmenų žymomis ir ortografine kamera."
   ],
   "minimumHardware": [
     "Grafikos tvarkyklės, palaikančios OpenGL 3.3 ir DirectX 11",

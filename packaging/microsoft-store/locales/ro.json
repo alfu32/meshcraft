@@ -31,7 +31,9 @@
     "Editează shadere GLSL alături de previzualizarea materialului sau obiectului.",
     "Explorează materiale GPU procedurale: frunziș, apă, cărămidă și lemn.",
     "Ajustează arborii și ramificațiile generate prin shadere în previzualizarea obiectului.",
-    "Inspectează scările și configurează treptele, suporturile și ghidajele balustradelor."
+    "Inspectează scările și configurează treptele, suporturile și ghidajele balustradelor.",
+    "Modelați un ansamblu mecanic cu pompe, conducte și un profil extrudat de-a lungul unui traseu 3D.",
+    "Planificați un spațiu de lucru mobilat, cu cote și cameră ortografică."
   ],
   "minimumHardware": [
     "Drivere grafice compatibile cu OpenGL 3.3 și DirectX 11",

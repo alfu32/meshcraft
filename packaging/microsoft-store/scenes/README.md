@@ -1,59 +1,78 @@
 # Live Meshcraft Store demonstrations
 
-These scenes were modeled in an actual running Meshcraft app through its local
-MCP server. They are not AI-generated screenshots or diagrams masquerading as UI.
-The SDK one-shot scripts emit editable geometry into the application's document;
-architecture and object parameters use the same MCP commands as native tools.
+The current ten Store screenshots show nine complete projects modeled in a
+running Meshcraft app through its local MCP server. They are native application
+captures, with no composited controls, captions or marketing frames. The models
+are editable design studies, not certified engineering designs.
 
-| Demonstration | Model construction | Saved live project |
+| Store view | Project and construction | Saved project |
 | --- | --- | --- |
-| Direct modeling | [direct.py](direct.py), [direct-modeling.js](direct-modeling.js): housing, flange, fasteners, 12-edge I-section swept through two right-angle turns, extruded concave profile | [01-direct-modeling.octd](../captures/01-direct-modeling.octd) |
-| Dynamic instances | [dynamic.py](dynamic.py), [dynamic-pavilion.js](dynamic-pavilion.js): one shared prototype, three instances, independent span/height/finish values and a hotspot | [02-dynamic-instances.octd](../captures/02-dynamic-instances.octd) |
-| Architecture | [architecture.py](architecture.py): canonical walls, owned openings, independent glazed frames, slabs, deck, steps, water and trees | [03-architecture.octd](../captures/03-architecture.octd) |
-| JavaScript editor | Open the pavilion's real prototype source, with API v2 declarations and live preview | Same dynamic-instance project |
-| GLSL editor | Open a Water material draft and its program; select the Fragment GLSL tab and capture the live preview | Same dynamic-instance project as the background; the draft is not saved |
-| Materials | [materials.py](materials.py): brick mesh, wood mesh, water/grass/foliage slab domains with actual procedural assignments | [06-procedural-materials.octd](../captures/06-procedural-materials.octd) |
-| GPU branching | [trees.py](trees.py): independent Broadleaf, Conifer and Weeping objects; show Broadleaf settings/preview | [07-branching-preview.octd](../captures/07-branching-preview.octd) |
-| Stairs | [stairs.py](stairs.py): turning and straight contour/path stairs, materials and guardrail guides | [08-architectural-stairs.octd](../captures/08-architectural-stairs.octd) |
+| 1 · Direct modeling | Serviceable instrument controller: ventilated cover, folded enclosure, electronics, display, connectors and fasteners | [instrument.octd](../captures/projects/instrument.octd) |
+| 2 · Dynamic instances | Fitted kitchen and island; eleven independently configured cabinet instances, appliances, sink, lighting and stools | [kitchen.octd](../captures/projects/kitchen.octd) |
+| 3 · Architecture | Two-storey courtyard residence with native walls, slabs, owned openings, independent glazing frames, solar panels, landscaping and pool | [residence.octd](../captures/projects/residence.octd) |
+| 4 · JavaScript editor | Configurable casework with shelves, doors, model inputs and a live cabinet preview | [casework.octd](../captures/projects/casework.octd) |
+| 5 · Shader editor | Custom seeded GLSL branching rule with a live landscape canopy preview | [park.octd](../captures/projects/park.octd) |
+| 6 · Materials | Furnished rooftop garden with procedural brick, wood, water, grass and foliage | [rooftop.octd](../captures/projects/rooftop.octd) |
+| 7 · GPU object preview | Editable tree parameters and a branching canopy preview from the pocket park | [park.octd](../captures/projects/park.octd) |
+| 8 · Stairs | Double-height furnished loft, native turning stair, mezzanine, glazing and guardrail guides | [loft.octd](../captures/projects/loft.octd) |
+| 9 · Mechanical assembly | Twin-pump skid with motors, pipework, valves, tank, controls, grating and a spatially swept I-section service rail | [plantroom.octd](../captures/projects/plantroom.octd) |
+| 10 · Technical workspace | Furnished home office with shelving, task chair, equipment, a dimension annotation and an orthographic axonometric view | [studio.octd](../captures/projects/studio.octd) |
 
-The initial modeling session used 0.45.1. All eight final Store screenshots were
-recaptured in 0.46.0 after the functional menu redesign, including corrected straight winder fronts. The saved
-projects retain their original creation history; opening them regenerates the
-current architectural geometry. Linux/Xvfb/Mesa captures do not certify Windows.
+All ten final images were captured in Meshcraft **0.48.5**. Linux/Xvfb/Mesa
+captures do not certify the Windows runtime. The [project recipes](projects/README.md)
+record their construction and physical-unit conventions.
 
-From the repository root, build the executable, then run:
+## Reproduce the captures
+
+From the repository root:
 
 ```sh
 cargo build --locked -p meshcraft-desktop --bin meshcraft
-python3 scripts/capture_store_features.py
+# Open the saved projects and capture all ten views:
+python3 scripts/capture_store_projects.py --capture-only
+# Rebuild the projects through MCP, then capture all views:
+python3 scripts/capture_store_projects.py
+# Recapture one view:
+python3 scripts/capture_store_projects.py --capture-only --shot 09-mechanical-assembly
 ```
 
-The script opens an isolated 1920 × 1080 desktop, connects through MCP, opens the
-saved projects, sets selection/camera/editor state, and captures the actual app
-window. The image API publishes the 3D canvas; native window capture adds the
-real GPUI controls. No controls, marketing labels or frames are composited into
-Store screenshots. The CLI requires Linux Xvfb, Mesa, xdotool and ImageMagick.
-`--scene 04-javascript-editor` captures one view; `--rebuild-scenes` reconstructs
-the projects through MCP before capturing. Script resource limits remain intact;
-the housing is emitted as bounded components. The spatial sweep is built by the real Extrude Swipe 3D tool using [sweep-3d.py](sweep-3d.py).
+The driver opens an isolated 1920 × 1080 desktop and an app-owned MCP server;
+it does not replace a user's open drawing. It operates the actual GPUI editor,
+selection, camera and preview controls before capturing the native app window.
+Linux Xvfb, Mesa, xdotool and ImageMagick are required. Script resource limits
+remain intact: larger assemblies are emitted as bounded components. The service
+rail uses the actual spatial Sweep tool on a twelve-edge I-profile through two
+right-angle turns. The loft uses the native contour/path stair tool.
 
-Projects, screenshots, scripts and MCP action/receipt files stay under
-`packaging/microsoft-store`, outside `target`. The ignored `captures/work/` folder
-keeps intermediate working captures, and `captures/.runtime/` holds only private
-runtime/cache data. Neither is required to rebuild the checked-in final assets.
+`capture_store_features.py` remains a compatibility entry point: its default
+recaptures these saved projects; `--rebuild-scenes` reconstructs them first.
+Its `--refresh-readme` option also copies the corresponding eight native captures
+to the stable README image paths. Explicit `--legacy-studies` selects the older
+small demonstrations instead.
 
-The three JSON files beside these recipes contain world-space geometry queried
-with `meshcraft_geometry`, including the model's face colors. They are inputs to
-the axonometric promotional illustrator, **not** claimed to be renderer output.
-The text-free hero uses those exact mesh shapes without app UI. Other promotional
-layouts combine geometry illustrations with actual `meshcraft_capture_view`
-images in [feature-renders](../assets/feature-renders/). Only lossless PNG encoding
-was applied to those viewport inputs, with decoded-pixel equality checked.
+## Evidence and durable sources
 
-[modeling-actions-0.45.1.json](../captures/modeling-actions-0.45.1.json) preserves
-modeling calls and parameters from the original session. It is an action journal,
-not a full protocol replay or a performance report; routine polls and response
-payloads are omitted. [mcp-actions.json](../captures/mcp-actions.json) and
-[capture-receipts.json](../captures/capture-receipts.json) describe the latest
-capture run and image hashes. The executable can be rebuilt after `cargo clean`
-without losing the authored models or images.
+[project-modeling-actions.json](../captures/project-modeling-actions.json) records
+project creation; [mcp-actions.json](../captures/mcp-actions.json) records the
+latest capture and finishing session. These are action journals, not complete
+protocol replays or performance reports. Routine polling and response payloads
+are omitted. [project-screenshot-evidence.json](../captures/project-screenshot-evidence.json)
+records scene counts, main cameras and script-error checks. Editor previews use
+their own camera, adjusted by native gestures. [capture-receipts.json](../captures/capture-receipts.json)
+and [assets-manifest.json](../assets-manifest.json) record final image hashes,
+app versions and sources.
+
+Projects, recipes, final images and evidence stay under
+`packaging/microsoft-store`, outside Cargo's `target`. Intermediate captures and
+private desktop caches live in ignored `captures/work/` and `captures/.runtime/`.
+`cargo clean` cannot delete the authored work.
+
+The older small-study recipes and saved scenes remain for historical evidence
+and promotional-art regeneration. Their original action journal is
+[modeling-actions-0.45.1.json](../captures/modeling-actions-0.45.1.json). The three
+geometry JSON files beside those recipes contain world-space geometry queried
+through MCP, including face colors. They feed the promotional illustrator and
+are not claimed as renderer output. Other promotional layouts combine those
+illustrations with actual MCP viewport captures in
+[feature-renders](../assets/feature-renders/), losslessly re-encoded with decoded
+pixel equality checked. Promotional artwork is separate from the ten screenshots.

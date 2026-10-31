@@ -31,7 +31,9 @@
     "Rediģējiet GLSL ēnotājus blakus materiāla vai objekta priekšskatījumam.",
     "Izpētiet procedurālos GPU materiālus: lapotni, ūdeni, ķieģeli un koku.",
     "Pielāgojiet ģenerētus kokus un zarojumus iestatījumu priekšskatījumā.",
-    "Apskatiet kāpnes un konfigurējiet pakāpienus, balstus un margu palīglīnijas."
+    "Apskatiet kāpnes un konfigurējiet pakāpienus, balstus un margu palīglīnijas.",
+    "Veidojiet mehānisku mezglu ar sūkņiem, cauruļvadiem un pa telpisku ceļu vilktu profilu.",
+    "Plānojiet mēbelētu darbvietu ar izmēru anotācijām un ortogrāfisku kameru."
   ],
   "minimumHardware": [
     "Grafikas draiveri ar OpenGL 3.3 un DirectX 11 atbalstu",

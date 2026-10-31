@@ -31,7 +31,9 @@
     "Muokkaa GLSL-varjostimia materiaalin tai objektin esikatselun vieressä.",
     "Tutustu proseduraalisiin GPU-materiaaleihin, kuten lehvästöön, veteen, tiileen ja puuhun.",
     "Säädä varjostimilla luotuja puita ja haaroja asetusten esikatselussa.",
-    "Tarkastele portaita ja määritä askelmat, tuet ja kaiteiden apuviivat."
+    "Tarkastele portaita ja määritä askelmat, tuet ja kaiteiden apuviivat.",
+    "Mallinna mekaaninen kokoonpano pumppuineen, putkistoineen ja 3D-rataa seuraavine profiileineen.",
+    "Suunnittele kalustettu työtila mittamerkintöjen ja ortografisen kameran avulla."
   ],
   "minimumHardware": [
     "OpenGL 3.3:a ja DirectX 11:tä tukevat grafiikkaohjaimet",

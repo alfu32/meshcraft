@@ -31,7 +31,7 @@ ART = {
 GROUPS = {
     "Feature": ("features", 10),
     "SearchTerm": ("searchTerms", 7),
-    "DesktopScreenshotCaption": ("captions", 8),
+    "DesktopScreenshotCaption": ("captions", 10),
     "MinimumHardwareReq": ("minimumHardware", 2),
     "RecommendedHardwareReq": ("recommendedHardware", 2),
 }
@@ -125,7 +125,7 @@ def load_source(source=SOURCE):
         translations[locale] = data
     manifest = json.loads((source / "assets-manifest.json").read_text(encoding="utf-8"))
     shots = manifest["screenshots"]
-    require(len(shots) == 8, "Expected eight desktop screenshots")
+    require(len(shots) == 10, "Expected ten desktop screenshots")
     for shot in shots:
         source_project = (ROOT / shot["source"]).resolve()
         require(source_project.is_relative_to(source.resolve()) and source_project.is_file(),
@@ -280,7 +280,7 @@ def build(destination, source=SOURCE, update_export=False):
                 if path.is_file():
                     bundle.write(path, path.relative_to(folder.parent))
         checksums.append(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name)
-        print(f"{variant}: {len(locales)} locales, 8 screenshots, 9 artwork assets; {archive}")
+        print(f"{variant}: {len(locales)} locales, {len(manifest['screenshots'])} screenshots, {len(ART)} artwork assets; {archive}")
         if variant == "all-languages":
             require(rows[0] == template[0], "Full export header changed")
             all_rows = encoded
@@ -288,7 +288,7 @@ def build(destination, source=SOURCE, update_export=False):
         EXPORT.write_bytes(all_rows)
         print(f"Filled original export: {EXPORT}")
     report = dict(
-        locales=list(translations), screenshots=8, artworkAssets=9,
+        locales=list(translations), screenshots=len(manifest['screenshots']), artworkAssets=len(ART),
         rows=len(template) - 1, minimumApplicationVersion=manifest["minimumApplicationVersion"],
         validation="CSV structure, localized limits, image dimensions, source screenshot hashes and import paths passed",
         publication="Prepared locally; not uploaded to Partner Center or certified",
@@ -313,7 +313,7 @@ def main():
         identity = json.loads((ROOT / "packaging/windows/store-identity.json").read_text())
         require(rows == make_rows(template, translations, manifest, template[0][4:], identity),
                 "Original export is stale; rebuild with --update-export")
-        print(f"Validated {len(translations)} locales and all 17 PNG assets")
+        print(f"Validated {len(translations)} locales and all {len(manifest['screenshots'])+len(ART)} PNG assets")
     else:
         build(args.output.resolve(), update_export=args.update_export)
 

@@ -21,18 +21,9 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
-      "commandId": "ui.update_preferences",
-      "arguments": {
-        "accordion_settings_panels": true
-      }
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
       "commandId": "file.open",
       "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/01-direct-modeling.octd"
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/instrument.octd"
       }
     }
   },
@@ -48,16 +39,128 @@
       "commandId": "view.camera.set_pose",
       "arguments": {
         "position": [
-          18,
-          14,
-          24
+          365,
+          275,
+          380
         ],
         "target": [
-          0,
-          2,
-          -1.5
+          118,
+          48,
+          75
         ],
-        "field_of_view": 36
+        "field_of_view": 38,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/instrument.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/kitchen.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "oak",
+          "name": "Quarter-sawn oak",
+          "color": {
+            "red": 182,
+            "green": 141,
+            "blue": 94,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {
+              "axis": "y",
+              "grain": 35,
+              "ringScale": 1.5,
+              "relief": 0.02,
+              "lightColor": [
+                0.72,
+                0.58,
+                0.39,
+                1
+              ],
+              "darkColor": [
+                0.54,
+                0.41,
+                0.25,
+                1
+              ]
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          78,
+          52,
+          78
+        ],
+        "target": [
+          24,
+          9,
+          10
+        ],
+        "field_of_view": 40,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/kitchen.octd"
       }
     }
   },
@@ -71,8 +174,8 @@
       "targets": [
         {
           "path": [
-            5071,
-            5068
+            6424,
+            6402
           ],
           "kind": "occurrence",
           "id": null
@@ -83,16 +186,20 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
-      "commandId": "view.panel.selection.toggle",
+      "commandId": "view.object_info",
       "arguments": {}
     }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
   },
   {
     "tool": "k3d_execute_command",
     "arguments": {
       "commandId": "file.open",
       "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/residence.octd"
       }
     }
   },
@@ -103,8 +210,312 @@
     }
   },
   {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "house-deck",
+          "name": "Oiled oak decking",
+          "color": {
+            "red": 182,
+            "green": 141,
+            "blue": 94,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {
+              "axis": "x",
+              "grain": 35,
+              "ringScale": 1.5,
+              "relief": 0.02,
+              "lightColor": [
+                0.72,
+                0.58,
+                0.39,
+                1
+              ],
+              "darkColor": [
+                0.54,
+                0.41,
+                0.25,
+                1
+              ]
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
     "tool": "meshcraft_scene",
     "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "definition_id": 5825,
+        "instance_path": [
+          5859,
+          5844
+        ],
+        "settings": {
+          "id": "procedural-object-13302",
+          "name": "West garden canopy",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "texturePath": null,
+          "textureScaleU": 1.0,
+          "textureScaleV": 1.0,
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "barkColor": [
+                0.27,
+                0.2,
+                0.14,
+                1
+              ],
+              "branches": 6,
+              "forks": 3,
+              "form": "broadleaf",
+              "height": 65,
+              "leafColor": [
+                0.22,
+                0.38,
+                0.11,
+                1
+              ],
+              "leafSize": 2.6,
+              "leaves": 2200,
+              "levels": 3,
+              "minPixels": 0.25,
+              "radius": 18,
+              "seed": 13,
+              "trunkRadius": 1.625,
+              "wind": 0
+            },
+            "baseMaterial": null,
+            "lodDistance": 250.0,
+            "maxInstances": 12000,
+            "showBounds": false,
+            "fallbackBounds": {
+              "min": {
+                "x": -27.425,
+                "y": -9.425,
+                "z": -27.425
+              },
+              "max": {
+                "x": 27.425,
+                "y": 74.425,
+                "z": 27.425
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "definition_id": 5828,
+        "instance_path": [
+          5859,
+          5845
+        ],
+        "settings": {
+          "id": "procedural-object-13305",
+          "name": "East garden canopy",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "texturePath": null,
+          "textureScaleU": 1.0,
+          "textureScaleV": 1.0,
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "barkColor": [
+                0.27,
+                0.2,
+                0.14,
+                1
+              ],
+              "branches": 6,
+              "forks": 3,
+              "form": "broadleaf",
+              "height": 58,
+              "leafColor": [
+                0.22,
+                0.38,
+                0.11,
+                1
+              ],
+              "leafSize": 2.32,
+              "leaves": 2200,
+              "levels": 3,
+              "minPixels": 0.25,
+              "radius": 17,
+              "seed": 41,
+              "trunkRadius": 1.4500000000000002,
+              "wind": 0
+            },
+            "baseMaterial": null,
+            "lodDistance": 250.0,
+            "maxInstances": 12000,
+            "showBounds": false,
+            "fallbackBounds": {
+              "min": {
+                "x": -25.41,
+                "y": -8.41,
+                "z": -25.41
+              },
+              "max": {
+                "x": 25.41,
+                "y": 66.41,
+                "z": 25.41
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.configure_procedural",
+      "arguments": {
+        "definition_id": 5831,
+        "instance_path": [
+          5859,
+          5846
+        ],
+        "settings": {
+          "id": "procedural-object-13308",
+          "name": "Screening conifer",
+          "color": {
+            "red": 80,
+            "green": 140,
+            "blue": 45,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "texturePath": null,
+          "textureScaleU": 1.0,
+          "textureScaleV": 1.0,
+          "procedural": {
+            "program": "meshcraft.branching.v1",
+            "parameters": {
+              "barkColor": [
+                0.27,
+                0.2,
+                0.14,
+                1
+              ],
+              "branches": 6,
+              "forks": 3,
+              "form": "conifer",
+              "height": 72,
+              "leafColor": [
+                0.22,
+                0.38,
+                0.11,
+                1
+              ],
+              "leafSize": 2.88,
+              "leaves": 2200,
+              "levels": 3,
+              "minPixels": 0.25,
+              "radius": 14,
+              "seed": 8,
+              "trunkRadius": 1.8,
+              "wind": 0
+            },
+            "baseMaterial": null,
+            "lodDistance": 250.0,
+            "maxInstances": 12000,
+            "showBounds": false,
+            "fallbackBounds": {
+              "min": {
+                "x": -24.44,
+                "y": -10.44,
+                "z": -24.44
+              },
+              "max": {
+                "x": 24.44,
+                "y": 82.44,
+                "z": 24.44
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          343,
+          230,
+          365
+        ],
+        "target": [
+          105,
+          27,
+          76
+        ],
+        "field_of_view": 42,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/residence.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [
+        5859
+      ],
+      "limit": 1
+    }
   },
   {
     "tool": "meshcraft_select",
@@ -112,11 +523,11 @@
       "targets": [
         {
           "path": [
-            13,
-            11
+            5859
           ],
-          "kind": "occurrence",
-          "id": null
+          "kind": "semantic_handle",
+          "semantic_kind": "frame",
+          "id": "meshcraft:domain:2:architectureFrames:4"
         }
       ]
     }
@@ -124,16 +535,20 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
-      "commandId": "view.panel.object.toggle",
+      "commandId": "view.architecture_settings",
       "arguments": {}
     }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
   },
   {
     "tool": "k3d_execute_command",
     "arguments": {
       "commandId": "file.open",
       "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/03-architecture.octd"
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/casework.octd"
       }
     }
   },
@@ -146,23 +561,31 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
-      "commandId": "view.panel.materials.toggle",
-      "arguments": {}
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          65,
+          36,
+          65
+        ],
+        "target": [
+          22,
+          8,
+          3
+        ],
+        "field_of_view": 38,
+        "near": 0.05,
+        "far": 5000
+      }
     }
   },
   {
     "tool": "k3d_execute_command",
     "arguments": {
-      "commandId": "file.open",
+      "commandId": "file.save_as",
       "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/casework.octd"
       }
-    }
-  },
-  {
-    "tool": "meshcraft_select",
-    "arguments": {
-      "targets": []
     }
   },
   {
@@ -175,8 +598,8 @@
       "targets": [
         {
           "path": [
-            13,
-            10
+            112,
+            108
           ],
           "kind": "occurrence",
           "id": null
@@ -192,96 +615,15 @@
     }
   },
   {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "file.open",
-      "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/02-dynamic-instances.octd"
-      }
-    }
-  },
-  {
-    "tool": "meshcraft_select",
-    "arguments": {
-      "targets": []
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "material.new_water",
-      "arguments": {}
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "file.open",
-      "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/06-procedural-materials.octd"
-      }
-    }
-  },
-  {
-    "tool": "meshcraft_select",
-    "arguments": {
-      "targets": []
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "view.panel.materials.toggle",
-      "arguments": {}
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "file.open",
-      "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/07-branching-preview.octd"
-      }
-    }
-  },
-  {
-    "tool": "meshcraft_select",
-    "arguments": {
-      "targets": []
-    }
-  },
-  {
     "tool": "meshcraft_scene",
     "arguments": {}
   },
   {
-    "tool": "meshcraft_select",
-    "arguments": {
-      "targets": [
-        {
-          "path": [
-            21,
-            18
-          ],
-          "kind": "occurrence",
-          "id": null
-        }
-      ]
-    }
-  },
-  {
-    "tool": "k3d_execute_command",
-    "arguments": {
-      "commandId": "object.edit_tree",
-      "arguments": {}
-    }
-  },
-  {
     "tool": "k3d_execute_command",
     "arguments": {
       "commandId": "file.open",
       "arguments": {
-        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/08-architectural-stairs.octd"
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd"
       }
     }
   },
@@ -297,16 +639,326 @@
       "commandId": "view.camera.set_pose",
       "arguments": {
         "position": [
-          30,
-          16,
-          -24
+          151,
+          105,
+          174
         ],
         "target": [
-          10,
-          3,
-          6
+          23,
+          25,
+          12
         ],
-        "field_of_view": 36
+        "field_of_view": 40,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1958,
+            1943
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.edit_tree",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/rooftop.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "roof-foliage",
+          "name": "Lush ground foliage",
+          "color": {
+            "red": 69,
+            "green": 114,
+            "blue": 46,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.foliage.v1",
+            "parameters": {
+              "density": 0.7,
+              "size": 3.5,
+              "width": 1.3,
+              "height": 0.35,
+              "tilt": 40,
+              "wind": 0,
+              "seed": 7,
+              "leafColor": [
+                0.18,
+                0.35,
+                0.08,
+                1
+              ],
+              "alternateColor": [
+                0.31,
+                0.46,
+                0.13,
+                1
+              ]
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "material.save",
+      "arguments": {
+        "material": {
+          "id": "oak",
+          "name": "Terrace oak",
+          "color": {
+            "red": 164,
+            "green": 126,
+            "blue": 86,
+            "alpha": 255
+          },
+          "shadingType": "phong",
+          "textureScaleU": 1,
+          "textureScaleV": 1,
+          "procedural": {
+            "program": "meshcraft.wood.v1",
+            "parameters": {
+              "axis": "x",
+              "ringScale": 0.35,
+              "grain": 8,
+              "relief": 0.01,
+              "lightColor": [
+                0.67,
+                0.53,
+                0.36,
+                1
+              ],
+              "darkColor": [
+                0.6,
+                0.46,
+                0.3,
+                1
+              ]
+            },
+            "maxInstances": 20000,
+            "lodDistance": 250,
+            "showBounds": false
+          }
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          134,
+          108,
+          143
+        ],
+        "target": [
+          44,
+          10,
+          34
+        ],
+        "field_of_view": 40,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/rooftop.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.panel.materials.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          151,
+          105,
+          174
+        ],
+        "target": [
+          23,
+          25,
+          12
+        ],
+        "field_of_view": 40,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [
+            1958,
+            1943
+          ],
+          "kind": "occurrence",
+          "id": null
+        }
+      ]
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "object.edit_tree",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/loft.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          116,
+          92,
+          137
+        ],
+        "target": [
+          29,
+          23,
+          21
+        ],
+        "field_of_view": 40,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/loft.octd"
       }
     }
   },
@@ -318,7 +970,7 @@
     "tool": "meshcraft_geometry",
     "arguments": {
       "path": [
-        6
+        6276
       ],
       "limit": 1
     }
@@ -329,11 +981,11 @@
       "targets": [
         {
           "path": [
-            6
+            6276
           ],
           "kind": "semantic_handle",
           "semantic_kind": "stair",
-          "id": "meshcraft:domain:2:architectureStairs:1"
+          "id": "meshcraft:domain:2:architectureStairs:0"
         }
       ]
     }
@@ -342,6 +994,146 @@
     "tool": "k3d_execute_command",
     "arguments": {
       "commandId": "view.panel.architecture_stairs.toggle",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/plantroom.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "meshcraft_run_script",
+    "arguments": {
+      "source": "// Shared modeling helpers, evaluated inside Meshcraft's documented one-shot SDK.\n// Every result becomes editable native mesh geometry, not an external render.\nconst P=(x=0,y=0,z=0)=>new Point(x,y,z), out=[];\nlet serial=0;\nconst ID=k=>k+':'+serial++;\nconst materials={};\nfunction M(key){\n  if(typeof key==='object')return key;\n  if(key.startsWith('#'))return phong(key);\n  return materials[key]||(materials[key]=model.getMaterial(key));\n}\nconst va=(a,b)=>a.map((v,i)=>v+b[i]),vs=(a,b)=>a.map((v,i)=>v-b[i]);\nconst vm=(a,s)=>a.map(v=>v*s),vd=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);\nconst vc=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];\nconst vn=a=>vm(a,1/Math.hypot(...a));\nfunction B(x,y,z,w,h,d,mat='ivory'){\n  out.push(cuboid(P(x,y,z),P(x+w,y+h,z+d),ID('panel'),M(mat)));\n}\nfunction Q(a,b,c,d,mat){out.push(face(P(...a),P(...b),P(...c),ID('face'),M(mat)),face(P(...a),P(...c),P(...d),ID('face'),M(mat)));}\nfunction E(a,b,mat='graphite'){out.push(line(P(...a),P(...b),ID('edge'),M(mat)));}\nfunction basis(a,b){const t=vn(vs(b,a)),u=vn(vc(t,Math.abs(t[1])<.8?[0,1,0]:[1,0,0]));return [u,vc(t,u)];}\nfunction round(a,r,u,v,i,n){const t=i*2*Math.PI/n;return va(a,va(vm(u,r*Math.cos(t)),vm(v,r*Math.sin(t))));}\nfunction R(a,b,r,mat='steel',n=20){\n  const [u,v]=basis(a,b);\n  for(let i=0;i<n;i++){\n    const a0=round(a,r,u,v,i,n),a1=round(a,r,u,v,i+1,n),b0=round(b,r,u,v,i,n),b1=round(b,r,u,v,i+1,n);\n    Q(a0,a1,b1,b0,mat);\n    out.push(face(P(...a),P(...a1),P(...a0),ID('cap'),M(mat)),face(P(...b),P(...b0),P(...b1),ID('cap'),M(mat)));\n    E(a0,a1,mat);E(b0,b1,mat);\n  }\n}\nfunction Ring(a,b,ro,ri,mat='steel',n=24){\n  const [u,v]=basis(a,b);\n  for(let i=0;i<n;i++){\n    const a0=round(a,ro,u,v,i,n),a1=round(a,ro,u,v,i+1,n),b0=round(b,ro,u,v,i,n),b1=round(b,ro,u,v,i+1,n);\n    const c0=round(a,ri,u,v,i,n),c1=round(a,ri,u,v,i+1,n),d0=round(b,ri,u,v,i,n),d1=round(b,ri,u,v,i+1,n);\n    Q(a0,a1,b1,b0,mat);Q(c1,c0,d0,d1,mat);Q(a1,a0,c0,c1,mat);Q(b0,b1,d1,d0,mat);\n    E(a0,a1,mat);E(b0,b1,mat);E(c0,c1,mat);E(d0,d1,mat);\n  }\n}\nfunction Pipe(points,r,mat='steel',n=16){\n  const rings=points.map((p,i)=>{\n    const [u,v]=basis(i?points[i-1]:p,i===points.length-1?p:points[i+1]);\n    return Array.from({length:n},(_,j)=>round(p,r,u,v,j,n));\n  });\n  for(let k=0;k<rings.length-1;k++)for(let i=0;i<n;i++)Q(rings[k][i],rings[k][(i+1)%n],rings[k+1][(i+1)%n],rings[k+1][i],mat);\n  for(const k of [0,rings.length-1])for(let i=0;i<n;i++)E(rings[k][i],rings[k][(i+1)%n],mat);\n}\nfunction Ball(c,r,mat='steel',n=16){out.push(sphere(P(...c),r,ID('sphere'),M(mat),n));}\nfunction Bolt(a,b,r=1.5,mat='steel'){R(a,b,r,mat,6);const d=vm(vn(vs(b,a)),r*.4);R(b,va(b,d),r*1.5,mat,6);}\nfunction Rim(x,y,z,w,h,d,t,mat='graphite'){\n  B(x,y,z,t,h,d,mat);B(x+w-t,y,z,t,h,d,mat);B(x+t,y,z,w-2*t,t,d,mat);B(x+t,y+h-t,z,w-2*t,t,d,mat);\n}\nfunction Slats(x,y,z,w,h,d,count,mat='oak'){\n  const gap=w/count;for(let i=0;i<count;i++)B(x+i*gap,y,z,gap*.42,h,d,mat);\n}\nfunction Foot(x,y,z,h,mat='graphite'){R([x,y,z],[x,y+h,z],.18,mat,12);R([x,y,z],[x,y+.06,z],.32,mat,16);}\n\nconst part=this.part,x=this.x||0;\nif(part==='frame-posts')for(const [x,z] of [[4,46],[84,46],[84,4]]){B(x-.5,1.8,z-.5,1,18.2,1,'steel');B(x-1,1.8,z-1,2,.3,2,'graphite');}\nif(part==='base'){\n  for(const z of [0,47])B(0,0,z,92,1.4,1.7,'graphite');\n  for(const a of [0,45,90])B(a,0,0,1.5,1.4,48,'graphite');\n  for(const a of [3,44,87])for(const z of [2,44])B(a,-.4,z,2,.4,2,'rubber');\n}\nif(part==='grating')for(let a=1;a<90;a+=3)B(a,1.4,1,1.1,.35,46,'steel');\nif(part==='motor'){\n  R([x,7,5],[x,7,19],3.1,'navy',28);\n  for(let i=0;i<12;i++){\n    const start=out.length;B(x-.12,10.1,5.4,.24,.7,13,'navy');\n    out.push(rotate(P(x,7,0),P(0,0,1),i*30,out.splice(start)));\n  }\n  R([x,7,18.8],[x,7,21.5],1.4,'amber',20);\n  Ring([x,7,4],[x,7,5],3.4,2.4,'graphite',20);\n}\nif(part==='pump'){\n  R([x,7,22],[x,7,27],4.7,'navy',32);Ring([x,7,27],[x,7,28.2],4.1,1.65,'steel',24);\n  R([x+2.9,9.5,24.5],[x+2.9,14,24.5],1.5,'navy',20);\n}\nif(part==='mounts'){\n  B(x-4,1.8,3,8,1.1,25,'navy');\n  for(const a of [x-3.3,x+3.3])for(const z of [5,24])Bolt([a,2.9,z],[a,3.6,z],.35);\n  B(x-2.5,2.9,7,1,1.2,10,'navy');B(x+1.5,2.9,7,1,1.2,10,'navy');\n}\nif(part==='fasteners')for(let i=this.half*4;i<this.half*4+4;i++){\n  const a=i*Math.PI/4,xx=x+3.5*Math.cos(a),y=7+3.5*Math.sin(a);\n  Bolt([xx,y,28.2],[xx,y,28.9],.32);\n}\nif(part==='outlet'){\n  Pipe([[x+2.9,14,24.5],[x+2.9,18,24.5],[x+2.9,20,22.5],[x+2.9,20,8],[x+2.9,22,6]],1.05,'steel',16);\n  Ring([x+2.9,14.1,24.5],[x+2.9,14.8,24.5],2.1,1.05,'graphite',20);\n}\nif(part==='suction'){\n  Pipe([[x,7,28],[x,7,37],[x,7,40],[x+2,7,42]],1.4,'steel',16);\n  Ring([x,7,30],[x,7,30.7],2.25,1.4,'graphite',20);\n}\nif(part==='manifold'){\n  R([2,22,6],[76,22,6],1.25,'steel',24);R([2,7,42],[76,7,42],1.45,'steel',24);\n  for(const a of [4,74]){B(a,1.8,5,1,19,1,'graphite');B(a,1.8,41,1,3.7,1,'graphite');}\n}\nif(part==='valve'){\n  R([35,7,42],[39,7,42],2.1,'navy',24);R([37,9,42],[37,15,42],.3,'brass',16);\n  Ring([37,15,42],[37,15.35,42],2.5,2.15,'amber',24);\n  for(let i=0;i<3;i++){const a=i*2*Math.PI/3;R([37,15.2,42],[37+2.3*Math.cos(a),15.2,42+2.3*Math.sin(a)],.1,'amber',8);}\n}\nif(part==='control'){\n  B(69,1.8,27,1,10,1,'graphite');B(80,1.8,27,1,10,1,'graphite');B(67,11,25,16,16,4,'ivory');\n  B(69,19,29.1,12,5,.1,'graphite');B(69.5,19.5,29.3,11,4,.05,'screen');B(70,20,29.4,8,.35,.03,'cyan');\n  for(const a of [71,76,80])R([a,15,29],[a,15,29.8],.6,a===80?'ansi-red':'cyan',16);\n}\nif(part==='tank'){\n  R([86,5,12],[86,35,12],5.1,'steel',32);\n  for(const a of [82,90])B(a,1.8,10,.6,3.2,5,'graphite');\n  Ring([86,4.5,12],[86,5,12],5.4,4.8,'graphite',24);\n}\nif(part==='tank-top'){\n  out.push(translate(P(86,35,12),scale(P(5.1,2.7,5.1),sphere(P(),1,ID('tank-head'),M('steel'),20))));\n  R([86,37,12],[86,39,12],.8,'steel',16);B(82,22,17.2,8,3,.1,'navy');\n}\nif(part==='tank-gauge'){\n  R([86,9,17],[86,30,17],.2,'cyan',12);R([85.5,9,16.6],[86.5,9,17],.3,'brass',12);\n  Pipe([[76,22,6],[83,22,6],[86,19,7],[86,14,7]],1,'steel',16);\n  R([10,22,6],[10,26,6],.2,'brass',12);R([10,26,6],[10,26,7.2],1.2,'graphite',24);R([10,26,7.2],[10,26,7.35],1,'ivory',24);\n  E([10,26,7.4],[10.6,26.4,7.4],'graphite');\n}\nreturn out;\n",
+      "name": "Plant | service rail posts",
+      "properties": {
+        "part": "frame-posts"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          132,
+          89,
+          138
+        ],
+        "target": [
+          44,
+          16,
+          25
+        ],
+        "field_of_view": 38,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/plantroom.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.objects",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "meshcraft_scene",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.open",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/studio.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          54,
+          45,
+          59
+        ],
+        "target": [
+          13,
+          13,
+          11
+        ],
+        "field_of_view": 38,
+        "near": 0.05,
+        "far": 5000
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/studio.octd"
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.selection",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.orthographic",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.selection",
       "arguments": {}
     }
   }

@@ -31,7 +31,9 @@
     "Modifiez des shaders GLSL à côté d’un aperçu du matériau ou de l’objet.",
     "Explorez les matériaux GPU procéduraux : feuillage, eau, brique et bois.",
     "Ajustez les arbres et les ramifications générés par shaders dans l’aperçu des paramètres.",
-    "Inspectez les escaliers et configurez les marches, les supports et les guides de garde-corps."
+    "Inspectez les escaliers et configurez les marches, les supports et les guides de garde-corps.",
+    "Modélisez un ensemble mécanique avec pompes, tuyauteries et profil balayé sur un trajet 3D.",
+    "Planifiez un espace de travail meublé avec cotations et caméra orthographique."
   ],
   "minimumHardware": [
     "Pilotes graphiques compatibles OpenGL 3.3 et DirectX 11",

@@ -1,0 +1,242 @@
+{
+  "10-technical-workspace": {
+    "project": "projects/studio.octd",
+    "version": "0.48.5",
+    "objects": 16,
+    "authoredFaces": 2668,
+    "authoredSegments": 2197,
+    "mainCamera": {
+      "position": {
+        "x": 54.42424011230469,
+        "y": 44.15217521942395,
+        "z": 59.19309997558594
+      },
+      "target": {
+        "x": 13.0,
+        "y": 13.0,
+        "z": 11.0
+      },
+      "orthographic": true,
+      "walkthrough": false,
+      "fieldOfView": 38.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "01-direct-modeling": {
+    "project": "projects/instrument.octd",
+    "version": "0.48.5",
+    "objects": 17,
+    "authoredFaces": 5092,
+    "authoredSegments": 3164,
+    "mainCamera": {
+      "position": {
+        "x": 365.0,
+        "y": 275.00000667567656,
+        "z": 380.0
+      },
+      "target": {
+        "x": 118.0,
+        "y": 48.0,
+        "z": 75.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 38.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "02-dynamic-instances": {
+    "project": "projects/kitchen.octd",
+    "version": "0.48.5",
+    "objects": 23,
+    "authoredFaces": 5200,
+    "authoredSegments": 3886,
+    "mainCamera": {
+      "position": {
+        "x": 77.99999618530273,
+        "y": 51.99999829578519,
+        "z": 78.0
+      },
+      "target": {
+        "x": 24.0,
+        "y": 9.0,
+        "z": 10.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 40.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "03-architecture": {
+    "project": "projects/residence.octd",
+    "version": "0.48.5",
+    "objects": 12,
+    "authoredFaces": 3474,
+    "authoredSegments": 3120,
+    "mainCamera": {
+      "position": {
+        "x": 343.0000305175781,
+        "y": 229.9999981293804,
+        "z": 365.0000305175781
+      },
+      "target": {
+        "x": 105.0,
+        "y": 27.0,
+        "z": 76.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 42.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "04-javascript-editor": {
+    "project": "projects/casework.octd",
+    "version": "0.48.5",
+    "objects": 4,
+    "authoredFaces": 804,
+    "authoredSegments": 804,
+    "mainCamera": {
+      "position": {
+        "x": 65.0,
+        "y": 36.000001589759904,
+        "z": 65.0
+      },
+      "target": {
+        "x": 22.0,
+        "y": 8.0,
+        "z": 3.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 38.0
+    },
+    "viewMode": "script",
+    "scriptErrors": []
+  },
+  "05-shader-editor": {
+    "project": "projects/park.octd",
+    "version": "0.48.5",
+    "objects": 11,
+    "authoredFaces": 768,
+    "authoredSegments": 733,
+    "mainCamera": {
+      "position": {
+        "x": 151.0,
+        "y": 104.9999950574529,
+        "z": 173.99998474121094
+      },
+      "target": {
+        "x": 23.0,
+        "y": 25.0,
+        "z": 12.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 40.0
+    },
+    "viewMode": "shader",
+    "scriptErrors": []
+  },
+  "06-procedural-materials": {
+    "project": "projects/rooftop.octd",
+    "version": "0.48.5",
+    "objects": 7,
+    "authoredFaces": 1156,
+    "authoredSegments": 1143,
+    "mainCamera": {
+      "position": {
+        "x": 134.0,
+        "y": 108.00000541677036,
+        "z": 143.0
+      },
+      "target": {
+        "x": 44.0,
+        "y": 10.0,
+        "z": 34.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 40.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "07-branching-preview": {
+    "project": "projects/park.octd",
+    "version": "0.48.5",
+    "objects": 11,
+    "authoredFaces": 768,
+    "authoredSegments": 733,
+    "mainCamera": {
+      "position": {
+        "x": 151.0,
+        "y": 104.9999950574529,
+        "z": 173.99998474121094
+      },
+      "target": {
+        "x": 23.0,
+        "y": 25.0,
+        "z": 12.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 40.0
+    },
+    "viewMode": "tree",
+    "scriptErrors": []
+  },
+  "08-architectural-stairs": {
+    "project": "projects/loft.octd",
+    "version": "0.48.5",
+    "objects": 15,
+    "authoredFaces": 3188,
+    "authoredSegments": 2512,
+    "mainCamera": {
+      "position": {
+        "x": 116.0,
+        "y": 91.99999869254316,
+        "z": 137.0
+      },
+      "target": {
+        "x": 29.0,
+        "y": 23.0,
+        "z": 21.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 40.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  },
+  "09-mechanical-assembly": {
+    "project": "projects/plantroom.octd",
+    "version": "0.48.5",
+    "objects": 24,
+    "authoredFaces": 6956,
+    "authoredSegments": 3761,
+    "mainCamera": {
+      "position": {
+        "x": 132.0,
+        "y": 89.00000139530084,
+        "z": 138.00000762939453
+      },
+      "target": {
+        "x": 44.0,
+        "y": 16.0,
+        "z": 25.0
+      },
+      "orthographic": false,
+      "walkthrough": false,
+      "fieldOfView": 38.0
+    },
+    "viewMode": "main",
+    "scriptErrors": []
+  }
+}

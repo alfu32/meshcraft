@@ -1,0 +1,2 @@
+0e638f8fa4edebac36242b8c8b610df94da5927b98275e3b50924b095afab6fb  meshcraft-store-english.zip
+ed9614dbc303d8a1d8adf601d5bd52af3c18925487a522952c2db5d366c6897a  meshcraft-store-all-languages.zip

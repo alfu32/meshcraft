@@ -31,7 +31,9 @@
     "Rediger GLSL-shadere ved siden af materialets eller objektets forhåndsvisning.",
     "Udforsk procedurelle GPU-materialer som løv, vand, mursten og træ.",
     "Tilpas shadergenererede træer og forgreninger i indstillingernes forhåndsvisning.",
-    "Se trapper, og indstil trin, understøtning og gelænderhjælpelinjer."
+    "Se trapper, og indstil trin, understøtning og gelænderhjælpelinjer.",
+    "Byg en mekanisk samling med pumper, rørføring og en profil ført langs en rumlig bane.",
+    "Planlæg en møbleret arbejdsplads med målangivelser og et ortografisk kamera."
   ],
   "minimumHardware": [
     "Grafikdrivere med understøttelse af OpenGL 3.3 og DirectX 11",

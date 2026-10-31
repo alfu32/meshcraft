@@ -6,75 +6,75 @@
     {
       "file": "modeling-workspace.png",
       "source": "packaging/microsoft-store/assets/screenshots/01-direct-modeling.png",
-      "scenario": "Direct mesh modeling, extrusion and sweeps. Retake with the modeling demo, matching the broad overview.",
+      "scenario": "Exploded instrument controller with a ventilated service cover, controls, PCB and fasteners.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "e211892c601f6b3b162456578c59372395eb4596bd810d33368271e4b1a70b35"
+      "applicationVersion": "0.48.5",
+      "sha256": "6a0d95b7e472ef11c18b0bd3188f4c057a312fc2563928c1360df05521cadc30"
     },
     {
       "file": "architecture-materials-workspace.png",
       "source": "packaging/microsoft-store/assets/screenshots/03-architecture.png",
-      "scenario": "Walls, paving, grass and a procedural tree. Retake the architectural materials demo with the native workspace visible.",
+      "scenario": "Two-storey courtyard residence with native walls, slabs, openings and independent glazing frames.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "98b9730f3be0c8c4ae38b26950a3ebc0701c6a0bef805998584f96ecc5d5d7b9"
+      "applicationVersion": "0.48.5",
+      "sha256": "50c50d6b88d0ce4fc2daef61cde35e049806dbf70c7fa3293d9fe4b45c61c5e4"
     },
     {
       "file": "dynamic-object-instances.png",
       "source": "packaging/microsoft-store/assets/screenshots/02-dynamic-instances.png",
-      "scenario": "Reusable object instances and varied geometry. Retake with object prototypes and instances visible.",
+      "scenario": "Fitted kitchen and island using independent configurable cabinet instances with material parameters.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "dd9c7859b0083cd9a2d64f3316f949f8b16b98a7c891c94a051655c2f34f89a3"
+      "applicationVersion": "0.48.5",
+      "sha256": "7dd35a217c8438fd926c7988bd04c9df9275e315149d70c4699a1900e4650f29"
     },
     {
       "file": "scripted-object-editor.png",
       "source": "packaging/microsoft-store/assets/screenshots/04-javascript-editor.png",
-      "scenario": "JavaScript object editor with code and orbitable preview. Reopen the tree script in the object editor.",
+      "scenario": "Unified JavaScript cabinet source with prototype and instance inputs beside an orbitable shelving preview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "2979de5e314448b1def2b8d6ec5a54cd4b17740e19f2370adbb81d3a8894c427"
+      "applicationVersion": "0.48.5",
+      "sha256": "8938c780cd5e3253c15f1ef18d1e4c2ead6bec6231c0ff7f9daa8e994fbbc191"
     },
     {
       "file": "procedural-tree.png",
       "source": "packaging/microsoft-store/assets/screenshots/07-branching-preview.png",
-      "scenario": "Open examples/procedural-presets.octd; frame a tree and capture the viewport.",
+      "scenario": "GPU-generated landscape canopy with editable settings and its interactive object preview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "0f424dd53e670dc879fc725dc39577c0d3c423b641f6da8affe5eded5b0aed10"
+      "applicationVersion": "0.48.5",
+      "sha256": "e67a424fdf371d1bce0bafc8cea552379564818e5a1cf2f713b75b0f1e45d0af"
     },
     {
       "file": "procedural-foliage.png",
       "source": "packaging/microsoft-store/assets/screenshots/06-procedural-materials.png",
-      "scenario": "Open examples/foliage-colors.octd; frame the foliage surface and capture the viewport.",
+      "scenario": "Furnished roof terrace with procedural brick, wood, water, grass and foliage materials.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "703d63baf184ec3e415f736aebf04a59f6df5777b0f70079aee45613158599fe"
+      "applicationVersion": "0.48.5",
+      "sha256": "99eece2b39283cb43a99a3ceac5d5d586a05d0c0dd850278d098c61ea68a10fc"
     },
     {
       "file": "architectural-stairs.png",
       "source": "packaging/microsoft-store/assets/screenshots/08-architectural-stairs.png",
-      "scenario": "Open examples/architectural-stairs.octd; frame all four stair examples with their guide lines.",
+      "scenario": "Furnished double-height loft with a native turning stair, mezzanine and guardrail guides.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "7f6967b71611f3e416110e15bc5b7b0c53821fa67d8fed7fa457c583b6b9daa9"
+      "applicationVersion": "0.48.5",
+      "sha256": "67b28e837da381a45fa5ed19c330f160660756329c29e298464c1a679ca3ddee"
     },
     {
       "file": "shader-editor-preview.png",
       "source": "packaging/microsoft-store/assets/screenshots/05-shader-editor.png",
-      "scenario": "Open a custom shader material in the shader editor; show highlighted Fragment code with a valid GPU cube preview.",
+      "scenario": "Custom GLSL branching rule and a live GPU tree preview in the shader editor.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.0",
-      "sha256": "bb8b9386c9da36bdc351727790602446b1646b0fe69e8b0111671041ed9eca4e"
+      "applicationVersion": "0.48.5",
+      "sha256": "f0a30ca827946654d5023ae72a118340ed7c4caa31e362b40890528272301b69"
     }
   ],
-  "refreshed_for": "Meshcraft 0.48.0 command icons and workspace"
+  "refreshed_for": "Meshcraft 0.48.5 project demonstrations"
 }

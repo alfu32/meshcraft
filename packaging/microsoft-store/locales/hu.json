@@ -31,7 +31,9 @@
     "Szerkesszen GLSL-shadereket az anyag vagy az objektum előnézete mellett.",
     "Fedezze fel a procedurális GPU-anyagokat: lombozat, víz, tégla és fa.",
     "Állítsa be a shaderekkel létrehozott fákat és elágazásokat az előnézetben.",
-    "Vizsgálja meg a lépcsőket, és állítsa be a fokokat, támaszokat és korlátvezetőket."
+    "Vizsgálja meg a lépcsőket, és állítsa be a fokokat, támaszokat és korlátvezetőket.",
+    "Modellezzen gépészeti összeállítást szivattyúkkal, csövekkel és térbeli pálya mentén vezetett profillal.",
+    "Tervezzen berendezett munkateret méretezéssel és ortografikus kamerával."
   ],
   "minimumHardware": [
     "OpenGL 3.3 és DirectX 11 támogatású grafikus illesztőprogramok",

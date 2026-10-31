@@ -31,7 +31,9 @@
     "Edytuj shadery GLSL obok podglądu materiału lub obiektu.",
     "Odkrywaj proceduralne materiały GPU: liście, wodę, cegłę i drewno.",
     "Dostosowuj drzewa i rozgałęzienia generowane przez shadery w podglądzie ustawień.",
-    "Przeglądaj schody i konfiguruj stopnie, podpory oraz prowadnice balustrad."
+    "Przeglądaj schody i konfiguruj stopnie, podpory oraz prowadnice balustrad.",
+    "Modeluj zespół mechaniczny z pompami, instalacją rurową i profilem przeciągniętym wzdłuż ścieżki 3D.",
+    "Zaplanuj umeblowane miejsce pracy z wymiarowaniem i kamerą ortograficzną."
   ],
   "minimumHardware": [
     "Sterowniki graficzne obsługujące OpenGL 3.3 i DirectX 11",

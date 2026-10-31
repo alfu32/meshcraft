@@ -31,7 +31,9 @@
     "Bearbeiten Sie GLSL-Shader neben einer Vorschau des Materials oder Objekts.",
     "Entdecken Sie prozedurale GPU-Materialien wie Laub, Wasser, Ziegel und Holz.",
     "Passen Sie Shader-Bäume und Verzweigungsformen in der Objektvorschau an.",
-    "Prüfen Sie Treppen und konfigurieren Sie Stufen, Tragwerk und Geländerhilfslinien."
+    "Prüfen Sie Treppen und konfigurieren Sie Stufen, Tragwerk und Geländerhilfslinien.",
+    "Modellieren Sie eine Baugruppe mit Pumpen, Rohrleitungen und einem entlang eines 3D-Pfads geführten Profil.",
+    "Planen Sie einen eingerichteten Arbeitsplatz mit Bemaßungen und orthografischer Kamera."
   ],
   "minimumHardware": [
     "Grafiktreiber mit OpenGL 3.3 und DirectX 11",

@@ -31,7 +31,9 @@
     "Bewerk GLSL-shaders naast het voorbeeld van het materiaal of object.",
     "Ontdek procedurele GPU-materialen zoals gebladerte, water, baksteen en hout.",
     "Pas shadergegenereerde bomen en vertakkingen aan in het instellingenvoorbeeld.",
-    "Bekijk trappen en configureer treden, ondersteuning en leuninghulplijnen."
+    "Bekijk trappen en configureer treden, ondersteuning en leuninghulplijnen.",
+    "Bouw een mechanische assemblage met pompen, leidingwerk en een profiel langs een 3D-pad.",
+    "Ontwerp een ingerichte werkruimte met maatlijnen en een orthografische camera."
   ],
   "minimumHardware": [
     "Grafische stuurprogramma’s met OpenGL 3.3- en DirectX 11-ondersteuning",

@@ -23,7 +23,8 @@ from runtime import desktop
 
 NAMES = ['01-direct-modeling', '02-dynamic-instances', '03-architecture',
          '04-javascript-editor', '05-shader-editor', '06-procedural-materials',
-         '07-branching-preview', '08-architectural-stairs']
+         '07-branching-preview', '08-architectural-stairs',
+         '09-mechanical-assembly', '10-technical-workspace']
 
 
 class Capture:
@@ -273,7 +274,7 @@ def refresh_readme():
                     applicationVersion=receipts[name]['version'],refresh='complete',sha256=receipts[name]['sha256'])
     manifest.update(regenerate_after='Future menu/ribbon changes',
                     policy='Actual native app captures only. Keep filenames stable and refresh after UI changes.',
-                    refreshed_for=f"Meshcraft {receipts[source_names[0]]['version']} command icons and workspace")
+                    refreshed_for=f"Meshcraft {receipts[source_names[0]]['version']} project demonstrations")
     (destination/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 
 
@@ -283,7 +284,17 @@ def main():
     parser.add_argument('--scene', choices=NAMES)
     parser.add_argument('--rebuild-scenes', action='store_true')
     parser.add_argument('--refresh-readme', action='store_true')
+    parser.add_argument('--legacy-studies', action='store_true', help='Capture the earlier small modeling studies instead of current Store projects')
     args = parser.parse_args()
+    if not args.legacy_studies:
+        command=[sys.executable,str(ROOT/'scripts/capture_store_projects.py'),'--binary',str(args.binary)]
+        if not args.rebuild_scenes:command.append('--capture-only')
+        if args.scene:command.extend(['--shot',args.scene])
+        subprocess.run(command,check=True)
+        if args.refresh_readme:refresh_readme()
+        return
+    if args.scene in NAMES[8:]:
+        parser.error('The legacy studies have only eight views')
     output = SOURCE/'captures'
     output.mkdir(parents=True, exist_ok=True)
     with desktop(args.binary.resolve(), output/'.runtime', 120, True, size=(1920,1080)) as (rpc, app, env):
@@ -292,7 +303,7 @@ def main():
         if args.rebuild_scenes:
             for recipe in ['direct', 'sweep-3d', 'dynamic', 'architecture', 'materials', 'stairs', 'trees']:
                 capture.recipe(recipe)
-        for name in [args.scene] if args.scene else NAMES:
+        for name in [args.scene] if args.scene else NAMES[:8]:
             capture.capture(name)
         capture.receipt()
         print('Preserved captures and MCP actions in', output, flush=True)

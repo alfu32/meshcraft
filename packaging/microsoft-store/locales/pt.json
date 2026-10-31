@@ -31,7 +31,9 @@
     "Edite shaders GLSL junto à pré-visualização do material ou objeto.",
     "Explore materiais GPU procedurais como folhagem, água, tijolo e madeira.",
     "Ajuste árvores e ramificações geradas por shaders na pré-visualização das definições.",
-    "Inspecione escadas e configure degraus, suportes e guias de guarda-corpos."
+    "Inspecione escadas e configure degraus, suportes e guias de guarda-corpos.",
+    "Modele um conjunto mecânico com bombas, tubagens e um perfil extrudido ao longo de um percurso 3D.",
+    "Planeie um espaço de trabalho mobilado com cotas e uma câmara ortográfica."
   ],
   "minimumHardware": [
     "Controladores gráficos compatíveis com OpenGL 3.3 e DirectX 11",

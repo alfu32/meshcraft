@@ -24,7 +24,7 @@ JavaScript and connect an agent through MCP.
 Linux release downloads include **DEB and RPM packages for amd64 and ARM64**, plus
 AppImage, Snap and portable archives. See the [installation notes](packaging/README.md#native-deb-and-rpm-packages).
 
-![Direct mesh modeling workspace with extruded profiles, curved walls and live selection feedback](docs/screenshots/modeling-workspace.png)
+![Exploded instrument controller with its service cover, electronics and controls](docs/screenshots/modeling-workspace.png)
 
 ## A workshop for geometry
 
@@ -63,7 +63,7 @@ external scenes can supply referenced prototypes.
 turns frozen or shader-generated objects into editable edges and faces, with Undo.
 [Object conversion details](docs/rewrite/spec/objects.md#bake-to-shader-and-bake-to-mesh).
 
-![Reusable object instances alongside directly modeled geometry](docs/screenshots/dynamic-object-instances.png)
+![Fitted kitchen using configurable cabinet instances with independent sizes and finishes](docs/screenshots/dynamic-object-instances.png)
 
 Prototype thumbnails help browse your library. Prototype and instance properties
 also support editable **IFC4.3 metadata**, with an offline standard property and
@@ -84,7 +84,7 @@ its functions and identifiers. Geometry helpers, transforms and primitives are
 available in scope. Explode freezes the currently generated geometry into editable
 model elements. **Copy as Script** turns a selection into a starting point for code.
 
-![JavaScript object editor with a pavilion preview](docs/screenshots/scripted-object-editor.png)
+![JavaScript cabinet editor with model inputs and an interactive shelving preview](docs/screenshots/scripted-object-editor.png)
 
 Start with the [parameter guide](docs/script-parameters.md),
 [SDK and runtime requirements](docs/rewrite/spec/scripted-objects.md), or
@@ -101,9 +101,9 @@ Stairs take a planar contour and a walking path, with editable height, steps,
 support thickness, and left/right guardrail guide levels. Architectural elements
 retain material assignments and can be exploded into ordinary mesh geometry.
 
-![Architecture workspace with a wall, paving, grass and a procedural tree](docs/screenshots/architecture-materials-workspace.png)
+![Courtyard residence with native architectural walls, openings, glazing and landscaping](docs/screenshots/architecture-materials-workspace.png)
 
-![Straight and turning stairs with configurable guardrail guides and materials](docs/screenshots/architectural-stairs.png)
+![Furnished loft with a turning architectural stair, mezzanine and guardrail guides](docs/screenshots/architectural-stairs.png)
 
 [Architecture workflow and stair example](docs/architecture.md).
 
@@ -116,12 +116,12 @@ water, brick and wood** materials add GPU-generated surface effects. Procedural
 
 | Procedural tree | Surface foliage |
 | --- | --- |
-| ![GPU-generated tree with branches, leaves and shadows](docs/screenshots/procedural-tree.png) | ![Foliage scattered over and around a model surface](docs/screenshots/procedural-foliage.png) |
+| ![GPU tree settings with a live branching canopy preview](docs/screenshots/procedural-tree.png) | ![Furnished rooftop garden with procedural foliage, grass, water, brick and wood](docs/screenshots/procedural-foliage.png) |
 
 Custom shader materials have a spacious editor with **Definition, Vertex and
 Fragment tabs**, JSON/GLSL syntax highlighting and a separate GPU preview.
 
-![Shader editor with highlighted fragment code and a live material preview](docs/screenshots/shader-editor-preview.png)
+![GLSL branching rule beside its live GPU tree preview](docs/screenshots/shader-editor-preview.png)
 
 [Material guide](docs/procedural-materials.md) ·
 [Tree, foliage and surface presets](docs/procedural-presets.md).

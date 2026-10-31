@@ -31,7 +31,9 @@
     "Upravujte GLSL shadery vedľa náhľadu materiálu alebo objektu.",
     "Objavujte procedurálne GPU materiály, napríklad lístie, vodu, tehlu a drevo.",
     "Upravujte stromy a vetvenie generované shadermi v náhľade nastavení.",
-    "Prezerajte schody a nastavujte stupne, podpery a vodiace čiary zábradlia."
+    "Prezerajte schody a nastavujte stupne, podpery a vodiace čiary zábradlia.",
+    "Modelujte mechanickú zostavu s čerpadlami, potrubím a profilom vedeným po priestorovej dráhe.",
+    "Navrhnite zariadený pracovný priestor s kótami a ortografickou kamerou."
   ],
   "minimumHardware": [
     "Grafické ovládače s podporou OpenGL 3.3 a DirectX 11",

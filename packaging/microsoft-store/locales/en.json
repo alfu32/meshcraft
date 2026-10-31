@@ -31,7 +31,9 @@
     "Edit GLSL shaders beside a live preview of the material or object.",
     "Explore procedural GPU materials, including foliage, water, brick and wood.",
     "Adjust shader-generated trees and branching forms in the object settings preview.",
-    "Inspect architectural stairs and configure steps, supports and guardrail guides."
+    "Inspect architectural stairs and configure steps, supports and guardrail guides.",
+    "Build a mechanical assembly with pumps, pipework and a spatially swept structural profile.",
+    "Plan a furnished workspace with dimension annotations and an orthographic camera."
   ],
   "minimumHardware": [
     "Graphics drivers supporting OpenGL 3.3 and DirectX 11",

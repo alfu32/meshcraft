@@ -1,93 +1,115 @@
 {
-  "minimumApplicationVersion": "0.46.2",
+  "minimumApplicationVersion": "0.48.5",
   "screenshots": [
     {
       "file": "01-direct-modeling.png",
-      "source": "packaging/microsoft-store/captures/01-direct-modeling.octd",
-      "sha256": "e211892c601f6b3b162456578c59372395eb4596bd810d33368271e4b1a70b35",
+      "source": "packaging/microsoft-store/captures/projects/instrument.octd",
+      "sha256": "6a0d95b7e472ef11c18b0bd3188f4c057a312fc2563928c1360df05521cadc30",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Direct modeling",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Exploded instrument controller with a ventilated service cover, controls, PCB and fasteners.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "02-dynamic-instances.png",
-      "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "dd9c7859b0083cd9a2d64f3316f949f8b16b98a7c891c94a051655c2f34f89a3",
+      "source": "packaging/microsoft-store/captures/projects/kitchen.octd",
+      "sha256": "7dd35a217c8438fd926c7988bd04c9df9275e315149d70c4699a1900e4650f29",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Dynamic prototypes and instances",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Fitted kitchen and island using independent configurable cabinet instances with material parameters.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "03-architecture.png",
-      "source": "packaging/microsoft-store/captures/03-architecture.octd",
-      "sha256": "98b9730f3be0c8c4ae38b26950a3ebc0701c6a0bef805998584f96ecc5d5d7b9",
+      "source": "packaging/microsoft-store/captures/projects/residence.octd",
+      "sha256": "50c50d6b88d0ce4fc2daef61cde35e049806dbf70c7fa3293d9fe4b45c61c5e4",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Architecture and materials",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Two-storey courtyard residence with native walls, slabs, openings and independent glazing frames.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "04-javascript-editor.png",
-      "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "2979de5e314448b1def2b8d6ec5a54cd4b17740e19f2370adbb81d3a8894c427",
+      "source": "packaging/microsoft-store/captures/projects/casework.octd",
+      "sha256": "8938c780cd5e3253c15f1ef18d1e4c2ead6bec6231c0ff7f9daa8e994fbbc191",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "JavaScript object editor",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Unified JavaScript cabinet source with prototype and instance inputs beside an orbitable shelving preview.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "05-shader-editor.png",
-      "source": "packaging/microsoft-store/captures/02-dynamic-instances.octd",
-      "sha256": "bb8b9386c9da36bdc351727790602446b1646b0fe69e8b0111671041ed9eca4e",
+      "source": "packaging/microsoft-store/captures/projects/park.octd",
+      "sha256": "f0a30ca827946654d5023ae72a118340ed7c4caa31e362b40890528272301b69",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "GLSL/JSON shader editor",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Custom GLSL branching rule and a live GPU tree preview in the shader editor.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "06-procedural-materials.png",
-      "source": "packaging/microsoft-store/captures/06-procedural-materials.octd",
-      "sha256": "703d63baf184ec3e415f736aebf04a59f6df5777b0f70079aee45613158599fe",
+      "source": "packaging/microsoft-store/captures/projects/rooftop.octd",
+      "sha256": "99eece2b39283cb43a99a3ceac5d5d586a05d0c0dd850278d098c61ea68a10fc",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Procedural materials",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Furnished roof terrace with procedural brick, wood, water, grass and foliage materials.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "07-branching-preview.png",
-      "source": "packaging/microsoft-store/captures/07-branching-preview.octd",
-      "sha256": "0f424dd53e670dc879fc725dc39577c0d3c423b641f6da8affe5eded5b0aed10",
+      "source": "packaging/microsoft-store/captures/projects/park.octd",
+      "sha256": "e67a424fdf371d1bce0bafc8cea552379564818e5a1cf2f713b75b0f1e45d0af",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Branching object settings and preview",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "GPU-generated landscape canopy with editable settings and its interactive object preview.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
     },
     {
       "file": "08-architectural-stairs.png",
-      "source": "packaging/microsoft-store/captures/08-architectural-stairs.octd",
-      "sha256": "7f6967b71611f3e416110e15bc5b7b0c53821fa67d8fed7fa457c583b6b9daa9",
+      "source": "packaging/microsoft-store/captures/projects/loft.octd",
+      "sha256": "67b28e837da381a45fa5ed19c330f160660756329c29e298464c1a679ca3ddee",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
-      "scenario": "Architectural stairs and guardrail guides",
-      "recipe": "scripts/capture_store_features.py",
+      "scenario": "Furnished double-height loft with a native turning stair, mezzanine and guardrail guides.",
+      "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.0"
+      "applicationVersion": "0.48.5"
+    },
+    {
+      "file": "09-mechanical-assembly.png",
+      "source": "packaging/microsoft-store/captures/projects/plantroom.octd",
+      "sha256": "4c847e48c273538312a5a72b3e99fb7f3d84323a05a322e6510befd97032c59d",
+      "edited": false,
+      "scenario": "Twin-pump mechanical skid with piping, control cabinet and a native spatially swept I-section service rail.",
+      "recipe": "scripts/capture_store_projects.py",
+      "captureTool": "Meshcraft MCP + native app-window capture",
+      "applicationVersion": "0.48.5",
+      "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop"
+    },
+    {
+      "file": "10-technical-workspace.png",
+      "source": "packaging/microsoft-store/captures/projects/studio.octd",
+      "sha256": "465162ca8fdfa0e793e1335905b0b8e774ec317525ad8dbc503c8603fbd74181",
+      "edited": false,
+      "scenario": "Furnished home office with dimension annotation and an orthographic axonometric camera.",
+      "recipe": "scripts/capture_store_projects.py",
+      "captureTool": "Meshcraft MCP + native app-window capture",
+      "applicationVersion": "0.48.5",
+      "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop"
     }
   ],
   "artwork": {
@@ -110,12 +132,12 @@
     "viewportEncoding": "Lossless PNG recompression only; decoded RGBA pixels verified identical to the MCP response"
   },
   "notes": [
-    "All eight app-window screenshots were recaptured in Meshcraft 0.46.2 after command-icon repair and the final workspace refinements.",
-    "Initial demonstration models were created through MCP in 0.45.1; saved projects, original modeling calls and current capture receipts are retained. Earlier captures remain in Git history.",
-    "Full app-window captures include real GPUI panels; the MCP image API itself captures the 3D viewport only.",
-    "Store screenshots have no added marketing overlays or reconstructed UI.",
-    "Captures are Linux, not Windows validation. The desktop workspace is shared GPUI.",
-    "The hero illustrates queried geometry; other feature artwork combines queried geometry and real MCP viewport images. Only three required identity images are logo derivatives.",
-    "Projects, recipes, captures, artwork and import bundles live outside Cargo target."
+    "Ten unaltered 1920x1080 native app-window screenshots, captured in Meshcraft 0.48.5.",
+    "Nine project-scale models are retained with MCP construction recipes and modeling journals under scenes/projects and captures/projects.",
+    "Scenes include a controller assembly, configurable kitchen and casework, a courtyard residence, loft, rooftop garden, pocket park, pump skid and furnished studio.",
+    "Screenshots contain real GPUI controls and live model/preview geometry; there are no reconstructed interfaces or marketing overlays.",
+    "Captures use Linux GPUI with isolated Xvfb/Mesa, not Windows runtime validation or a performance benchmark.",
+    "The existing promotional artwork remains a separate set of nine artwork files with its own source geometry.",
+    "Projects, recipes, captures and import bundles live outside Cargo target."
   ]
 }

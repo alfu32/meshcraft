@@ -31,7 +31,9 @@
     "Malzeme veya nesne önizlemesinin yanında GLSL gölgelendiricilerini düzenleyin.",
     "Yapraklar, su, tuğla ve ahşap gibi prosedürel GPU malzemelerini keşfedin.",
     "Gölgelendiricilerle üretilen ağaçları ve dalları ayar önizlemesinde düzenleyin.",
-    "Merdivenleri inceleyin; basamakları, destekleri ve korkuluk kılavuzlarını ayarlayın."
+    "Merdivenleri inceleyin; basamakları, destekleri ve korkuluk kılavuzlarını ayarlayın.",
+    "Pompalar, borular ve 3B bir yol boyunca süpürülen profille mekanik bir montaj oluşturun.",
+    "Ölçü açıklamaları ve ortografik kamerayla mobilyalı bir çalışma alanı planlayın."
   ],
   "minimumHardware": [
     "OpenGL 3.3 ve DirectX 11 destekleyen grafik sürücüleri",

@@ -70,3 +70,11 @@ Adjust shader-generated trees and branching forms in the object settings preview
 ![Inspect architectural stairs and configure steps, supports and guardrail guides.](assets/screenshots/08-architectural-stairs.png)
 
 Inspect architectural stairs and configure steps, supports and guardrail guides.
+
+![Build a mechanical assembly with pumps, pipework and a spatially swept structural profile.](assets/screenshots/09-mechanical-assembly.png)
+
+Build a mechanical assembly with pumps, pipework and a spatially swept structural profile.
+
+![Plan a furnished workspace with dimension annotations and an orthographic camera.](assets/screenshots/10-technical-workspace.png)
+
+Plan a furnished workspace with dimension annotations and an orthographic camera.

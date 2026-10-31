@@ -31,7 +31,9 @@
     "Rediger GLSL-shadere ved siden av forhåndsvisningen av materialet eller objektet.",
     "Utforsk prosedyrebaserte GPU-materialer som løvverk, vann, tegl og tre.",
     "Juster shadergenererte trær og forgreninger i forhåndsvisningen av innstillingene.",
-    "Se på trapper og konfigurer trinn, støtte og rekkverksguider."
+    "Se på trapper og konfigurer trinn, støtte og rekkverksguider.",
+    "Bygg en mekanisk sammenstilling med pumper, rør og en profil ført langs en romlig bane.",
+    "Planlegg en møblert arbeidsplass med målangivelser og et ortografisk kamera."
   ],
   "minimumHardware": [
     "Grafikkdrivere med støtte for OpenGL 3.3 og DirectX 11",

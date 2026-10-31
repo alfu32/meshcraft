@@ -31,7 +31,9 @@
     "Muuda GLSL-varjutajaid materjali või objekti eelvaate kõrval.",
     "Avasta protseduurilisi GPU-materjale: lehestik, vesi, tellis ja puit.",
     "Kohanda varjutajatega loodud puid ja harusid seadete eelvaates.",
-    "Vaata treppe ja seadista astmeid, tugesid ning piirde abijooni."
+    "Vaata treppe ja seadista astmeid, tugesid ning piirde abijooni.",
+    "Koosta mehaaniline koost pumpade, torustiku ja ruumilist rada järgiva profiiliga.",
+    "Kavanda sisustatud tööruum mõõtmete ja ortograafilise kaameraga."
   ],
   "minimumHardware": [
     "OpenGL 3.3 ja DirectX 11 toega graafikadraiverid",
