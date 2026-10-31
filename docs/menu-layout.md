@@ -70,6 +70,12 @@ and deletion safeguards as their menu/toolbar shortcuts. General modeling tools
 remain in toolbars. Material and prototype list double-click behavior, prototype
 deletion confirmation and Files' Recent Files submenu remain available.
 
+Hotspot Settings likewise keeps Place Hotspot, Add at Cursor, Attach Selection,
+Select Attached, Pick Reference, Clear Reference and Delete Hotspot beside the
+selected hotspot's properties and attachment/reference summary. The existing
+prototype-editing and root-scene authoring rules still control availability.
+See [hotspot panel validation](rewrite/references/hotspot-panel/README.md).
+
 The command panel lists every registered command as `Category > Function Name`.
 Search also includes command IDs and legacy keywords. Up/Down selects and scrolls;
 Enter executes the selected entry, and clicking executes the clicked entry.

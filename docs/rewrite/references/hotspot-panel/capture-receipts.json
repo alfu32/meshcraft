@@ -1,0 +1,22 @@
+{
+  "hotspot-panel": {
+    "version": "0.48.4",
+    "project": null,
+    "preview": false,
+    "revision": 2,
+    "generation": 0,
+    "frameSequence": 8,
+    "sha256": "cd57e6ba9b0e88fb515ec2b401e967e29eecd8a81a9fb70a07f6a023e4f28519",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  },
+  "configured-hotspot": {
+    "version": "0.48.4",
+    "project": "/home/alfu64/Development/meshcraft/docs/rewrite/references/hotspot-panel/hotspot.octd",
+    "preview": false,
+    "revision": 4,
+    "generation": 0,
+    "frameSequence": 14,
+    "sha256": "1f8d15acc2c68ecaf081b0297ac520b2d84d52adef19e193c75729237712e5e2",
+    "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
+  }
+}

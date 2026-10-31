@@ -1375,7 +1375,20 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                     bindings,
                 ))
                 .child(setting_field("Hotspot color", "338cf2ff", bindings))
-                .child(bindings.hotspot_summary()),
+                .child(bindings.hotspot_summary())
+                .child(command_row(
+                    "panel/hotspots/functional",
+                    &[
+                        ("hotspot.begin_placement", "Place Hotspot"),
+                        ("hotspot.add", "Add at Cursor"),
+                        ("hotspot.attach", "Attach Selection"),
+                        ("hotspot.select_attached", "Select Attached"),
+                        ("hotspot.reference", "Pick Reference"),
+                        ("hotspot.clear_reference", "Clear Reference"),
+                        ("hotspot.delete", "Delete Hotspot"),
+                    ],
+                    bindings,
+                )),
             bindings,
         ))
         .child(setting_section(

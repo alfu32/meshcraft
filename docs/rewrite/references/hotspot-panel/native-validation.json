@@ -1,0 +1,57 @@
+{
+  "version": "0.48.4",
+  "attachSelection": true,
+  "selectAttached": true,
+  "referencePickAndClear": true,
+  "deleteHotspot": true,
+  "placeHotspot": true,
+  "addAtCursor": [
+    5,
+    0,
+    2
+  ],
+  "sourceGeometryUnchanged": true,
+  "clicks": [
+    {
+      "action": "Attach Selection",
+      "x": 1760,
+      "y": 746
+    },
+    {
+      "action": "Select Attached",
+      "x": 1560,
+      "y": 779
+    },
+    {
+      "action": "Pick Reference",
+      "x": 1660,
+      "y": 779
+    },
+    {
+      "action": "Clear Reference",
+      "x": 1760,
+      "y": 779
+    },
+    {
+      "action": "Delete Hotspot",
+      "x": 1560,
+      "y": 813
+    },
+    {
+      "action": "Place Hotspot",
+      "x": 1560,
+      "y": 746
+    },
+    {
+      "action": "Add at Cursor",
+      "x": 1660,
+      "y": 746
+    },
+    {
+      "action": "Delete Hotspot at Cursor",
+      "x": 1560,
+      "y": 813
+    }
+  ],
+  "platform": "Actual GPUI app; isolated Linux Xvfb/Mesa desktop"
+}

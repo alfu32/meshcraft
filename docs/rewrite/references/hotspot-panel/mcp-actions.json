@@ -1,0 +1,222 @@
+[
+  {
+    "tool": "k3d_contract",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_list_commands",
+    "arguments": {}
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "show_construction_guides": false,
+        "show_permanent_grid": false,
+        "antialiasing_quality": 2
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "tool.builtin.line",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 4,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "cancel"
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "hotspot.add",
+      "arguments": {
+        "position": {
+          "x": 2,
+          "y": 0,
+          "z": 2
+        }
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.hotspot_settings",
+      "arguments": {}
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "view.camera.set_pose",
+      "arguments": {
+        "position": [
+          12,
+          10,
+          15
+        ],
+        "target": [
+          2,
+          0,
+          1
+        ],
+        "field_of_view": 36
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": [
+        {
+          "path": [],
+          "kind": "segment",
+          "id": "2"
+        }
+      ]
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_select",
+    "arguments": {
+      "targets": []
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 0,
+      "worldY": 0,
+      "worldZ": 0
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
+      "commandId": "file.save_as",
+      "arguments": {
+        "path": "/home/alfu64/Development/meshcraft/docs/rewrite/references/hotspot-panel/hotspot.octd"
+      }
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "click",
+      "worldX": 2,
+      "worldY": 0,
+      "worldZ": 2
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "k3d_pointer_event",
+    "arguments": {
+      "action": "move",
+      "worldX": 5,
+      "worldY": 0,
+      "worldZ": 2
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  },
+  {
+    "tool": "meshcraft_geometry",
+    "arguments": {
+      "path": [],
+      "limit": 1000
+    }
+  }
+]
