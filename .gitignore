@@ -21,4 +21,7 @@ dist
 /docs/rewrite/references/stair-fronts/.runtime/
 .kode-rs
 .kode-rs.json
+.kode
+.kode.json
 .kode-rs.json.previous
+.tmp*
