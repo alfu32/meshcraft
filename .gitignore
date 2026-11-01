@@ -19,3 +19,6 @@ dist
 /packaging/microsoft-store/captures/.runtime/
 /packaging/microsoft-store/captures/work/
 /docs/rewrite/references/stair-fronts/.runtime/
+.kode-rs
+.kode-rs.json
+.kode-rs.json.previous
