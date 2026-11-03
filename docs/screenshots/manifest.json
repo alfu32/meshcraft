@@ -74,6 +74,15 @@
       "refresh": "complete",
       "applicationVersion": "0.48.5",
       "sha256": "f0a30ca827946654d5023ae72a118340ed7c4caa31e362b40890528272301b69"
+    },
+    {
+      "file": "home-screen.png",
+      "source": "docs/rewrite/references/home-screen/home-recent-preview.png",
+      "scenario": "Home screen at launch with unit presets, Open, Import, a recent project with its preview, and the nine samples.",
+      "capture": "scripts/verify_home_screen.py; unaltered native window capture under Xvfb",
+      "refresh": "complete",
+      "applicationVersion": "0.49.0",
+      "sha256": "afaca6860aae9aa99c0cacab1aa79f27e6e93d61b09f39acf2ec6c810a0a8d2a"
     }
   ],
   "refreshed_for": "Meshcraft 0.48.5 project demonstrations"

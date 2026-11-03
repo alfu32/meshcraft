@@ -153,6 +153,10 @@
       "symbol": "folder",
       "overlay": "cancel"
     },
+    "file.home": {
+      "symbol": "home",
+      "overlay": null
+    },
     "file.new": {
       "symbol": "file",
       "overlay": "plus"
@@ -164,6 +168,10 @@
     "file.open_recent": {
       "symbol": "recent",
       "overlay": null
+    },
+    "file.open_sample": {
+      "symbol": "folder",
+      "overlay": "file"
     },
     "file.save": {
       "symbol": "save",

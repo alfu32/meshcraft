@@ -402,3 +402,7 @@ override and root graph geometry. Generated primitives must appear in totals, an
 parent/child/primitive overlaps must not inflate selected counts. Changes to
 geometry or selection invalidate cached native statistics; pointer/camera updates
 do not trigger recounting. Logical selection membership remains unchanged.
+
+## C44 — Home screen
+
+A plain launch opens on Home; launching with a project or `--mcp-port` goes straight to the workspace. Each of the five presets creates a clean document with its exact scale (urban planning 1 unit = 1 m, architecture 1 unit = 30 cm or 1 ft, product design 1 unit = 1 cm or 1 in), and those units survive save and reopen. Unsaved edits prompt before any preset, Recent entry or sample replaces them, and Cancel keeps them. Recent lists opened and saved projects with their age and a preview; missing files are shown and cannot be activated. Every sample opens at its authored viewpoint, unbound from any file, and stays out of Recent. Import creates a new project. Tab, arrows, Enter and Escape operate the screen, and bare letters do not reach tool hotkeys. Run `python3 scripts/verify_home_screen.py`; a native file dialog still needs a manual check on a desktop with a portal.

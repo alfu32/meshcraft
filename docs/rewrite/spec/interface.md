@@ -109,6 +109,17 @@ Source: `K/ui/{StatusModel,SketchUiOverlay}.kt`, feedback classes, runtime prefs
 
 Acceptance: C34.
 
+### U06 Home screen
+
+**New (0.49.0), requested by the user with a reference image.** A plain launch opens on a Home screen, which the title-bar button and `file.home` reopen. Its sidebar returns to the current document (Esc) and reaches New, Open, Import, Save, Save As, Export, Model Settings, Preferences and About. The main area offers:
+
+- **New**: Urban Planning (1 unit = 1 m), Architecture Metric (1 unit = 30 cm), Architecture Imperial (1 unit = 1 ft), Product Design Metric (1 unit = 1 cm) and Product Design Imperial (1 unit = 1 in). These set the document's existing display units and do not rescale geometry.
+- **Open** and **Import**: the file browser, with Import creating a new project.
+- **Recent**: opened and saved projects, with path, age and a preview captured from the settled viewport.
+- **Samples**: the Store demonstration projects, embedded in the executable. A sample opens at its authored viewpoint and is unbound from any file, so Save asks for a location.
+
+Launching with a project or `--mcp-port` skips Home, so file associations and automation keep their behavior. Replacing the document frames the new content. Acceptance: C44.
+
 ### R01 Interactive viewport
 
 **Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Coplanar triangles on one surface must share a rendered orientation even when adjacent triangles use distinct vertex IDs at coincident positions. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.

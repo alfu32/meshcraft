@@ -1,0 +1,14 @@
+{
+  "source": "packaging/microsoft-store/captures/projects",
+  "sha256": {
+    "instrument": "ddb7728b20b10272e19197920286c69d946cdf8ffff8e97b643fd1219a02b12d",
+    "kitchen": "55d9f77976ad05121a2e3e31d3bad07c40a45a0113a22302ca571d5680d65c8d",
+    "residence": "e1d1c7f69a48003268b5af3ffc051f60335fb93b943180313b1504d6edb44ffa",
+    "casework": "c9449d279cede280a212ad45c26dae961a0f01e465da339dc3c2ea0bbdb23be5",
+    "rooftop": "903ef8c1cb95e2846ce1117244b9d5817052841a595b9c1f30fa3099659c0751",
+    "park": "402fdb98cf10ab470a55bbd782829f5bceba4be91549546aedc93798fe981177",
+    "loft": "72ea5b3640db9d8b971b207665f90ea8663603f51fb7b3fb52e0fe50c0b761c2",
+    "plantroom": "0945e97aa57f849288d1f7fc99cc3fe4cca8db1ba7a68d527b181486aa576298",
+    "studio": "232d8c7f4503097e3e6023829f8b8a071b661144fb99adbb93ab718d48ea46c9"
+  }
+}

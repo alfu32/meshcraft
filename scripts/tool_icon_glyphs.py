@@ -20,6 +20,7 @@ def symbols():
     shader = path('M16 3L28 10V23L16 30L4 23V10ZM4 10L16 17L28 10M16 17V30',PURPLE)+path('M12 10L8 13L12 16M20 20L24 23L20 26',GREEN)
     script = rect(3,4,26,24,BLUE)+path('M12 11L7 16L12 21M20 11L25 16L20 21M18 9L14 23',GREEN)
     folder = path('M3 26V7H12L15 10H29V26ZM3 26L8 15H29L25 26Z',BLUE)
+    home = path('M3 15L16 4L29 15M7 12V28H25V12M13 28V19H19V28',BLUE)
     save = path('M5 4H23L28 9V28H5ZM10 4V13H22V4M10 28V19H23V28',BLUE)+rect(18,6,2,4,WHITE,WHITE,0)
     pointer = path('M6 3L27 17L18 19L14 29Z',ORANGE,'#684828')
     line = path('M5 25L27 7',BLUE)+circle(5,25,2,ORANGE,ORANGE)+circle(27,7,2,ORANGE,ORANGE)
@@ -35,7 +36,7 @@ def symbols():
     ruler = rect(3,8,26,16,BLUE)+path('M8 8V16M13 8V13M18 8V16M23 8V13',WHITE)
     tree = path('M16 29V12M16 18L8 10M16 22L25 14',ORANGE)+path('M16 3L8 14H12L3 22H29L21 14H25Z',GREEN,'#24513c')
     return dict(
-        wall=wall, slab=slab, freeform_slab=freeform, window=window, door=door, stairs=stair,
+        home=home, wall=wall, slab=slab, freeform_slab=freeform, window=window, door=door, stairs=stair,
         hole=wall+rect(12,14,8,12,ORANGE,'#202730'),
         stair_contour=path('M3 28V5H28V28H20V13H11V28Z',PURPLE)+path('M7 23V9H24V23',BLUE),
         stair_path=stair+arrow('M7 27L26 7M19 7H26V14',ORANGE),
@@ -205,6 +206,8 @@ assign('paste','edit.paste')
 assign('paste_in_place','edit.paste_in_place')
 assign('script','edit.copy_as_script','copy')
 assign('delete','edit.delete_selection')
+assign('home','file.home')
+assign('folder','file.open_sample','file')
 assign('file','file.new','plus')
 assign('folder','file.open')
 assign('recent','file.open_recent')

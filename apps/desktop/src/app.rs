@@ -4,6 +4,11 @@ mod annotation_workflow;
 mod architecture_workflow;
 #[path = "clipboard_workflow.rs"]
 mod clipboard_workflow;
+#[path = "home_workflow.rs"]
+mod home_workflow;
+pub(crate) use home_workflow::DocumentPreset;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use home_workflow::{DOCUMENT_PRESETS, SAMPLE_PROJECTS, recent_thumbnail_path};
 #[path = "ifc_workflow.rs"]
 pub(crate) mod ifc_workflow;
 #[path = "interchange_workflow.rs"]
@@ -757,6 +762,8 @@ enum ShellAction {
     NewDocument,
     OpenProject,
     ShowRecentProjects,
+    ShowHome,
+    OpenSample,
     CancelProjectLoad,
     SaveProject,
     SaveProjectAs,
@@ -784,9 +791,13 @@ enum ShellAction {
 
 #[derive(Clone, Debug)]
 enum ReplacementTarget {
-    NewDocument,
+    NewDocument(Option<&'static DocumentPreset>),
     #[cfg(not(target_arch = "wasm32"))]
     OpenProject(PathBuf),
+    #[cfg(not(target_arch = "wasm32"))]
+    OpenSample(&'static str),
+    #[cfg(not(target_arch = "wasm32"))]
+    ImportMesh(PathBuf),
 }
 
 #[derive(Clone, Debug)]
@@ -813,7 +824,9 @@ enum ProjectLoadEvent {
 #[cfg(not(target_arch = "wasm32"))]
 struct PendingProjectLoad {
     job_id: String,
+    /// A file path, or the display title of an embedded sample.
     path: PathBuf,
+    sample: bool,
     input_revision: u64,
     cancellation: Arc<AtomicBool>,
     receiver: Receiver<ProjectLoadEvent>,
@@ -1008,6 +1021,22 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
                 "prototype remove purge definition id",
                 None,
                 ShellAction::DeleteUnusedDefinition,
+            ),
+            (
+                "file.home",
+                "File> Home Screen",
+                "File",
+                "start welcome new recent samples presets",
+                None,
+                ShellAction::ShowHome,
+            ),
+            (
+                "file.open_sample",
+                "File> Open Sample Project",
+                "File",
+                "sample example demonstration project",
+                None,
+                ShellAction::OpenSample,
             ),
             (
                 "file.new",
@@ -1714,6 +1743,8 @@ fn action_kind(action: ShellAction) -> CommandKind {
         | ShellAction::ClearGuides
         | ShellAction::PlaceGuide(_)
         | ShellAction::ShowRecentProjects
+        | ShellAction::ShowHome
+        | ShellAction::OpenSample
         | ShellAction::ResetWorkspaceLayout
         | ShellAction::OpenPanel(_)
         | ShellAction::OpenPanelGroup(_) => CommandKind::SessionMutation,
@@ -1870,6 +1901,8 @@ fn register_shell_command(
         | ShellAction::TogglePanelSection(_)
         | ShellAction::OpenProject
         | ShellAction::ShowRecentProjects
+        | ShellAction::ShowHome
+        | ShellAction::OpenSample
         | ShellAction::CancelProjectLoad
         | ShellAction::SaveProject
         | ShellAction::SaveProjectAs
@@ -2051,6 +2084,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("unit", CommandValueType::String),
             ("scale", CommandValueType::Number),
             ("position", CommandValueType::Array),
+            ("new_document", CommandValueType::Boolean),
         ],
         "export.mesh" | "export.ifc_model" => &[
             ("path", CommandValueType::String),
@@ -2059,6 +2093,9 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("selection_only", CommandValueType::Boolean),
         ],
         "file.open" | "file.save" | "file.save_as" => &[("path", CommandValueType::String)],
+        "file.new" => &[("preset", CommandValueType::String)],
+        "file.home" => &[("open", CommandValueType::Boolean)],
+        "file.open_sample" => &[("sample", CommandValueType::String)],
         _ => &[],
     };
     parameters
@@ -2068,6 +2105,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             value_type: *value_type,
             required: (id == "material.program" && *name == "program")
                 || (id == "material.parameters" && matches!(*name, "id" | "parameters"))
+                || (id == "file.open_sample" && *name == "sample")
                 || (id == "selection.set" && *name == "paths")
                 || (id == "selection.update_display"
                     && matches!(*name, "kind" | "property" | "enabled"))
@@ -2297,6 +2335,11 @@ pub struct MeshcraftApp {
     viewport_rect: egui::Rect,
     open_file_menu: bool,
     recent_projects_dialog_open: bool,
+    home_open: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    sample_camera: Option<serde_json::Value>,
+    #[cfg(not(target_arch = "wasm32"))]
+    import_fit_pending: bool,
     command_palette_open: bool,
     command_search: String,
     command_selection: usize,
@@ -3300,8 +3343,11 @@ impl MeshcraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn native_document_replacement_prompt(&self) -> Option<&'static str> {
         self.pending_replacement.as_ref().map(|p| match p.target {
-            ReplacementTarget::NewDocument => "create a new document",
-            ReplacementTarget::OpenProject(_) => "open another project",
+            ReplacementTarget::NewDocument(_) => "create a new document",
+            ReplacementTarget::OpenProject(_) | ReplacementTarget::OpenSample(_) => {
+                "open another project"
+            }
+            ReplacementTarget::ImportMesh(_) => "import into a new document",
         })
     }
 
@@ -3436,6 +3482,11 @@ impl MeshcraftApp {
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             recent_projects_dialog_open: false,
+            home_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            sample_camera: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            import_fit_pending: false,
             command_palette_open: false,
             command_search: String::new(),
             command_selection: 0,
@@ -5535,6 +5586,10 @@ impl MeshcraftApp {
         match pending.receiver.try_recv() {
             Ok(Ok(())) => {
                 self.saved_revision = pending.input_revision;
+                // A new location joins Recent; ordinary saves and autosaves leave it alone.
+                let recent_error = (self.current_project_path.as_ref() != Some(&pending.path))
+                    .then(|| self.remember_recent_project(&pending.path).err())
+                    .flatten();
                 self.current_project_path = Some(pending.path.clone());
                 self.reset_autosave_after_save(Instant::now());
                 let replacement = self.replacement_after_save.take();
@@ -5547,6 +5602,10 @@ impl MeshcraftApp {
                 } else {
                     format!("Saved {}.", pending.path.display())
                 };
+                if let Some(error) = recent_error {
+                    self.status
+                        .push_str(&format!(" Recent files could not be saved: {error}"));
+                }
                 if pending.dropped_legacy_history {
                     self.status.push_str(
                         " Imported undo snapshots were discarded because they predate these edits; current session history was saved when available.",
@@ -5773,6 +5832,7 @@ impl MeshcraftApp {
         self.pending_project_load = Some(PendingProjectLoad {
             job_id: job_id.clone(),
             path,
+            sample: false,
             input_revision,
             cancellation,
             receiver,
@@ -5860,7 +5920,9 @@ impl MeshcraftApp {
                 )
             } else {
                 match *result {
-                    Ok(project) => self.install_loaded_project(&pending.path, project),
+                    Ok(project) => {
+                        self.install_loaded_project(&pending.path, pending.sample, project)
+                    }
                     Err(error) => {
                         self.status = format!("Could not open {}: {error}", pending.path.display());
                         CommandResult::failed(error)
@@ -5899,9 +5961,15 @@ impl MeshcraftApp {
     fn install_loaded_project(
         &mut self,
         path: &std::path::Path,
+        sample: bool,
         project: ImportedProject,
     ) -> CommandResult {
-        let recent_error = self.remember_recent_project(path).err();
+        let recent_error = if sample {
+            None
+        } else {
+            self.remember_recent_project(path).err()
+        };
+        self.home_open = false;
         self.document = project.document;
         let _ = self.document.normalize_material_bindings();
         self.current_paint_material = None;
@@ -5923,7 +5991,7 @@ impl MeshcraftApp {
             .as_ref()
             .map_or(0, |history| history.entries.len());
         self.legacy_history = project.history;
-        self.current_project_path = Some(path.to_path_buf());
+        self.current_project_path = (!sample).then(|| path.to_path_buf());
         self.selection.clear();
         self.object_name_edit = None;
         self.tool_cycle_state.cancel_hotspot_placement();
@@ -5942,7 +6010,17 @@ impl MeshcraftApp {
             self.viewport.request_frame();
         }
 
-        self.status = format!("Opened {}.", path.display());
+        self.sample_camera = sample
+            .then(|| meshcraft_core::legacy::legacy_camera_state(&self.document).cloned())
+            .flatten();
+        self.status = if sample {
+            format!(
+                "Opened sample {}. Save As keeps your own copy.",
+                path.display()
+            )
+        } else {
+            format!("Opened {}.", path.display())
+        };
         if history_entries > 0 {
             self.status.push_str(&format!(
                 " {history_entries} legacy history entries retained."
@@ -5962,9 +6040,11 @@ impl MeshcraftApp {
         let mut result = CommandResult::completed();
         result.diagnostics.extend(recent_error);
         result.document_revision = Some(self.document.revision());
-        result
-            .outputs
-            .insert("path".to_owned(), path.display().to_string().into());
+        if !sample {
+            result
+                .outputs
+                .insert("path".to_owned(), path.display().to_string().into());
+        }
         result.outputs.insert(
             "source_schema_version".to_owned(),
             project.source_schema_version.into(),
@@ -6028,19 +6108,7 @@ impl MeshcraftApp {
                 result.outputs.insert("cancelled".to_owned(), true.into());
                 self.job_results.insert(pending.job_id, result);
             }
-            ReplacementDecision::Discard => match pending.target.clone() {
-                ReplacementTarget::NewDocument => {
-                    let result = self.start_new_document();
-                    self.job_results.insert(pending.job_id, result);
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                ReplacementTarget::OpenProject(path) => {
-                    let result = self.start_project_load(path, Some(pending.job_id.clone()));
-                    if result.completion == CommandCompletion::Failed {
-                        self.job_results.insert(pending.job_id, result);
-                    }
-                }
-            },
+            ReplacementDecision::Discard => self.continue_document_replacement(pending),
             #[cfg(not(target_arch = "wasm32"))]
             ReplacementDecision::Save => {
                 let save_as = self.current_project_path.is_none();
@@ -6054,11 +6122,10 @@ impl MeshcraftApp {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn continue_document_replacement(&mut self, pending: PendingReplacement) {
         match pending.target {
-            ReplacementTarget::NewDocument => {
-                let result = self.start_new_document();
+            ReplacementTarget::NewDocument(preset) => {
+                let result = self.start_new_document(preset);
                 self.job_results.insert(pending.job_id, result);
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -6068,10 +6135,25 @@ impl MeshcraftApp {
                     self.job_results.insert(pending.job_id, result);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementTarget::OpenSample(id) => {
+                let result = match home_workflow::sample_project(id) {
+                    Some(sample) => self.start_sample_load(sample, Some(pending.job_id.clone())),
+                    None => CommandResult::failed(format!("unknown sample {id}")),
+                };
+                if result.completion == CommandCompletion::Failed {
+                    self.job_results.insert(pending.job_id, result);
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementTarget::ImportMesh(path) => {
+                let result = self.start_import_document(path);
+                self.job_results.insert(pending.job_id, result);
+            }
         }
     }
 
-    fn start_new_document(&mut self) -> CommandResult {
+    fn start_new_document(&mut self, preset: Option<&DocumentPreset>) -> CommandResult {
         self.cancel_active_tool();
         if let Err(error) = self.commit_document_edit("New document", |document| {
             *document = Document::new();
@@ -6079,6 +6161,12 @@ impl MeshcraftApp {
         }) {
             return CommandResult::failed(error);
         }
+        if let Some(preset) = preset
+            && let Err(error) = self.apply_document_preset(preset)
+        {
+            return CommandResult::failed(error);
+        }
+        self.home_open = false;
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.current_project_path = None;
@@ -6099,7 +6187,10 @@ impl MeshcraftApp {
         self.primitive_tool_state.cancel();
         self.guides.clear();
         self.cursor_snap = None;
-        self.status = "New empty document.".to_owned();
+        self.status = match preset {
+            Some(preset) => format!("New {} project · {}.", preset.title, preset.detail),
+            None => "New empty document.".to_owned(),
+        };
         let mut result = CommandResult::completed();
         result.document_revision = Some(self.document.revision());
         result
@@ -6110,9 +6201,13 @@ impl MeshcraftApp {
             return;
         };
         let target_label = match &pending.target {
-            ReplacementTarget::NewDocument => "create a new document",
+            ReplacementTarget::NewDocument(_) => "create a new document",
             #[cfg(not(target_arch = "wasm32"))]
-            ReplacementTarget::OpenProject(_) => "open another project",
+            ReplacementTarget::OpenProject(_) | ReplacementTarget::OpenSample(_) => {
+                "open another project"
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            ReplacementTarget::ImportMesh(_) => "import into a new document",
         };
         let mut decision = None;
         egui::Modal::new(egui::Id::new("document-replacement-confirmation")).show(context, |ui| {
@@ -7355,10 +7450,14 @@ impl MeshcraftApp {
             }
             ShellAction::Undo => self.undo_document(),
             ShellAction::Redo => self.redo_document(),
-            ShellAction::NewDocument if self.document_is_dirty() => {
-                return self.request_document_replacement(ReplacementTarget::NewDocument);
+            ShellAction::NewDocument => return self.new_document_command(payload),
+            ShellAction::ShowHome => return self.set_home_command(payload),
+            ShellAction::OpenSample => {
+                #[cfg(not(target_arch = "wasm32"))]
+                return self.open_sample_command(payload);
+                #[cfg(target_arch = "wasm32")]
+                return CommandResult::failed("Samples are available in the desktop app.");
             }
-            ShellAction::NewDocument => return self.start_new_document(),
             ShellAction::OpenProject => return self.open_project(payload),
             ShellAction::ShowRecentProjects => {
                 if self.preferences.recent_projects.is_empty() {
@@ -8103,6 +8202,23 @@ impl MeshcraftApp {
                 checked: Some(self.viewport.walkthrough_active()),
                 ..CommandState::default()
             };
+        }
+        if id == "file.home" {
+            return CommandState {
+                checked: Some(self.home_open),
+                ..CommandState::default()
+            };
+        }
+        if id == "file.open_sample" {
+            #[cfg(target_arch = "wasm32")]
+            return CommandState::disabled("Samples are available in the desktop app");
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.pending_replacement.is_some()
+                || self.pending_project_load.is_some()
+                || self.pending_project_save.is_some()
+            {
+                return CommandState::disabled("another project operation is already running");
+            }
         }
         if id == "file.open" {
             #[cfg(target_arch = "wasm32")]
@@ -13170,6 +13286,11 @@ mod tests {
             viewport_rect: egui::Rect::NOTHING,
             open_file_menu: false,
             recent_projects_dialog_open: false,
+            home_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            sample_camera: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            import_fit_pending: false,
             command_palette_open: false,
             command_search: String::new(),
             command_selection: 0,

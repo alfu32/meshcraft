@@ -21,6 +21,7 @@ Options:
   --mcp-port <PORT>    Start the localhost MCP server at launch (opt-in)
   --help               Print this help
 
+Without a project or --mcp-port, the app opens on its Home screen.
 The app starts maximized by default. Window sizes are logical points; the minimum is 900x600.";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -83,6 +84,8 @@ fn main() {
         }
     }
     let startup_path = startup.document.clone();
+    // Launching with a project or for automation goes straight to the workspace.
+    let show_home = startup.document.is_none() && startup.mcp_port.is_none();
     let startup_document = load_startup_document(startup.document);
     let (document, status, legacy_history, loaded_path) = match startup_document {
         Ok(Some((project, status))) => (project.document, status, project.history, startup_path),
@@ -98,6 +101,7 @@ fn main() {
     if let Some(path) = loaded_path {
         session.set_native_project_path(path);
     }
+    session.native_set_home_open(show_home);
     if let Err(error) = run_native(
         startup.window_size,
         startup.maximized,

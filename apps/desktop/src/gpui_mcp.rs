@@ -163,6 +163,7 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
             work.finish(Err("request canceled before execution".into()));
             continue;
         }
+        shell.sync_document_camera();
         // A host job may have committed immediately before this queue was pumped.
         // Publish it before a queued capture can compare its frame revision.
         if shell.cached_document_revision != Some(shell.session.native_visual_revision())

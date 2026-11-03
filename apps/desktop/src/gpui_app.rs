@@ -32,6 +32,9 @@ mod files;
 mod gpu_mesh;
 #[path = "gpui_helpers.rs"]
 mod helpers;
+#[path = "gpui_home.rs"]
+mod home;
+
 #[path = "gpui_hotspots.rs"]
 mod hotspots;
 #[path = "gpui_ifc.rs"]
@@ -1164,6 +1167,8 @@ struct MeshcraftShell {
     active_ribbon_tab: &'static str,
     open_menu: Option<&'static str>,
     files: files::Ui,
+    home: home::Ui,
+    camera_generation: u64,
     menu_bounds: Arc<Mutex<BTreeMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     lighting: lighting::Lighting,
     cached_document_revision: Option<u64>,
@@ -1230,6 +1235,8 @@ impl MeshcraftShell {
             active_ribbon_tab: "Home",
             open_menu: None,
             files: files::Ui::default(),
+            home: home::Ui::default(),
+            camera_generation: session.document_generation(),
             menu_bounds: Arc::default(),
             lighting: lighting::Lighting::default(),
             cached_document_revision: None,
@@ -1588,6 +1595,9 @@ impl MeshcraftShell {
     }
 
     fn dispatch(&mut self, id: &str) {
+        if home::leaves_home(id) {
+            self.session.native_set_home_open(false);
+        }
         if id == "paint.set_color" {
             self.session
                 .set_native_status("Choose a material in the Materials panel.".into());
@@ -1627,6 +1637,50 @@ impl MeshcraftShell {
             command_default_payload(&command, &self.cached_document)
         };
         self.dispatch_payload(id, &payload);
+    }
+
+    /// Adopt a position/target/fieldOfView pose, as stored by `view.camera.set_pose`.
+    fn apply_camera_pose(&mut self, value: &serde_json::Value) {
+        let point = |key: &str| -> Option<Vec3> { serde_json::from_value(value[key].clone()).ok() };
+        if let (Some(eye), Some(target)) = (point("position"), point("target")) {
+            let offset = eye - target;
+            self.walking = false;
+            self.camera.eye = None;
+            self.camera.target = target;
+            self.camera.distance = offset.length() as f32;
+            self.camera.yaw = offset.x.atan2(offset.z) as f32;
+            self.camera.pitch = (offset.y / offset.length()).clamp(-1., 1.).asin() as f32;
+            self.camera.up = if self.camera.pitch.abs() > 89_f32.to_radians() {
+                Vec3::Z
+            } else {
+                Vec3::Y
+            };
+            self.camera.field_of_view = value["fieldOfView"].as_f64().unwrap_or(45.) as f32;
+            self.camera.orthographic = false;
+            self.bridge.publish_camera(self.camera);
+        }
+    }
+
+    /// Frame a document that replaced the previous one, or a finished Home import.
+    /// Runs before queued automation so a following explicit pose always wins.
+    fn sync_document_camera(&mut self) {
+        let generation = self.session.document_generation();
+        let replaced = self.camera_generation != generation;
+        if !replaced && !self.session.native_take_import_fit() {
+            return;
+        }
+        if replaced {
+            self.camera_generation = generation;
+            self.walking = false;
+            self.walk_keys = [false; 7];
+            self.camera = OrbitCamera::default();
+            if let Some(pose) = self.session.native_take_sample_camera() {
+                self.apply_camera_pose(&pose);
+                return;
+            }
+        }
+        self.camera.fit(&self.session.native_view_snapshot());
+        self.bridge.publish_camera(self.camera);
     }
 
     fn dispatch_payload(&mut self, id: &str, payload: &CommandPayload) {
@@ -1686,29 +1740,8 @@ impl MeshcraftShell {
                 "view.camera.set_pose"
                     if dispatch.result.completion == CommandCompletion::Completed =>
                 {
-                    let value = &dispatch.result.outputs["camera"];
-                    let point = |key: &str| -> Option<Vec3> {
-                        serde_json::from_value(value[key].clone()).ok()
-                    };
-                    if let (Some(eye), Some(target)) = (point("position"), point("target")) {
-                        let offset = eye - target;
-                        self.walking = false;
-                        self.camera.eye = None;
-                        self.camera.target = target;
-                        self.camera.distance = offset.length() as f32;
-                        self.camera.yaw = offset.x.atan2(offset.z) as f32;
-                        self.camera.pitch =
-                            (offset.y / offset.length()).clamp(-1., 1.).asin() as f32;
-                        self.camera.up = if self.camera.pitch.abs() > 89_f32.to_radians() {
-                            Vec3::Z
-                        } else {
-                            Vec3::Y
-                        };
-                        self.camera.field_of_view =
-                            value["fieldOfView"].as_f64().unwrap_or(45.) as f32;
-                        self.camera.orthographic = false;
-                        self.bridge.publish_camera(self.camera);
-                    }
+                    let value = dispatch.result.outputs["camera"].clone();
+                    self.apply_camera_pose(&value);
                 }
                 "view.camera.reset" => {
                     self.walking = false;
@@ -1860,6 +1893,7 @@ impl MeshcraftShell {
     pub(super) fn viewport_input_blocked(&self) -> bool {
         self.command_palette_open
             || self.open_menu.is_some()
+            || self.session.native_home_open()
             || self.session.native_document_replacement_prompt().is_some()
     }
 
@@ -2916,9 +2950,11 @@ impl Render for MeshcraftShell {
                             let revision = this.session.document_revision();
                             let status = this.session.status_text().to_owned();
                             this.session.poll_native_host_work();
+                            this.sync_document_camera();
                             if automation::poll(this) {
                                 cx.notify();
                             }
+                            home::tick(this);
                             if thumbnails::tick(this) {
                                 cx.notify();
                             }
@@ -2987,6 +3023,7 @@ impl Render for MeshcraftShell {
             window.set_rem_size(rem);
         }
         self.session.poll_native_host_work();
+        self.sync_document_camera();
         let title = application_title(self.session.current_project_path().as_deref());
         if title != self.window_title {
             window.set_window_title(&title);
@@ -3044,6 +3081,7 @@ impl Render for MeshcraftShell {
                 self.settings_scroll.scroll_to_top_of_item(index);
             }
         }
+        home::prepare(self, window);
         thumbnails::prepare(self, window, cx);
         architecture::prepare(self, window, cx);
         settings::prepare(self, window, cx);
@@ -3577,6 +3615,8 @@ impl Render for MeshcraftShell {
         });
 
         let close_view = cx.entity().downgrade();
+        let home_open = self.session.native_home_open();
+        let home_view = home_open.then(|| home::render(self, cx));
         let title_bar = gpui_component::TitleBar::new()
             .child(
                 div()
@@ -3585,6 +3625,18 @@ impl Render for MeshcraftShell {
                     .gap(px(6.))
                     .child(gpui::img("branding/meshcraft.png").size(px(24.)))
                     .min_w(px(0.))
+                    .child(
+                        Button::new("home/toggle")
+                            .icon(gpui_component::Icon::default().path("icons/home.svg"))
+                            .xsmall()
+                            .ghost()
+                            .selected(home_open)
+                            .tooltip("Home")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.dispatch("file.home");
+                                cx.notify();
+                            })),
+                    )
                     .child(div().text_sm().truncate().child(self.window_title.clone())),
             )
             .on_close_window(move |_, _, cx| {
@@ -3595,6 +3647,15 @@ impl Render for MeshcraftShell {
             });
         let mut root = div()
             .id("meshcraft-shell")
+            .when(home_open, |root| root.key_context(home::KEY_CONTEXT))
+            .on_action(cx.listener(|this, _: &home::NextItem, _, cx| {
+                home::move_selection(this, false);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &home::PreviousItem, _, cx| {
+                home::move_selection(this, true);
+                cx.notify();
+            }))
             .track_focus(&self.focus)
             .size_full()
             .relative()
@@ -3686,6 +3747,11 @@ impl Render for MeshcraftShell {
                     cx.notify();
                     return;
                 }
+                if this.session.native_home_open() && home::key_down(this, event, cx) {
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
                 if this.settings.active.is_some() {
                     if event.keystroke.key == "escape" {
                         this.settings.active = None;
@@ -3717,10 +3783,11 @@ impl Render for MeshcraftShell {
             }))
             .child(title_bar)
             .when(preferences.menu_bar_visible, |root| root.child(menu_bar))
-            .when(preferences.ribbon_visible, |root| {
+            .when(preferences.ribbon_visible && !home_open, |root| {
                 root.child(ribbon_tabs).child(ribbon)
             })
-            .child(body)
+            .when(!home_open, |root| root.child(body))
+            .children(home_view)
             .child(status);
         if let Some(popup) = popup {
             root = root.child(popup);
@@ -3768,6 +3835,7 @@ pub fn run_native(
         .with_assets(crate::assets::ComponentAssets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            home::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
             // Strong, consistent button/list hover contrast on the dark shell (#28).
             {

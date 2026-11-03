@@ -6,7 +6,7 @@ its own projection of those sections and a Home tab of common shortcuts.
 
 | Group | Functions |
 | --- | --- |
-| Files | New/open/recent/save, mesh import/export and IFC |
+| Files | Home screen, new/open/recent/save, mesh import/export and IFC |
 | Clipboard & History | Undo/redo, cut/copy/paste, duplication and deletion |
 | Selection | Selection, clearing selection and selection properties |
 | Construction | Linework, annotations, guides, transforms and input/settings |

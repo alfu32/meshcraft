@@ -52,6 +52,8 @@ impl gpui::AssetSource for ComponentAssets {
                 include_bytes!("../../../assets/gpui/chevrons-up-down.svg")
             }
             "icons/close.svg" => include_bytes!("../../../assets/gpui/close.svg"),
+            "icons/home.svg" => include_bytes!("../../../assets/gpui/home.svg"),
+            "icons/import.svg" => include_bytes!("../../../assets/gpui/import.svg"),
             "icons/search.svg" => include_bytes!("../../../assets/gpui/search.svg"),
             "icons/window-close.svg" => include_bytes!("../../../assets/gpui/close.svg"),
             "icons/window-minimize.svg" => {
@@ -69,6 +71,8 @@ impl gpui::AssetSource for ComponentAssets {
         Ok([
             "branding/meshcraft.png",
             "icons/check.svg",
+            "icons/home.svg",
+            "icons/import.svg",
             "icons/chevron-down.svg",
             "icons/chevron-up.svg",
             "icons/chevron-left.svg",
@@ -86,6 +90,30 @@ impl gpui::AssetSource for ComponentAssets {
         .map(Into::into)
         .collect())
     }
+}
+
+/// GPUI RenderImage expects premultiplied BGRA. PNG decodes to straight RGBA.
+#[cfg(not(target_arch = "wasm32"))]
+fn premultiplied_bgra(image: &mut image::RgbaImage) {
+    for pixel in image.pixels_mut() {
+        let [r, g, b, a] = pixel.0;
+        pixel.0 = [
+            ((u16::from(b) * u16::from(a)) / 255) as u8,
+            ((u16::from(g) * u16::from(a)) / 255) as u8,
+            ((u16::from(r) * u16::from(a)) / 255) as u8,
+            a,
+        ];
+    }
+}
+
+/// Decode a PNG into an image GPUI can draw; None if the bytes are not a valid image.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn gpui_png(bytes: &[u8]) -> Option<std::sync::Arc<gpui::RenderImage>> {
+    let mut image = image::load_from_memory(bytes).ok()?.to_rgba8();
+    premultiplied_bgra(&mut image);
+    Some(std::sync::Arc::new(gpui::RenderImage::new(vec![
+        image::Frame::new(image),
+    ])))
 }
 
 /// Decode and crop the generated high-DPI atlas once, never on a UI redraw.
@@ -110,16 +138,7 @@ pub fn gpui_icon(name: &str) -> Option<std::sync::Arc<gpui::RenderImage>> {
                         r.height * 2,
                     )
                     .to_image();
-                    // GPUI RenderImage expects premultiplied BGRA. PNG decodes to straight RGBA.
-                    for pixel in tile.pixels_mut() {
-                        let [r, g, b, a] = pixel.0;
-                        pixel.0 = [
-                            ((u16::from(b) * u16::from(a)) / 255) as u8,
-                            ((u16::from(g) * u16::from(a)) / 255) as u8,
-                            ((u16::from(r) * u16::from(a)) / 255) as u8,
-                            a,
-                        ];
-                    }
+                    premultiplied_bgra(&mut tile);
                     (
                         name,
                         Arc::new(gpui::RenderImage::new(vec![image::Frame::new(tile)])),

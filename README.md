@@ -26,6 +26,24 @@ AppImage, Snap and portable archives. See the [installation notes](packaging/REA
 
 ![Exploded instrument controller with its service cover, electronics and controls](docs/screenshots/modeling-workspace.png)
 
+## Start where your project starts
+
+Meshcraft opens on a **Home screen**. Choose a new project by scale, open or import a
+file, return to a recent project, or explore a finished sample.
+
+| New project | Scale |
+| --- | --- |
+| Urban planning | 1 unit = 1 m |
+| Architecture, metric | 1 unit = 30 cm |
+| Architecture, imperial | 1 unit = 1 ft |
+| Product design, metric | 1 unit = 1 cm |
+| Product design, imperial | 1 unit = 1 in |
+
+The nine samples are the projects behind the screenshots on this page. They open as
+untitled copies, so your work never overwrites them.
+
+![Home screen with unit presets, a recent project and nine sample projects](docs/screenshots/home-screen.png)
+
 ## A workshop for geometry
 
 Draw lines, curved polylines, rectangles, circles and planar meshes, then build

@@ -35,6 +35,14 @@ prototype edit mode stays visible/snappable but cannot be selected or changed.
 Normal Paste starts a floating bundle; pick its insertion point. Paste in Place inserts
 immediately. Escape cancels the active tool first. Enter finishes multipoint paths.
 
+### Starting a project
+
+`file.new` takes an optional `preset` (`urban_planning`, `architecture_metric`,
+`architecture_imperial`, `product_metric`, `product_imperial`) that sets the display units.
+`file.open_sample` opens an embedded sample by `sample` ID, unbound from any file.
+`import.mesh` with `new_document:true` imports into a new project. `file.home` shows the Home
+screen and takes an optional `open` boolean. Launching with `--mcp-port` skips Home.
+
 ### First construction
 
 Call `k3d_execute_command` with `{"commandId":"tool.builtin.line"}`, then call

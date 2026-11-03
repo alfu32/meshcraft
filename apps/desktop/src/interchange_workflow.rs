@@ -197,6 +197,16 @@ impl MeshcraftApp {
         if path.as_os_str().is_empty() {
             return Err("path cannot be empty".into());
         }
+        if import
+            && payload
+                .values
+                .get("new_document")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        {
+            Format::from_path(&path)?;
+            return Ok(self.import_into_new_document(path));
+        }
         let path = if path.is_absolute() {
             path
         } else {

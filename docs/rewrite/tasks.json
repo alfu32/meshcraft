@@ -3369,6 +3369,46 @@
       ],
       "tool_ids": [],
       "status": "planned"
+    },
+    {
+      "id": "T71",
+      "title": "Home screen with unit presets, recent projects and embedded samples",
+      "phase": "desktop",
+      "dependencies": [
+        "T68"
+      ],
+      "requirements": [
+        "U06",
+        "O01"
+      ],
+      "acceptance": [
+        "C44",
+        "C31"
+      ],
+      "targets": [
+        "apps/desktop/src/gpui_home.rs",
+        "apps/desktop/src/home_workflow.rs",
+        "assets/samples/",
+        "scripts/verify_home_screen.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/interface.md",
+        "docs/rewrite/handoffs/T71.md"
+      ],
+      "slices": [
+        "Add unit presets, embedded samples and the file.home, file.new preset, file.open_sample and import.mesh new_document command paths.",
+        "Render the Home screen with keyboard navigation, Recent previews and document framing.",
+        "Validate in the native application and document the workflow."
+      ],
+      "done": [
+        "Native verification passes and the release gate is green at 0.49.0."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

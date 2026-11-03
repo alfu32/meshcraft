@@ -1,0 +1,120 @@
+{
+  "version": "Meshcraft 0.49.0",
+  "method": "Real pointer and key events in private Xvfb; see script",
+  "results": {
+    "automation launch skips Home": {
+      "passed": true,
+      "detail": null
+    },
+    "file.home opens Home": {
+      "passed": true,
+      "detail": null
+    },
+    "renderer still answers while Home is open": {
+      "passed": true,
+      "detail": null
+    },
+    "preset urban_planning": {
+      "passed": true,
+      "detail": "1 unit = 1.0 m"
+    },
+    "preset architecture_metric": {
+      "passed": true,
+      "detail": "1 unit = 30.0 cm"
+    },
+    "preset architecture_imperial": {
+      "passed": true,
+      "detail": "1 unit = 1.0 ft"
+    },
+    "preset product_metric": {
+      "passed": true,
+      "detail": "1 unit = 1.0 cm"
+    },
+    "preset product_imperial": {
+      "passed": true,
+      "detail": "1 unit = 1.0 in"
+    },
+    "unsaved edits prompt and Cancel keeps them": {
+      "passed": true,
+      "detail": null
+    },
+    "Escape returns to the workspace": {
+      "passed": true,
+      "detail": null
+    },
+    "Recent row opens the project": {
+      "passed": true,
+      "detail": null
+    },
+    "tool hotkeys stay inactive on Home": {
+      "passed": true,
+      "detail": null
+    },
+    "Tab reaches the first sample and Enter opens it unbound and clean": {
+      "passed": true,
+      "detail": "Opened sample Instrument Controller. Save As keeps your own copy. 21 legacy history entries retained."
+    },
+    "sample opens at its authored viewpoint": {
+      "passed": true,
+      "detail": {
+        "x": 365.0,
+        "y": 275.00000667567656,
+        "z": 380.0
+      }
+    },
+    "clicking a card opens that sample": {
+      "passed": true,
+      "detail": "Opened sample Fitted Kitchen. Save As keeps your own copy. 2 legacy history entries retained."
+    },
+    "Import starts a new project": {
+      "passed": true,
+      "detail": "completed"
+    },
+    "new document is back to generic units": {
+      "passed": true,
+      "detail": null
+    },
+    "preset units survive save and reopen": {
+      "passed": true,
+      "detail": "1 unit = 30.0 cm"
+    },
+    "a missing Recent file cannot be activated": {
+      "passed": true,
+      "detail": null
+    },
+    "plain launch starts on Home": {
+      "passed": true,
+      "detail": null
+    },
+    "Escape leaves startup Home": {
+      "passed": true,
+      "detail": null
+    },
+    "title-bar button reopens Home": {
+      "passed": true,
+      "detail": null
+    },
+    "arrow and Enter create a project": {
+      "passed": true,
+      "detail": null
+    },
+    "launching with a project skips Home": {
+      "passed": true,
+      "detail": null
+    },
+    "saved project gets a Recent preview": {
+      "passed": true,
+      "detail": [
+        "f0a32692e675f448.png"
+      ]
+    },
+    "next launch lists the project": {
+      "passed": true,
+      "detail": null
+    },
+    "Recent row opens from Home": {
+      "passed": true,
+      "detail": null
+    }
+  }
+}

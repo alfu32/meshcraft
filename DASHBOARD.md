@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.49.0 Home screen:** a plain launch now opens on Home, with five unit presets, Open,
+Import, Recent previews and nine embedded samples. Save As now joins Recent, and replacing a
+document frames the new content. Native file dialogs were not exercised under Xvfb. See
+[Home screen evidence](docs/rewrite/handoffs/T71.md).
+
 **0.41.3 Microsoft Store identity and MSIX signing:** packages use the publisher's
 reserved product name and publisher from the local Store metadata. MSIX versions
 use a positive major offset while app SemVer remains user-controlled. CI consumes

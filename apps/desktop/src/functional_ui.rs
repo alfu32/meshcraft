@@ -342,6 +342,7 @@ pub(crate) const SECTIONS: &[Section] = &[
         root: "Files",
         title: "Projects",
         commands: &[
+            ("file.home", "Home"),
             ("file.new", "New Drawing"),
             ("file.open", "Open…"),
             ("file.open_recent", "Recent Files"),

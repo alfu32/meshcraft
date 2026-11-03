@@ -1059,7 +1059,7 @@ mod tests {
         app.run_command("edit.copy_selection");
         let source: ClipboardSelection = serde_json::from_str(&app.clipboard.text).unwrap();
         let expected = source.placement_wireframe();
-        app.start_new_document();
+        app.start_new_document(None);
         app.document
             .add_cuboid("different prototype", Vec3::new(20., 20., 20.), Vec3::ZERO)
             .unwrap();

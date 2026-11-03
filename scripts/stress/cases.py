@@ -90,6 +90,8 @@ SCENE_COMMANDS = {
 }
 # Commands whose intended action is a UI/session transition, not a geometry operation.
 SESSION = {
+    "file.home",
+    "file.open_sample",
     "file.open_recent",
     "help.about",
     "file.cancel_open",
@@ -708,6 +710,13 @@ class Exercise:
             return
         if key == "file.new":
             self.cmd(key, stage="commit_ms")
+            return
+        if key == "file.home":
+            self.cmd(key, dict(open=True), "commit_ms")
+            self.cmd(key, dict(open=False), "commit_ms")
+            return
+        if key == "file.open_sample":
+            self.cmd(key, dict(sample="casework"), "commit_ms")
             return
         if key in ("export.mesh", "export.ifc_model", "file.save", "file.save_as"):
             suffix = (
