@@ -189,7 +189,9 @@ class Capture:
 
     def group(self, name):
         # Use measured native tab bounds so captions/layout changes do not break captures.
-        name = {'2D Construction': 'Construction', 'Selection': 'Construction'}.get(name, name)
+        name = {'2D Construction': 'Home', 'Selection': 'Home', 'Meshing': 'Construction',
+                'Modify': 'Construction', 'Objects': 'Objects & Hotspots',
+                'Hotspots': 'Objects & Hotspots'}.get(name, name)
         state = self.rpc.status().get('workspace')
         if state:
             bounds = state['controls']['ribbon/' + name]
@@ -201,9 +203,8 @@ class Capture:
                     raise RuntimeError('Native ribbon tab did not activate: ' + name)
                 time.sleep(.02)
         else:
-            x = {'Files': 35, 'Clipboard & History': 145, 'Construction': 370,
-                 'Meshing': 480, 'Solids': 555, 'Civil': 618, 'Materials': 690,
-                 'Objects': 775, 'Hotspots': 855, 'Settings': 944}[name]
+            x = {'Home': 35, 'Construction': 110, 'Solids': 190, 'Civil': 245, 'Materials': 310,
+                 'Objects & Hotspots': 420, 'Settings': 530}[name]
             self.xd('mousemove', x, 82, 'click', 1)
         self.rpc.frame()
 
@@ -267,7 +268,9 @@ def refresh_readme():
                   '04-javascript-editor','07-branching-preview','06-procedural-materials',
                   '08-architectural-stairs','05-shader-editor']
     receipts=json.loads((SOURCE/'captures/capture-receipts.json').read_text())
-    for shot,name in zip(manifest['screenshots'],source_names,strict=True):
+    # The Home screen shot has its own recipe: scripts/verify_home_screen.py.
+    project_shots=[shot for shot in manifest['screenshots'] if shot['file']!='home-screen.png']
+    for shot,name in zip(project_shots,source_names,strict=True):
         source=SOURCE/'assets/screenshots'/(name+'.png')
         shutil.copyfile(source,destination/shot['file'])
         shot.update(source=str(source.relative_to(ROOT)),capture='Live Meshcraft MCP workflow; unaltered native app-window capture',

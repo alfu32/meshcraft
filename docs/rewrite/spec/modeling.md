@@ -447,8 +447,8 @@ Preview and commit share the same reflection, support mesh fragments and object
 instances, preserve independent source topology, and maintain outward winding.
 
 Solids groups Union, Intersection, Difference, Intersection Curves and Planar
-Section. Intersection Curves has an explicit button in both the native Modify ribbon
-and Solids toolbar (compact label: Int. Curves), as well as an entry in the Solids
+Section. Intersection Curves has an explicit button in the native Solids ribbon
+and left panel (compact label: Int. Curves), as well as an entry in the Solids
 dropdown. Boolean operands
 are two closed, consistently directed mesh instances
 sharing an editable parent. Difference subtracts the second-picked operand from

@@ -16,6 +16,26 @@ pub(crate) const GROUPS: &[&str] = &[
     "Hotspots",
     "Settings",
 ];
+/// Groups with their own dropdown menu and left panel sections. The remaining
+/// groups are presented as title bar buttons instead.
+pub(crate) const SHELF_GROUPS: &[&str] = &[
+    "Selection",
+    "Construction",
+    "Meshing",
+    "Modify",
+    "Solids",
+    "Civil",
+    "Materials",
+    "Objects",
+    "Hotspots",
+    "Settings",
+];
+/// Title bar button groups, as (root, section), in display order.
+pub(crate) const TITLE_BAR_SECTIONS: &[(&str, &str)] = &[
+    ("Files", "Projects"),
+    ("Files", "Import & Export"),
+    ("Clipboard & History", "Clipboard & History"),
+];
 pub(crate) struct Section {
     pub root: &'static str,
     pub title: &'static str,
@@ -463,50 +483,56 @@ pub(crate) fn toolbar_key(root: &str) -> &'static str {
     }
 }
 
-/// Ribbon shortcuts are independent of canonical menu/palette command placement.
+/// Whether the command has a home in the left panel, rather than the title bar.
+pub(crate) fn on_shelf(id: &str) -> bool {
+    placement(id).is_some_and(|(section, _)| SHELF_GROUPS.contains(&section.root))
+}
+
+fn section(root: &str, title: &str) -> &'static Section {
+    SECTIONS
+        .iter()
+        .find(|section| section.root == root && section.title == title)
+        .expect("ribbon and title bar compositions name existing sections")
+}
+
+pub(crate) fn title_bar_sections() -> Vec<&'static Section> {
+    TITLE_BAR_SECTIONS
+        .iter()
+        .map(|(root, title)| section(root, title))
+        .collect()
+}
+
+/// Ribbon composition is independent of canonical menu/palette command placement.
 pub(crate) const RIBBON_TABS: &[&str] = &[
     "Home",
-    "Files",
-    "Clipboard & History",
     "Construction",
-    "Meshing",
-    "Modify",
     "Solids",
     "Civil",
     "Materials",
-    "Objects",
-    "Hotspots",
+    "Objects & Hotspots",
     "Settings",
 ];
-pub(crate) const HOME: &[Section] = &[
-    Section {
-        root: "Home",
-        title: "Select & Move",
-        commands: &[("tool.select", "Select"), ("tool.builtin.move", "Move")],
-    },
-    Section {
-        root: "Home",
-        title: "Clipboard & History",
-        commands: &[
-            ("edit.undo", "Undo"),
-            ("edit.redo", "Redo"),
-            ("edit.cut_selection", "Cut"),
-            ("edit.copy_selection", "Copy"),
-            ("edit.paste", "Paste"),
-            ("edit.paste_in_place", "Paste in Place"),
-        ],
-    },
-    Section {
-        root: "Home",
-        title: "Draw",
-        commands: &[
-            ("tool.builtin.line", "Line"),
-            ("tool.builtin.polyline", "Polyline"),
-            ("tool.builtin.double_line", "Double Line"),
-            ("tool.builtin.rectangle", "Rectangle"),
-            ("tool.builtin.circle", "Circle"),
-        ],
-    },
+/// Home's whole functional groups, in order. Guides, the pickers and `HOME_SHORTCUTS` follow.
+const HOME_GROUPS: &[(&str, &str)] = &[
+    ("Selection", "Selection"),
+    ("Construction", "Draw"),
+    ("Construction", "Annotations"),
+    ("Construction", "Transform"),
+];
+/// Home's rows are too short for the full three-line guide labels.
+const HOME_GUIDES: Section = Section {
+    root: "Home",
+    title: "Guides",
+    commands: &[
+        ("view.axis_guide", "Axis Guide"),
+        ("view.grid_guide", "Grid Guide"),
+        ("view.guide.remove", "Remove Guide"),
+        ("view.guides.clear", "Clear Guides"),
+        ("view.guides.toggle", "Show Guides"),
+        ("view.grid.toggle", "Show Grid"),
+    ],
+};
+const HOME_SHORTCUTS: &[Section] = &[
     Section {
         root: "Home",
         title: "Mesh",
@@ -519,21 +545,8 @@ pub(crate) const HOME: &[Section] = &[
     },
     Section {
         root: "Home",
-        title: "Transform",
-        commands: &[
-            ("tool.move_copy", "Move Copy"),
-            ("tool.builtin.rotate", "Rotate"),
-            ("tool.builtin.scale", "Scale"),
-        ],
-    },
-    Section {
-        root: "Home",
-        title: "Guides & Hotspots",
-        commands: &[
-            ("view.axis_guide", "Axis Guide"),
-            ("view.grid_guide", "Grid Guide"),
-            ("hotspot.begin_placement", "Hotspot"),
-        ],
+        title: "Hotspots",
+        commands: &[("hotspot.begin_placement", "Hotspot")],
     },
     Section {
         root: "Home",
@@ -544,12 +557,27 @@ pub(crate) const HOME: &[Section] = &[
         ],
     },
 ];
+/// Number of leading Home groups that precede the material and object pickers.
+pub(crate) const HOME_GROUPS_BEFORE_PICKERS: usize = HOME_GROUPS.len() + 1;
+
 pub(crate) fn ribbon_sections(tab: &str) -> Vec<&'static Section> {
-    if tab == "Home" {
-        return HOME.iter().collect();
+    match tab {
+        "Home" => HOME_GROUPS
+            .iter()
+            .map(|(root, title)| section(root, title))
+            .chain(std::iter::once(&HOME_GUIDES))
+            .chain(HOME_SHORTCUTS)
+            .collect(),
+        "Construction" => vec![
+            section("Meshing", "Construct"),
+            section("Meshing", "Advanced"),
+            section("Modify", "Modify"),
+            section("Modify", "Arrays"),
+        ],
+        "Objects & Hotspots" => sections("Objects").chain(sections("Hotspots")).collect(),
+        "Settings" => std::iter::once(section("Construction", "Input & Settings"))
+            .chain(sections("Settings"))
+            .collect(),
+        _ => sections(tab).collect(),
     }
-    SECTIONS
-        .iter()
-        .filter(|s| s.root == tab || (tab == "Construction" && s.root == "Selection"))
-        .collect()
 }

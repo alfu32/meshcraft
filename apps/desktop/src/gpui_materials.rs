@@ -1148,6 +1148,10 @@ fn read_selection_values(
     Ok(())
 }
 
+pub(super) fn modal_open(shell: &MeshcraftShell) -> bool {
+    shell.materials.editor.is_some() || shell.materials.program_editor.is_some()
+}
+
 pub(super) fn capture_key(
     shell: &mut MeshcraftShell,
     event: &gpui::KeyDownEvent,

@@ -1,13 +1,29 @@
-# Functional workspace — 0.48.0
+# Functional workspace — 0.50.0
 
-Menus and the searchable left command panel use the functional groups below.
-Every visible command has one canonical menu/left-panel home. The ribbon has
-its own projection of those sections and a Home tab of common shortcuts.
+System-wide commands sit on the title bar. The dropdown menus and the searchable
+left command panel use the functional groups below, and the ribbon has its own
+composition of those sections. Every registered command stays in the command panel
+and MCP.
+
+## Title bar
+
+After the logo and the Home toggle, in order, as icon buttons with tooltips:
+
+| Group | Commands |
+| --- | --- |
+| Files | New Drawing, Open, Recent Files, Save, Save As, Cancel Open, Exit |
+| Import & Export | Import Mesh, Export Mesh, Export IFC, Export SVG, Save Screenshot, Cancel Import / Export |
+| Clipboard & History | Undo, Redo, Cut, Copy, Paste, Paste in Place, Duplicate Selection, Delete Selection |
+
+The title follows and truncates first on narrow windows. Unavailable commands are
+dimmed. Recent Files opens a list of recent projects. The buttons stay when the
+menu bar, ribbon or left panel is hidden. They are disabled while a modal editor
+or prompt is open, and only the Home toggle shows on the Home screen.
+
+## Menus and left panel
 
 | Group | Functions |
 | --- | --- |
-| Files | Home screen, new/open/recent/save, mesh import/export and IFC |
-| Clipboard & History | Undo/redo, cut/copy/paste, duplication and deletion |
 | Selection | Selection, clearing selection and selection properties |
 | Construction | Linework, annotations, guides, transforms and input/settings |
 | Meshing | Mesh construction, sweeps/extrusion, filling loops and advanced mesh tools |
@@ -19,6 +35,10 @@ its own projection of those sections and a Home tab of common shortcuts.
 | Hotspots | Placement, attachments, references, deletion and settings |
 | Settings | Model/UI settings, cameras, profiles, MCP and help |
 
+Files and Clipboard & History remain the canonical category of their commands in
+command panel paths and the tool inventory, without a dropdown menu or left panel
+section.
+
 The left panel keeps its search input above the scrolling tool sections. Search
 matches category, function name, command ID and legacy keywords, ignoring case;
 all words must match. Empty sections disappear. Drag the panel's right edge to
@@ -28,20 +48,19 @@ do not change the drawing or history. Buttons keep their usual availability.
 
 ## Ribbon
 
-Home is the initial tab. It includes Select, Move, a selection material switch,
-an object prototype insertion picker, Undo/Redo, Cut/Copy/Paste/Paste in Place,
-Line, Polyline, Double Line, Rectangle, Circle, Polyline Mesh, 3D Mesh, Extrude,
-Sweep, Move Copy, Rotate, Scale, Axis/Grid Guide, Hotspot, Cuboid and Sphere.
-Each shortcut uses the existing command, icon and availability rules. Home
-shortcuts intentionally also appear in their functional tabs.
+| Tab | Groups, in order |
+| --- | --- |
+| Home | Selection, Draw, Annotations, Transform, Guides, Selection Material and Insert Object pickers, Mesh, Hotspots, Solids |
+| Construction | Construct, Advanced, Modify, Arrays |
+| Solids | Primitives, Booleans & Sections, Mechanical, Voxels |
+| Civil | Architecture, Stair Inputs, HVAC, Settings |
+| Materials | Catalog, Procedural, Rendering, material picker |
+| Objects & Hotspots | Prototypes, Instances & Groups; Scripts & GPU; External Prototypes; Hotspots |
+| Settings | Input & Settings, Model & Interface, Camera, Workspace Profiles, Automation & Help |
 
-Construction replaces the former 2D Construction name. Its ribbon also includes
-the Selection section and transforms. Selection remains an early menu/left-panel
-group; there is no separate Selection ribbon tab. Modify contains the former
-Meshing Modify and Arrays sections. Other ribbon tabs retain their functional
-sections. Long strips scroll horizontally without growing the ribbon vertically.
-Group headings stay on one line; their minimum width accommodates their caption,
-including Home's Guides & Hotspots heading.
+Home is the initial tab. Its Mesh, Hotspots and Solids groups are shortcuts to
+commands that also have a home on another tab. Long strips scroll horizontally
+without growing the ribbon vertically. Group headings stay on one line.
 
 Home and Materials contain the same material picker. It displays the selected
 entities' material or **Multiple materials** when their finishes differ. Picking
@@ -68,7 +87,7 @@ to instance properties. Catalog lists scroll within a bounded area so their acti
 stay adjacent even in drawings with many items. These use the same command handlers, availability rules,
 and deletion safeguards as their menu/toolbar shortcuts. General modeling tools
 remain in toolbars. Material and prototype list double-click behavior, prototype
-deletion confirmation and Files' Recent Files submenu remain available.
+deletion confirmation and the Recent Files list remain available.
 
 Hotspot Settings likewise keeps Place Hotspot, Add at Cursor, Attach Selection,
 Select Attached, Pick Reference, Clear Reference and Delete Hotspot beside the
@@ -81,12 +100,13 @@ Search also includes command IDs and legacy keywords. Up/Down selects and scroll
 Enter executes the selected entry, and clicking executes the clicked entry.
 Unavailable commands stay visible with their usual context requirements.
 
-The dropdown row starts with Files. The title displays
+The dropdown row starts with Selection. The title displays
 `Meshcraft x.y.z /path/to/filename.octd`, or `Meshcraft x.y.z Untitled`.
 
 [functional_ui.rs](../apps/desktop/src/functional_ui.rs) defines canonical and
 ribbon placements. The [tool catalog](tools/tools.csv) records canonical placement;
 regeneration preserves all four user review columns by command ID. See
+[title bar validation](rewrite/references/title-bar/native-validation.json),
 [workspace validation](rewrite/references/workspace-controls/README.md),
 [contextual inspector actions](rewrite/references/panel-actions/README.md) and the
 [README screenshot manifest](screenshots/manifest.json).

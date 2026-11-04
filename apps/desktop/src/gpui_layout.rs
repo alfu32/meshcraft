@@ -844,7 +844,7 @@ pub(super) fn ribbon_content(
             group.commands,
             bindings,
         ));
-        if tab == "Home" && index == 0 {
+        if tab == "Home" && index + 1 == crate::functional_ui::HOME_GROUPS_BEFORE_PICKERS {
             ribbon = ribbon
                 .child(super::workspace_controls::picker(
                     bindings.shell,
@@ -986,7 +986,7 @@ pub(super) fn left_toolbars(bindings: &mut LayoutBindings<'_, '_, '_>) -> gpui::
         .gap(px(7.))
         .p(px(7.));
     let mut count = 0;
-    for root in crate::functional_ui::GROUPS {
+    for root in crate::functional_ui::SHELF_GROUPS {
         for section in crate::functional_ui::sections(root) {
             let commands = section
                 .commands

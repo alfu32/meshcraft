@@ -1,9 +1,9 @@
-//! File menu with the component library's nested, keyboard-accessible recent menu.
+//! Recent Files popup and project replacement and deletion dialogs.
 use super::*;
 use gpui::{DismissEvent, Focusable};
 use gpui_component::menu::{PopupMenu, PopupMenuItem};
 
-type MenuKey = (Vec<String>, Vec<(String, bool)>);
+type MenuKey = (Vec<String>, bool);
 
 pub(super) fn prototype_deletion_dialog(
     shell: &MeshcraftShell,
@@ -62,124 +62,62 @@ pub(super) struct Ui {
     subscription: Option<gpui::Subscription>,
 }
 
-pub(super) fn popup(
+pub(super) fn recent_popup(
     shell: &mut MeshcraftShell,
-    entries: Vec<(String, Option<CommandDescriptor>)>,
     bounds: gpui::Bounds<gpui::Pixels>,
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) -> gpui::AnyElement {
     let recent = shell.session.native_recent_projects().to_vec();
     let enabled = shell.session.native_command_state("file.open").enabled;
-    let key = (
-        recent.clone(),
-        entries
-            .iter()
-            .map(|(label, command)| {
-                (
-                    label.clone(),
-                    command
-                        .as_ref()
-                        .is_some_and(|c| command_enabled(&shell.session, c)),
-                )
-            })
-            .collect(),
-    );
+    let key = (recent.clone(), enabled);
     if shell.files.key.as_ref() != Some(&key) {
         let focus = shell.focus.clone();
         let owner = cx.entity().downgrade();
-        let menu = PopupMenu::build(window, cx, |mut menu, window, cx| {
-            menu = menu.action_context(focus).min_w(px(235.)).max_w(px(300.));
-            let mut previous = String::new();
-            for (label, command) in entries {
-                let section = command
-                    .as_ref()
-                    .and_then(|c| c.presentation.menu_path.get(1))
-                    .cloned()
-                    .unwrap_or_default();
-                if section != previous {
-                    if !previous.is_empty() {
-                        menu = menu.separator();
-                    }
-                    menu = menu.label(section.clone());
-                    previous = section;
-                }
-                if command
-                    .as_ref()
-                    .is_some_and(|c| c.id.as_str() == "file.open_recent")
-                {
-                    let owner = owner.clone();
-                    let recent = recent.clone();
-                    menu = menu.submenu("Recent Files", window, cx, move |mut menu, _, _| {
-                        menu = menu
-                            .min_w(px(320.))
-                            .max_w(px(480.))
-                            .max_h(px(420.))
-                            .scrollable(true);
-                        if recent.is_empty() {
-                            return menu.item(
-                                PopupMenuItem::new("No recently opened files").disabled(true),
-                            );
-                        }
-                        for path in &recent {
-                            let name = crate::app::recent_project_display_name(path).to_owned();
-                            let detail = path.clone();
-                            let selected = path.clone();
-                            let owner = owner.clone();
-                            menu = menu.item(
-                                PopupMenuItem::element(move |_, _| {
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .w(px(420.))
-                                        .max_w_full()
-                                        .min_w(px(0.))
-                                        .py(px(3.))
-                                        .child(div().truncate().child(name.clone()))
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgb(0xa5adb7))
-                                                .truncate()
-                                                .child(detail.clone()),
-                                        )
-                                })
-                                .disabled(!enabled)
-                                .on_click(move |_, _, cx| {
-                                    _ = owner.update(cx, |shell, cx| {
-                                        shell.open_menu = None;
-                                        let mut payload = CommandPayload::default();
-                                        payload.values.insert("path".into(), json!(selected));
-                                        shell.dispatch_payload("file.open", &payload);
-                                        cx.notify();
-                                    });
-                                }),
-                            );
-                        }
-                        menu
-                    });
-                } else {
-                    let active = command
-                        .as_ref()
-                        .is_some_and(|c| command_enabled(&shell.session, c));
-                    let icon = command.as_ref().and_then(command_icon);
-                    let owner = owner.clone();
-                    menu = menu.item(
-                        PopupMenuItem::element(move |_, _| {
-                            labeled_command(label.clone(), icon.clone(), 201.)
-                        })
-                        .disabled(!active)
-                        .on_click(move |_, _, cx| {
-                            if let Some(command) = &command {
-                                _ = owner.update(cx, |shell, cx| {
-                                    shell.open_menu = None;
-                                    shell.dispatch_with_clipboard(command.id.as_str(), cx);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                    );
-                }
+        let menu = PopupMenu::build(window, cx, |mut menu, _, _| {
+            menu = menu
+                .action_context(focus)
+                .min_w(px(320.))
+                .max_w(px(480.))
+                .max_h(px(420.))
+                .scrollable(true);
+            if recent.is_empty() {
+                return menu.item(PopupMenuItem::new("No recently opened files").disabled(true));
+            }
+            for path in &recent {
+                let name = crate::app::recent_project_display_name(path).to_owned();
+                let detail = path.clone();
+                let selected = path.clone();
+                let owner = owner.clone();
+                menu = menu.item(
+                    PopupMenuItem::element(move |_, _| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .w(px(420.))
+                            .max_w_full()
+                            .min_w(px(0.))
+                            .py(px(3.))
+                            .child(div().truncate().child(name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xa5adb7))
+                                    .truncate()
+                                    .child(detail.clone()),
+                            )
+                    })
+                    .disabled(!enabled)
+                    .on_click(move |_, _, cx| {
+                        _ = owner.update(cx, |shell, cx| {
+                            shell.open_menu = None;
+                            let mut payload = CommandPayload::default();
+                            payload.values.insert("path".into(), json!(selected));
+                            shell.dispatch_payload("file.open", &payload);
+                            cx.notify();
+                        });
+                    }),
+                );
             }
             menu
         });
@@ -195,7 +133,7 @@ pub(super) fn popup(
         shell.files.key = Some(key);
     }
     div()
-        .id("file-menu-popup")
+        .id("recent-files-popup")
         .absolute()
         .top(bounds.origin.y + bounds.size.height + px(3.))
         .left(bounds.origin.x)
@@ -206,7 +144,7 @@ pub(super) fn popup(
                 .files
                 .menu
                 .as_ref()
-                .expect("prepared file menu")
+                .expect("prepared recent files menu")
                 .clone(),
         )
         .into_any_element()

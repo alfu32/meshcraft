@@ -120,6 +120,12 @@ Acceptance: C34.
 
 Launching with a project or `--mcp-port` skips Home, so file associations and automation keep their behavior. Replacing the document frames the new content. Acceptance: C44.
 
+### U07 Title bar commands and ribbon composition
+
+**New (0.50.0), requested by the user with annotated screenshots.** Files, Import & Export and Clipboard & History become icon buttons on the title bar, between the Home toggle and the title, and leave the ribbon, the left panel and the dropdown menus. They use the same commands and availability, dim when unavailable and stay visible when the menu bar, ribbon or left panel is hidden. They are disabled while a modal editor or prompt is open, because the title bar stays reachable above those. Only the Home toggle shows on the Home screen. Recent Files opens a list of recent projects.
+
+The ribbon has seven tabs. Home holds Selection, Draw, Annotations, Transform and Guides in that order, then the material and object pickers and the Mesh, Hotspots and Solids shortcuts. Construction holds the former Meshing and Modify tabs. Objects & Hotspots merges those two tabs. Settings gains Input & Settings. Other dropdown menus and left panel sections, command IDs, shortcuts and command panel paths do not change. The full layout is in [the workspace guide](../../menu-layout.md). Acceptance: C45.
+
 ### R01 Interactive viewport
 
 **Observed.** Faces, independent edges, RGBA transparency, ground/grid, semantic objects, bitmap/vector annotations and feedback overlays render with depth-aware composition. Front-facing triangles are brighter; back-facing triangles are darker and slightly bluer. Coplanar triangles on one surface must share a rendered orientation even when adjacent triangles use distinct vertex IDs at coincident positions. Real-time directional/ambient/specular lighting and per-type display controls exist. Face winding and selected/hover appearance matter. Shader output is not a requirement for a PBR material system.

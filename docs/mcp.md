@@ -393,8 +393,9 @@ placement and reference picking while the main tool remains Select.
 
 On the GPUI desktop, `k3d_status.workspace` reports the active ribbon tab,
 available tabs, left-panel query/width, selected material IDs and the measured
-bounds of visible ribbon tabs, shelf search/resize grip and catalog pickers.
-`controls` uses stable keys such as `ribbon/Home`, `left/search`, `left/resize`,
-`home/material`, `home/object` and `materials/material`. Bounds are in window
+bounds of visible title bar buttons, ribbon tabs, shelf search/resize grip and
+catalog pickers. `titleToolsBlocked` is true while a modal editor or prompt disables
+the title bar buttons. `controls` uses stable keys such as `title/edit.undo`,
+`ribbon/Home`, `left/search`, `left/resize`, `home/material`, `home/object` and `materials/material`. Bounds are in window
 logical pixels; use their centers for native pointer automation. These are
 read-only observations of the actual rendered controls, not command replacements.

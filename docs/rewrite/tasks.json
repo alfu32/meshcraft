@@ -522,7 +522,7 @@
       "done": [
         "C09 project/unproject/navigation tests pass in both menu and button layouts.",
         "No camera mode silently uses the wrong projection for picking.",
-        "Orbit input and restored perspective poses support pitch from \u221289\u00b0 through +89\u00b0 without reaching the singular camera poles."
+        "Orbit input and restored perspective poses support pitch from −89° through +89° without reaching the singular camera poles."
       ],
       "tool_ids": [],
       "status": "complete"
@@ -1341,7 +1341,7 @@
         "Commit loose selected geometry in the parent and remove source instances only on successful atomic completion; document differences for disjoint/coincident/invalid meshes."
       ],
       "done": [
-        "C20 tests A\u2212B/B\u2212A, output context and source lifecycle explicitly.",
+        "C20 tests A−B/B−A, output context and source lifecycle explicitly.",
         "Robustness limits and deliberate improvements are reported; no OpenSCAD dependency."
       ],
       "tool_ids": [
@@ -2517,7 +2517,7 @@
       ],
       "slices": [
         "Inventory the currently enabled geometry commands and every pending pick stage or parameter preview; identify gaps in geometry and vector feedback, treating Select as the sole exception.",
-        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed \u0394X/\u0394Y/\u0394Z in model units to at most three decimals; include Paint target and selected-object Array previews. GPUI pointer updates must reach Push/Pull and specialized tool states before preview calculation; use model-width strokes after face fills.",
+        "Add snapped-point previews for each stage, preferring generated geometry and otherwise drawing the previous-point-to-pointer vector with length and signed ΔX/ΔY/ΔZ in model units to at most three decimals; include Paint target and selected-object Array previews. GPUI pointer updates must reach Push/Pull and specialized tool states before preview calculation; use model-width strokes after face fills.",
         "Use the same computed transform, snap, numeric override and active-definition coordinates for preview and commit; preserve per-tool point sequences and cancel behavior.",
         "Add C34 coverage across all enabled geometry tools for stage progression, preview/commit parity, units, snapping, cancellation and invalid input."
       ],
@@ -2884,14 +2884,14 @@
       ],
       "slices": [
         "Pin a minimal GPUI host and raylib-rs renderer prototype only after recording the exact toolchain/platform/backend; keep the proof isolated from the production shell.",
-        "Compare native-child hosting with raylib RenderTexture2D presented through a normal GPUI image component; the selected path must preserve GPUI overlay stacking and sustain at least 25 FPS (target 30\u201360) at actual viewport resolution.",
+        "Compare native-child hosting with raylib RenderTexture2D presented through a normal GPUI image component; the selected path must preserve GPUI overlay stacking and sustain at least 25 FPS (target 30–60) at actual viewport resolution.",
         "Activate the textual menu and ribbon navigation with populated menu lists and tab-specific command groups; keep the command entries/buttons visibly disabled until their behavior is migrated.",
         "Verify resize/DPI mapping, clipping and z-order, focus, pointer and keyboard ownership, latest-frame backpressure, event-loop/render-thread rules, window close and resource destruction on the target Linux session.",
         "Define the versioned, framework-neutral viewport input/event and scene snapshot/delta contract; high-frequency camera/pointer state remains local to the viewport.",
         "Record measured behavior, dependency revisions, limitations and a go/no-go result before the full migration proceeds."
       ],
       "done": [
-        "A live raylib-rs canvas is correctly presented inside GPUI bounds; an offscreen-image path meets the 25 FPS minimum and 30\u201360 FPS target while GPUI menus and overlays compose above it.",
+        "A live raylib-rs canvas is correctly presented inside GPUI bounds; an offscreen-image path meets the 25 FPS minimum and 30–60 FPS target while GPUI menus and overlays compose above it.",
         "Text menus open populated disabled command lists, ribbon tabs switch populated command groups, and all command buttons remain disabled in the stack proof.",
         "Viewport input, focus, resize/DPI, clipping/z-order and shutdown pass on the explicitly recorded target Linux window backend, including the dense-array frame budget.",
         "The renderer/session boundary is typed and framework-neutral; core and commands do not depend on UI or GPU crates.",
@@ -3406,6 +3406,45 @@
       ],
       "done": [
         "Native verification passes and the release gate is green at 0.49.0."
+      ],
+      "tool_ids": [],
+      "status": "complete"
+    },
+    {
+      "id": "T72",
+      "title": "Title bar commands and recomposed ribbon",
+      "phase": "desktop",
+      "dependencies": [
+        "T71"
+      ],
+      "requirements": [
+        "U07"
+      ],
+      "acceptance": [
+        "C45"
+      ],
+      "targets": [
+        "apps/desktop/src/functional_ui.rs",
+        "apps/desktop/src/gpui_title_tools.rs",
+        "apps/desktop/src/gpui_files.rs",
+        "scripts/verify_title_bar.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/menu-layout.md",
+        "docs/rewrite/spec/interface.md",
+        "docs/rewrite/handoffs/T72.md"
+      ],
+      "slices": [
+        "Move Files, Import & Export and Clipboard & History to title bar buttons with modal blocking and a Recent Files list.",
+        "Recompose the ribbon into seven tabs and remove the moved groups from the menus and left panel.",
+        "Validate in the native application and document the layout."
+      ],
+      "done": [
+        "Native verification passes and the release gate is green at 0.50.0."
       ],
       "tool_ids": [],
       "status": "complete"

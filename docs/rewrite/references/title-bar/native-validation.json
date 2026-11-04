@@ -1,0 +1,38 @@
+{
+  "version": "0.50.0",
+  "checks": {
+    "1880: all 21 title buttons are measured": true,
+    "1880: title buttons keep their order": true,
+    "1880: title buttons leave room for the title and window controls": true,
+    "1880: title text stops before the window controls": true,
+    "1880: title buttons stay on the title bar": true,
+    "ribbon has the seven requested tabs": true,
+    "disabled title button does nothing": true,
+    "Delete button removes the selection": true,
+    "Undo button restores it": true,
+    "Redo button deletes it again": true,
+    "Copy and Paste in Place buttons add a copy": true,
+    "left panel search no longer runs title bar commands": true,
+    "title buttons do nothing behind a modal editor": true,
+    "title buttons remain when menus, ribbon and left panel are hidden": true,
+    "Home screen hides the title buttons": true,
+    "title buttons return after Home": true,
+    "Recent button opens a list whose row opens the project": true,
+    "900: all 21 title buttons are measured (short title)": true,
+    "900: title buttons keep their order (short title)": true,
+    "900: title buttons leave room for the title and window controls (short title)": true,
+    "900: title text stops before the window controls (short title)": true,
+    "900: title buttons stay on the title bar (short title)": true,
+    "900: all 21 title buttons are measured": true,
+    "900: title buttons keep their order": true,
+    "900: title buttons leave room for the title and window controls": true,
+    "900: title text stops before the window controls": true,
+    "900: title buttons stay on the title bar": true
+  },
+  "platform": "Linux Xvfb/Mesa; actual GPUI app",
+  "notVerified": [
+    "window dragging beside the buttons (no window manager under Xvfb)",
+    "Windows and macOS title bars",
+    "native file dialogs"
+  ]
+}

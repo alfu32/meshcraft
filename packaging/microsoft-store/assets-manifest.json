@@ -4,111 +4,111 @@
     {
       "file": "01-direct-modeling.png",
       "source": "packaging/microsoft-store/captures/projects/instrument.octd",
-      "sha256": "6a0d95b7e472ef11c18b0bd3188f4c057a312fc2563928c1360df05521cadc30",
+      "sha256": "e36b9b993b10d35b73a58a370ed3b90a6aa351f5b21a721cbc49b782a70ae73a",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Exploded instrument controller with a ventilated service cover, controls, PCB and fasteners.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "02-dynamic-instances.png",
       "source": "packaging/microsoft-store/captures/projects/kitchen.octd",
-      "sha256": "7dd35a217c8438fd926c7988bd04c9df9275e315149d70c4699a1900e4650f29",
+      "sha256": "2e4cf468b812faf13c0f0f7ecdbec92d599ca803e1d206b674949bd691a7aebc",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Fitted kitchen and island using independent configurable cabinet instances with material parameters.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "03-architecture.png",
       "source": "packaging/microsoft-store/captures/projects/residence.octd",
-      "sha256": "50c50d6b88d0ce4fc2daef61cde35e049806dbf70c7fa3293d9fe4b45c61c5e4",
+      "sha256": "cfa0102ae6e80bc40e6497d4d5fdca4f943a6fd364972818768144ed364940e2",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Two-storey courtyard residence with native walls, slabs, openings and independent glazing frames.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "04-javascript-editor.png",
       "source": "packaging/microsoft-store/captures/projects/casework.octd",
-      "sha256": "8938c780cd5e3253c15f1ef18d1e4c2ead6bec6231c0ff7f9daa8e994fbbc191",
+      "sha256": "058f222b8ca204e5bd6a9b652a19abbcd9ff6186eabb6993bd1c707f5ba68743",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Unified JavaScript cabinet source with prototype and instance inputs beside an orbitable shelving preview.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "05-shader-editor.png",
       "source": "packaging/microsoft-store/captures/projects/park.octd",
-      "sha256": "f0a30ca827946654d5023ae72a118340ed7c4caa31e362b40890528272301b69",
+      "sha256": "38616ebb083b0681b6e21da3376938baec100fb88fd41859336071a9427138e0",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Custom GLSL branching rule and a live GPU tree preview in the shader editor.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "06-procedural-materials.png",
       "source": "packaging/microsoft-store/captures/projects/rooftop.octd",
-      "sha256": "99eece2b39283cb43a99a3ceac5d5d586a05d0c0dd850278d098c61ea68a10fc",
+      "sha256": "b3f91cf90d600d2981cb78da73b52cc51624ea52f5ef9179cb92fb136553a7ef",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Furnished roof terrace with procedural brick, wood, water, grass and foliage materials.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "07-branching-preview.png",
       "source": "packaging/microsoft-store/captures/projects/park.octd",
-      "sha256": "e67a424fdf371d1bce0bafc8cea552379564818e5a1cf2f713b75b0f1e45d0af",
+      "sha256": "a08a520eb8fededfea85371b1a916c10beb8fbf681260543d6d4c99ebb7408af",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "GPU-generated landscape canopy with editable settings and its interactive object preview.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "08-architectural-stairs.png",
       "source": "packaging/microsoft-store/captures/projects/loft.octd",
-      "sha256": "67b28e837da381a45fa5ed19c330f160660756329c29e298464c1a679ca3ddee",
+      "sha256": "fcb3627eb433e25a62890c7afe1c6a4950795175859e222bf74807e6ed820477",
       "edited": false,
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop",
       "scenario": "Furnished double-height loft with a native turning stair, mezzanine and guardrail guides.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5"
+      "applicationVersion": "0.50.0"
     },
     {
       "file": "09-mechanical-assembly.png",
       "source": "packaging/microsoft-store/captures/projects/plantroom.octd",
-      "sha256": "4c847e48c273538312a5a72b3e99fb7f3d84323a05a322e6510befd97032c59d",
+      "sha256": "cb17308ad50d5240ce90d7830b9dd6285d9aa3942d43069eb11fe6a431d6972e",
       "edited": false,
       "scenario": "Twin-pump mechanical skid with piping, control cabinet and a native spatially swept I-section service rail.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5",
+      "applicationVersion": "0.50.0",
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop"
     },
     {
       "file": "10-technical-workspace.png",
       "source": "packaging/microsoft-store/captures/projects/studio.octd",
-      "sha256": "465162ca8fdfa0e793e1335905b0b8e774ec317525ad8dbc503c8603fbd74181",
+      "sha256": "9ffbfe08158a8cbab79bb4fa3fde6e50a75212fe5ade18e84d1fbb4e018cb647",
       "edited": false,
       "scenario": "Furnished home office with dimension annotation and an orthographic axonometric camera.",
       "recipe": "scripts/capture_store_projects.py",
       "captureTool": "Meshcraft MCP + native app-window capture",
-      "applicationVersion": "0.48.5",
+      "applicationVersion": "0.50.0",
       "platform": "Linux GPUI app; isolated 1920x1080 Xvfb/Mesa desktop"
     }
   ],

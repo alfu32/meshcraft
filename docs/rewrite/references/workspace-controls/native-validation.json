@@ -1,5 +1,5 @@
 {
-  "version": "0.48.0",
+  "version": "0.50.0",
   "nativeSearchEnter": true,
   "nativeSearchEscape": true,
   "persistedLeftWidth": 380.00232,
@@ -12,6 +12,6 @@
   "nativePaintTargetsWholeScriptInstance": true,
   "siblingsUnchanged": true,
   "saveOpenPreservesFinishes": true,
-  "paintSmallFixtureSeconds": 0.24264636891894042,
+  "paintSmallFixtureSeconds": 0.28675285796634853,
   "platform": "Actual GPUI app on isolated Linux Xvfb/Mesa"
 }

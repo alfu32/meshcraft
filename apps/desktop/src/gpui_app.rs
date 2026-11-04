@@ -34,6 +34,8 @@ mod gpu_mesh;
 mod helpers;
 #[path = "gpui_home.rs"]
 mod home;
+#[path = "gpui_title_tools.rs"]
+mod title_tools;
 
 #[path = "gpui_hotspots.rs"]
 mod hotspots;
@@ -93,7 +95,7 @@ use serde_json::{Value, json};
 
 const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 const PREVIEW_PROGRAM_SOURCE: &str = "meshcraft.previewProgramSource";
-use crate::app::DROPDOWN_MENU_NAMES as MENU_NAMES;
+const MENU_NAMES: &[&str] = crate::functional_ui::SHELF_GROUPS;
 const RIBBON_TABS: &[&str] = crate::functional_ui::RIBBON_TABS;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1595,6 +1597,13 @@ impl MeshcraftShell {
     }
 
     fn dispatch(&mut self, id: &str) {
+        if id == "file.open_recent" {
+            // The session's Recent Files dialog belongs to the web shell.
+            if !self.session.native_home_open() && self.session.native_command_state(id).enabled {
+                self.open_menu = Some(title_tools::RECENT_MENU);
+            }
+            return;
+        }
         if home::leaves_home(id) {
             self.session.native_set_home_open(false);
         }
@@ -3006,12 +3015,13 @@ impl Render for MeshcraftShell {
             self.refresh_scene();
         }
         if self.open_menu.is_some_and(|menu| {
-            !preferences.menu_bar_visible
-                || !preferences
-                    .menu_visibility
-                    .get(menu)
-                    .copied()
-                    .unwrap_or(true)
+            menu != title_tools::RECENT_MENU
+                && (!preferences.menu_bar_visible
+                    || !preferences
+                        .menu_visibility
+                        .get(menu)
+                        .copied()
+                        .unwrap_or(true))
         }) {
             self.open_menu = None;
         }
@@ -3425,11 +3435,14 @@ impl Render for MeshcraftShell {
             )
             .child(self.resource_hud.clone());
 
-        if self.open_menu != Some("Files") {
+        if self.open_menu != Some(title_tools::RECENT_MENU) {
             self.files = files::Ui::default();
         }
         let popup = self.open_menu.and_then(|menu| {
             let bounds = self.menu_bounds.lock().ok()?.get(menu).copied()?;
+            if menu == title_tools::RECENT_MENU {
+                return Some(files::recent_popup(self, bounds, window, cx));
+            }
             let catalog = MeshcraftApp::command_catalog();
             let entries = crate::functional_ui::sections(menu)
                 .flat_map(|s| s.commands.iter())
@@ -3441,9 +3454,6 @@ impl Render for MeshcraftShell {
                         .map(|command| ((*label).to_owned(), Some(command)))
                 })
                 .collect::<Vec<_>>();
-            if menu == "Files" {
-                return Some(files::popup(self, entries, bounds, window, cx));
-            }
             Some(
                 div()
                     .id("menu-popup")
@@ -3617,6 +3627,8 @@ impl Render for MeshcraftShell {
         let close_view = cx.entity().downgrade();
         let home_open = self.session.native_home_open();
         let home_view = home_open.then(|| home::render(self, cx));
+        let title_tools = (!home_open).then(|| title_tools::render(self, cx));
+        let title_blocked = title_tools::blocked(self);
         let title_bar = gpui_component::TitleBar::new()
             .child(
                 div()
@@ -3624,6 +3636,7 @@ impl Render for MeshcraftShell {
                     .items_center()
                     .gap(px(6.))
                     .child(gpui::img("branding/meshcraft.png").size(px(24.)))
+                    .flex_1()
                     .min_w(px(0.))
                     .child(
                         Button::new("home/toggle")
@@ -3631,13 +3644,36 @@ impl Render for MeshcraftShell {
                             .xsmall()
                             .ghost()
                             .selected(home_open)
+                            .disabled(title_blocked)
                             .tooltip("Home")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.dispatch("file.home");
                                 cx.notify();
                             })),
                     )
-                    .child(div().text_sm().truncate().child(self.window_title.clone())),
+                    .children(title_tools)
+                    // The vendored bar will not shrink below its content, so the title is
+                    // positioned out of flow: a long path must not push out the window controls.
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .h(px(20.))
+                            .child(
+                                div().absolute().inset_0().flex().items_center().child(
+                                    div()
+                                        .w_full()
+                                        .text_sm()
+                                        .truncate()
+                                        .child(self.window_title.clone()),
+                                ),
+                            )
+                            .child(workspace_controls::bounds_probe(
+                                self,
+                                "window/title".to_owned(),
+                            )),
+                    ),
             )
             .on_close_window(move |_, _, cx| {
                 let _ = close_view.update(cx, |shell, cx| {
@@ -4315,58 +4351,103 @@ mod tests {
         }
     }
     #[test]
-    fn ribbon_projection_has_home_and_moves_requested_sections_without_duplicating_canonical_commands()
-     {
+    fn ribbon_tabs_hold_the_requested_groups_in_order() {
         use crate::functional_ui as ui;
-        assert!(ui::GROUPS.contains(&"Construction"));
-        assert!(!ui::GROUPS.contains(&"2D Construction"));
-        assert!(!ui::RIBBON_TABS.contains(&"Selection"));
-        let construction = ribbon_groups("Construction");
-        assert!(
-            construction
+        let titles = |tab| {
+            ribbon_groups(tab)
                 .iter()
-                .any(|s| s.root == "Selection" && s.title == "Selection")
+                .map(|section| section.title)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ui::RIBBON_TABS,
+            [
+                "Home",
+                "Construction",
+                "Solids",
+                "Civil",
+                "Materials",
+                "Objects & Hotspots",
+                "Settings",
+            ]
         );
-        assert!(construction.iter().any(|s| s.title == "Transform"));
-        assert!(ribbon_groups("Modify").iter().any(|s| s.title == "Arrays"));
-        assert!(ribbon_groups("Modify").iter().any(|s| s.title == "Modify"));
-        assert!(
-            !ribbon_groups("Meshing")
-                .iter()
-                .any(|s| ["Modify", "Arrays", "Transform"].contains(&s.title))
+        assert_eq!(
+            titles("Home"),
+            [
+                "Selection",
+                "Draw",
+                "Annotations",
+                "Transform",
+                "Guides",
+                "Mesh",
+                "Hotspots",
+                "Solids",
+            ]
         );
-        let home = ribbon_groups("Home")
+        assert_eq!(ui::HOME_GROUPS_BEFORE_PICKERS, 5);
+        assert_eq!(
+            titles("Construction"),
+            ["Construct", "Advanced", "Modify", "Arrays"]
+        );
+        assert_eq!(
+            titles("Objects & Hotspots"),
+            [
+                "Prototypes, Instances & Groups",
+                "Scripts & GPU",
+                "External Prototypes",
+                "Hotspots",
+            ]
+        );
+        assert_eq!(titles("Settings")[0], "Input & Settings");
+    }
+
+    #[test]
+    fn every_placed_command_stays_on_the_ribbon_or_title_bar() {
+        use crate::functional_ui as ui;
+        let mut reachable = std::collections::BTreeSet::new();
+        for tab in ui::RIBBON_TABS {
+            for section in ribbon_groups(tab) {
+                reachable.extend(section.commands.iter().map(|(id, _)| *id));
+            }
+        }
+        for section in ui::title_bar_sections() {
+            for (id, _) in section.commands {
+                assert!(
+                    reachable.insert(*id),
+                    "{id} is on both the title bar and the ribbon"
+                );
+                assert!(!ui::on_shelf(id), "{id} is also in the left panel");
+            }
+        }
+        for section in ui::SECTIONS {
+            for (id, _) in section.commands {
+                assert!(reachable.contains(id), "{id} lost its button");
+            }
+        }
+        let shelf = ui::SHELF_GROUPS
             .iter()
-            .flat_map(|s| s.commands.iter().map(|(id, _)| *id))
-            .collect::<Vec<_>>();
-        for id in [
-            "tool.select",
-            "tool.builtin.move",
-            "tool.move_copy",
-            "edit.undo",
-            "edit.redo",
-            "edit.cut_selection",
-            "edit.copy_selection",
-            "edit.paste",
-            "edit.paste_in_place",
-            "tool.builtin.line",
-            "tool.builtin.polyline",
-            "tool.builtin.polyline_mesh",
-            "tool.builtin.double_line",
-            "tool.builtin.mesh",
-            "tool.builtin.rotate",
-            "tool.builtin.scale",
-            "tool.builtin.push_pull",
-            "tool.builtin.extrude_swipe",
-            "view.axis_guide",
-            "view.grid_guide",
-            "hotspot.begin_placement",
-            "tool.builtin.rectangle",
-            "tool.builtin.circle",
-            "tool.cuboid",
-            "tool.builtin.primitive_sphere",
-        ] {
-            assert!(home.contains(&id), "missing Home shortcut {id}");
+            .chain(["Files", "Clipboard & History"].iter());
+        assert_eq!(shelf.count(), ui::GROUPS.len());
+        assert!(
+            ui::SHELF_GROUPS
+                .iter()
+                .all(|group| ui::GROUPS.contains(group))
+        );
+        assert_eq!(super::MENU_NAMES[0], "Selection");
+    }
+
+    #[test]
+    fn title_bar_tools_have_icons_and_registered_commands() {
+        let commands = MeshcraftApp::command_catalog();
+        let ids = super::title_tools::command_ids();
+        assert_eq!(ids.len(), 21, "Home keeps its separate toggle");
+        assert!(!ids.contains(&"file.home"));
+        for id in ids {
+            assert!(
+                commands.iter().any(|command| command.id.as_str() == id),
+                "{id} is registered"
+            );
+            assert!(crate::assets::gpui_icon(id).is_some(), "{id} has an icon");
         }
     }
 

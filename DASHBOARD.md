@@ -1,5 +1,9 @@
 # Dashboard
 
+**0.50.0 title bar and ribbon:** Files, Import & Export and Clipboard & History moved to
+title bar buttons, and the ribbon went from twelve tabs to seven. See the
+[workspace guide](docs/menu-layout.md) and [evidence](docs/rewrite/handoffs/T72.md).
+
 **0.49.0 Home screen:** a plain launch now opens on Home, with five unit presets, Open,
 Import, Recent previews and nine embedded samples. Save As now joins Recent, and replacing a
 document frames the new content. Native file dialogs were not exercised under Xvfb. See

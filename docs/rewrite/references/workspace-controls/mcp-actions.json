@@ -41,22 +41,6 @@
     "arguments": {}
   },
   {
-    "tool": "meshcraft_scene",
-    "arguments": {}
-  },
-  {
-    "tool": "meshcraft_scene",
-    "arguments": {}
-  },
-  {
-    "tool": "meshcraft_scene",
-    "arguments": {}
-  },
-  {
-    "tool": "meshcraft_scene",
-    "arguments": {}
-  },
-  {
     "tool": "k3d_execute_command",
     "arguments": {
       "commandId": "object.place_selected_definition",

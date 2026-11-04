@@ -10,8 +10,7 @@ from capture_store_features import Capture, ROOT, SOURCE
 from runtime import desktop
 
 REFERENCE = ROOT / 'docs/rewrite/references/command-panel'
-GROUPS = ['Home', 'Files', 'Clipboard & History', 'Construction', 'Meshing',
-          'Modify', 'Solids', 'Civil', 'Materials', 'Objects', 'Hotspots', 'Settings']
+GROUPS = ['Home', 'Construction', 'Solids', 'Civil', 'Materials', 'Objects & Hotspots', 'Settings']
 
 
 def main():
@@ -33,7 +32,8 @@ def main():
         assert title == f'Meshcraft {capture.version} {project}', title
         for name in GROUPS:
             capture.group(name)
-        capture.group('Hotspots')
+        assert rpc.status()['workspace']['ribbonTabs'] == GROUPS
+        capture.group('Objects & Hotspots')
         capture.shot('hotspots', destination=reference / 'hotspots.png')
         # Native command shelf search keeps this independent of section heights.
         search = rpc.status()['workspace']['controls']['left/search']

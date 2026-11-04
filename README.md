@@ -57,9 +57,9 @@ wireframe previews support precise work. Flip reverses face normals and segment
 directions. Perspective, orthographic and walkthrough cameras let you inspect
 what you build, while dimensions, text and leaders annotate it.
 
-Menus, ribbon tabs and the left tool panel start with **Files, Clipboard & History
-and Selection**, followed by **2D Construction, Meshing, Solids, Civil, Materials,
-Objects, Hotspots and Settings**.
+**File, import/export, clipboard and history commands sit on the title bar.** The
+ribbon tabs are **Home, Construction, Solids, Civil, Materials, Objects & Hotspots
+and Settings**.
 Each visible action has one home per surface; a searchable command palette
 retains every registered command. Set visibility, editability and wireframe display by entity type, or
 show only the UI sections you need. Meshcraft is written in Rust, with a GPUI

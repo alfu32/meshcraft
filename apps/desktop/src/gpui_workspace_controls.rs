@@ -79,7 +79,7 @@ pub(super) fn prepare(
                         let query = this.workspace_controls.query.clone();
                         let commands = crate::MeshcraftApp::command_catalog();
                         if let Some(command) = commands.iter().find(|command| {
-                            crate::functional_ui::placement(command.id.as_str()).is_some()
+                            crate::functional_ui::on_shelf(command.id.as_str())
                                 && matches(command, &query)
                                 && command_enabled(&this.session, command)
                         }) {
@@ -255,10 +255,11 @@ pub(super) fn bounds_probe(shell: &MeshcraftShell, key: String) -> gpui::AnyElem
 }
 pub(super) fn status(shell: &MeshcraftShell) -> Value {
     let p = shell.session.native_ui_preferences();
+    let title_tools = !shell.session.native_home_open();
     let controls=shell.workspace_controls.bounds.lock().map(|map|map.iter().filter(|(key,_)| {
-        (p.left_panel_visible && key.starts_with("left/")) || (p.ribbon_visible && (key.starts_with("ribbon/") || (shell.active_ribbon_tab=="Home" && key.starts_with("home/")) || (shell.active_ribbon_tab=="Materials" && key.starts_with("materials/"))))
+        key.as_str() == "window/title" || (title_tools && key.starts_with("title/")) || (p.left_panel_visible && key.starts_with("left/")) || (p.ribbon_visible && (key.starts_with("ribbon/") || (shell.active_ribbon_tab=="Home" && key.starts_with("home/")) || (shell.active_ribbon_tab=="Materials" && key.starts_with("materials/"))))
     }).map(|(key,b)|(key.clone(),json!({"x":f32::from(b.origin.x),"y":f32::from(b.origin.y),"width":f32::from(b.size.width),"height":f32::from(b.size.height)}))).collect::<BTreeMap<_,_>>()).unwrap_or_default();
-    json!({"ribbonTab":shell.active_ribbon_tab,"ribbonTabs":crate::functional_ui::RIBBON_TABS,"leftPanelWidth":shell.workspace_controls.width,"leftPanelQuery":shell.workspace_controls.query,"selectionMaterials":shell.workspace_controls.selected_materials,"controls":controls,"coordinateSpace":"window logical pixels"})
+    json!({"titleToolsBlocked":super::title_tools::blocked(shell),"ribbonTab":shell.active_ribbon_tab,"ribbonTabs":crate::functional_ui::RIBBON_TABS,"leftPanelWidth":shell.workspace_controls.width,"leftPanelQuery":shell.workspace_controls.query,"selectionMaterials":shell.workspace_controls.selected_materials,"controls":controls,"coordinateSpace":"window logical pixels"})
 }
 pub(super) fn search(shell: &MeshcraftShell) -> gpui::AnyElement {
     div()

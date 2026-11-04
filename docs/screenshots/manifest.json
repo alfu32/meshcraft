@@ -9,8 +9,8 @@
       "scenario": "Exploded instrument controller with a ventilated service cover, controls, PCB and fasteners.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "6a0d95b7e472ef11c18b0bd3188f4c057a312fc2563928c1360df05521cadc30"
+      "applicationVersion": "0.50.0",
+      "sha256": "e36b9b993b10d35b73a58a370ed3b90a6aa351f5b21a721cbc49b782a70ae73a"
     },
     {
       "file": "architecture-materials-workspace.png",
@@ -18,8 +18,8 @@
       "scenario": "Two-storey courtyard residence with native walls, slabs, openings and independent glazing frames.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "50c50d6b88d0ce4fc2daef61cde35e049806dbf70c7fa3293d9fe4b45c61c5e4"
+      "applicationVersion": "0.50.0",
+      "sha256": "cfa0102ae6e80bc40e6497d4d5fdca4f943a6fd364972818768144ed364940e2"
     },
     {
       "file": "dynamic-object-instances.png",
@@ -27,8 +27,8 @@
       "scenario": "Fitted kitchen and island using independent configurable cabinet instances with material parameters.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "7dd35a217c8438fd926c7988bd04c9df9275e315149d70c4699a1900e4650f29"
+      "applicationVersion": "0.50.0",
+      "sha256": "2e4cf468b812faf13c0f0f7ecdbec92d599ca803e1d206b674949bd691a7aebc"
     },
     {
       "file": "scripted-object-editor.png",
@@ -36,8 +36,8 @@
       "scenario": "Unified JavaScript cabinet source with prototype and instance inputs beside an orbitable shelving preview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "8938c780cd5e3253c15f1ef18d1e4c2ead6bec6231c0ff7f9daa8e994fbbc191"
+      "applicationVersion": "0.50.0",
+      "sha256": "058f222b8ca204e5bd6a9b652a19abbcd9ff6186eabb6993bd1c707f5ba68743"
     },
     {
       "file": "procedural-tree.png",
@@ -45,8 +45,8 @@
       "scenario": "GPU-generated landscape canopy with editable settings and its interactive object preview.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "e67a424fdf371d1bce0bafc8cea552379564818e5a1cf2f713b75b0f1e45d0af"
+      "applicationVersion": "0.50.0",
+      "sha256": "a08a520eb8fededfea85371b1a916c10beb8fbf681260543d6d4c99ebb7408af"
     },
     {
       "file": "procedural-foliage.png",
@@ -54,8 +54,8 @@
       "scenario": "Furnished roof terrace with procedural brick, wood, water, grass and foliage materials.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "99eece2b39283cb43a99a3ceac5d5d586a05d0c0dd850278d098c61ea68a10fc"
+      "applicationVersion": "0.50.0",
+      "sha256": "b3f91cf90d600d2981cb78da73b52cc51624ea52f5ef9179cb92fb136553a7ef"
     },
     {
       "file": "architectural-stairs.png",
@@ -63,8 +63,8 @@
       "scenario": "Furnished double-height loft with a native turning stair, mezzanine and guardrail guides.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "67b28e837da381a45fa5ed19c330f160660756329c29e298464c1a679ca3ddee"
+      "applicationVersion": "0.50.0",
+      "sha256": "fcb3627eb433e25a62890c7afe1c6a4950795175859e222bf74807e6ed820477"
     },
     {
       "file": "shader-editor-preview.png",
@@ -72,8 +72,8 @@
       "scenario": "Custom GLSL branching rule and a live GPU tree preview in the shader editor.",
       "capture": "Live Meshcraft MCP workflow; unaltered native app-window capture",
       "refresh": "complete",
-      "applicationVersion": "0.48.5",
-      "sha256": "f0a30ca827946654d5023ae72a118340ed7c4caa31e362b40890528272301b69"
+      "applicationVersion": "0.50.0",
+      "sha256": "38616ebb083b0681b6e21da3376938baec100fb88fd41859336071a9427138e0"
     },
     {
       "file": "home-screen.png",
@@ -85,5 +85,5 @@
       "sha256": "afaca6860aae9aa99c0cacab1aa79f27e6e93d61b09f39acf2ec6c810a0a8d2a"
     }
   ],
-  "refreshed_for": "Meshcraft 0.48.5 project demonstrations"
+  "refreshed_for": "Meshcraft 0.50.0 project demonstrations"
 }
