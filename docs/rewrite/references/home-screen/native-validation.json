@@ -1,5 +1,5 @@
 {
-  "version": "Meshcraft 0.50.0",
+  "version": "Meshcraft 0.51.0",
   "method": "Real pointer and key events in private Xvfb; see script",
   "results": {
     "automation launch skips Home": {
@@ -105,7 +105,7 @@
     "saved project gets a Recent preview": {
       "passed": true,
       "detail": [
-        "406cdc72a4b0e882.png"
+        "9ada65f98a2d7641.png"
       ]
     },
     "next launch lists the project": {

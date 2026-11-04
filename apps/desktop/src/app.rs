@@ -2251,7 +2251,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             profile: UiProfile::DesktopMenus,
-            menu_bar_visible: true,
+            menu_bar_visible: false,
             menu_visibility: BTreeMap::new(),
             ribbon_visible: true,
             left_panel_visible: true,
@@ -14582,7 +14582,7 @@ mod tests {
             assert_eq!(app.preferences, restored);
         }
         let legacy: Preferences = serde_json::from_str("{}").unwrap();
-        assert!(legacy.menu_bar_visible && legacy.ribbon_visible && legacy.left_panel_visible);
+        assert!(!legacy.menu_bar_visible && legacy.ribbon_visible && legacy.left_panel_visible);
         assert!(legacy.menu_visibility.is_empty());
     }
 

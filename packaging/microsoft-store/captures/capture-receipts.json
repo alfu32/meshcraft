@@ -1,82 +1,82 @@
 {
   "01-direct-modeling": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/instrument.octd",
     "preview": false,
     "revision": 110,
     "generation": 1,
-    "frameSequence": 5,
-    "sha256": "e36b9b993b10d35b73a58a370ed3b90a6aa351f5b21a721cbc49b782a70ae73a",
+    "frameSequence": 6,
+    "sha256": "240f1bc3c144ec5c8fc89b3d8ef2f73351f03a30fa90e8d6bfb8971a536615d4",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "02-dynamic-instances": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/kitchen.octd",
     "preview": false,
     "revision": 106,
     "generation": 2,
     "frameSequence": 17,
-    "sha256": "2e4cf468b812faf13c0f0f7ecdbec92d599ca803e1d206b674949bd691a7aebc",
+    "sha256": "7c18ec376c248e71b84827513a30b3889ab8a7698c6dda6f2297265f51803a8a",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "03-architecture": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/residence.octd",
     "preview": false,
     "revision": 81,
     "generation": 3,
     "frameSequence": 22,
-    "sha256": "cfa0102ae6e80bc40e6497d4d5fdca4f943a6fd364972818768144ed364940e2",
+    "sha256": "e45fe1464b59c34fba6029fb71a16828e725950e6101e45927b1a097a3f45ff7",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "04-javascript-editor": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/casework.octd",
     "preview": true,
     "revision": 24,
     "generation": 4,
-    "frameSequence": 33,
-    "sha256": "058f222b8ca204e5bd6a9b652a19abbcd9ff6186eabb6993bd1c707f5ba68743",
+    "frameSequence": 35,
+    "sha256": "183055eb956b6f191eccd09f620277f7bc831d01c59d16ace9cd40714bb226a7",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "05-shader-editor": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd",
     "preview": true,
     "revision": 74,
     "generation": 5,
-    "frameSequence": 178,
-    "sha256": "38616ebb083b0681b6e21da3376938baec100fb88fd41859336071a9427138e0",
+    "frameSequence": 221,
+    "sha256": "1b6b9ed3ef670d5ea78121477529a54562ccfe5253f75eb7e7d3fb8dd4026ebf",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "06-procedural-materials": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/rooftop.octd",
     "preview": false,
     "revision": 50,
     "generation": 6,
-    "frameSequence": 224,
-    "sha256": "b3f91cf90d600d2981cb78da73b52cc51624ea52f5ef9179cb92fb136553a7ef",
+    "frameSequence": 272,
+    "sha256": "4441ed830e89be3971601b4ccbf93a0ba42f4a537579e794add066076ecf86e3",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "07-branching-preview": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd",
     "preview": true,
     "revision": 74,
     "generation": 7,
-    "frameSequence": 289,
-    "sha256": "a08a520eb8fededfea85371b1a916c10beb8fbf681260543d6d4c99ebb7408af",
+    "frameSequence": 347,
+    "sha256": "347db5b845939c04c76c5c845aa6335186ecad4174e1ca3fecc3fa98d54d1ac1",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "08-architectural-stairs": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/loft.octd",
     "preview": false,
     "revision": 98,
     "generation": 8,
-    "frameSequence": 335,
-    "sha256": "fcb3627eb433e25a62890c7afe1c6a4950795175859e222bf74807e6ed820477",
+    "frameSequence": 397,
+    "sha256": "217f6559d49510c041ddc5338a00c3822992a56f77ffe7cdd32fc80ee5ad86e9",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "material-preview": {
@@ -270,13 +270,13 @@
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "shader-json-draft": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/park.octd",
     "preview": true,
     "revision": 74,
     "generation": 5,
-    "frameSequence": 143,
-    "sha256": "d4c796978670303764aec687a728636c41cc387bfd0825c4fbd2a88f0d43ce49",
+    "frameSequence": 170,
+    "sha256": "a17ebbdf2d863608bd5192fbb940bc06544f056e44107087f8cbf948df38b885",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "shader": {
@@ -290,23 +290,23 @@
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "10-technical-workspace": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/studio.octd",
     "preview": false,
     "revision": 104,
     "generation": 10,
-    "frameSequence": 344,
-    "sha256": "9ffbfe08158a8cbab79bb4fa3fde6e50a75212fe5ade18e84d1fbb4e018cb647",
+    "frameSequence": 406,
+    "sha256": "8483283e7784a370900318b10cdb68cca64fc7f3641b39ba4f788273b7c018c0",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   },
   "09-mechanical-assembly": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/plantroom.octd",
     "preview": false,
     "revision": 152,
     "generation": 9,
-    "frameSequence": 338,
-    "sha256": "cb17308ad50d5240ce90d7830b9dd6285d9aa3942d43069eb11fe6a431d6972e",
+    "frameSequence": 400,
+    "sha256": "645ca3223aab507233426ab4c6b61984545c489ecfc9cd4b8f4e37d5b8935cab",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   }
 }

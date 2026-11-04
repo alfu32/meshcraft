@@ -833,7 +833,7 @@ pub(super) fn ribbon_content(
         .gap(px(3.))
         .px(px(5.))
         .bg(rgb(0x20262e));
-    for (index, group) in ribbon_groups(tab).iter().enumerate() {
+    for group in ribbon_groups(tab) {
         ribbon = ribbon.child(ribbon_group(
             group.title,
             if tab == "Home" {
@@ -844,19 +844,19 @@ pub(super) fn ribbon_content(
             group.commands,
             bindings,
         ));
-        if tab == "Home" && index + 1 == crate::functional_ui::HOME_GROUPS_BEFORE_PICKERS {
-            ribbon = ribbon
-                .child(super::workspace_controls::picker(
-                    bindings.shell,
-                    false,
-                    "home/material",
-                ))
-                .child(super::workspace_controls::picker(
-                    bindings.shell,
-                    true,
-                    "home/object",
-                ));
-        }
+    }
+    if tab == "Home" {
+        ribbon = ribbon
+            .child(super::workspace_controls::picker(
+                bindings.shell,
+                false,
+                "home/material",
+            ))
+            .child(super::workspace_controls::picker(
+                bindings.shell,
+                true,
+                "home/object",
+            ));
     }
     if tab == "Materials" {
         ribbon = ribbon.child(super::workspace_controls::picker(

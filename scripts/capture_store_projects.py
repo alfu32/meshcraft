@@ -296,6 +296,8 @@ def main():
     with desktop(args.binary.resolve(), output / 'work/projects-runtime', 120, True,
                  size=(1920, 1080)) as (rpc, app, env):
         c = Projects(rpc, env, output)
+        # Show the default workspace: the menu bar is off unless the user turns it on.
+        c.cmd('ui.update_preferences', menu_bar_visible=False)
         if not args.capture_only:
             for project in [args.project] if args.project else PROJECTS:
                 try:

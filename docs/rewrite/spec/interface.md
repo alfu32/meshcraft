@@ -124,7 +124,11 @@ Launching with a project or `--mcp-port` skips Home, so file associations and au
 
 **New (0.50.0), requested by the user with annotated screenshots.** Files, Import & Export and Clipboard & History become icon buttons on the title bar, between the Home toggle and the title, and leave the ribbon, the left panel and the dropdown menus. They use the same commands and availability, dim when unavailable and stay visible when the menu bar, ribbon or left panel is hidden. They are disabled while a modal editor or prompt is open, because the title bar stays reachable above those. Only the Home toggle shows on the Home screen. Recent Files opens a list of recent projects.
 
-The ribbon has seven tabs. Home holds Selection, Draw, Annotations, Transform and Guides in that order, then the material and object pickers and the Mesh, Hotspots and Solids shortcuts. Construction holds the former Meshing and Modify tabs. Objects & Hotspots merges those two tabs. Settings gains Input & Settings. Other dropdown menus and left panel sections, command IDs, shortcuts and command panel paths do not change. The full layout is in [the workspace guide](../../menu-layout.md). Acceptance: C45.
+The ribbon has seven tabs. Home holds Selection, Draw, Annotations, Transform and Guides in that order, then the material and object pickers. Construction holds the former Meshing and Modify tabs. Objects & Hotspots merges those two tabs. Settings gains Input & Settings. Other dropdown menus and left panel sections, command IDs, shortcuts and command panel paths do not change. The full layout is in [the workspace guide](../../menu-layout.md). Acceptance: C45.
+
+### U08 Title bar command search
+
+**New (0.51.0), requested by the user with annotated screenshots.** The Commands button is replaced by a right-aligned search box on the title bar, with a search button that shows the matches for its text and a chevron that shows or hides the command list. The list opens below the box and keeps the palette's filtering, Up/Down/Enter/Escape keys and Ctrl+Shift+P. While the box has focus the list is open, so typed letters never reach tool hotkeys. The search is disabled while a modal editor or prompt is open. The menu bar is hidden by default, with the ribbon and left panel shown; a saved preference is kept. Home's Mesh, Hotspots and Solids shortcuts are removed. Acceptance: C46.
 
 ### R01 Interactive viewport
 

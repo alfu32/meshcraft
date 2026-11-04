@@ -512,7 +512,7 @@ pub(crate) const RIBBON_TABS: &[&str] = &[
     "Objects & Hotspots",
     "Settings",
 ];
-/// Home's whole functional groups, in order. Guides, the pickers and `HOME_SHORTCUTS` follow.
+/// Home's functional groups, in order. Guides and the two pickers follow.
 const HOME_GROUPS: &[(&str, &str)] = &[
     ("Selection", "Selection"),
     ("Construction", "Draw"),
@@ -532,33 +532,6 @@ const HOME_GUIDES: Section = Section {
         ("view.grid.toggle", "Show Grid"),
     ],
 };
-const HOME_SHORTCUTS: &[Section] = &[
-    Section {
-        root: "Home",
-        title: "Mesh",
-        commands: &[
-            ("tool.builtin.polyline_mesh", "Polyline Mesh"),
-            ("tool.builtin.mesh", "3D Mesh"),
-            ("tool.builtin.push_pull", "Extrude"),
-            ("tool.builtin.extrude_swipe", "Sweep"),
-        ],
-    },
-    Section {
-        root: "Home",
-        title: "Hotspots",
-        commands: &[("hotspot.begin_placement", "Hotspot")],
-    },
-    Section {
-        root: "Home",
-        title: "Solids",
-        commands: &[
-            ("tool.cuboid", "Cuboid"),
-            ("tool.builtin.primitive_sphere", "Sphere"),
-        ],
-    },
-];
-/// Number of leading Home groups that precede the material and object pickers.
-pub(crate) const HOME_GROUPS_BEFORE_PICKERS: usize = HOME_GROUPS.len() + 1;
 
 pub(crate) fn ribbon_sections(tab: &str) -> Vec<&'static Section> {
     match tab {
@@ -566,7 +539,6 @@ pub(crate) fn ribbon_sections(tab: &str) -> Vec<&'static Section> {
             .iter()
             .map(|(root, title)| section(root, title))
             .chain(std::iter::once(&HOME_GUIDES))
-            .chain(HOME_SHORTCUTS)
             .collect(),
         "Construction" => vec![
             section("Meshing", "Construct"),

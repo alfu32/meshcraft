@@ -73,9 +73,18 @@ class Run:
         self.expect(f'{width}: title buttons leave room for the title and window controls',
                     right + 130 + 100 <= width, f'buttons end at {right}')
         title = controls['window/title']
-        self.expect(f'{width}: title text stops before the window controls',
-                    title['x'] >= right and title['x'] + title['width'] <= width - 90,
+        cluster = controls['search/cluster']
+        self.expect(f'{width}: title sits between the buttons and the search box',
+                    title['x'] >= right and title['x'] + title['width'] <= cluster['x'],
                     f"title spans {title['x']} to {title['x'] + title['width']}")
+        self.expect(f'{width}: search box is right-aligned before the window controls',
+                    cluster['x'] + cluster['width'] <= width - 90
+                    and cluster['x'] + cluster['width'] >= width - 160,
+                    f"search spans {cluster['x']} to {cluster['x'] + cluster['width']}")
+        self.expect(f'{width}: search box and its buttons are usable',
+                    controls['search/box']['width'] >= 90
+                    and controls['search/button']['width'] > 0
+                    and controls['search/chevron']['width'] > 0)
         self.expect(f'{width}: title buttons stay on the title bar',
                     all(controls['title/' + t]['y'] + controls['title/' + t]['height'] <= 34
                         for t in TOOLS if t not in missing))
@@ -126,6 +135,7 @@ class Run:
         self.c.xd('key', 'Return')
         wait_for(lambda: self.rpc.status()['workspace']['titleToolsBlocked'], 'shader editor')
         self.window_shot('modal-blocks-title-buttons')
+        self.search_behind_modal()
         count = len(self.c.scene()['objects'])
         self.press('title/edit.undo')
         self.press('title/file.new')
@@ -169,12 +179,102 @@ class Run:
         wait_for(opened, 'Recent Files row to open the project')
         self.expect('Recent button opens a list whose row opens the project', True)
 
+    def workspace(self):
+        return self.rpc.status()['workspace']
+
+    def command_search(self):
+        status = self.rpc.status
+        self.press('search/box')
+        self.expect('clicking the search box opens the list', self.workspace()['commandListOpen'])
+        tool = status()['activeTool']
+        self.c.xd('type', '--clearmodifiers', 'tool.builtin.line')
+        time.sleep(.3)
+        self.expect('typing filters without reaching tool hotkeys',
+                    self.workspace()['commandQuery'] == 'tool.builtin.line'
+                    and status()['activeTool'] == tool)
+        self.window_shot('command-search')
+        self.press('search/box')
+        self.expect('clicking the box again keeps the list and text',
+                    self.workspace()['commandListOpen']
+                    and self.workspace()['commandQuery'] == 'tool.builtin.line')
+        self.press('search/chevron')
+        self.expect('chevron hides the list and keeps the text',
+                    not self.workspace()['commandListOpen']
+                    and self.workspace()['commandQuery'] == 'tool.builtin.line')
+        self.press('search/chevron')
+        self.expect('chevron shows the list again', self.workspace()['commandListOpen'])
+        self.press('search/chevron')
+        self.press('search/button')
+        self.expect('search button shows the matches for the text',
+                    self.workspace()['commandListOpen']
+                    and self.workspace()['commandQuery'] == 'tool.builtin.line')
+        # Linear Dimension sorts first, so this also checks the selection moves.
+        self.c.xd('key', 'Down', 'Return')
+        wait_for(lambda: status()['activeTool'] == 'Line', 'Enter to run the match')
+        self.expect('Enter runs the selected command and closes the list',
+                    not self.workspace()['commandListOpen'])
+        time.sleep(.2)
+        self.expect('running a command clears the text', self.workspace()['commandQuery'] == '')
+        self.rpc.pointer('cancel')
+        self.c.cmd('tool.select')
+        self.c.xd('key', 'ctrl+shift+p')
+        time.sleep(.3)
+        self.expect('Ctrl+Shift+P opens the list', self.workspace()['commandListOpen'])
+        self.c.xd('type', '--clearmodifiers', 'view.ortho.')
+        time.sleep(.2)
+        self.c.xd('key', 'Down', 'Return')
+        time.sleep(.3)
+        self.expect('Down and Enter run the second match', 'bottom orthographic' in status()['status'],
+                    status()['status'])
+        self.c.cmd('view.camera.perspective')
+        self.c.xd('key', 'ctrl+shift+p')
+        time.sleep(.2)
+        self.c.xd('key', 'ctrl+shift+p')
+        time.sleep(.3)
+        self.expect('Ctrl+Shift+P closes the list', not self.workspace()['commandListOpen'])
+        self.press('search/box')
+        self.c.xd('type', '--clearmodifiers', 'abc')
+        time.sleep(.2)
+        self.c.xd('key', 'Escape')
+        time.sleep(.3)
+        self.expect('Escape closes the list and clears the text',
+                    not self.workspace()['commandListOpen'] and self.workspace()['commandQuery'] == '')
+        tool = status()['activeTool']
+        self.press('search/box')
+        # The list only reacts to outside clicks once painted, and frames are slow here.
+        time.sleep(1)
+        self.c.xd('mousemove', 800, 600, 'click', 1)
+        time.sleep(.5)
+        self.expect('clicking elsewhere closes the list', not self.workspace()['commandListOpen'])
+        # G only starts a guide with nothing selected, and that click selected an object.
+        # After a viewport click it also needs an Escape first, with or without search.
+        self.c.xd('key', 'Escape')
+        self.rpc.select([])
+        time.sleep(.3)
+        self.c.xd('key', 'g')
+        wait_for(lambda: status()['activeTool'] == 'Grid Guide', 'G hotkey after closing the list')
+        self.expect('tool hotkeys work again after closing the list', True)
+        self.c.xd('key', 'Escape')
+        wait_for(lambda: status()['activeTool'] == tool, 'Escape to cancel the guide tool')
+
+    def search_behind_modal(self):
+        self.press('search/box')
+        self.expect('search box does nothing behind a modal editor',
+                    not self.workspace()['commandListOpen'])
+
     def home(self):
         self.c.cmd('file.home', open=True)
         time.sleep(.5)
         self.rpc.frame()
         self.expect('Home screen hides the title buttons',
                     not any(key.startswith('title/') for key in self.controls()))
+        self.press('search/box')
+        self.c.xd('type', '--clearmodifiers', 'view.ortho.top')
+        time.sleep(.2)
+        self.expect('command search works on the Home screen', self.workspace()['commandListOpen'])
+        self.window_shot('command-search-on-home')
+        self.c.xd('key', 'Escape')
+        time.sleep(.3)
         self.c.cmd('file.home', open=False)
         time.sleep(.5)
         self.rpc.frame()
@@ -213,6 +313,7 @@ def main():
         run.ribbon()
         run.clipboard_and_history()
         run.left_panel_search()
+        run.command_search()
         run.modal()
         run.hidden_surfaces()
         run.home()
@@ -231,6 +332,17 @@ def main():
         run.checks = {k + ' (short title)': v for k, v in run.checks.items()}
         run.layout(900)
         run.window_shot('minimum-window-long-path')
+        results.update(run.checks)
+    with desktop(args.binary.resolve(), work / 'title-bar-fresh', 120, True, size=(1880, 1060),
+                 fresh_profile=True) as (rpc, app, env):
+        run = Run(rpc, env, REFERENCE)
+        rpc.frame()
+        controls = run.controls()
+        run.expect('fresh profile hides the menu bar', controls['ribbon/Home']['y'] < 50,
+                   f"first ribbon tab at y={controls['ribbon/Home']['y']}")
+        run.expect('fresh profile shows the ribbon and left panel',
+                   'ribbon/Home' in controls and 'left/search' in controls)
+        run.window_shot('fresh-profile')
         results.update(run.checks)
     (REFERENCE / 'native-validation.json').write_text(json.dumps(dict(
         version=run.c.version, checks=results, platform='Linux Xvfb/Mesa; actual GPUI app',

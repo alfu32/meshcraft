@@ -29,6 +29,111 @@ pub(super) fn command_ids() -> Vec<&'static str> {
         .collect()
 }
 
+/// Width of the search cluster: it gives way to the title, down to a usable minimum.
+fn search_width(window_width: f32) -> f32 {
+    (window_width * 0.18).clamp(150., 340.)
+}
+
+/// Command search box with its search and list buttons, right-aligned on the title bar.
+pub(super) fn search(
+    shell: &MeshcraftShell,
+    window: &Window,
+    cx: &mut Context<MeshcraftShell>,
+) -> gpui::AnyElement {
+    let blocked = blocked(shell);
+    let open = shell.command_palette_open;
+    let input = shell
+        .palette_input
+        .as_ref()
+        .expect("prepared palette input");
+    let probe = |key: &str| workspace_controls::bounds_probe(shell, key.to_owned());
+    div()
+        .id("search/cluster")
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(2.))
+        .ml(px(6.))
+        .w(px(search_width(f32::from(window.viewport_size().width))))
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_w(px(0.))
+                // A disabled input can still take focus, away from the open editor.
+                .when(blocked, |cell| {
+                    cell.child(
+                        div()
+                            .h(px(20.))
+                            .px(px(6.))
+                            .text_xs()
+                            .truncate()
+                            .text_color(rgb(0x6f7c8a))
+                            .child("Search commands…"),
+                    )
+                })
+                .when(!blocked, |cell| {
+                    cell.child(Input::new(input).xsmall().w_full())
+                })
+                .child(probe("search/box")),
+        )
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .child(
+                    Button::new("search/run")
+                        .icon(gpui_component::IconName::Search)
+                        .xsmall()
+                        .ghost()
+                        .disabled(blocked)
+                        .tooltip("Search commands")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_command_list();
+                            cx.notify();
+                        })),
+                )
+                .child(probe("search/button")),
+        )
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .child(
+                    Button::new("search/toggle")
+                        .icon(if open {
+                            gpui_component::IconName::ChevronUp
+                        } else {
+                            gpui_component::IconName::ChevronDown
+                        })
+                        .xsmall()
+                        .ghost()
+                        .selected(open)
+                        .disabled(blocked)
+                        .tooltip(if open {
+                            "Hide command list"
+                        } else {
+                            "Show command list · Ctrl+Shift+P"
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if this.command_palette_open {
+                                this.command_palette_open = false;
+                                window.focus(&this.focus);
+                            } else {
+                                this.show_command_list();
+                            }
+                            cx.notify();
+                        })),
+                )
+                .child(probe("search/chevron")),
+        )
+        .child(probe("search/cluster"))
+        .into_any_element()
+}
+
 fn tooltip(label: &str, command: Option<&CommandDescriptor>) -> String {
     match command.and_then(|command| command.shortcut.as_deref()) {
         Some(shortcut) => format!("{label} · {shortcut}"),

@@ -1,12 +1,12 @@
 {
   "tab": {
-    "version": "0.50.0",
+    "version": "0.51.0",
     "project": null,
     "preview": false,
     "revision": 80,
     "generation": 1,
     "frameSequence": 4,
-    "sha256": "c4f7129b8df81aa7f7d1ad019596c4142e2880a34361f0bcca4a36a99466a776",
+    "sha256": "cbad0d4d091ebc58d80e034f53440356815b0bb44285ec0f0c281fbe6a130f31",
     "method": "Meshcraft MCP modeling/camera/preview; native unaltered app-window capture"
   }
 }

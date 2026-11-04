@@ -1198,6 +1198,7 @@ struct MeshcraftShell {
     palette_subscription: Option<gpui::Subscription>,
     palette_query: String,
     palette_focus_pending: bool,
+    palette_clear_pending: bool,
     palette_selected: usize,
     palette_scroll: gpui::ScrollHandle,
     window_title: String,
@@ -1262,6 +1263,7 @@ impl MeshcraftShell {
             palette_subscription: None,
             palette_query: String::new(),
             palette_focus_pending: false,
+            palette_clear_pending: false,
             palette_selected: 0,
             palette_scroll: gpui::ScrollHandle::new(),
             window_title: String::new(),
@@ -1298,9 +1300,25 @@ impl MeshcraftShell {
     }
 
     fn toggle_command_palette(&mut self) {
+        if title_tools::blocked(self) {
+            return;
+        }
         self.command_palette_open = !self.command_palette_open;
         self.open_menu = None;
         self.palette_focus_pending = self.command_palette_open;
+        self.palette_clear_pending = self.command_palette_open;
+    }
+
+    /// Opens the list for the search box's current text and focuses the box.
+    fn show_command_list(&mut self) {
+        if title_tools::blocked(self) {
+            return;
+        }
+        self.command_palette_open = true;
+        self.open_menu = None;
+        self.palette_focus_pending = true;
+        self.palette_selected = 0;
+        self.palette_scroll.scroll_to_top_of_item(0);
     }
 
     fn prepare_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1315,6 +1333,15 @@ impl MeshcraftShell {
                             this.palette_query = input.read(cx).value().to_string();
                             this.palette_selected = 0;
                             this.palette_scroll.scroll_to_top_of_item(0);
+                            if !this.palette_query.is_empty() {
+                                this.command_palette_open = true;
+                                this.open_menu = None;
+                            }
+                        }
+                        // An open list keeps typed letters away from tool hotkeys.
+                        InputEvent::Focus => {
+                            this.command_palette_open = true;
+                            this.open_menu = None;
                         }
                         InputEvent::PressEnter { .. } if this.command_palette_open => {
                             this.execute_palette_selection(window, cx);
@@ -1326,16 +1353,19 @@ impl MeshcraftShell {
             ));
             self.palette_input = Some(input);
         }
-        if self.palette_focus_pending {
-            self.palette_focus_pending = false;
+        if self.palette_clear_pending {
+            self.palette_clear_pending = false;
             self.palette_query.clear();
             self.palette_selected = 0;
             self.palette_scroll.scroll_to_top_of_item(0);
             if let Some(input) = self.palette_input.clone() {
-                input.update(cx, |input, cx| {
-                    input.set_value("", window, cx);
-                    input.focus(window, cx);
-                });
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
+        if self.palette_focus_pending {
+            self.palette_focus_pending = false;
+            if let Some(input) = self.palette_input.clone() {
+                input.update(cx, |input, cx| input.focus(window, cx));
             }
         }
     }
@@ -1352,6 +1382,7 @@ impl MeshcraftShell {
     ) {
         if command_enabled(&self.session, command) {
             self.command_palette_open = false;
+            self.palette_clear_pending = true;
             window.focus(&self.focus);
             self.dispatch_with_clipboard(command.id.as_str(), cx);
         } else {
@@ -1383,6 +1414,7 @@ impl MeshcraftShell {
             "enter" => self.execute_palette_selection(window, cx),
             "escape" => {
                 self.command_palette_open = false;
+                self.palette_clear_pending = true;
                 window.focus(&self.focus);
             }
             _ => return false,
@@ -3149,19 +3181,6 @@ impl Render for MeshcraftShell {
                             .size_full(),
                         )
                     }),
-            )
-            .child(div().flex_1())
-            .child(
-                Button::new("commands/open")
-                    .label("Commands  Ctrl+Shift+P")
-                    .small()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            this.toggle_command_palette();
-                            cx.notify();
-                        }),
-                    ),
             );
 
         let ribbon_tabs = div()
@@ -3538,7 +3557,17 @@ impl Render for MeshcraftShell {
         let command_palette = self.command_palette_open.then(|| {
             let commands = self.palette_commands();
             let width = (f32::from(window.viewport_size().width) - 32.).clamp(220., 580.);
-            let left = ((f32::from(window.viewport_size().width) - width) / 2.).max(0.);
+            let cluster = self
+                .workspace_controls
+                .bounds
+                .lock()
+                .ok()
+                .and_then(|bounds| bounds.get("search/cluster").copied());
+            let left = cluster
+                .map_or(f32::from(window.viewport_size().width) - width, |bounds| {
+                    f32::from(bounds.origin.x + bounds.size.width) - width
+                })
+                .max(8.);
             let list_height = (f32::from(window.viewport_size().height) - 240.).clamp(100., 390.);
             div()
                 .id("command-palette")
@@ -3546,13 +3575,19 @@ impl Render for MeshcraftShell {
                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(gpui::MouseButton::Right, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down_out(cx.listener(|this, _, window, cx| {
-                    this.command_palette_open = false;
-                    window.focus(&this.focus);
-                    cx.notify();
-                }))
+                .on_mouse_down_out(cx.listener(
+                    move |this, event: &gpui::MouseDownEvent, window, cx| {
+                        // The box and its buttons belong to the list.
+                        if cluster.is_some_and(|bounds| bounds.contains(&event.position)) {
+                            return;
+                        }
+                        this.command_palette_open = false;
+                        window.focus(&this.focus);
+                        cx.notify();
+                    },
+                ))
                 .absolute()
-                .top(px(80.))
+                .top(px(layout::TITLE_BAR_HEIGHT + 2.))
                 .left(px(left))
                 .w(px(width))
                 .p(px(10.))
@@ -3568,10 +3603,10 @@ impl Render for MeshcraftShell {
                         .text_sm()
                         .child(format!("Commands · {} matches", commands.len())),
                 )
-                .child(
-                    Input::new(self.palette_input.as_ref().expect("prepared palette input"))
-                        .w_full(),
-                )
+                .child(workspace_controls::bounds_probe(
+                    self,
+                    "search/list".to_owned(),
+                ))
                 .child(
                     div()
                         .id("command-palette-results")
@@ -3629,6 +3664,7 @@ impl Render for MeshcraftShell {
         let home_view = home_open.then(|| home::render(self, cx));
         let title_tools = (!home_open).then(|| title_tools::render(self, cx));
         let title_blocked = title_tools::blocked(self);
+        let title_search = title_tools::search(self, window, cx);
         let title_bar = gpui_component::TitleBar::new()
             .child(
                 div()
@@ -3673,7 +3709,8 @@ impl Render for MeshcraftShell {
                                 self,
                                 "window/title".to_owned(),
                             )),
-                    ),
+                    )
+                    .child(title_search),
             )
             .on_close_window(move |_, _, cx| {
                 let _ = close_view.update(cx, |shell, cx| {
@@ -3750,6 +3787,7 @@ impl Render for MeshcraftShell {
                             && event.keystroke.modifiers.shift)
                     {
                         this.command_palette_open = false;
+                        this.palette_clear_pending = true;
                         window.focus(&this.focus);
                         cx.stop_propagation();
                         cx.notify();
@@ -4373,18 +4411,8 @@ mod tests {
         );
         assert_eq!(
             titles("Home"),
-            [
-                "Selection",
-                "Draw",
-                "Annotations",
-                "Transform",
-                "Guides",
-                "Mesh",
-                "Hotspots",
-                "Solids",
-            ]
+            ["Selection", "Draw", "Annotations", "Transform", "Guides"]
         );
-        assert_eq!(ui::HOME_GROUPS_BEFORE_PICKERS, 5);
         assert_eq!(
             titles("Construction"),
             ["Construct", "Advanced", "Modify", "Arrays"]

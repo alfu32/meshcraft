@@ -21,6 +21,15 @@
   {
     "tool": "k3d_execute_command",
     "arguments": {
+      "commandId": "ui.update_preferences",
+      "arguments": {
+        "menu_bar_visible": false
+      }
+    }
+  },
+  {
+    "tool": "k3d_execute_command",
+    "arguments": {
       "commandId": "file.open",
       "arguments": {
         "path": "/home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/projects/instrument.octd"

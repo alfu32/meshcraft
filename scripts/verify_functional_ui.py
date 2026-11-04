@@ -66,7 +66,9 @@ def main():
         time.sleep(.2)
         assert 'bottom orthographic' in rpc.status()['status'], rpc.status()
         palette('view.ortho.')
-        capture.xd('mousemove', 820, 174, 'click', 1)
+        listing = rpc.status()['workspace']['controls']['search/list']
+        capture.xd('mousemove', round(listing['x'] + listing['width'] / 2),
+                   round(listing['y'] + 50), 'click', 1)
         time.sleep(.2)
         assert 'back orthographic' in rpc.status()['status'], rpc.status()
         palette()

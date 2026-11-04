@@ -3448,6 +3448,45 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T73",
+      "title": "Title bar command search and Home ribbon cleanup",
+      "phase": "desktop",
+      "dependencies": [
+        "T72"
+      ],
+      "requirements": [
+        "U08"
+      ],
+      "acceptance": [
+        "C46"
+      ],
+      "targets": [
+        "apps/desktop/src/gpui_title_tools.rs",
+        "apps/desktop/src/gpui_app.rs",
+        "apps/desktop/src/functional_ui.rs",
+        "scripts/verify_title_bar.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/menu-layout.md",
+        "docs/rewrite/spec/interface.md",
+        "docs/rewrite/handoffs/T73.md"
+      ],
+      "slices": [
+        "Replace the Commands button with a title bar search box, search button and chevron.",
+        "Hide the menu bar by default and remove Home's Mesh, Hotspots and Solids shortcuts.",
+        "Validate in the native application and document the layout."
+      ],
+      "done": [
+        "Native verification passes and the release gate is green at 0.51.0."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

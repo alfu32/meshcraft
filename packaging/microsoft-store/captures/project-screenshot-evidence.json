@@ -1,7 +1,7 @@
 {
   "10-technical-workspace": {
     "project": "projects/studio.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 16,
     "authoredFaces": 2668,
     "authoredSegments": 2197,
@@ -25,7 +25,7 @@
   },
   "01-direct-modeling": {
     "project": "projects/instrument.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 17,
     "authoredFaces": 5092,
     "authoredSegments": 3164,
@@ -49,7 +49,7 @@
   },
   "02-dynamic-instances": {
     "project": "projects/kitchen.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 23,
     "authoredFaces": 5200,
     "authoredSegments": 3886,
@@ -73,7 +73,7 @@
   },
   "03-architecture": {
     "project": "projects/residence.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 12,
     "authoredFaces": 3474,
     "authoredSegments": 3120,
@@ -97,7 +97,7 @@
   },
   "04-javascript-editor": {
     "project": "projects/casework.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 4,
     "authoredFaces": 804,
     "authoredSegments": 804,
@@ -121,7 +121,7 @@
   },
   "05-shader-editor": {
     "project": "projects/park.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 11,
     "authoredFaces": 768,
     "authoredSegments": 733,
@@ -145,7 +145,7 @@
   },
   "06-procedural-materials": {
     "project": "projects/rooftop.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 7,
     "authoredFaces": 1156,
     "authoredSegments": 1143,
@@ -169,7 +169,7 @@
   },
   "07-branching-preview": {
     "project": "projects/park.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 11,
     "authoredFaces": 768,
     "authoredSegments": 733,
@@ -193,7 +193,7 @@
   },
   "08-architectural-stairs": {
     "project": "projects/loft.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 15,
     "authoredFaces": 3188,
     "authoredSegments": 2512,
@@ -217,7 +217,7 @@
   },
   "09-mechanical-assembly": {
     "project": "projects/plantroom.octd",
-    "version": "0.50.0",
+    "version": "0.51.0",
     "objects": 24,
     "authoredFaces": 6956,
     "authoredSegments": 3761,

@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.51.0 command search:** a title bar search box with search and chevron buttons replaces the
+Commands button, the menu bar is hidden by default, and Home loses its Mesh, Hotspots and Solids
+shortcuts. See the [workspace guide](docs/menu-layout.md) and
+[evidence](docs/rewrite/handoffs/T73.md).
+
 **0.50.0 title bar and ribbon:** Files, Import & Export and Clipboard & History moved to
 title bar buttons, and the ribbon went from twelve tabs to seven. See the
 [workspace guide](docs/menu-layout.md) and [evidence](docs/rewrite/handoffs/T72.md).

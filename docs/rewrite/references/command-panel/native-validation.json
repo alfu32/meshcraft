@@ -1,5 +1,5 @@
 {
-  "version": "0.50.0",
+  "version": "0.51.0",
   "groupsVisited": 7,
   "lineActivatedThroughNativeShelf": true,
   "categorySearch": "Archi",
@@ -7,9 +7,9 @@
   "mouseExecuted": "view.ortho.back",
   "arrowScrollCaptured": true,
   "shaderEditorPreview": true,
-  "openedTitle": "Meshcraft 0.50.0 /home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
-  "savedTitle": "Meshcraft 0.50.0 /home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/work/command-panel-title.octd",
-  "newTitle": "Meshcraft 0.50.0 Untitled",
+  "openedTitle": "Meshcraft 0.51.0 /home/alfu64/Development/meshcraft/docs/rewrite/references/segment-feedback/model.octd",
+  "savedTitle": "Meshcraft 0.51.0 /home/alfu64/Development/meshcraft/packaging/microsoft-store/captures/work/command-panel-title.octd",
+  "newTitle": "Meshcraft 0.51.0 Untitled",
   "revisionUnchangedByNavigation": true,
   "historyUnchangedByNavigation": true,
   "platform": "Linux Xvfb/Mesa; actual GPUI app"

@@ -107,7 +107,7 @@ class Rpc:
 
 
 @contextlib.contextmanager
-def desktop(binary, directory, timeout, software, size=(1280, 900)):
+def desktop(binary, directory, timeout, software, size=(1280, 900), fresh_profile=False):
     width, height = size
     if not (640 <= width <= 7680 and 480 <= height <= 4320):
         raise ValueError("Private desktop size is outside the supported capture range")
@@ -122,7 +122,10 @@ def desktop(binary, directory, timeout, software, size=(1280, 900)):
     )
     config = directory / "config/meshcraft"
     config.mkdir(parents=True, exist_ok=True)
-    (config / "preferences.json").write_text(
+    if fresh_profile:
+        (config / "preferences.json").unlink(missing_ok=True)
+    else:
+        (config / "preferences.json").write_text(
         json.dumps(
             dict(
                 menu_bar_visible=True,

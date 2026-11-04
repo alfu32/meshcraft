@@ -1,9 +1,10 @@
-# Functional workspace — 0.50.0
+# Functional workspace — 0.51.0
 
-System-wide commands sit on the title bar. The dropdown menus and the searchable
-left command panel use the functional groups below, and the ribbon has its own
-composition of those sections. Every registered command stays in the command panel
-and MCP.
+System-wide commands and command search sit on the title bar. The dropdown menus
+and the searchable left command panel use the functional groups below, and the
+ribbon has its own composition of those sections. Every registered command stays in
+command search and MCP. The dropdown menus are hidden by default; UI Settings > Show
+menu bar turns them on, and a saved setting is kept.
 
 ## Title bar
 
@@ -19,6 +20,17 @@ The title follows and truncates first on narrow windows. Unavailable commands ar
 dimmed. Recent Files opens a list of recent projects. The buttons stay when the
 menu bar, ribbon or left panel is hidden. They are disabled while a modal editor
 or prompt is open, and only the Home toggle shows on the Home screen.
+
+## Command search
+
+A search box, search button and chevron are right-aligned on the title bar, before
+the window controls. Clicking or typing in the box opens the list below it, which
+filters as you type. The search button shows the matches for the box's text, and the
+chevron shows or hides the list. Up/Down select, Enter runs the selected command and
+Escape closes the list and clears the text. Clicking elsewhere closes the list and
+keeps the text. Ctrl+Shift+P opens the list with an empty box, or closes it. The box
+shrinks on narrow windows. It works on the Home screen and is disabled while a modal
+editor or prompt is open.
 
 ## Menus and left panel
 
@@ -36,7 +48,7 @@ or prompt is open, and only the Home toggle shows on the Home screen.
 | Settings | Model/UI settings, cameras, profiles, MCP and help |
 
 Files and Clipboard & History remain the canonical category of their commands in
-command panel paths and the tool inventory, without a dropdown menu or left panel
+command search paths and the tool inventory, without a dropdown menu or left panel
 section.
 
 The left panel keeps its search input above the scrolling tool sections. Search
@@ -50,7 +62,7 @@ do not change the drawing or history. Buttons keep their usual availability.
 
 | Tab | Groups, in order |
 | --- | --- |
-| Home | Selection, Draw, Annotations, Transform, Guides, Selection Material and Insert Object pickers, Mesh, Hotspots, Solids |
+| Home | Selection, Draw, Annotations, Transform, Guides, Selection Material and Insert Object pickers |
 | Construction | Construct, Advanced, Modify, Arrays |
 | Solids | Primitives, Booleans & Sections, Mechanical, Voxels |
 | Civil | Architecture, Stair Inputs, HVAC, Settings |
@@ -58,8 +70,7 @@ do not change the drawing or history. Buttons keep their usual availability.
 | Objects & Hotspots | Prototypes, Instances & Groups; Scripts & GPU; External Prototypes; Hotspots |
 | Settings | Input & Settings, Model & Interface, Camera, Workspace Profiles, Automation & Help |
 
-Home is the initial tab. Its Mesh, Hotspots and Solids groups are shortcuts to
-commands that also have a home on another tab. Long strips scroll horizontally
+Home is the initial tab. Long strips scroll horizontally
 without growing the ribbon vertically. Group headings stay on one line.
 
 Home and Materials contain the same material picker. It displays the selected
@@ -95,10 +106,9 @@ selected hotspot's properties and attachment/reference summary. The existing
 prototype-editing and root-scene authoring rules still control availability.
 See [hotspot panel validation](rewrite/references/hotspot-panel/README.md).
 
-The command panel lists every registered command as `Category > Function Name`.
-Search also includes command IDs and legacy keywords. Up/Down selects and scrolls;
-Enter executes the selected entry, and clicking executes the clicked entry.
-Unavailable commands stay visible with their usual context requirements.
+Command search lists every registered command as `Category > Function Name`. It
+also matches command IDs and legacy keywords. Clicking an entry runs it. Unavailable
+commands stay visible with their usual context requirements.
 
 The dropdown row starts with Selection. The title displays
 `Meshcraft x.y.z /path/to/filename.octd`, or `Meshcraft x.y.z Untitled`.
