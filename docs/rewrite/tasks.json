@@ -3487,6 +3487,49 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T74",
+      "title": "Hotspots as selected content: transform, explode and Make Object",
+      "phase": "desktop",
+      "dependencies": [
+        "T73"
+      ],
+      "requirements": [
+        "F04",
+        "F09"
+      ],
+      "acceptance": [
+        "C47"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/hotspots.rs",
+        "crates/meshcraft-core/src/operations/transforms.rs",
+        "crates/meshcraft-core/src/operations/copy.rs",
+        "crates/meshcraft-core/src/operations/objects.rs",
+        "crates/meshcraft-core/src/document/clipboard.rs",
+        "apps/desktop/src/object_workflow.rs",
+        "scripts/verify_hotspot_objects.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/objects.md",
+        "docs/rewrite/handoffs/T74.md"
+      ],
+      "slices": [
+        "Transform and copy authored hotspots, and set closed-instance values through the transform tools.",
+        "Keep hotspots through explode with rebound attachments.",
+        "Accept hotspots and mixed selections in Make Object and Paste.",
+        "Validate in the native application."
+      ],
+      "done": [
+        "Native verification passes and the release gate is green."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

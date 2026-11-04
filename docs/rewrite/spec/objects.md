@@ -63,7 +63,7 @@ Pointer motion, snapping and individual picks must reuse the prepared prototype 
 rather than cloning the scene for every query. Rendering and spatial queries share that immutable
 view until authored/evaluated geometry, document generation or the edit context changes.
 
-Escape exits the active object-edit context and cancels its current draft; a dedicated Close Object/Exit Editing button provides the same one-handed action. Outside object editing, retain the established staged Escape behavior. Exit clears edit-context selection and restores instance-level interaction. The inspector must clearly distinguish selected instance, edited prototype and root scene.
+Escape first cancels an active tool or draft and stays in the object (user correction, 2026-11-04), so more content can be added to it. With Select already active, Escape exits the active object-edit context; a dedicated Close Object/Exit Editing button provides the same one-handed action. Outside object editing, retain the established staged Escape behavior. Exit clears edit-context selection and restores instance-level interaction. The inspector must clearly distinguish selected instance, edited prototype and root scene.
 
 ## Hotspot authoring and instance behavior
 
@@ -187,6 +187,22 @@ The object-name inspector renames each distinct selected object prototype once,
 in one undoable edit. While editing a prototype it continues to name the active
 prototype. Unselected prototypes retain their names; shared definitions retain
 shared naming semantics.
+
+### Hotspots as selected content — 0.52.0
+
+Hotspots follow the same selection-first paths as the content beside them.
+
+**Transforms.** Move, Rotate, Scale, Mirror and Stretch map an authored hotspot's marker and reference point. Attachments stay on their geometry, so transforming a hotspot does not deform anything by itself. Move Copy, Rotate Copy, arrays and Copy/Paste create new hotspots with new IDs. A copy keeps its attachments unless the attached geometry or hotspots were copied in the same operation, in which case it follows those copies. `HOTSPOT_n` default names are renumbered on copy; chosen names are kept.
+
+For a closed instance's hotspot, a transform sets that instance's value, exactly like dragging the handle, and leaves the definition unchanged. Copying one is refused, because a closed instance holds values and not definitions.
+
+**Explode.** Exploding an object or group moves its hotspots into the parent with new IDs, like text and dimensions, including those of nested children. Attachments follow the geometry to its new identities, and links between hotspots follow theirs. An instance's hotspot values are already in its evaluated mesh, so the mesh is baked and each marker stays where it shows, starting from that position. Script-generated markers are generated output and are not kept. Inherited hotspots under a closed parent are refused until the parent is opened.
+
+**Make Object.** A selection may mix objects, mesh, dimensions, text and hotspots in one context. Selected objects become children of the new object, and everything else becomes the new object's own content, so its hotspots show and operate when it is selected. Attachments to geometry left outside are dropped, because an object's hotspot drives only that object's geometry. Hotspots and annotations selected inside a selected object stay in that object. Hotspots of a closed instance can't be moved out.
+
+Hotspots, dimensions and text placed while an object or group is open belong to it.
+
+**Selected feedback.** While a hotspot is selected, the viewport draws its reference point with a line to the marker, and highlights its attached edges, faces and vertices in the hotspot's color at the object's current shape. Hotspots it drives get a ring around their markers. A hotspot with no attachments highlights the vertices at its marker, which is what evaluation would drive. This overlay draws over the scene like the markers, so attachments on the far side of an object stay visible, and it applies both while authoring and on a closed instance.
 
 ### Object handle drag feedback (0.33.3)
 

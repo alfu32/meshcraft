@@ -8093,6 +8093,20 @@ impl MeshcraftApp {
             return CommandState::disabled("select an edge or face to paint");
         }
         if matches!(id, "tool.move_copy" | "tool.rotate_copy")
+            && self.selection.selected().iter().any(|target| {
+                matches!(
+                    target.entity,
+                    SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Hotspot,
+                        ..
+                    }
+                )
+            })
+            && !self.selection_can_array()
+        {
+            return CommandState::disabled("open the object to copy its hotspots");
+        }
+        if matches!(id, "tool.move_copy" | "tool.rotate_copy")
             && !self.selection.selected().is_empty()
         {
             return CommandState {
@@ -8620,12 +8634,13 @@ impl MeshcraftApp {
         self.selection
             .apply(report.selected_results.clone(), SelectionMode::Replace);
         self.status = format!(
-            "Exploded {} object(s) into {} edge(s), {} face(s), {} dimension(s), {} text item(s) and {} vector text outline(s).",
+            "Exploded {} object(s) into {} edge(s), {} face(s), {} dimension(s), {} text item(s), {} hotspot(s) and {} vector text outline(s).",
             report.exploded_occurrences,
             report.segments,
             report.triangles,
             report.dimensions,
             report.texts,
+            report.hotspots,
             report.vector_texts
         );
         let mut result = CommandResult::completed();
@@ -8645,6 +8660,9 @@ impl MeshcraftApp {
         result
             .outputs
             .insert("text_count".to_owned(), report.texts.into());
+        result
+            .outputs
+            .insert("hotspot_count".to_owned(), report.hotspots.into());
         result
             .outputs
             .insert("vector_text_count".to_owned(), report.vector_texts.into());
@@ -8813,12 +8831,12 @@ impl MeshcraftApp {
             self.cancel_active_tool();
             return;
         }
-        if self.selection.context != EditContext::Document {
-            self.cancel_active_tool();
-            self.exit_object_edit();
-        } else if self.active_tool != "Select" || self.tool_cycle_state.hotspot_placement_active() {
+        if self.active_tool != "Select" || self.tool_cycle_state.hotspot_placement_active() {
             self.cancel_active_tool();
             self.status = "Current tool canceled; Select active.".to_owned();
+        } else if self.selection.context != EditContext::Document {
+            self.cancel_active_tool();
+            self.exit_object_edit();
         } else if !self.selection.selected().is_empty() {
             self.selection.clear();
             self.hotspot_inspector = None;
@@ -13046,7 +13064,7 @@ fn payload_vec3(payload: &CommandPayload, name: &str, default: Vec3) -> Result<V
 fn transform_status(report: &modeling_transforms::TransformReport, copied: bool) -> String {
     if copied {
         format!(
-            "Copied {} vertex/vertices, {} edge(s), {} face(s), {} annotation(s), and {} object(s).",
+            "Copied {} vertex/vertices, {} edge(s), {} face(s), {} annotation(s) or hotspot(s), and {} object(s).",
             report.copied_vertices,
             report.copied_segments,
             report.copied_triangles,
@@ -13055,7 +13073,7 @@ fn transform_status(report: &modeling_transforms::TransformReport, copied: bool)
         )
     } else {
         format!(
-            "Transformed {} vertex/vertices, {} annotation(s), and {} object(s).",
+            "Transformed {} vertex/vertices, {} annotation(s) or hotspot(s), and {} object(s).",
             report.transformed_vertices,
             report.transformed_domain_entities,
             report.transformed_occurrences

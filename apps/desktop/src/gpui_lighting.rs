@@ -256,6 +256,21 @@ impl Renderer {
                     },
                 )
             });
+            for handle in &mut self.handles {
+                let target = SelectionTarget {
+                    occurrence: handle.occurrence.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: meshcraft_core::selection::SelectionKind::Hotspot,
+                        id: handle.hotspot.id.clone(),
+                    },
+                };
+                if self.selection.exactly_contains(&target) {
+                    handle.feedback = scene
+                        .document
+                        .hotspot_feedback(&handle.occurrence, &handle.hotspot)
+                        .ok();
+                }
+            }
             self.handle_context = Some(scene.edit_context.clone());
         }
         let partial = if feedback_changed {

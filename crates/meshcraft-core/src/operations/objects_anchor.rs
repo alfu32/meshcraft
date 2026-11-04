@@ -84,10 +84,14 @@ impl Bounds {
 pub(super) fn mesh_anchor(
     geometry: &GeometryBundle,
     extensions: &BTreeMap<String, Value>,
+    hotspots: &[Hotspot],
 ) -> Result<Vec3, String> {
     let mut bounds = Bounds::default();
     bounds.geometry(geometry, Affine3::IDENTITY)?;
     bounds.annotations(extensions, Affine3::IDENTITY)?;
+    for hotspot in hotspots {
+        bounds.point(hotspot.position)?;
+    }
     Ok(bounds.anchor().unwrap_or(Vec3::ZERO))
 }
 

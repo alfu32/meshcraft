@@ -1,5 +1,6 @@
 //! Selection-first geometric transforms and appearance edits.
 
+use crate::document::hotspots::{AttachmentIds, Hotspot};
 use crate::document::{
     DefinitionId, Document, GeometryBundle, OccurrenceRef, Segment, SegmentId, Triangle,
     TriangleId, VertexId, VertexRef,
@@ -67,6 +68,7 @@ struct GeometrySelection {
 struct DomainSelection {
     occurrence_targets: BTreeSet<OccurrenceRef>,
     ids_by_field: BTreeMap<&'static str, BTreeSet<String>>,
+    hotspots: BTreeSet<String>,
 }
 
 /// Applies one world-space affine transform to the selected mesh entities and object instances.
@@ -163,6 +165,7 @@ fn transform_selection_internal(
         .collect::<BTreeSet<_>>();
     let mut geometry = BTreeMap::<GeometryOwner, GeometrySelection>::new();
     let mut domain = BTreeMap::<DefinitionId, DomainSelection>::new();
+    let mut instance_hotspots = Vec::new();
     for target in &selected {
         if matches!(target.entity, SelectedEntity::Occurrence)
             || selected_objects
@@ -175,6 +178,25 @@ fn transform_selection_internal(
             continue;
         };
         if let SelectedEntity::SemanticHandle { kind, id } = &target.entity {
+            if *kind == SelectionKind::Hotspot {
+                match geometry_owner(document, &selection.context, target, resolved.definition.id) {
+                    GeometryOwner::Definition(definition) => {
+                        let group = domain.entry(definition).or_default();
+                        group.occurrence_targets.insert(target.occurrence.clone());
+                        group.hotspots.insert(id.clone());
+                    }
+                    GeometryOwner::Occurrence(_) if copy => {
+                        return Err(
+                            "open the object to copy its hotspots; a closed instance only holds their values"
+                                .to_owned(),
+                        );
+                    }
+                    GeometryOwner::Occurrence(occurrence) => {
+                        instance_hotspots.push((occurrence, id.clone()));
+                    }
+                }
+                continue;
+            }
             let field = match kind {
                 SelectionKind::Dimension => "dimensions",
                 SelectionKind::Text => "texts",
@@ -239,9 +261,11 @@ fn transform_selection_internal(
     if selected_objects.is_empty()
         && !geometry.values().any(|group| !group.vertices.is_empty())
         && domain.is_empty()
+        && instance_hotspots.is_empty()
     {
         return Err(
-            "transform needs selected mesh geometry, annotation, or object instance".to_owned(),
+            "transform needs selected mesh geometry, annotation, hotspot, or object instance"
+                .to_owned(),
         );
     }
 
@@ -296,6 +320,7 @@ fn transform_selection_internal(
         &mut copy_targets,
     )?;
 
+    let mut copied_geometry = BTreeMap::<DefinitionId, AttachmentIds>::new();
     for (owner, group) in geometry {
         let Some(occurrence) = group.transform_occurrence.as_ref() else {
             continue;
@@ -333,6 +358,9 @@ fn transform_selection_internal(
         report.copied_vertices += result.copied_vertices;
         report.copied_segments += result.copied_segments;
         report.copied_triangles += result.copied_triangles;
+        if let GeometryOwner::Definition(id) = &owner {
+            copied_geometry.insert(*id, result.copies);
+        }
         if copy {
             for target_occurrence in &group.occurrence_targets {
                 copy_targets.extend(
@@ -367,6 +395,38 @@ fn transform_selection_internal(
                 }
             }
         }
+    }
+
+    transform_hotspot_selections(
+        &mut candidate,
+        &domain,
+        &copied_geometry,
+        world_transform,
+        copy,
+        &mut report,
+        &mut copy_targets,
+    )?;
+    for (occurrence, id) in &instance_hotspots {
+        let resolved = candidate
+            .resolve_occurrence(occurrence)
+            .ok_or_else(|| "selected hotspot occurrence is no longer resolvable".to_owned())?;
+        let local_transform = resolved
+            .world_transform
+            .inverse(GeometryTolerance::default())
+            .ok_or_else(|| "selected hotspot has a singular world transform".to_owned())?
+            .compose(world_transform)
+            .compose(resolved.world_transform);
+        let position = *candidate
+            .evaluated_hotspot_positions(occurrence)?
+            .get(id)
+            .ok_or_else(|| format!("selected hotspot {id:?} is missing"))?;
+        candidate.set_nested_instance_hotspot_default(
+            &selection.context,
+            occurrence,
+            id,
+            local_transform.transform_point(position),
+        )?;
+        report.transformed_domain_entities += 1;
     }
 
     if !report.changed() {
@@ -466,6 +526,118 @@ fn remap_domain_selections(
     }
 }
 
+/// The local transform shared by every selected placement of one definition.
+fn domain_local_transform(
+    document: &Document,
+    definition: DefinitionId,
+    group: &DomainSelection,
+    world_transform: Affine3,
+) -> Result<Affine3, String> {
+    let mut local_transform = None;
+    for occurrence in &group.occurrence_targets {
+        let resolved = document
+            .resolve_occurrence(occurrence)
+            .ok_or_else(|| "selected annotation occurrence is no longer resolvable".to_owned())?;
+        if resolved.definition.id != definition {
+            return Err("selected annotation no longer belongs to its definition".to_owned());
+        }
+        let inverse = resolved
+            .world_transform
+            .inverse(GeometryTolerance::default())
+            .ok_or_else(|| "selected annotation has a singular world transform".to_owned())?;
+        let occurrence_transform = inverse
+            .compose(world_transform)
+            .compose(resolved.world_transform);
+        if local_transform.is_some_and(|existing| existing != occurrence_transform) {
+            return Err(
+                "shared annotations selected through different instances need different local transforms"
+                    .to_owned(),
+            );
+        }
+        local_transform = Some(occurrence_transform);
+    }
+    local_transform.ok_or_else(|| "selected annotation has no resolvable occurrence".to_owned())
+}
+
+/// Moves or copies authored hotspot markers. Attachments stay with their geometry, except that a
+/// copy follows geometry and hotspots copied in the same operation.
+fn transform_hotspot_selections(
+    document: &mut Document,
+    groups: &BTreeMap<DefinitionId, DomainSelection>,
+    copied_geometry: &BTreeMap<DefinitionId, AttachmentIds>,
+    world_transform: Affine3,
+    copy: bool,
+    report: &mut TransformReport,
+    copy_targets: &mut BTreeSet<SelectionTarget>,
+) -> Result<(), String> {
+    for (definition_id, group) in groups {
+        if group.hotspots.is_empty() {
+            continue;
+        }
+        let local_transform =
+            domain_local_transform(document, *definition_id, group, world_transform)?;
+        let mut hotspots = document.hotspots(*definition_id)?;
+        let mut renamed = BTreeMap::new();
+        let mut copies = Vec::new();
+        for id in &group.hotspots {
+            let index = hotspots
+                .iter()
+                .position(|hotspot| &hotspot.id == id)
+                .ok_or_else(|| {
+                    format!("hotspot {id:?} is not an authored marker of this object")
+                })?;
+            let moved = hotspots[index].clone().transformed(local_transform);
+            if copy {
+                let new_id = format!("hotspot-{}", document.allocate_id());
+                renamed.insert(id.clone(), new_id.clone());
+                copies.push(Hotspot {
+                    id: new_id,
+                    ..moved
+                });
+            } else if moved != hotspots[index] {
+                hotspots[index] = moved;
+                report.transformed_domain_entities += 1;
+            }
+        }
+        let geometry = document
+            .definition(*definition_id)
+            .map(|definition| &definition.geometry)
+            .ok_or_else(|| format!("selected definition {} is missing", definition_id.0))?;
+        let number = hotspots.len();
+        for (offset, hotspot) in copies.iter_mut().enumerate() {
+            if is_generated_hotspot_name(&hotspot.name) {
+                hotspot.name = format!("HOTSPOT_{}", number + offset + 1);
+            }
+            hotspot.attached_hotspot_ids = std::mem::take(&mut hotspot.attached_hotspot_ids)
+                .into_iter()
+                .map(|id| renamed.get(&id).cloned().unwrap_or(id))
+                .collect();
+            if let Some(ids) = copied_geometry.get(definition_id) {
+                hotspot.rebind_attachments(&[geometry], geometry, ids, true);
+            }
+            for occurrence in &group.occurrence_targets {
+                copy_targets.insert(SelectionTarget {
+                    occurrence: occurrence.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Hotspot,
+                        id: hotspot.id.clone(),
+                    },
+                });
+            }
+        }
+        report.copied_domain_entities += copies.len();
+        hotspots.append(&mut copies);
+        document.set_hotspots(*definition_id, hotspots)?;
+    }
+    Ok(())
+}
+
+/// Default names carry a position in the list, so a copy needs its own; chosen names are kept.
+fn is_generated_hotspot_name(name: &str) -> bool {
+    name.strip_prefix("HOTSPOT_")
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn transform_domain_selections(
     document: &mut Document,
     groups: &BTreeMap<DefinitionId, DomainSelection>,
@@ -476,31 +648,11 @@ fn transform_domain_selections(
 ) -> Result<BTreeSet<(DefinitionId, String)>, String> {
     let mut changed_architecture = BTreeSet::new();
     for (definition_id, group) in groups {
-        let mut local_transform = None;
-        for occurrence in &group.occurrence_targets {
-            let resolved = document.resolve_occurrence(occurrence).ok_or_else(|| {
-                "selected annotation occurrence is no longer resolvable".to_owned()
-            })?;
-            if resolved.definition.id != *definition_id {
-                return Err("selected annotation no longer belongs to its definition".to_owned());
-            }
-            let inverse = resolved
-                .world_transform
-                .inverse(GeometryTolerance::default())
-                .ok_or_else(|| "selected annotation has a singular world transform".to_owned())?;
-            let occurrence_transform = inverse
-                .compose(world_transform)
-                .compose(resolved.world_transform);
-            if local_transform.is_some_and(|existing| existing != occurrence_transform) {
-                return Err(
-                    "shared annotations selected through different instances need different local transforms"
-                        .to_owned(),
-                );
-            }
-            local_transform = Some(occurrence_transform);
+        if group.ids_by_field.is_empty() {
+            continue;
         }
-        let local_transform = local_transform
-            .ok_or_else(|| "selected annotation has no resolvable occurrence".to_owned())?;
+        let local_transform =
+            domain_local_transform(document, *definition_id, group, world_transform)?;
 
         let field_records = {
             let definition = document
@@ -1099,6 +1251,10 @@ fn preview_transform_internal(
                 }
                 continue;
             }
+            if *kind == SelectionKind::Hotspot {
+                append_preview_hotspot(document, target, id, world_transform, &mut edges)?;
+                continue;
+            }
             let field = match kind {
                 SelectionKind::Dimension => "dimensions",
                 SelectionKind::Text => "texts",
@@ -1303,6 +1459,36 @@ fn preview_transform_internal(
     Ok(edges)
 }
 
+/// Markers are drawn at a fixed screen size, so the preview draws a cross sized from the grid.
+/// Previews are prepared once and then moved with the pointer, so this can't depend on the transform.
+fn append_preview_hotspot(
+    document: &Document,
+    target: &SelectionTarget,
+    id: &str,
+    world_transform: Affine3,
+    edges: &mut Vec<[Vec3; 2]>,
+) -> Result<(), String> {
+    let resolved = document
+        .resolve_occurrence(&target.occurrence)
+        .ok_or("selected hotspot occurrence is missing")?;
+    let Some(position) = document
+        .evaluated_hotspot_positions(&target.occurrence)?
+        .get(id)
+        .copied()
+    else {
+        return Ok(());
+    };
+    let center = resolved.world_transform.transform_point(position);
+    let size = document.model_settings().grid_size * 0.25;
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+        edges.push([
+            world_transform.transform_point(center - axis * size),
+            world_transform.transform_point(center + axis * size),
+        ]);
+    }
+    Ok(())
+}
+
 fn append_preview_annotation(
     field: &str,
     record: &serde_json::Value,
@@ -1484,6 +1670,7 @@ struct GeometryTransformResult {
     copied_segments: usize,
     copied_triangles: usize,
     targets: Vec<SelectedEntity>,
+    copies: AttachmentIds,
 }
 
 fn transform_geometry_bundle(
@@ -1538,6 +1725,7 @@ fn transform_geometry_bundle(
             copied_vertices: vertex_map.len(),
             ..GeometryTransformResult::default()
         };
+        result.copies.vertices = vertex_map.clone();
         result.targets.extend(
             selected
                 .explicit_vertices
@@ -1552,6 +1740,7 @@ fn transform_geometry_bundle(
                 .ok_or_else(|| format!("selected segment {} is missing", id.0))?
                 .clone();
             let new_id = SegmentId(document.allocate_id());
+            result.copies.segments.insert(*id, new_id);
             let copy = Segment {
                 id: new_id,
                 endpoints: source.endpoints.map(|reference| VertexRef {
@@ -1572,6 +1761,7 @@ fn transform_geometry_bundle(
                 .ok_or_else(|| format!("selected triangle {} is missing", id.0))?
                 .clone();
             let new_id = TriangleId(document.allocate_id());
+            result.copies.triangles.insert(*id, new_id);
             let mut copy = Triangle {
                 id: new_id,
                 vertices: source.vertices.map(|reference| VertexRef {

@@ -75,7 +75,9 @@ snapping while editing stays isolated to the prototype.
 **Hotspots make instances dynamic.** Configure operations and attached geometry
 inside the prototype; after leaving edit mode, drag an instance's hotspots to
 change its shape. Each instance keeps its own values. Copies retain them, and
-external scenes can supply referenced prototypes.
+external scenes can supply referenced prototypes. A selected hotspot shows its
+reference point and attached geometry. Hotspots transform, copy, explode and join
+Make Object selections like the content beside them.
 
 **Bake to Shader** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
 turns frozen or shader-generated objects into editable edges and faces, with Undo.

@@ -128,7 +128,7 @@ Rust normalizes GUI, scripted, and embedded events through one dispatcher, with 
 
 Source: `K/input/{ToolPointerProcessor,CameraInputRouter}.kt`, `K/ui/ToolController.kt`, `ToolInputProcessor.kt`. Acceptance: C10, C17, C23.
 
-**Current Escape contract (user correction, 2026-10-19).** Escape first cancels a non-selector tool and activates Select, preserving selection and guides. With Select already active, Escape clears a nonempty selection; only a further Escape with an empty selection clears guides. No stage commits draft geometry. Right mouse drag orbits around the target; both horizontal and vertical drag deltas are inverted relative to the previous raylib mapping. Shift+right drag translates the camera and target together.
+**Current Escape contract (user correction, 2026-10-19).** Escape first cancels a non-selector tool and activates Select, preserving selection and guides. With Select already active, Escape leaves an open object if there is one; otherwise it clears a nonempty selection, and only a further Escape with an empty selection clears guides. No stage commits draft geometry. Right mouse drag orbits around the target; both horizontal and vertical drag deltas are inverted relative to the previous raylib mapping. Shift+right drag translates the camera and target together.
 
 ### I04 Snapping
 

@@ -7,6 +7,7 @@ mod anchor;
 mod bake;
 pub use bake::{GPU_MESH_KEY, bake_objects, shader_capture_paths};
 
+use crate::document::hotspots::{AttachmentIds, Hotspot};
 use crate::document::{
     ChildLayout, ChildLayoutId, Definition, DefinitionId, DefinitionKind, Document, GeometryBundle,
     GeometryBundleId, InstanceEdits, LayoutEntry, LayoutEntryId, OccurrenceRef, Segment, SegmentId,
@@ -35,6 +36,7 @@ pub struct ExplodeReport {
     pub triangles: usize,
     pub dimensions: usize,
     pub texts: usize,
+    pub hotspots: usize,
     pub vector_texts: usize,
     pub selected_results: Vec<SelectionTarget>,
 }
@@ -44,6 +46,9 @@ pub struct ExplodeReport {
 pub struct ExplodeContent {
     pub geometry: GeometryBundle,
     pub domain_records: BTreeMap<String, Vec<Value>>,
+    pub hotspots: Vec<Hotspot>,
+    /// New identities of the geometry appended for the occurrence being processed.
+    pub occurrence_ids: AttachmentIds,
     pub vector_texts: usize,
 }
 
@@ -540,7 +545,9 @@ impl ObjectExplodeAdapter for MeshOnlyExplodeAdapter {
     }
 }
 
-/// Preserves legacy dimensions and text as semantic entities while exploding mesh content.
+/// Preserves dimensions, text and hotspots as semantic entities while exploding mesh content.
+/// An instance's hotspot values are already in its evaluated mesh, so each marker keeps the
+/// position it shows and starts from there. Script-generated markers are not authored content.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LegacyAnnotationExplodeAdapter;
 
@@ -571,7 +578,7 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                             | "architectureSlabs"
                             | "architectureFrames"
                             | "architectureStairs"
-                    ) && (field != "hotspots" || document.script_frame(occurrence).is_none())
+                    ) && field != "hotspots"
                 }),
                 resolved.definition.domain_entity_ids.clone(),
                 resolved.edits.is_some_and(|edits| {
@@ -579,10 +586,8 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                         key != crate::document::scripts::STATE_KEY
                             && key != crate::document::scripts::parameters::VALUES_KEY
                             && key != crate::document::ifc::KEY
-                            && !(key == "k3d.__raw_hotspot_positions"
-                                && document.script_frame(occurrence).is_some())
-                    }) || (!edits.hotspot_positions.is_empty()
-                        && document.script_frame(occurrence).is_none())
+                            && key != "k3d.__raw_hotspot_positions"
+                    })
                 }),
                 resolved.definition.extensions.clone(),
             )
@@ -599,7 +604,7 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                             | "architectureFrames"
                             | "architectureStairs"
                     )
-                    && !(field == "hotspots" && document.script_frame(occurrence).is_some())
+                    && field != "hotspots"
             })
             || has_unsupported_edits
         {
@@ -657,8 +662,51 @@ impl ObjectExplodeAdapter for LegacyAnnotationExplodeAdapter {
                     )?);
             }
         }
+        if document.script_frame(occurrence).is_none() {
+            append_exploded_hotspots(document, occurrence, transform_to_parent, output)?;
+        }
         Ok(())
     }
+}
+
+fn append_exploded_hotspots(
+    document: &mut Document,
+    occurrence: &OccurrenceRef,
+    transform_to_parent: Affine3,
+    output: &mut ExplodeContent,
+) -> Result<(), String> {
+    let resolved = document
+        .resolve_occurrence(occurrence)
+        .ok_or_else(|| "an object occurrence no longer resolves".to_owned())?;
+    let definition = resolved.definition.id;
+    let prototype = resolved.definition.geometry.clone();
+    let effective = document.effective_geometry(occurrence).cloned();
+    let positions = document.evaluated_hotspot_positions(occurrence)?;
+    let hotspots = document.hotspots(definition)?;
+    let renamed = hotspots
+        .iter()
+        .map(|hotspot| {
+            (
+                hotspot.id.clone(),
+                format!("hotspot-{}", document.allocate_id()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut sources = vec![&prototype];
+    sources.extend(effective.as_ref());
+    for mut hotspot in hotspots {
+        hotspot.position = positions
+            .get(&hotspot.id)
+            .copied()
+            .unwrap_or(hotspot.position);
+        hotspot.id = renamed[&hotspot.id].clone();
+        hotspot.rename_links(&renamed);
+        hotspot.rebind_attachments(&sources, &output.geometry, &output.occurrence_ids, false);
+        output
+            .hotspots
+            .push(hotspot.transformed(transform_to_parent));
+    }
+    Ok(())
 }
 
 pub(crate) fn transform_annotation_record(
@@ -768,23 +816,136 @@ pub fn group_selection(
             .collect::<Vec<_>>();
         return group_occurrences(document, &occurrences, name);
     }
-    if selection
+    let supported = selection
         .selected()
         .iter()
         .all(|target| match &target.entity {
             SelectedEntity::Vertex(_)
             | SelectedEntity::Segment(_)
-            | SelectedEntity::Triangle(_) => true,
-            SelectedEntity::SemanticHandle { kind, .. } => groupable_domain_field(*kind).is_some(),
-            SelectedEntity::Occurrence => false,
-        })
-    {
-        return group_mesh_selection(document, selection, name);
+            | SelectedEntity::Triangle(_)
+            | SelectedEntity::Occurrence => true,
+            SelectedEntity::SemanticHandle { kind, .. } => {
+                *kind == SelectionKind::Hotspot || groupable_domain_field(*kind).is_some()
+            }
+        });
+    if !supported {
+        return Err("this selection contains content that cannot be grouped".to_owned());
     }
-    Err(
-        "group object instances or supported mesh, dimension and text selections separately"
-            .to_owned(),
-    )
+    if selection
+        .selected()
+        .iter()
+        .any(|target| target.entity == SelectedEntity::Occurrence)
+    {
+        return group_mixed_selection(document, selection, name);
+    }
+    group_mesh_selection(document, selection, name)
+}
+
+/// Selected objects become children of the new object, and loose content becomes its own, so its
+/// hotspots show and operate on the new object. Content inside a selected object stays there.
+fn group_mixed_selection(
+    document: &mut Document,
+    selection: &SelectionSession,
+    name: &str,
+) -> Result<OccurrenceRef, String> {
+    let objects = selection
+        .selected()
+        .iter()
+        .filter(|target| target.entity == SelectedEntity::Occurrence)
+        .map(|target| target.occurrence.clone())
+        .collect::<Vec<_>>();
+    let mut loose = SelectionSession::default();
+    loose.set_context(selection.context.clone());
+    for target in selection.selected() {
+        if target.entity != SelectedEntity::Occurrence
+            && !objects
+                .iter()
+                .any(|object| target.occurrence.path.starts_with(&object.path))
+        {
+            loose.select(target.clone());
+        }
+    }
+    if loose.selected().is_empty() {
+        return group_occurrences(document, &objects, name);
+    }
+    let mut candidate = document.clone();
+    let content = group_mesh_selection(&mut candidate, &loose, name)?;
+    let content_definition = candidate
+        .resolve_occurrence(&content)
+        .ok_or("the grouped content is missing")?
+        .definition
+        .id;
+    let mut members = objects;
+    members.push(content);
+    let group = group_occurrences(&mut candidate, &members, name)?;
+    absorb_child_content(&mut candidate, &group, content_definition)?;
+    candidate.validate()?;
+    *document = candidate;
+    Ok(group)
+}
+
+/// Folds a just-created child definition into its new, otherwise empty parent.
+fn absorb_child_content(
+    document: &mut Document,
+    group: &OccurrenceRef,
+    content: DefinitionId,
+) -> Result<(), String> {
+    let (definition, layout) = {
+        let resolved = document
+            .resolve_occurrence(group)
+            .ok_or("the new object is missing")?;
+        (
+            resolved.definition.id,
+            resolved
+                .definition
+                .default_child_layout
+                .ok_or("the new object has no children")?,
+        )
+    };
+    let hotspots = document.hotspots(content)?;
+    let entries = &mut document
+        .child_layouts
+        .get_mut(&layout)
+        .ok_or("the new object's layout is missing")?
+        .entries;
+    let index = entries
+        .iter()
+        .position(|entry| entry.definition == content)
+        .ok_or("the grouped content is not a child of the new object")?;
+    let offset = entries.remove(index).transform.translation;
+    let mut content = document
+        .definitions
+        .remove(&content)
+        .ok_or("the grouped content definition is missing")?;
+    anchor::rebase_mesh(&mut content.geometry, &mut content.extensions, -offset)?;
+    let owner = document
+        .definitions
+        .get_mut(&definition)
+        .ok_or("the new object definition is missing")?;
+    owner.geometry = content.geometry;
+    owner.extensions = content.extensions;
+    owner.domain_entity_ids = content.domain_entity_ids;
+    owner.domain_data = content.domain_data;
+    let translation = Affine3::from_translation(offset);
+    let geometry = owner.geometry.clone();
+    let mut hotspots = hotspots
+        .into_iter()
+        .map(|hotspot| hotspot.transformed(translation))
+        .collect::<Vec<_>>();
+    let ids = AttachmentIds::unchanged(&geometry);
+    let before = translated_copy(&geometry, -offset);
+    for hotspot in &mut hotspots {
+        hotspot.rebind_attachments(&[&before], &geometry, &ids, false);
+    }
+    document.set_hotspots(definition, hotspots)
+}
+
+fn translated_copy(geometry: &GeometryBundle, offset: Vec3) -> GeometryBundle {
+    let mut copy = geometry.clone();
+    for vertex in copy.vertices.values_mut() {
+        vertex.position += offset;
+    }
+    copy
 }
 
 /// Layouts owned by the scene, retained prototypes or explicit instance overrides.
@@ -966,8 +1127,15 @@ pub fn group_mesh_selection(
     let mut selected_vertices = BTreeSet::new();
     let mut selected_segments = BTreeSet::new();
     let mut selected_triangles = BTreeSet::new();
+    let mut selected_hotspots = BTreeSet::new();
     for target in targets {
         match &target.entity {
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                id,
+            } => {
+                selected_hotspots.insert(id.clone());
+            }
             SelectedEntity::Vertex(id) if source.vertices.contains_key(id) => {
                 selected_vertices.insert(*id);
             }
@@ -1011,11 +1179,30 @@ pub fn group_mesh_selection(
         }
     }
 
-    if !selected_domain_ids.is_empty() && !prototype_edit {
+    if (!selected_domain_ids.is_empty() || !selected_hotspots.is_empty()) && !prototype_edit {
         return Err(
-            "group inherited dimensions or text while editing their object definition; occurrence overrides are not supported yet"
+            "group inherited dimensions, text or hotspots while editing their object definition; occurrence overrides are not supported yet"
                 .to_owned(),
         );
+    }
+
+    let mut moved_hotspots = candidate
+        .hotspots(definition_id)?
+        .into_iter()
+        .filter(|hotspot| selected_hotspots.contains(&hotspot.id))
+        .collect::<Vec<_>>();
+    if moved_hotspots.len() != selected_hotspots.len() {
+        return Err("a selected hotspot is not an authored marker of this object".to_owned());
+    }
+    for id in &selected_hotspots {
+        candidate.delete_hotspot(definition_id, id)?;
+    }
+    let kept_links = selected_hotspots
+        .iter()
+        .map(|id| (id.clone(), id.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for hotspot in &mut moved_hotspots {
+        hotspot.rename_links(&kept_links);
     }
 
     let mut moved_extensions = BTreeMap::new();
@@ -1087,6 +1274,7 @@ pub fn group_mesh_selection(
     }
 
     let mut moved_geometry = GeometryBundle::default();
+    let mut moved_ids = AttachmentIds::default();
     let mut vertex_map = BTreeMap::new();
     for source_id in &selected_vertices {
         let source_vertex = source.vertices.get(source_id).ok_or_else(|| {
@@ -1109,6 +1297,7 @@ pub fn group_mesh_selection(
     for source_id in &selected_segments {
         let source_segment = source.segments.get(source_id).expect("selected above");
         let id = SegmentId(candidate.allocate_id());
+        moved_ids.segments.insert(*source_id, id);
         moved_geometry.segments.insert(
             id,
             Segment {
@@ -1126,6 +1315,7 @@ pub fn group_mesh_selection(
     for source_id in &selected_triangles {
         let source_triangle = source.triangles.get(source_id).expect("selected above");
         let id = TriangleId(candidate.allocate_id());
+        moved_ids.triangles.insert(*source_id, id);
         moved_geometry.triangles.insert(
             id,
             Triangle {
@@ -1140,9 +1330,10 @@ pub fn group_mesh_selection(
             },
         );
     }
-    if moved_geometry.is_empty() && moved_extensions.is_empty() {
+    moved_ids.vertices = vertex_map;
+    if moved_geometry.is_empty() && moved_extensions.is_empty() && moved_hotspots.is_empty() {
         return Err(
-            "select at least one edge, face, vertex, dimension or text to create an object"
+            "select at least one edge, face, vertex, dimension, text or hotspot to create an object"
                 .to_owned(),
         );
     }
@@ -1202,7 +1393,7 @@ pub fn group_mesh_selection(
         Definition {
             id: object_definition,
             name: name.to_owned(),
-            kind: if moved_extensions.is_empty() {
+            kind: if moved_extensions.is_empty() && moved_hotspots.is_empty() {
                 DefinitionKind::Mesh
             } else {
                 DefinitionKind::Hybrid
@@ -1265,10 +1456,26 @@ pub fn group_mesh_selection(
             .definitions
             .get_mut(&object_definition)
             .expect("new object definition");
-        let origin = anchor::mesh_anchor(&definition.geometry, &definition.extensions)?;
+        let origin = anchor::mesh_anchor(
+            &definition.geometry,
+            &definition.extensions,
+            &moved_hotspots,
+        )?;
         anchor::rebase_mesh(&mut definition.geometry, &mut definition.extensions, origin)?;
         origin
     };
+    if !moved_hotspots.is_empty() {
+        let geometry = candidate.definitions[&object_definition].geometry.clone();
+        let translation = Affine3::from_translation(-origin);
+        let hotspots = moved_hotspots
+            .into_iter()
+            .map(|mut hotspot| {
+                hotspot.rebind_attachments(&[&source], &geometry, &moved_ids, false);
+                hotspot.transformed(translation)
+            })
+            .collect();
+        candidate.set_hotspots(object_definition, hotspots)?;
+    }
     candidate
         .child_layouts
         .get_mut(&target_layout)
@@ -1899,12 +2106,28 @@ pub fn explode_selection(
         }
         draft.validate()?;*document=draft;return Ok(report);
     }
-    let mut occurrences = Vec::with_capacity(selection.selected().len());
+    let selected_objects = selection
+        .selected()
+        .iter()
+        .filter(|target| target.entity == SelectedEntity::Occurrence)
+        .map(|target| target.occurrence.clone())
+        .collect::<Vec<_>>();
+    let mut occurrences = Vec::with_capacity(selected_objects.len());
     for target in selection.selected() {
-        if target.entity != SelectedEntity::Occurrence {
+        if target.entity == SelectedEntity::Occurrence {
+            occurrences.push(target.occurrence.clone());
+        } else if !matches!(
+            target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                ..
+            }
+        ) || !selected_objects
+            .iter()
+            .any(|object| target.occurrence.path.starts_with(&object.path))
+        {
             return Err("explode currently requires selected object instances".to_owned());
         }
-        occurrences.push(target.occurrence.clone());
     }
     explode_occurrences_in_context(document, &occurrences, &selection.context, adapter)
 }
@@ -1997,14 +2220,18 @@ fn explode_occurrences_in_context(
             || candidate.scene_container_occurrence().as_ref() == Some(&parent)
             || matches!(context,EditContext::Occurrence(active) if *active==parent)
             || matches!(context,EditContext::Definition(id) if *id==definition);
-        if !authored && !content.domain_records.is_empty() {
-            return Err("Enter the parent object before exploding inherited annotations.".into());
+        if !authored && (!content.domain_records.is_empty() || !content.hotspots.is_empty()) {
+            return Err(
+                "Enter the parent object before exploding inherited annotations or hotspots."
+                    .into(),
+            );
         }
         report.vertices += content.geometry.vertices.len();
         report.segments += content.geometry.segments.len();
         report.triangles += content.geometry.triangles.len();
         report.dimensions += content.domain_records.get("dimensions").map_or(0, Vec::len);
         report.texts += content.domain_records.get("texts").map_or(0, Vec::len);
+        report.hotspots += content.hotspots.len();
         report.vector_texts += content.vector_texts;
         report
             .selected_results
@@ -2048,6 +2275,20 @@ fn explode_occurrences_in_context(
             if !candidate.set_occurrence_edits(parent.clone(), edits) {
                 return Err("Cannot store exploded geometry in parent instance".into());
             }
+        }
+        if !content.hotspots.is_empty() {
+            report
+                .selected_results
+                .extend(content.hotspots.iter().map(|hotspot| SelectionTarget {
+                    occurrence: parent.clone(),
+                    entity: SelectedEntity::SemanticHandle {
+                        kind: SelectionKind::Hotspot,
+                        id: hotspot.id.clone(),
+                    },
+                }));
+            let mut hotspots = candidate.hotspots(definition)?;
+            hotspots.append(&mut content.hotspots);
+            candidate.set_hotspots(definition, hotspots)?;
         }
         for (field, records) in content.domain_records {
             let kind = match field.as_str() {
@@ -2103,9 +2344,11 @@ fn append_occurrence_tree(
                 .unwrap_or_default();
             (relative, source, child_ids)
         };
-        if let Some(source) = source {
-            append_transformed_bundle(document, &source, relative, &mut output.geometry);
-        }
+        output.occurrence_ids = source
+            .map(|source| {
+                append_transformed_bundle(document, &source, relative, &mut output.geometry)
+            })
+            .unwrap_or_default();
         adapter.append_resolved_content(document, &occurrence, relative, output)?;
         pending.extend(child_ids.into_iter().rev().map(|id| occurrence.child(id)));
     }
@@ -2117,7 +2360,8 @@ fn append_transformed_bundle(
     source: &GeometryBundle,
     transform: Affine3,
     output: &mut GeometryBundle,
-) {
+) -> AttachmentIds {
+    let mut ids = AttachmentIds::default();
     let mut vertex_ids = BTreeMap::new();
     for vertex in source.vertices.values() {
         let id = VertexId(document.allocate_id());
@@ -2133,6 +2377,7 @@ fn append_transformed_bundle(
     }
     for segment in source.segments.values() {
         let id = SegmentId(document.allocate_id());
+        ids.segments.insert(segment.id, id);
         let endpoints = segment.endpoints.map(|reference| VertexRef {
             id: vertex_ids[&reference.id],
             position_offset: transform.transform_vector(reference.position_offset),
@@ -2150,6 +2395,7 @@ fn append_transformed_bundle(
     }
     for triangle in source.triangles.values() {
         let id = TriangleId(document.allocate_id());
+        ids.triangles.insert(triangle.id, id);
         let vertices = triangle.vertices.map(|reference| VertexRef {
             id: vertex_ids[&reference.id],
             position_offset: transform.transform_vector(reference.position_offset),
@@ -2169,6 +2415,8 @@ fn append_transformed_bundle(
         let key = format!("exploded.{}.{}", source.id.0, key);
         output.extensions.insert(key, value.clone());
     }
+    ids.vertices = vertex_ids;
+    ids
 }
 
 fn instance_edits_empty(edits: &crate::document::InstanceEdits) -> bool {
@@ -2894,20 +3142,16 @@ mod tests {
     #[test]
     fn annotation_explode_rejects_unhandled_domain_payload_atomically() {
         let mut document = Document::new();
-        let instance = cube(&mut document, "hotspot object", Vec3::ZERO);
+        let instance = cube(&mut document, "domain object", Vec3::ZERO);
         let definition_id = document
             .resolve_occurrence(&instance)
             .unwrap()
             .definition
             .id;
         let definition = document.definitions.get_mut(&definition_id).unwrap();
-        definition.extensions.insert(
-            "k3d.hotspots".to_owned(),
-            serde_json::json!([{"name": "door"}]),
-        );
         definition
             .domain_entity_ids
-            .insert("hotspots".to_owned(), vec!["hotspot-1".to_owned()]);
+            .insert("unknownDomain".to_owned(), vec!["record-1".to_owned()]);
         let before = document.clone();
 
         let error = explode_occurrences(

@@ -613,8 +613,10 @@ impl MeshcraftApp {
             let geometry = &resolved.definition.geometry;
             let mut targets = Vec::new();
             for segment in geometry.segments.values() {
-                let attachment = SegmentAttachment::from_segment(geometry, segment);
-                if h.attached_segments.contains(&attachment) {
+                if h.attached_segments
+                    .iter()
+                    .any(|attachment| attachment.matches(geometry, segment))
+                {
                     targets.push(SelectionTarget {
                         occurrence: path.clone(),
                         entity: SelectedEntity::Segment(segment.id),
@@ -622,8 +624,10 @@ impl MeshcraftApp {
                 }
             }
             for triangle in geometry.triangles.values() {
-                let attachment = TriangleAttachment::from_triangle(geometry, triangle);
-                if h.attached_triangles.contains(&attachment) {
+                if h.attached_triangles
+                    .iter()
+                    .any(|attachment| attachment.matches(geometry, triangle))
+                {
                     targets.push(SelectionTarget {
                         occurrence: path.clone(),
                         entity: SelectedEntity::Triangle(triangle.id),
@@ -1733,5 +1737,889 @@ mod bake_tests {
                 .iter()
                 .any(|p| app.document.is_baked_gpu_object(p))
         );
+    }
+}
+
+#[cfg(test)]
+mod hotspot_scope_tests {
+    //! Hotspots, dimensions and text follow the same transform, explode and grouping paths as
+    //! the geometry they sit beside.
+    use super::*;
+    use meshcraft_core::commands::CommandCompletion;
+    use serde_json::json;
+
+    fn hotspot_target(occurrence: &OccurrenceRef, id: &str) -> SelectionTarget {
+        SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                id: id.to_owned(),
+            },
+        }
+    }
+
+    fn object_target(occurrence: &OccurrenceRef) -> SelectionTarget {
+        SelectionTarget {
+            occurrence: occurrence.clone(),
+            entity: SelectedEntity::Occurrence,
+        }
+    }
+
+    fn select(app: &mut MeshcraftApp, targets: impl IntoIterator<Item = SelectionTarget>) {
+        app.selection.apply(targets, SelectionMode::Replace);
+    }
+
+    fn run(app: &mut MeshcraftApp, command: &str, values: serde_json::Value) -> CommandResult {
+        let mut payload = CommandPayload::default();
+        if let serde_json::Value::Object(values) = values {
+            payload.values.extend(values);
+        }
+        let result = app.dispatch_command(command, &payload).result;
+        assert_eq!(
+            CommandCompletion::Completed,
+            result.completion,
+            "{command}: {result:?}"
+        );
+        result
+    }
+
+    fn transform(app: &mut MeshcraftApp, transform: Affine3, copy: bool) -> Result<(), String> {
+        let mut selection = app.selection.clone();
+        app.commit_document_edit("Transform", |document| {
+            meshcraft_core::operations::transforms::transform_selection(
+                document,
+                &mut selection,
+                transform,
+                copy,
+            )
+        })?;
+        app.selection = selection;
+        Ok(())
+    }
+
+    fn definition(app: &MeshcraftApp, occurrence: &OccurrenceRef) -> DefinitionId {
+        app.document
+            .resolve_occurrence(occurrence)
+            .unwrap()
+            .definition
+            .id
+    }
+
+    fn world(app: &MeshcraftApp, occurrence: &OccurrenceRef, local: Vec3) -> Vec3 {
+        app.document
+            .resolve_occurrence(occurrence)
+            .unwrap()
+            .world_transform
+            .transform_point(local)
+    }
+
+    fn cube_with_face_hotspot(app: &mut MeshcraftApp, at: Vec3) -> (OccurrenceRef, String) {
+        let instance = app
+            .document
+            .add_cuboid("Door", Vec3::new(2., 2., 2.), at)
+            .unwrap();
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        let corner = world(app, &instance, Vec3::new(1., 1., 1.));
+        let id = app.add_hotspot_at_world(corner).unwrap();
+        let geometry = &app.document.effective_geometry(&instance).unwrap().clone();
+        let face = geometry
+            .triangles
+            .values()
+            .find(|f| {
+                f.vertices
+                    .iter()
+                    .all(|v| geometry.vertex_position(*v).unwrap().y > 0.5)
+            })
+            .unwrap()
+            .id;
+        select(
+            app,
+            [SelectionTarget {
+                occurrence: instance.clone(),
+                entity: SelectedEntity::Triangle(face),
+            }],
+        );
+        app.hotspot_inspector = Some((instance.clone(), id.clone()));
+        run(app, "hotspot.attach", json!({}));
+        app.selection.set_context(EditContext::Document);
+        app.selection.clear();
+        (instance, id)
+    }
+
+    #[test]
+    fn root_hotspots_move_rotate_scale_and_undo_as_one_step() {
+        let mut app = super::super::tests::test_app();
+        let id = app.add_hotspot_at_world(Vec3::new(2., 0., 0.)).unwrap();
+        let root = OccurrenceRef::scene_root();
+        let definition = Document::SCENE_ROOT_DEFINITION_ID;
+        let reference = Vec3::new(3., 0., 0.);
+        let mut hotspot = app.document.hotspots(definition).unwrap().remove(0);
+        hotspot.reference_position = Some(reference);
+        app.commit_document_edit("Reference", |d| d.put_hotspot(definition, hotspot))
+            .unwrap();
+        select(&mut app, [hotspot_target(&root, &id)]);
+        for command in ["tool.move_copy", "tool.rotate_copy"] {
+            assert!(app.query_command_state(command).enabled, "{command}");
+        }
+
+        let cursor = app.history.cursor();
+        transform(&mut app, Affine3::from_translation(Vec3::Y * 4.), false).unwrap();
+        assert_eq!(cursor + 1, app.history.cursor());
+        let moved = app.document.hotspots(definition).unwrap().remove(0);
+        assert_eq!(Vec3::new(2., 4., 0.), moved.position);
+        assert_eq!(Some(Vec3::new(3., 4., 0.)), moved.reference_position);
+
+        let scale = Affine3 {
+            linear: [[2., 0., 0.], [0., 2., 0.], [0., 0., 2.]],
+            translation: Vec3::ZERO,
+        };
+        transform(&mut app, scale, false).unwrap();
+        let scaled = app.document.hotspots(definition).unwrap().remove(0);
+        assert_eq!(Vec3::new(4., 8., 0.), scaled.position);
+
+        app.run_command("edit.undo");
+        app.run_command("edit.undo");
+        assert_eq!(
+            Vec3::new(2., 0., 0.),
+            app.document
+                .hotspots(definition)
+                .unwrap()
+                .remove(0)
+                .position
+        );
+        assert_eq!(1, app.selection.selected().len());
+    }
+
+    #[test]
+    fn a_selected_hotspot_has_a_transform_preview_even_at_identity() {
+        let mut app = super::super::tests::test_app();
+        let id = app.add_hotspot_at_world(Vec3::new(2., 0., 0.)).unwrap();
+        select(
+            &mut app,
+            [hotspot_target(&OccurrenceRef::scene_root(), &id)],
+        );
+        let edges = meshcraft_core::operations::transforms::preview_selection_transform(
+            &app.document,
+            &app.selection,
+            Affine3::IDENTITY,
+        )
+        .unwrap();
+        assert_eq!(3, edges.len());
+        let center = (edges[0][0] + edges[0][1]) * 0.5;
+        assert!(center.distance(Vec3::new(2., 0., 0.)) < 1e-9);
+    }
+
+    #[test]
+    fn copying_a_hotspot_with_its_geometry_rebinds_the_copy() {
+        let mut app = super::super::tests::test_app();
+        let (instance, id) = cube_with_face_hotspot(&mut app, Vec3::ZERO);
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        let def = definition(&app, &instance);
+        let original = app.document.hotspots(def).unwrap().remove(0);
+        let face = *app
+            .document
+            .effective_geometry(&instance)
+            .unwrap()
+            .triangles
+            .iter()
+            .find(|(_, f)| {
+                original
+                    .attached_triangles
+                    .iter()
+                    .any(|a| a.matches(app.document.effective_geometry(&instance).unwrap(), f))
+            })
+            .unwrap()
+            .0;
+        select(
+            &mut app,
+            [
+                hotspot_target(&instance, &id),
+                SelectionTarget {
+                    occurrence: instance.clone(),
+                    entity: SelectedEntity::Triangle(face),
+                },
+            ],
+        );
+
+        transform(&mut app, Affine3::from_translation(Vec3::X * 10.), true).unwrap();
+
+        let hotspots = app.document.hotspots(def).unwrap();
+        assert_eq!(2, hotspots.len());
+        assert_eq!(original, hotspots[0], "the source hotspot is untouched");
+        let copy = &hotspots[1];
+        assert_ne!(original.id, copy.id);
+        assert_ne!(original.name, copy.name, "default names stay distinct");
+        assert_eq!(original.position + Vec3::X * 10., copy.position);
+        let geometry = &app.document.definition(def).unwrap().geometry;
+        let attached = geometry
+            .triangles
+            .values()
+            .filter(|f| {
+                copy.attached_triangles
+                    .iter()
+                    .any(|a| a.matches(geometry, f))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(1, attached.len());
+        assert_ne!(face, attached[0].id, "the copy drives the copied face");
+        assert!(
+            app.selection
+                .selected()
+                .contains(&hotspot_target(&instance, &copy.id))
+        );
+    }
+
+    #[test]
+    fn copy_hotspot_alone_keeps_attachments_and_array_makes_one_per_step() {
+        let mut app = super::super::tests::test_app();
+        let (instance, id) = cube_with_face_hotspot(&mut app, Vec3::ZERO);
+        app.selection
+            .set_context(EditContext::Occurrence(instance.clone()));
+        let def = definition(&app, &instance);
+        select(&mut app, [hotspot_target(&instance, &id)]);
+        let mut selection = app.selection.clone();
+        let report = app
+            .commit_document_edit("Array", |document| {
+                meshcraft_core::operations::copy::translated_array(
+                    document,
+                    &mut selection,
+                    &[Vec3::X * 2., Vec3::X * 4., Vec3::X * 6.],
+                )
+            })
+            .unwrap();
+        assert_eq!(3, report.copied_domain_entities);
+        let hotspots = app.document.hotspots(def).unwrap();
+        assert_eq!(4, hotspots.len());
+        assert_eq!(
+            1,
+            hotspots
+                .iter()
+                .map(|h| h.attached_triangles.clone().len())
+                .max()
+                .unwrap()
+        );
+        assert!(hotspots.iter().all(|h| h.attached_triangles.len() == 1));
+    }
+
+    #[test]
+    fn a_closed_instance_hotspot_moves_only_that_instances_value_and_cannot_be_copied() {
+        let mut app = super::super::tests::test_app();
+        let (first, id) = cube_with_face_hotspot(&mut app, Vec3::ZERO);
+        let def = definition(&app, &first);
+        let layout = app.document.root_layout();
+        let entry = app
+            .document
+            .add_layout_entry(layout, def, Affine3::from_translation(Vec3::X * 10.))
+            .unwrap();
+        let second = OccurrenceRef::root(entry);
+        let authored = app.document.hotspots(def).unwrap();
+
+        select(&mut app, [hotspot_target(&first, &id)]);
+        assert!(!app.query_command_state("tool.move_copy").enabled);
+        assert!(
+            transform(&mut app, Affine3::from_translation(Vec3::Y), true)
+                .unwrap_err()
+                .contains("open the object")
+        );
+
+        transform(&mut app, Affine3::from_translation(Vec3::Y), false).unwrap();
+        assert_eq!(authored, app.document.hotspots(def).unwrap());
+        assert_eq!(
+            Vec3::new(1., 2., 1.),
+            app.document.evaluated_hotspot_positions(&first).unwrap()[&id]
+        );
+        assert_eq!(
+            Vec3::new(1., 1., 1.),
+            app.document.evaluated_hotspot_positions(&second).unwrap()[&id]
+        );
+    }
+
+    #[test]
+    fn exploding_a_group_keeps_hotspots_with_their_rebound_geometry() {
+        let mut app = super::super::tests::test_app();
+        let (a, a_id) = cube_with_face_hotspot(&mut app, Vec3::new(5., 0., 0.));
+        let (b, _) = cube_with_face_hotspot(&mut app, Vec3::new(-5., 0., 0.));
+        select(&mut app, [object_target(&a), object_target(&b)]);
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Pair"}),
+        );
+        let group = app.selected_occurrences()[0].clone();
+        assert_eq!(1, app.selected_occurrences().len());
+        let _ = a_id;
+
+        let result = run(&mut app, "object.explode_selection", json!({}));
+
+        assert_eq!(json!(2), result.outputs["hotspot_count"]);
+        let root = Document::SCENE_ROOT_DEFINITION_ID;
+        let hotspots = app.document.hotspots(root).unwrap();
+        assert_eq!(2, hotspots.len());
+        assert_ne!(hotspots[0].id, hotspots[1].id);
+        assert!(app.document.resolve_occurrence(&group).is_none());
+        let mut xs = hotspots.iter().map(|h| h.position.x).collect::<Vec<_>>();
+        xs.sort_by(f64::total_cmp);
+        assert_eq!(vec![-4., 6.], xs);
+        let geometry = &app
+            .document
+            .effective_geometry(&OccurrenceRef::scene_root())
+            .unwrap()
+            .clone();
+        for hotspot in &hotspots {
+            let attached = geometry
+                .triangles
+                .values()
+                .filter(|f| {
+                    hotspot
+                        .attached_triangles
+                        .iter()
+                        .any(|a| a.matches(geometry, f))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(1, attached.len(), "{hotspot:?}");
+            let corner = geometry.vertex_position(attached[0].vertices[0]).unwrap();
+            assert!((corner.x - hotspot.position.x).abs() <= 2.);
+        }
+        assert!(app.selection.selected().contains(&hotspot_target(
+            &OccurrenceRef::scene_root(),
+            &hotspots[0].id
+        )));
+        app.document.validate().unwrap();
+
+        app.run_command("edit.undo");
+        assert!(app.document.resolve_occurrence(&group).is_some());
+        assert!(app.document.hotspots(root).unwrap().is_empty());
+    }
+
+    #[test]
+    fn exploding_a_dragged_instance_bakes_its_shape_and_keeps_the_marker_on_it() {
+        let mut app = super::super::tests::test_app();
+        let (instance, id) = cube_with_face_hotspot(&mut app, Vec3::ZERO);
+        app.document
+            .set_hotspot_target(&instance, &id, Vec3::new(1., 4., 1.))
+            .unwrap();
+        let shape = app
+            .document
+            .effective_geometry(&instance)
+            .unwrap()
+            .triangles
+            .values()
+            .map(|t| {
+                t.vertices.map(|v| {
+                    app.document
+                        .effective_geometry(&instance)
+                        .unwrap()
+                        .vertex_position(v)
+                        .unwrap()
+                        .y
+                })
+            })
+            .fold(f64::NEG_INFINITY, |a, y| y.into_iter().fold(a, f64::max));
+        select(&mut app, [object_target(&instance)]);
+
+        run(&mut app, "object.explode_selection", json!({}));
+
+        let root = OccurrenceRef::scene_root();
+        let hotspot = app
+            .document
+            .hotspots(Document::SCENE_ROOT_DEFINITION_ID)
+            .unwrap()
+            .remove(0);
+        assert_eq!(Vec3::new(1., 4., 1.), hotspot.position);
+        let geometry = app.document.effective_geometry(&root).unwrap();
+        let top = geometry
+            .vertices
+            .values()
+            .map(|v| v.position.y)
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(shape, top);
+    }
+
+    #[test]
+    fn explode_refuses_inherited_hotspots_until_the_parent_is_open() {
+        let mut app = super::super::tests::test_app();
+        let (inner, _) = cube_with_face_hotspot(&mut app, Vec3::ZERO);
+        select(&mut app, [object_target(&inner)]);
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Outer"}),
+        );
+        let outer = app.selected_occurrences()[0].clone();
+        let child = app
+            .document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.path.len() == outer.path.len() + 1)
+            .unwrap();
+        select(&mut app, [object_target(&child)]);
+        let result = app
+            .dispatch_command("object.explode_selection", &CommandPayload::default())
+            .result;
+        assert_eq!(CommandCompletion::Failed, result.completion);
+
+        select(&mut app, [object_target(&outer)]);
+        run(&mut app, "selection.edit_object", json!({}));
+        select(&mut app, [object_target(&child)]);
+        let result = run(&mut app, "object.explode_selection", json!({}));
+        assert_eq!(json!(1), result.outputs["hotspot_count"]);
+        assert_eq!(
+            1,
+            app.document
+                .hotspots(definition(&app, &outer))
+                .unwrap()
+                .len()
+        );
+    }
+
+    #[test]
+    fn make_object_takes_hotspots_with_their_geometry_and_keeps_world_positions() {
+        let mut app = super::super::tests::test_app();
+        let root = OccurrenceRef::scene_root();
+        let definition_id = Document::SCENE_ROOT_DEFINITION_ID;
+        app.document
+            .append_line_segment_to_scene_root(Vec3::new(4., 0., 0.), Vec3::new(6., 0., 0.))
+            .unwrap();
+        let segment = *app
+            .document
+            .effective_geometry(&root)
+            .unwrap()
+            .segments
+            .keys()
+            .next()
+            .unwrap();
+        let moved = app.add_hotspot_at_world(Vec3::new(4., 1., 0.)).unwrap();
+        let stays = app.add_hotspot_at_world(Vec3::new(0., 1., 0.)).unwrap();
+        select(
+            &mut app,
+            [SelectionTarget {
+                occurrence: root.clone(),
+                entity: SelectedEntity::Segment(segment),
+            }],
+        );
+        app.hotspot_inspector = Some((root.clone(), moved.clone()));
+        run(&mut app, "hotspot.attach", json!({}));
+
+        select(
+            &mut app,
+            [
+                hotspot_target(&root, &moved),
+                SelectionTarget {
+                    occurrence: root.clone(),
+                    entity: SelectedEntity::Segment(segment),
+                },
+            ],
+        );
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Handle"}),
+        );
+
+        let object = app.selected_occurrences()[0].clone();
+        let remaining = app.document.hotspots(definition_id).unwrap();
+        assert_eq!(
+            vec![stays],
+            remaining.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+        );
+        let object_definition = definition(&app, &object);
+        let hotspot = app.document.hotspots(object_definition).unwrap().remove(0);
+        assert_eq!(moved, hotspot.id);
+        assert_eq!(
+            Vec3::new(4., 1., 0.),
+            world(&app, &object, hotspot.position)
+        );
+        let geometry = app.document.effective_geometry(&object).unwrap();
+        assert_eq!(1, geometry.segments.len());
+        assert!(geometry.segments.values().all(|s| {
+            hotspot
+                .attached_segments
+                .iter()
+                .any(|a| a.matches(geometry, s))
+        }));
+        assert!(
+            app.document
+                .effective_geometry(&root)
+                .unwrap()
+                .segments
+                .is_empty()
+        );
+
+        app.document
+            .set_hotspot_target(&object, &moved, hotspot.position + Vec3::Y)
+            .unwrap();
+        let driven = app.document.effective_geometry(&object).unwrap();
+        assert!(
+            driven
+                .vertices
+                .values()
+                .all(|v| (v.position.y - 1.).abs() < 1e-9),
+            "{driven:?}"
+        );
+    }
+
+    #[test]
+    fn make_object_from_objects_text_dimension_and_hotspot_keeps_them_on_the_new_object() {
+        let mut app = super::super::tests::test_app();
+        let member = app
+            .document
+            .add_cuboid("Member", Vec3::new(2., 2., 2.), Vec3::new(3., 0., 0.))
+            .unwrap();
+        let root = OccurrenceRef::scene_root();
+        let hotspot = app.add_hotspot_at_world(Vec3::new(0., 3., 0.)).unwrap();
+        app.active_tool = "Text".into();
+        app.annotation_click(Vec3::new(0., 5., 0.));
+        let text = app.selection.selected().iter().next().cloned().unwrap();
+        app.active_tool = "Linear Dimension".into();
+        app.annotation_click(Vec3::ZERO);
+        app.annotation_click(Vec3::X);
+        app.annotation_click(Vec3::Y);
+        let dimension = app.selection.selected().iter().next().cloned().unwrap();
+        app.active_tool = "Select".into();
+        let member_world = world(&app, &member, Vec3::ZERO);
+        let member_definition = definition(&app, &member);
+        let before = app
+            .document
+            .annotations()
+            .iter()
+            .map(|a| a.position)
+            .collect::<Vec<_>>();
+        let cursor = app.history.cursor();
+        select(
+            &mut app,
+            [
+                object_target(&member),
+                text,
+                dimension,
+                hotspot_target(&root, &hotspot),
+            ],
+        );
+
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Assembly"}),
+        );
+
+        assert_eq!(cursor + 1, app.history.cursor());
+        let group = app.selected_occurrences()[0].clone();
+        let group_definition = definition(&app, &group);
+        let handle = app.document.hotspots(group_definition).unwrap().remove(0);
+        assert_eq!(Vec3::new(0., 3., 0.), world(&app, &group, handle.position));
+        assert!(
+            app.document
+                .hotspots(Document::SCENE_ROOT_DEFINITION_ID)
+                .unwrap()
+                .is_empty()
+        );
+        let after = app.document.annotations();
+        assert_eq!(2, after.len());
+        assert!(
+            after.iter().all(|a| a.target.occurrence == group),
+            "{after:?}"
+        );
+        for position in after.iter().map(|a| a.position) {
+            assert!(
+                before.iter().any(|p| p.distance(position) < 1e-9),
+                "{position:?} {before:?}"
+            );
+        }
+        let child = app
+            .document
+            .occurrence_refs()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.path.len() == group.path.len() + 1)
+            .unwrap();
+        assert_eq!(member_definition, definition(&app, &child));
+        assert_eq!(member_world, world(&app, &child, Vec3::ZERO));
+        assert_eq!(
+            1,
+            app.document
+                .occurrence_refs()
+                .unwrap()
+                .iter()
+                .filter(|p| p.path.len() == group.path.len() + 1)
+                .count()
+        );
+        assert_eq!(
+            1,
+            app.document
+                .occurrence_refs()
+                .unwrap()
+                .iter()
+                .filter(|p| p.path.len() == group.path.len())
+                .count()
+        );
+        app.document.validate().unwrap();
+
+        // It stays editable as one unit, and explodes back to where everything started.
+        run(&mut app, "object.explode_selection", json!({}));
+        assert_eq!(2, app.document.annotations().len());
+        assert_eq!(
+            Vec3::new(0., 3., 0.),
+            app.document
+                .hotspots(Document::SCENE_ROOT_DEFINITION_ID)
+                .unwrap()
+                .remove(0)
+                .position
+        );
+    }
+
+    #[test]
+    fn hotspots_and_annotations_added_inside_an_open_group_belong_to_the_group() {
+        let mut app = super::super::tests::test_app();
+        let member = app
+            .document
+            .add_cuboid("Member", Vec3::new(2., 2., 2.), Vec3::new(3., 0., 0.))
+            .unwrap();
+        select(&mut app, [object_target(&member)]);
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Group"}),
+        );
+        let group = app.selected_occurrences()[0].clone();
+        let group_definition = definition(&app, &group);
+        run(&mut app, "selection.edit_object", json!({}));
+
+        let id = app.add_hotspot_at_world(Vec3::new(9., 0., 0.)).unwrap();
+        app.active_tool = "Text".into();
+        app.annotation_click(Vec3::new(0., 5., 0.));
+        app.active_tool = "Linear Dimension".into();
+        app.annotation_click(Vec3::ZERO);
+        app.annotation_click(Vec3::X);
+        app.annotation_click(Vec3::Y);
+        app.active_tool = "Select".into();
+
+        let hotspot = app.document.hotspots(group_definition).unwrap().remove(0);
+        assert_eq!(id, hotspot.id);
+        assert_eq!(Vec3::new(9., 0., 0.), world(&app, &group, hotspot.position));
+        let annotations = app.document.annotations();
+        assert_eq!(2, annotations.len());
+        assert!(annotations.iter().all(|a| a.target.occurrence == group));
+        assert_eq!(
+            Vec3::new(0., 5., 0.),
+            annotations
+                .iter()
+                .find(|a| a.target.entity.kind() == SelectionKind::Text)
+                .unwrap()
+                .position
+        );
+
+        select(&mut app, [hotspot_target(&group, &id)]);
+        transform(&mut app, Affine3::from_translation(Vec3::Z), false).unwrap();
+        assert_eq!(
+            Vec3::new(9., 0., 1.),
+            world(
+                &app,
+                &group,
+                app.document
+                    .hotspots(group_definition)
+                    .unwrap()
+                    .remove(0)
+                    .position
+            )
+        );
+    }
+
+    #[test]
+    fn escape_cancels_the_tool_before_leaving_the_object_so_adding_can_continue() {
+        let mut app = super::super::tests::test_app();
+        let member = app
+            .document
+            .add_cuboid("Member", Vec3::new(2., 2., 2.), Vec3::ZERO)
+            .unwrap();
+        select(&mut app, [object_target(&member)]);
+        run(&mut app, "selection.edit_object", json!({}));
+        let context = app.selection.context.clone();
+        assert_eq!(EditContext::Occurrence(member.clone()), context);
+
+        run(&mut app, "tool.builtin.text", json!({}));
+        app.annotation_click(Vec3::new(0., 5., 0.));
+        app.handle_native_escape();
+        assert_eq!("Select", app.active_tool);
+        assert_eq!(context, app.selection.context, "still inside the object");
+
+        run(&mut app, "tool.builtin.linear_dimension", json!({}));
+        app.annotation_click(Vec3::ZERO);
+        app.annotation_click(Vec3::X);
+        app.handle_native_escape();
+        assert_eq!(context, app.selection.context);
+        assert!(app.annotations.points.is_empty(), "the draft is discarded");
+
+        run(&mut app, "hotspot.begin_placement", json!({}));
+        app.handle_native_escape();
+        assert!(!app.tool_cycle_state.hotspot_placement_active());
+        assert_eq!(context, app.selection.context);
+
+        run(&mut app, "tool.builtin.text", json!({}));
+        app.annotation_click(Vec3::new(0., 6., 0.));
+        app.handle_native_escape();
+        let annotations = app.document.annotations();
+        assert_eq!(2, annotations.len());
+        assert!(annotations.iter().all(|a| a.target.occurrence == member));
+
+        // With Select active, Escape leaves the object as before.
+        app.handle_native_escape();
+        assert_eq!(EditContext::Document, app.selection.context);
+    }
+
+    #[test]
+    fn window_selected_mesh_and_hotspot_make_one_object_and_explode_back() {
+        let mut app = super::super::tests::test_app();
+        let root = OccurrenceRef::scene_root();
+        let definition_id = Document::SCENE_ROOT_DEFINITION_ID;
+        for (a, b) in [
+            (Vec3::ZERO, Vec3::X),
+            (Vec3::X, Vec3::new(1., 0., 1.)),
+            (Vec3::new(1., 0., 1.), Vec3::ZERO),
+        ] {
+            app.document
+                .append_line_segment_to_scene_root(a, b)
+                .unwrap();
+        }
+        let id = app.add_hotspot_at_world(Vec3::new(9., 1., 0.)).unwrap();
+        let geometry = app.document.effective_geometry(&root).unwrap().clone();
+        // What a window selection holds: every vertex, edge and face, and the marker.
+        let targets = geometry
+            .vertices
+            .keys()
+            .map(|id| SelectedEntity::Vertex(*id))
+            .chain(
+                geometry
+                    .segments
+                    .keys()
+                    .map(|id| SelectedEntity::Segment(*id)),
+            )
+            .chain(
+                geometry
+                    .triangles
+                    .keys()
+                    .map(|id| SelectedEntity::Triangle(*id)),
+            )
+            .map(|entity| SelectionTarget {
+                occurrence: root.clone(),
+                entity,
+            })
+            .chain([hotspot_target(&root, &id)])
+            .collect::<Vec<_>>();
+        select(&mut app, targets);
+
+        run(
+            &mut app,
+            "object.create_from_selection",
+            json!({"name": "Object"}),
+        );
+
+        let object = app.selected_occurrences()[0].clone();
+        let owned = app.document.effective_geometry(&object).unwrap();
+        assert_eq!(geometry.segments.len(), owned.segments.len());
+        assert_eq!(geometry.triangles.len(), owned.triangles.len());
+        let remaining = app.document.effective_geometry(&root).unwrap();
+        assert!(remaining.segments.is_empty() && remaining.triangles.is_empty());
+        assert!(app.document.hotspots(definition_id).unwrap().is_empty());
+        let hotspot = app
+            .document
+            .hotspots(definition(&app, &object))
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            Vec3::new(9., 1., 0.),
+            world(&app, &object, hotspot.position)
+        );
+        app.document.validate().unwrap();
+
+        run(&mut app, "object.explode_selection", json!({}));
+        assert_eq!(
+            Vec3::new(9., 1., 0.),
+            app.document
+                .hotspots(definition_id)
+                .unwrap()
+                .remove(0)
+                .position
+        );
+    }
+
+    #[test]
+    fn a_selected_hotspots_feedback_follows_the_instance_and_its_current_shape() {
+        let mut app = super::super::tests::test_app();
+        let (instance, id) = cube_with_face_hotspot(&mut app, Vec3::new(10., 0., 0.));
+        let def = definition(&app, &instance);
+        let mut hotspot = app.document.hotspots(def).unwrap().remove(0);
+        hotspot.reference_position = Some(Vec3::new(0., 5., 0.));
+        app.commit_document_edit("Reference", |d| d.put_hotspot(def, hotspot.clone()))
+            .unwrap();
+
+        let feedback = app.document.hotspot_feedback(&instance, &hotspot).unwrap();
+        assert_eq!(Some(Vec3::new(10., 5., 0.)), feedback.reference);
+        assert_eq!(1, feedback.faces.len());
+        assert!(feedback.edges.is_empty() && feedback.vertices.is_empty());
+        let top = |faces: &[[Vec3; 3]]| faces[0].iter().map(|p| p.y).fold(f64::MIN, f64::max);
+        let rest = top(&feedback.faces);
+
+        // A dragged instance shows the geometry where it is now.
+        app.document
+            .set_hotspot_target(&instance, &id, hotspot.position + Vec3::Y * 2.)
+            .unwrap();
+        let dragged = app.document.hotspot_feedback(&instance, &hotspot).unwrap();
+        assert_eq!(rest + 2., top(&dragged.faces));
+    }
+
+    #[test]
+    fn a_hotspot_with_no_attachments_shows_the_vertices_it_would_drive() {
+        let mut app = super::super::tests::test_app();
+        let root = OccurrenceRef::scene_root();
+        app.document
+            .append_line_segment_to_scene_root(Vec3::ZERO, Vec3::X)
+            .unwrap();
+        let id = app.add_hotspot_at_world(Vec3::X).unwrap();
+        let hotspot = app
+            .document
+            .hotspots(Document::SCENE_ROOT_DEFINITION_ID)
+            .unwrap()
+            .into_iter()
+            .find(|h| h.id == id)
+            .unwrap();
+        let feedback = app.document.hotspot_feedback(&root, &hotspot).unwrap();
+        assert_eq!(vec![Vec3::X], feedback.vertices);
+        assert_eq!(None, feedback.reference);
+    }
+
+    #[test]
+    fn copy_and_paste_carries_a_hotspot_and_each_paste_gets_its_own() {
+        let mut app = super::super::tests::test_app();
+        let root = OccurrenceRef::scene_root();
+        let id = app.add_hotspot_at_world(Vec3::new(1., 0., 0.)).unwrap();
+        select(&mut app, [hotspot_target(&root, &id)]);
+        assert!(app.query_command_state("edit.copy_selection").enabled);
+        run(&mut app, "edit.copy_selection", json!({}));
+        for x in [1., 2.] {
+            run(
+                &mut app,
+                "edit.paste_in_place",
+                json!({"offset": [x, 0., 0.]}),
+            );
+        }
+        run(&mut app, "edit.paste", json!({}));
+        assert_eq!("Paste", app.active_tool);
+        app.cancel_active_tool();
+        let hotspots = app
+            .document
+            .hotspots(Document::SCENE_ROOT_DEFINITION_ID)
+            .unwrap();
+        assert_eq!(3, hotspots.len());
+        assert_eq!(
+            3,
+            hotspots
+                .iter()
+                .map(|h| h.id.clone())
+                .collect::<BTreeSet<_>>()
+                .len()
+        );
+        app.document.validate().unwrap();
     }
 }

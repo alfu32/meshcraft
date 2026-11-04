@@ -4,7 +4,7 @@ use super::*;
 mod preview;
 use meshcraft_core::document::{
     OccurrenceRef,
-    hotspots::{Hotspot, Shape},
+    hotspots::{Hotspot, HotspotFeedback, Shape},
 };
 
 #[derive(Clone)]
@@ -12,6 +12,8 @@ pub(super) struct Handle {
     pub occurrence: OccurrenceRef,
     pub hotspot: Hotspot,
     pub world: Vec3,
+    /// Prepared while the hotspot is selected, so drawing doesn't resolve attachments each frame.
+    pub feedback: Option<HotspotFeedback>,
 }
 pub(super) struct Drag {
     pub handle: Handle,
@@ -96,6 +98,7 @@ pub(super) fn handles(
                 occurrence: occurrence.clone(),
                 world: r.world_transform.transform_point(position),
                 hotspot,
+                feedback: None,
             });
         }
     }
@@ -139,6 +142,11 @@ pub(super) fn draw(
     handles: &[Handle],
     selection: &lighting::SelectionIndex,
 ) {
+    for handle in handles {
+        if let Some(feedback) = &handle.feedback {
+            draw_feedback(drawing, scene, camera, size, handle, feedback);
+        }
+    }
     for handle in handles {
         let Some((x, y)) = project_point(
             camera,
@@ -207,6 +215,88 @@ pub(super) fn draw(
             }
         }
     }
+}
+
+/// Reference point and attached geometry, in the hotspot's own color with a dark casing so they
+/// read over any surface. They draw over the scene like the markers do, so attachments on the far
+/// side of an object stay visible.
+fn draw_feedback(
+    drawing: &mut impl RaylibDraw,
+    scene: &RenderScene,
+    camera: OrbitCamera,
+    size: (f32, f32),
+    handle: &Handle,
+    feedback: &HotspotFeedback,
+) {
+    use raylib::prelude::Vector2;
+    let casing = Color::new(30, 45, 60, 255);
+    let solid = {
+        let color = ray_color(handle.hotspot.color.rgba());
+        Color::new(color.r, color.g, color.b, 255)
+    };
+    let fill = Color::new(solid.r, solid.g, solid.b, 90);
+    let screen = |point: Vec3| project_point(camera, size, point).map(|(x, y)| Vector2::new(x, y));
+    for face in &feedback.faces {
+        let [Some(a), Some(b), Some(c)] = face.map(screen) else {
+            continue;
+        };
+        // Either winding can face the camera, and raylib culls one of them.
+        drawing.draw_triangle(a, b, c, fill);
+        drawing.draw_triangle(a, c, b, fill);
+    }
+    let edges = feedback.edges.iter().copied().chain(
+        feedback
+            .faces
+            .iter()
+            .flat_map(|[a, b, c]| [[*a, *b], [*b, *c], [*c, *a]]),
+    );
+    for edge in edges {
+        let [Some(a), Some(b)] = edge.map(screen) else {
+            continue;
+        };
+        drawing.draw_line_ex(a, b, 5., casing);
+        drawing.draw_line_ex(a, b, 3., solid);
+    }
+    for point in feedback.vertices.iter().filter_map(|point| screen(*point)) {
+        drawing.draw_circle_v(point, 6., casing);
+        drawing.draw_circle_v(point, 4.5, solid);
+    }
+    for point in feedback
+        .linked_hotspots
+        .iter()
+        .filter_map(|point| screen(*point))
+    {
+        drawing.draw_circle_lines(point.x as i32, point.y as i32, 12., casing);
+        drawing.draw_circle_lines(point.x as i32, point.y as i32, 13., solid);
+    }
+    let Some(reference) = feedback.reference.and_then(screen) else {
+        return;
+    };
+    let marker = scene
+        .hotspot_drag
+        .as_ref()
+        .filter(|(path, id, _)| path == &handle.occurrence && id == &handle.hotspot.id)
+        .map_or(handle.world, |(_, _, p)| *p);
+    if let Some(marker) = screen(marker) {
+        drawing.draw_line_ex(marker, reference, 3., casing);
+        drawing.draw_line_ex(marker, reference, 1.5, solid);
+    }
+    drawing.draw_circle_v(reference, 7., casing);
+    drawing.draw_circle_v(reference, 5.5, Color::WHITE);
+    for (dx, dy) in [(5.5, 0.), (0., 5.5)] {
+        let offset = Vector2::new(dx, dy);
+        drawing.draw_line_ex(reference - offset, reference + offset, 2., solid);
+    }
+    // The backing keeps the label readable when a line passes behind it.
+    let (label_x, label_y) = (reference.x as i32 + 11, reference.y as i32 - 6);
+    drawing.draw_rectangle(
+        label_x - 3,
+        label_y - 2,
+        66,
+        16,
+        Color::new(255, 255, 255, 215),
+    );
+    drawing.draw_text("Reference", label_x, label_y, 12, casing);
 }
 
 impl MeshcraftShell {

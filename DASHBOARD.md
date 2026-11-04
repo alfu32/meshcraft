@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.52.0 hotspots as content:** the transform tools, copies, arrays and Copy/Paste work on hotspots.
+Explode keeps them, and Make Object accepts mesh, dimensions, text, hotspots and objects together. A
+selected hotspot shows its reference point and attached geometry, and Escape inside an open object now
+cancels the tool first. [evidence](docs/rewrite/handoffs/T74.md).
+
 **0.51.0 command search:** a title bar search box with search and chevron buttons replaces the
 Commands button, the menu bar is hidden by default, and Home loses its Mesh, Hotspots and Solids
 shortcuts. See the [workspace guide](docs/menu-layout.md) and

@@ -294,9 +294,30 @@ impl ClipboardSelection {
                         entity: SelectedEntity::Vertex(*id),
                     }));
                 }
+                let ids = hotspots::AttachmentIds::unchanged(&geometry);
+                let fragment_hotspots = draft.hotspots(entry.definition)?;
+                let renamed = fragment_hotspots
+                    .iter()
+                    .map(|h| (h.id.clone(), format!("hotspot-{}", draft.allocate_id())))
+                    .collect::<BTreeMap<_, _>>();
+                let mut pasted_hotspots = draft.hotspots(destination)?;
+                for mut hotspot in fragment_hotspots {
+                    hotspot.id = renamed[&hotspot.id].clone();
+                    hotspot.rename_links(&renamed);
+                    hotspot.rebind_attachments(&[&definition.geometry], &geometry, &ids, false);
+                    selected.push(SelectionTarget {
+                        occurrence: owner.clone(),
+                        entity: SelectedEntity::SemanticHandle {
+                            kind: crate::selection::SelectionKind::Hotspot,
+                            id: hotspot.id.clone(),
+                        },
+                    });
+                    pasted_hotspots.push(hotspot.transformed(local));
+                }
                 if !draft.append_geometry_to_definition(destination, geometry) {
                     return Err("cannot append clipboard geometry".into());
                 }
+                draft.set_hotspots(destination, pasted_hotspots)?;
                 for (field, kind) in [
                     ("dimensions", crate::selection::SelectionKind::Dimension),
                     ("texts", crate::selection::SelectionKind::Text),
@@ -492,6 +513,27 @@ fn selection_wireframe(
             let c = b + Vec3::Y * annotation.size;
             let d = a + Vec3::Y * annotation.size;
             edges.extend([[a, b], [b, c], [c, d], [d, a]]);
+        }
+    }
+    // Selected markers are points, like lone vertices. Those inside selected objects stay out of
+    // the bounds: they don't change where an object is anchored.
+    for (occurrence, entities) in &explicit {
+        let Ok(positions) = document.evaluated_hotspot_positions(occurrence) else {
+            continue;
+        };
+        let Some(resolved) = document.resolve_occurrence(occurrence) else {
+            continue;
+        };
+        for entity in entities {
+            if let SelectedEntity::SemanticHandle {
+                kind: crate::selection::SelectionKind::Hotspot,
+                id,
+            } = entity
+                && let Some(position) = positions.get(id)
+            {
+                let p = resolved.world_transform.transform_point(*position);
+                edges.push([p, p]);
+            }
         }
     }
     edges

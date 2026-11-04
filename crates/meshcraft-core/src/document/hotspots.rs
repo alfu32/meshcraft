@@ -171,6 +171,138 @@ impl Default for Hotspot {
     }
 }
 
+/// Where geometry went when hotspots follow it into another graph or a copy.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AttachmentIds {
+    pub vertices: BTreeMap<VertexId, VertexId>,
+    pub segments: BTreeMap<SegmentId, SegmentId>,
+    pub triangles: BTreeMap<TriangleId, TriangleId>,
+}
+
+impl AttachmentIds {
+    /// Geometry keeps its identities, but its coordinates may have changed.
+    pub fn unchanged(geometry: &GeometryBundle) -> Self {
+        Self {
+            vertices: geometry.vertices.keys().map(|id| (*id, *id)).collect(),
+            segments: geometry.segments.keys().map(|id| (*id, *id)).collect(),
+            triangles: geometry.triangles.keys().map(|id| (*id, *id)).collect(),
+        }
+    }
+}
+
+impl Hotspot {
+    /// Maps the marker and its reference point. Attachments identify geometry and stay as they are.
+    pub fn transformed(mut self, transform: Affine3) -> Self {
+        self.position = transform.transform_point(self.position);
+        self.reference_position = self
+            .reference_position
+            .map(|point| transform.transform_point(point));
+        self
+    }
+
+    /// Points attachments at the geometry's new identities. Native IDs are used rather than
+    /// legacy aliases, which repeat when several instances of one prototype land in one graph.
+    /// Attachments to geometry that did not follow are kept only when `keep_unmoved` is set.
+    pub fn rebind_attachments(
+        &mut self,
+        sources: &[&GeometryBundle],
+        target: &GeometryBundle,
+        ids: &AttachmentIds,
+        keep_unmoved: bool,
+    ) {
+        let segments = std::mem::take(&mut self.attached_segments);
+        for attachment in segments {
+            let moved = sources
+                .iter()
+                .flat_map(|geometry| {
+                    geometry
+                        .segments
+                        .values()
+                        .filter(|segment| attachment.matches(geometry, segment))
+                })
+                .filter_map(|segment| ids.segments.get(&segment.id).copied())
+                .collect::<BTreeSet<_>>();
+            if moved.is_empty() && keep_unmoved {
+                self.attached_segments.push(attachment);
+            }
+            self.attached_segments.extend(
+                moved
+                    .iter()
+                    .filter_map(|id| target.segments.get(id))
+                    .map(|segment| SegmentAttachment {
+                        id: format!("meshcraft-segment-{}", segment.id.0),
+                        ..SegmentAttachment::from_segment(target, segment)
+                    }),
+            );
+        }
+        let triangles = std::mem::take(&mut self.attached_triangles);
+        for attachment in triangles {
+            let moved = sources
+                .iter()
+                .flat_map(|geometry| {
+                    geometry
+                        .triangles
+                        .values()
+                        .filter(|triangle| attachment.matches(geometry, triangle))
+                })
+                .filter_map(|triangle| ids.triangles.get(&triangle.id).copied())
+                .collect::<BTreeSet<_>>();
+            if moved.is_empty() && keep_unmoved {
+                self.attached_triangles.push(attachment);
+            }
+            self.attached_triangles.extend(
+                moved
+                    .iter()
+                    .filter_map(|id| target.triangles.get(id))
+                    .map(|triangle| TriangleAttachment {
+                        id: format!("meshcraft-face-{}", triangle.id.0),
+                        ..TriangleAttachment::from_triangle(target, triangle)
+                    }),
+            );
+        }
+        let vertices = std::mem::take(&mut self.attached_vertex_ids);
+        for attached in vertices {
+            let moved = sources
+                .iter()
+                .flat_map(|geometry| geometry.vertices.values())
+                .filter(|vertex| {
+                    aliases_match(
+                        &vertex.legacy_aliases,
+                        &attached,
+                        format!("vertex-{}", vertex.id.0),
+                    )
+                })
+                .filter_map(|vertex| ids.vertices.get(&vertex.id).copied())
+                .filter(|id| target.vertices.contains_key(id))
+                .map(|id| format!("vertex-{}", id.0))
+                .collect::<BTreeSet<_>>();
+            if moved.is_empty() && keep_unmoved {
+                self.attached_vertex_ids.insert(attached);
+            }
+            self.attached_vertex_ids.extend(moved);
+        }
+    }
+
+    /// Hotspot IDs are unique per owner, so a hotspot entering another graph needs a new one.
+    /// Links between hotspots that moved together follow; links to any other hotspot are dropped.
+    pub(crate) fn rename_links(&mut self, renamed: &BTreeMap<String, String>) {
+        self.attached_hotspot_ids = std::mem::take(&mut self.attached_hotspot_ids)
+            .iter()
+            .filter_map(|id| renamed.get(id).cloned())
+            .collect();
+    }
+}
+
+/// World-space feedback for a selected hotspot: what it refers to and what it drives.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HotspotFeedback {
+    pub reference: Option<Vec3>,
+    pub edges: Vec<[Vec3; 2]>,
+    pub faces: Vec<[Vec3; 3]>,
+    pub vertices: Vec<Vec3>,
+    pub linked_hotspots: Vec<Vec3>,
+}
+
 /// Cache equality and cloning deliberately ignore derived meshes. History contains authored state.
 #[derive(Debug, Default)]
 pub(crate) struct EvaluationCache {
@@ -351,28 +483,33 @@ impl Document {
         } else {
             hotspots.push(hotspot);
         }
+        self.set_hotspots(definition, hotspots)?;
+        Ok(id)
+    }
+
+    /// Replaces a definition's authored hotspots after checking the attachment graph.
+    pub(crate) fn set_hotspots(
+        &mut self,
+        definition: DefinitionId,
+        hotspots: Vec<Hotspot>,
+    ) -> Result<(), String> {
         ordered(&hotspots)?;
         let raw = serde_json::to_value(hotspots).map_err(|e| e.to_string())?;
-        if self.definitions[&definition].domain_data.get("hotspots") != Some(&raw) {
+        if self
+            .definition(definition)
+            .ok_or("object prototype no longer exists")?
+            .domain_data
+            .get("hotspots")
+            != Some(&raw)
+        {
             self.allocate_id();
-            self.definitions
-                .get_mut(&definition)
-                .unwrap()
-                .domain_data
-                .insert("hotspots".into(), raw);
-            self.definitions
-                .get_mut(&definition)
-                .unwrap()
-                .extensions
-                .remove("k3d.hotspots");
-            self.definitions
-                .get_mut(&definition)
-                .unwrap()
-                .domain_entity_ids
-                .remove("hotspots");
+            let owner = self.definitions.get_mut(&definition).unwrap();
+            owner.domain_data.insert("hotspots".into(), raw);
+            owner.extensions.remove("k3d.hotspots");
+            owner.domain_entity_ids.remove("hotspots");
             self.bump_revision();
         }
-        Ok(id)
+        Ok(())
     }
 
     pub fn delete_hotspot(&mut self, definition: DefinitionId, id: &str) -> Result<(), String> {
@@ -489,6 +626,113 @@ impl Document {
             .validate()?;
         *self = candidate;
         Ok(())
+    }
+
+    /// Resolves a hotspot's reference point and attachments at the instance's current shape.
+    /// Attachments identify prototype geometry, so they are matched there and also in the shape
+    /// shown, which may be an instance override.
+    pub fn hotspot_feedback(
+        &self,
+        occurrence: &OccurrenceRef,
+        hotspot: &Hotspot,
+    ) -> Result<HotspotFeedback, String> {
+        let resolved = self
+            .resolve_occurrence(occurrence)
+            .ok_or("instance no longer exists")?;
+        let world = resolved.world_transform;
+        let shown = self
+            .effective_geometry(occurrence)
+            .unwrap_or(&resolved.definition.geometry);
+        let sources = [&resolved.definition.geometry, shown];
+        let segments = sources
+            .iter()
+            .flat_map(|geometry| {
+                geometry.segments.values().filter(|segment| {
+                    hotspot
+                        .attached_segments
+                        .iter()
+                        .any(|attachment| attachment.matches(geometry, segment))
+                })
+            })
+            .map(|segment| segment.id)
+            .collect::<BTreeSet<_>>();
+        let triangles = sources
+            .iter()
+            .flat_map(|geometry| {
+                geometry.triangles.values().filter(|triangle| {
+                    hotspot
+                        .attached_triangles
+                        .iter()
+                        .any(|attachment| attachment.matches(geometry, triangle))
+                })
+            })
+            .map(|triangle| triangle.id)
+            .collect::<BTreeSet<_>>();
+        let mut vertices = sources
+            .iter()
+            .flat_map(|geometry| geometry.vertices.values())
+            .filter(|vertex| {
+                hotspot.attached_vertex_ids.iter().any(|id| {
+                    aliases_match(
+                        &vertex.legacy_aliases,
+                        id,
+                        format!("vertex-{}", vertex.id.0),
+                    )
+                })
+            })
+            .map(|vertex| vertex.id)
+            .collect::<BTreeSet<_>>();
+        // Without attachments, evaluation drives whatever sits at the marker.
+        if segments.is_empty() && triangles.is_empty() && vertices.is_empty() {
+            let key = VertexKey::at(hotspot.position);
+            vertices.extend(
+                resolved
+                    .definition
+                    .geometry
+                    .vertices
+                    .values()
+                    .filter(|vertex| VertexKey::at(vertex.position) == key)
+                    .map(|vertex| vertex.id),
+            );
+        }
+        let point = |reference| {
+            shown
+                .vertex_position(reference)
+                .map(|p| world.transform_point(p))
+        };
+        let positions = self.evaluated_hotspot_positions(occurrence)?;
+        Ok(HotspotFeedback {
+            reference: hotspot.reference_position.map(|p| world.transform_point(p)),
+            edges: segments
+                .iter()
+                .filter_map(|id| shown.segments.get(id))
+                .filter_map(|segment| {
+                    Some([point(segment.endpoints[0])?, point(segment.endpoints[1])?])
+                })
+                .collect(),
+            faces: triangles
+                .iter()
+                .filter_map(|id| shown.triangles.get(id))
+                .filter_map(|triangle| {
+                    Some([
+                        point(triangle.vertices[0])?,
+                        point(triangle.vertices[1])?,
+                        point(triangle.vertices[2])?,
+                    ])
+                })
+                .collect(),
+            vertices: vertices
+                .iter()
+                .filter_map(|id| shown.vertices.get(id))
+                .map(|vertex| world.transform_point(vertex.position))
+                .collect(),
+            linked_hotspots: hotspot
+                .attached_hotspot_ids
+                .iter()
+                .filter_map(|id| positions.get(id))
+                .map(|p| world.transform_point(*p))
+                .collect(),
+        })
     }
 
     pub fn evaluated_hotspot_positions(

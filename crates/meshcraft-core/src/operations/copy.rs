@@ -34,7 +34,7 @@ impl LinearArrayReport {
     }
 }
 
-/// Returns whether the current selection contains object, mesh, dimension, or text entities
+/// Returns whether the current selection contains object, mesh, dimension, text, or hotspot entities
 /// supported by the shared copy transform.
 pub fn can_linear_array_selection(document: &Document, selection: &SelectionSession) -> bool {
     let normalized =
@@ -58,6 +58,10 @@ pub fn can_linear_array_selection(document: &Document, selection: &SelectionSess
                 SelectedEntity::Triangle(id) => document
                     .effective_geometry(&target.occurrence)
                     .is_some_and(|geometry| geometry.triangles.contains_key(&id)),
+                SelectedEntity::SemanticHandle {
+                    kind: SelectionKind::Hotspot,
+                    ..
+                } => selected_hotspot_position(document, selection, target).is_some(),
                 SelectedEntity::SemanticHandle { kind, .. } => {
                     selected_annotation_record_ref(document, selection, target, kind).is_some_and(
                         |(field, record)| {
@@ -112,6 +116,47 @@ pub(crate) fn selected_annotation_record<'a>(
     Some((field, record))
 }
 
+/// Whether the target's owner is the graph being authored, rather than a closed instance.
+fn target_owner_is_authored(
+    document: &Document,
+    selection: &SelectionSession,
+    target: &SelectionTarget,
+) -> Option<bool> {
+    let resolved = document.resolve_occurrence(&target.occurrence)?;
+    Some(match &selection.context {
+        EditContext::Document => {
+            target.occurrence.is_scene_root()
+                || document.scene_container_occurrence().as_ref() == Some(&target.occurrence)
+        }
+        EditContext::Definition(definition) => resolved.definition.id == *definition,
+        EditContext::Occurrence(occurrence) => occurrence == &target.occurrence,
+    })
+}
+
+/// The marker's local position, if it is an authored hotspot that this context can copy.
+fn selected_hotspot_position(
+    document: &Document,
+    selection: &SelectionSession,
+    target: &SelectionTarget,
+) -> Option<Vec3> {
+    let SelectedEntity::SemanticHandle { id, .. } = &target.entity else {
+        return None;
+    };
+    if !target_owner_is_authored(document, selection, target)? {
+        return None;
+    }
+    let definition = document
+        .resolve_occurrence(&target.occurrence)?
+        .definition
+        .id;
+    document
+        .hotspots(definition)
+        .ok()?
+        .into_iter()
+        .find(|hotspot| &hotspot.id == id)
+        .map(|hotspot| hotspot.position)
+}
+
 fn selected_annotation_record_ref<'a>(
     document: &'a Document,
     selection: &SelectionSession,
@@ -127,15 +172,7 @@ fn selected_annotation_record_ref<'a>(
         return None;
     };
     let resolved = document.resolve_occurrence(&target.occurrence)?;
-    let definition_context = match &selection.context {
-        EditContext::Document => {
-            target.occurrence.is_scene_root()
-                || document.scene_container_occurrence().as_ref() == Some(&target.occurrence)
-        }
-        EditContext::Definition(definition) => resolved.definition.id == *definition,
-        EditContext::Occurrence(occurrence) => occurrence == &target.occurrence,
-    };
-    if !definition_context {
+    if !target_owner_is_authored(document, selection, target)? {
         return None;
     }
     let definition = resolved.definition;
@@ -270,6 +307,21 @@ pub fn projected_selection_span(
                     &mut maximum,
                 );
             }
+        } else if matches!(
+            target.entity,
+            SelectedEntity::SemanticHandle {
+                kind: SelectionKind::Hotspot,
+                ..
+            }
+        ) {
+            let position = selected_hotspot_position(document, selection, target)?;
+            let resolved = document.resolve_occurrence(&target.occurrence)?;
+            include_projected_point(
+                resolved.world_transform.transform_point(position),
+                direction,
+                &mut minimum,
+                &mut maximum,
+            );
         } else if let SelectedEntity::SemanticHandle { kind, .. } = target.entity {
             let (field, record) = selected_annotation_record(document, selection, target, kind)?;
             let resolved = document.resolve_occurrence(&target.occurrence)?;
@@ -439,7 +491,8 @@ pub fn transformed_array(
     }
     if !can_linear_array_selection(document, selection) {
         return Err(
-            "select supported objects, mesh entities, dimensions, or text to array".to_owned(),
+            "select supported objects, mesh entities, dimensions, text, or hotspots to array"
+                .to_owned(),
         );
     }
 

@@ -69,7 +69,7 @@ impl MeshcraftApp {
                     Err(error) => CommandResult::failed(error),
                 };
             }
-            let edges = snapshot.placement_wireframe();
+            let mut edges = snapshot.placement_wireframe();
             let Some(bounds) =
                 meshcraft_core::geometry::Aabb3::from_points(edges.iter().flatten().copied())
             else {
@@ -77,6 +77,18 @@ impl MeshcraftApp {
             };
             // Y is up; +Z faces the Front view. Keep this anchor fixed for the entire bundle.
             let anchor = Vec3::new(bounds.min.x, bounds.min.y, bounds.max.z);
+            // Hotspots are points. Only now give them a visible size, so they land where picked.
+            let cross = self.document.model_settings().grid_size * 0.25;
+            for point in edges
+                .iter()
+                .filter(|[a, b]| a == b)
+                .map(|[a, _]| *a)
+                .collect::<Vec<_>>()
+            {
+                for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                    edges.push([point - axis * cross, point + axis * cross]);
+                }
+            }
             let pointer = self.cursor_snap.map_or(Vec3::ZERO, |snap| snap.point);
             self.activate_tool("Paste");
             self.clipboard.placement = Some(PastePlacement {
