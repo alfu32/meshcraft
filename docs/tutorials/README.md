@@ -15,6 +15,8 @@ Each video has narration and a selectable English subtitle track; `.srt` and `.v
 it. Subtitles are never burned in. A player that auto-loads the sidecar still shows only one set.
 The saved models are in [projects](projects/), and the [recipes](recipes/) are the source of each video.
 
+Agents recording a new tutorial should follow the [authoring guide](AUTHORING.md).
+
 ## How the videos are made
 
 ```sh

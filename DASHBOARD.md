@@ -1,5 +1,8 @@
 # Dashboard
 
+**0.54.1 tutorial authoring guide:** [instructions](docs/tutorials/AUTHORING.md) for agents recording further tutorials,
+with the owner's rules, a tested starter recipe, the director reference, known pitfalls and the review and release steps.
+
 **0.54.0 curtain wall tutorial:** tutorial 6 builds a resizable, multipliable curtain wall panel from hotspots alone,
 with no code. Copies now follow a resize instead of overlapping, and a carried handle lands where it is dropped.
 [evidence](docs/rewrite/handoffs/T76.md).
