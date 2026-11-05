@@ -188,6 +188,12 @@ in one undoable edit. While editing a prototype it continues to name the active
 prototype. Unselected prototypes retain their names; shared definitions retain
 shared naming semantics.
 
+### Linked size and multiply handles — 0.54.0
+
+A multiply handle attached to another handle measures its step from where that handle has carried it, so copies follow a resize and stay side by side. Carrying it does not add copies by itself: copies appear when its own target moves away from the carried position. A linear multiply makes one copy for each whole step between its reference and its target, so a marker at k steps gives k+1 elements, except at its carried position, which gives one.
+
+An instance handle's target means where the handle shows. Dragging it or setting it with `hotspot.target` leaves it where it was dropped, whatever other handles carry it by.
+
 ### Hotspots as selected content — 0.52.0
 
 Hotspots follow the same selection-first paths as the content beside them.

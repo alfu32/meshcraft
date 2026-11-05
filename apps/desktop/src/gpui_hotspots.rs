@@ -332,12 +332,20 @@ impl MeshcraftShell {
                 .world_transform
                 .inverse(meshcraft_core::geometry::GeometryTolerance::default())
         {
+            // Targets mean where a handle shows, which includes what other handles carry it by.
             let start_target = if authoring {
                 handle.hotspot.position
             } else {
-                r.edits
-                    .and_then(|e| e.hotspot_positions.get(&handle.hotspot.id))
-                    .copied()
+                self.cached_document
+                    .evaluate_hotspots(&handle.occurrence)
+                    .ok()
+                    .and_then(|evaluation| evaluation.positions.get(&handle.hotspot.id).copied())
+                    .or_else(|| {
+                        // A script's handles are not in that evaluation.
+                        r.edits
+                            .and_then(|e| e.hotspot_positions.get(&handle.hotspot.id))
+                            .copied()
+                    })
                     .unwrap_or(handle.hotspot.position)
             };
             self.hotspot_drag = Some(Drag {

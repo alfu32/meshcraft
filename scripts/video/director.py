@@ -395,6 +395,23 @@ class Director:
         self.wait(0.4)
         self._key(name, start)
 
+    def fly(self, position, target, seconds=2.5, fov=36):
+        """Move the camera smoothly to a new view, then put the 3D cursor back under the arrow."""
+        camera = self.rpc.status()["camera"]
+        start = ([camera["position"][k] for k in "xyz"], [camera["target"][k] for k in "xyz"])
+        if not self.fast:
+            begin = time.monotonic()
+            while True:
+                t = min(1.0, (time.monotonic() - begin) / seconds)
+                eased = t * t * (3 - 2 * t)
+                self.pose([a + (b - a) * eased for a, b in zip(start[0], position)],
+                          [a + (b - a) * eased for a, b in zip(start[1], target)], fov)
+                if t >= 1:
+                    break
+                time.sleep(0.03)
+        self.pose(position, target, fov)
+        self.wait(0.3)
+
     def scene(self):
         return self.rpc.call("meshcraft_scene")
 

@@ -5,11 +5,29 @@
   "spoken": "Unit name is the suffix shown on every measurement. Type centimetres.",
   "text": "Unit name is the suffix shown on every measurement. Type cm."
  },
+ "03170fb72b48c01d": {
+  "seconds": 6.48,
+  "speaker": "ryan",
+  "spoken": "Move Copy it, and each copy keeps its own size and count.",
+  "text": "Move Copy it, and each copy keeps its own size and count."
+ },
+ "0b7608ea80901f2d": {
+  "seconds": 8.64,
+  "speaker": "ryan",
+  "spoken": "Nice. Finish Editing. That's the whole definition, with no code at all.",
+  "text": "Nice. Finish Editing. That's the whole definition, with no code at all."
+ },
  "12c520f4e16b97ea": {
   "seconds": 6.32,
   "speaker": "ryan",
   "spoken": "Units first: centimetres, on a ten centimetre grid.",
   "text": "Units first: centimetres, on a ten centimetre grid."
+ },
+ "12ca35f5e693b866": {
+  "seconds": 4.0,
+  "speaker": "ryan",
+  "spoken": "Wow! A whole curtain wall from one drag.",
+  "text": "Wow! A whole curtain wall from one drag."
  },
  "13eac076970d75b8": {
   "seconds": 5.52,
@@ -77,6 +95,12 @@
   "spoken": "Press T on the edge for a helper, then push pull three metres up it.",
   "text": "Press T on the edge for a helper, then Push/Pull three metres up it."
  },
+ "30bd2f82fab98e2b": {
+  "seconds": 7.12,
+  "speaker": "ryan",
+  "spoken": "Now pull back to see more, and drag Count along the grid. Each panel width adds a panel.",
+  "text": "Now pull back to see more, and drag Count along the grid. Each panel width adds a panel."
+ },
  "30f728abfc8dcc5e": {
   "seconds": 9.36,
   "speaker": "ryan",
@@ -101,6 +125,12 @@
   "spoken": "Parameters sit in the Object Instance panel. Set this one to 5 shelves.",
   "text": "Parameters sit in the Object Instance panel. Set this one to 5 shelves."
  },
+ "3d3f7f52a80ca18f": {
+  "seconds": 5.44,
+  "speaker": "ryan",
+  "spoken": "Draw a wall to hold the panel while we build it.",
+  "text": "Draw a wall to hold the panel while we build it."
+ },
  "3dddd1a44f1fcf79": {
   "seconds": 7.28,
   "speaker": "ryan",
@@ -124,6 +154,12 @@
   "speaker": "ryan",
   "spoken": "Right-drag to orbit and check the result from another side.",
   "text": "Right-drag to orbit and check the result from another side."
+ },
+ "4ceab12483f12b19": {
+  "seconds": 8.16,
+  "speaker": "ryan",
+  "spoken": "Now the multiplier: another hotspot on the grid in front, named Count, set to Multiply Linear.",
+  "text": "Now the multiplier: another hotspot on the grid in front, named Count, set to Multiply Linear."
  },
  "4fd60be7ad38ed57": {
   "seconds": 7.44,
@@ -173,6 +209,12 @@
   "spoken": "Openings need points up the wall, so place axis helpers along its base.",
   "text": "Openings need points up the wall, so place axis helpers along its base."
  },
+ "5fcf5401ac002233": {
+  "seconds": 4.64,
+  "speaker": "ryan",
+  "spoken": "The Window tool gives us a frame and glass in two clicks.",
+  "text": "The Window tool gives us a frame and glass in two clicks."
+ },
  "64fec0f278947779": {
   "seconds": 5.36,
   "speaker": "ryan",
@@ -191,11 +233,23 @@
   "spoken": "Ooh, nice. Now the same with the Window tool.",
   "text": "Ooh, nice. Now the same with the Window tool."
  },
+ "685db5885fc5fc89": {
+  "seconds": 7.04,
+  "speaker": "ryan",
+  "spoken": "Make Object, then Edit Prototype. Hotspots are defined inside the object.",
+  "text": "Make Object, then Edit Prototype. Hotspots are defined inside the object."
+ },
  "69a4bada0c3aaff5": {
   "seconds": 7.28,
   "speaker": "ryan",
   "spoken": "You can also type a distance. Pick a start, aim, type 55 and press Enter.",
   "text": "You can also type a distance. Pick a start, aim, type 55 and press Enter."
+ },
+ "6abafaf653167494": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "Good. Explode turns the window into plain geometry that hotspots can drive.",
+  "text": "Good. Explode turns the window into plain geometry that hotspots can drive."
  },
  "6da0030b77cf9e63": {
   "seconds": 4.08,
@@ -239,6 +293,12 @@
   "spoken": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion.",
   "text": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion."
  },
+ "874591f821f340b1": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "First the size handle. Place Hotspot on the panel's right corner, set to Stretch.",
+  "text": "First the size handle. Place Hotspot on the panel's right corner, set to Stretch."
+ },
  "8953d4825f664c4e": {
   "seconds": 6.56,
   "speaker": "ryan",
@@ -251,11 +311,23 @@
   "spoken": "One column first. Circle: click the centre, then a grid point on the edge.",
   "text": "One column first. Circle: click the centre, then a grid point on the edge."
  },
+ "8f29d398a784c68a": {
+  "seconds": 6.16,
+  "speaker": "ryan",
+  "spoken": "That's a dynamic object with no code: one size handle and one multiply handle.",
+  "text": "That's a dynamic object with no code: one size handle and one multiply handle."
+ },
  "91b6af9c9cd45a8a": {
   "seconds": 4.72,
   "speaker": "ryan",
   "spoken": "Snap to each corner of the floor. Walls join by themselves.",
   "text": "Snap to each corner of the floor. Walls join by themselves."
+ },
+ "92a8fe88f3aa1a04": {
+  "seconds": 5.2,
+  "speaker": "ryan",
+  "spoken": "Place axis helpers at the base, one at each side of the panel.",
+  "text": "Place axis helpers at the base, one at each side of the panel."
  },
  "944359a73e65c3da": {
   "seconds": 7.12,
@@ -299,6 +371,12 @@
   "spoken": "The editor previews the material as you adjust it. Save adds it to the project.",
   "text": "The editor previews the material as you adjust it. Save adds it to the project."
  },
+ "aa908771f38622e0": {
+  "seconds": 2.96,
+  "speaker": "ryan",
+  "spoken": "Start with the Architecture template.",
+  "text": "Start with the Architecture template."
+ },
  "ad193874b5ad3281": {
   "seconds": 5.12,
   "speaker": "ryan",
@@ -335,6 +413,12 @@
   "spoken": "Ooh, look at that grain! Materials belong to each instance, so select all four legs.",
   "text": "Ooh, look at that grain! Materials belong to each instance, so select all four legs."
  },
+ "b30e50c061f16a39": {
+  "seconds": 4.8,
+  "speaker": "ryan",
+  "spoken": "Attaching Count means the copies will follow when the panel gets wider.",
+  "text": "Attaching Count means the copies will follow when the panel gets wider."
+ },
  "b54d1dec39b99235": {
   "seconds": 6.72,
   "speaker": "ryan",
@@ -347,11 +431,29 @@
   "spoken": "Good. Make it an object. That's what the copies will share.",
   "text": "Good. Make it an object. That's what the copies will share."
  },
+ "b9e4ddb8445c25bd": {
+  "seconds": 4.72,
+  "speaker": "ryan",
+  "spoken": "Drag this one back to three panels. The first doesn't change.",
+  "text": "Drag this one back to three panels. The first doesn't change."
+ },
+ "c065f03cc77139b6": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "Pick Reference, one panel width back. That distance is the step between copies.",
+  "text": "Pick Reference, one panel width back. That distance is the step between copies."
+ },
  "c1b80c300bb82c5b": {
   "seconds": 5.36,
   "speaker": "ryan",
   "spoken": "Now the floor: a big circle around them, on the same centre.",
   "text": "Now the floor: a big circle around them, on the same centre."
+ },
+ "c2840e10b96b6d8f": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "Back to Size: select the panel's right side and the Count hotspot too, then attach them.",
+  "text": "Back to Size: select the panel's right side and the Count hotspot too, then attach them."
  },
  "c2f76b7e32e76d33": {
   "seconds": 5.04,
@@ -419,6 +521,12 @@
   "spoken": "Wooooow! Twelve columns from one.",
   "text": "Wooooow! Twelve columns from one."
  },
+ "e21184e0ff88944c": {
+  "seconds": 5.44,
+  "speaker": "ryan",
+  "spoken": "Select the panel, and both handles appear. Drag Size to make it wider.",
+  "text": "Select the panel, and both handles appear. Drag Size to make it wider."
+ },
  "e25b4ba0572bcfc9": {
   "seconds": 3.12,
   "speaker": "ryan",
@@ -437,6 +545,12 @@
   "spoken": "First the units, as always. Metres this time, on a one metre grid.",
   "text": "First the units, as always. Metres this time, on a one metre grid."
  },
+ "e715e9d108b6ffa2": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Delete the wall and clear the helpers, and we're left with the panel.",
+  "text": "Delete the wall and clear the helpers, and we're left with the panel."
+ },
  "ee3a87bbe0a52715": {
   "seconds": 6.24,
   "speaker": "ryan",
@@ -448,6 +562,12 @@
   "speaker": "ryan",
   "spoken": "Start with the table top. Choose Rectangle.",
   "text": "Start with the table top. Choose Rectangle."
+ },
+ "f4fa1bb1c9bb3702": {
+  "seconds": 5.04,
+  "speaker": "ryan",
+  "spoken": "Window-select the whole panel and attach it. This is what gets copied.",
+  "text": "Window-select the whole panel and attach it. This is what gets copied."
  },
  "f5427a44bc4153b8": {
   "seconds": 5.92,

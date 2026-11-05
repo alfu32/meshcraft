@@ -117,4 +117,4 @@ def record(d):
     d.orbit(-200, 35)
     d.hold()
     d.say("Change that one column's definition later, and all twelve update together.")
-    d.finish("Thanks for watching", "Meshcraft tutorials · 5 of 5")
+    d.finish("Next: a curtain wall with no code", "Meshcraft tutorials · 6")

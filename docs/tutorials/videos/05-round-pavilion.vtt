@@ -1,57 +1,57 @@
 WEBVTT
 
-00:00:03.645 --> 00:00:11.515
+00:00:03.675 --> 00:00:11.980
 Units first: metres, on a quarter metre grid.
 
-00:00:11.565 --> 00:00:17.705
+00:00:12.030 --> 00:00:18.170
 Ok! Repeating parts is where modeling
 gets quick. Let's build a pavilion.
 
-00:00:17.755 --> 00:00:27.111
+00:00:18.220 --> 00:00:27.475
 One column first. Circle: click the
 centre, then a grid point on the edge.
 
-00:00:27.161 --> 00:00:42.111
+00:00:27.525 --> 00:00:42.475
 Press T on the edge for a helper,
 then Push/Pull three metres up it.
 
-00:00:46.867 --> 00:00:56.540
+00:00:49.464 --> 00:01:00.278
 Good. Make it an object. That's
 what the copies will share.
 
-00:00:56.590 --> 00:01:04.333
+00:01:00.328 --> 00:01:08.547
 Rotate Copy spins copies around a
 centre. Select the column first.
 
-00:01:04.383 --> 00:01:10.402
+00:01:08.597 --> 00:01:14.731
 Pick the centre of the circle, on the
 grid, then the edge of the column.
 
-00:01:10.452 --> 00:01:18.352
+00:01:14.781 --> 00:01:22.681
 Aim roughly around, then type an
 angle and a count: 30 x11 adds eleven.
 
-00:01:18.402 --> 00:01:23.023
+00:01:22.731 --> 00:01:27.352
 Wooooow! Twelve columns from one.
 
-00:01:23.073 --> 00:01:31.813
+00:01:27.402 --> 00:01:38.017
 Now the floor: a big circle
 around them, on the same centre.
 
-00:01:31.863 --> 00:01:46.947
+00:01:38.067 --> 00:01:53.583
 Same again: a helper on its
 edge, Push/Pull up one grid step.
 
-00:01:46.997 --> 00:01:52.420
+00:01:53.633 --> 00:01:59.501
 Make it an object too.
 
-00:01:52.470 --> 00:02:06.913
+00:01:59.551 --> 00:02:14.815
 The roof is just the floor again.
 Move Copy it, up that same helper.
 
-00:02:06.963 --> 00:02:13.549
+00:02:14.865 --> 00:02:21.609
 Awesome. Clear Guides, and take a look around.
 
-00:02:13.599 --> 00:02:21.735
+00:02:21.659 --> 00:02:29.795
 Change that one column's definition
 later, and all twelve update together.

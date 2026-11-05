@@ -1,0 +1,76 @@
+WEBVTT
+
+00:00:03.648 --> 00:00:06.908
+Start with the Architecture template.
+
+00:00:06.958 --> 00:00:19.390
+Draw a wall to hold the panel while we build it.
+
+00:00:19.440 --> 00:00:26.137
+Place axis helpers at the base,
+one at each side of the panel.
+
+00:00:26.187 --> 00:00:35.489
+The Window tool gives us a frame and glass in two clicks.
+
+00:00:35.539 --> 00:00:43.039
+Good. Explode turns the window into
+plain geometry that hotspots can drive.
+
+00:00:43.089 --> 00:00:51.361
+Delete the wall and clear the helpers,
+and we're left with the panel.
+
+00:00:51.411 --> 00:01:07.801
+Make Object, then Edit Prototype.
+Hotspots are defined inside the object.
+
+00:01:09.218 --> 00:01:16.719
+First the size handle. Place Hotspot on
+the panel's right corner, set to Stretch.
+
+00:01:16.769 --> 00:01:25.229
+Now the multiplier: another hotspot on the grid
+in front, named Count, set to Multiply Linear.
+
+00:01:25.279 --> 00:01:35.349
+Window-select the whole panel and
+attach it. This is what gets copied.
+
+00:01:35.399 --> 00:01:42.420
+Pick Reference, one panel width back.
+That distance is the step between copies.
+
+00:01:42.470 --> 00:01:53.170
+Back to Size: select the panel's right side
+and the Count hotspot too, then attach them.
+
+00:01:53.220 --> 00:01:58.641
+Attaching Count means the copies will
+follow when the panel gets wider.
+
+00:01:58.691 --> 00:02:07.631
+Nice. Finish Editing. That's the
+whole definition, with no code at all.
+
+00:02:07.681 --> 00:02:16.472
+Select the panel, and both handles
+appear. Drag Size to make it wider.
+
+00:02:16.522 --> 00:02:26.037
+Now pull back to see more, and drag Count
+along the grid. Each panel width adds a panel.
+
+00:02:26.087 --> 00:02:30.387
+Wow! A whole curtain wall from one drag.
+
+00:02:30.437 --> 00:02:45.336
+Move Copy it, and each copy keeps its own size and count.
+
+00:02:45.386 --> 00:02:54.978
+Drag this one back to three
+panels. The first doesn't change.
+
+00:02:55.028 --> 00:03:03.989
+That's a dynamic object with no code:
+one size handle and one multiply handle.

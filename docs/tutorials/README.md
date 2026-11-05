@@ -9,6 +9,7 @@ Short tutorials recorded from the real application at a pace a person can follow
 | 3 | [Materials](videos/03-materials.mp4) | New Wood, New Grass, Apply Material, per-instance materials |
 | 4 | [A parametric bookcase](videos/04-parametric-bookcase.mp4) | Script objects, a grid helper on a face, dragging a hotspot along it, instance parameters |
 | 5 | [A round pavilion](videos/05-round-pavilion.mp4) | Circle, axis helpers, Rotate Copy with a repeat count, shared definitions |
+| 6 | [A curtain wall with no code](videos/06-curtain-wall.mp4) | A dynamic object from hotspots alone: a Stretch handle for size and a Multiply Linear handle that lays out the wall |
 
 Each video has narration and a selectable English subtitle track; `.srt` and `.vtt` copies sit beside
 it. Subtitles are never burned in. A player that auto-loads the sidecar still shows only one set.
@@ -47,6 +48,9 @@ These came from reviewing the first recordings, and they apply to every tutorial
 - **Never pick in mid-air.** Go upward along an axis helper (`d.helper`, `T`), and drag on a grid helper placed
   on a face (`d.grid_helper_on_face`, `G`). A grid helper reaches 12 grid steps from where it is placed, so choose
   a grid size that covers the target. Openings and frames are picked on the wall surface.
+- **Attach what a window misses.** A selection window takes only what lies wholly inside it. For a Stretch handle,
+  add the corners of faces that cross the window, or those faces stay behind. With two hotspots selected, Attach
+  goes to the older one, so place the driving handle first.
 - **Typing is the secondary way.** Show a typed value as an alternative, not as the main route.
 - **Show the tools working.** The 3D cursor shows the snap, the video labels the kind the app reported, and
   `d.window` draws the real selection window. A window would also take anything else inside it, so use `d.select`

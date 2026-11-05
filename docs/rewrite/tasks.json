@@ -3577,6 +3577,45 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T76",
+      "title": "No-code curtain wall tutorial and linked size and multiply handles",
+      "phase": "desktop",
+      "dependencies": [
+        "T75"
+      ],
+      "requirements": [
+        "F04",
+        "F09"
+      ],
+      "acceptance": [
+        "C49"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/hotspots.rs",
+        "apps/desktop/src/gpui_hotspots.rs",
+        "docs/tutorials/recipes/06-curtain-wall.py",
+        "scripts/video/director.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/objects.md",
+        "docs/rewrite/handoffs/T76.md"
+      ],
+      "slices": [
+        "Make a linked multiply handle measure its step from its carried position.",
+        "Make an instance handle's target mean where the handle shows.",
+        "Record the curtain wall tutorial from hotspots alone."
+      ],
+      "done": [
+        "A curtain wall panel resizes and multiplies with no script, and its copies meet edge to edge."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

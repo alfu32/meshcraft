@@ -1,5 +1,9 @@
 # Dashboard
 
+**0.54.0 curtain wall tutorial:** tutorial 6 builds a resizable, multipliable curtain wall panel from hotspots alone,
+with no code. Copies now follow a resize instead of overlapping, and a carried handle lands where it is dropped.
+[evidence](docs/rewrite/handoffs/T76.md).
+
 **0.53.2 release of the narration fix:** replaces a runaway narration clip in tutorial 3, and the voice script now
 rejects clips far too long for their text. 0.53.1 never published, because its Linux build got an HTTP 504 downloading
 the AppImage tool. [evidence](docs/rewrite/handoffs/T75.md).

@@ -1,111 +1,111 @@
 {
   "video": "05-round-pavilion.mp4",
-  "app_version": "0.53.0",
+  "app_version": "0.54.0",
   "recipe": "docs/tutorials/recipes/05-round-pavilion.py",
-  "duration": 148.984,
+  "duration": 157.045,
   "chars_per_second": 14.0,
   "cues": [
     {
-      "start": 3.645,
-      "end": 11.515,
+      "start": 3.675,
+      "end": 11.98,
       "text": "Units first: metres, on a quarter metre grid.",
       "reading_seconds": 4.11,
       "voice": "5425951febbfe55b"
     },
     {
-      "start": 11.565,
-      "end": 17.705,
+      "start": 12.03,
+      "end": 18.17,
       "text": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion.",
       "reading_seconds": 6.19,
       "voice": "86af60ac01a99d27"
     },
     {
-      "start": 17.755,
-      "end": 27.111,
+      "start": 18.22,
+      "end": 27.475,
       "text": "One column first. Circle: click the centre, then a grid point on the edge.",
       "reading_seconds": 6.19,
       "voice": "8a0c69c9bfffe19b"
     },
     {
-      "start": 27.161,
-      "end": 42.111,
+      "start": 27.525,
+      "end": 42.475,
       "text": "Press T on the edge for a helper, then Push/Pull three metres up it.",
       "reading_seconds": 5.95,
       "voice": "305b7b385e2ca303"
     },
     {
-      "start": 46.867,
-      "end": 56.54,
+      "start": 49.464,
+      "end": 60.278,
       "text": "Good. Make it an object. That's what the copies will share.",
       "reading_seconds": 5.87,
       "voice": "b6f9075e7e1ce263"
     },
     {
-      "start": 56.59,
-      "end": 64.333,
+      "start": 60.328,
+      "end": 68.547,
       "text": "Rotate Copy spins copies around a centre. Select the column first.",
       "reading_seconds": 7.31,
       "voice": "651f37a485d00cac"
     },
     {
-      "start": 64.383,
-      "end": 70.402,
+      "start": 68.597,
+      "end": 74.731,
       "text": "Pick the centre of the circle, on the grid, then the edge of the column.",
       "reading_seconds": 6.03,
       "voice": "5e02adcf424194b0"
     },
     {
-      "start": 70.452,
-      "end": 78.352,
+      "start": 74.781,
+      "end": 82.681,
       "text": "Aim roughly around, then type an angle and a count: 30 x11 adds eleven.",
       "reading_seconds": 7.95,
       "voice": "d441a42abbf6d9dc"
     },
     {
-      "start": 78.402,
-      "end": 83.023,
+      "start": 82.731,
+      "end": 87.352,
       "text": "Wooooow! Twelve columns from one.",
       "reading_seconds": 4.67,
       "voice": "e1a75338d3dbffba"
     },
     {
-      "start": 83.073,
-      "end": 91.813,
+      "start": 87.402,
+      "end": 98.017,
       "text": "Now the floor: a big circle around them, on the same centre.",
       "reading_seconds": 5.71,
       "voice": "c1b80c300bb82c5b"
     },
     {
-      "start": 91.863,
-      "end": 106.947,
+      "start": 98.067,
+      "end": 113.583,
       "text": "Same again: a helper on its edge, Push/Pull up one grid step.",
       "reading_seconds": 7.63,
       "voice": "3dddd1a44f1fcf79"
     },
     {
-      "start": 106.997,
-      "end": 112.42,
+      "start": 113.633,
+      "end": 119.501,
       "text": "Make it an object too.",
       "reading_seconds": 2.6,
       "voice": "7eb80a215aa4cc87"
     },
     {
-      "start": 112.47,
-      "end": 126.913,
+      "start": 119.551,
+      "end": 134.815,
       "text": "The roof is just the floor again. Move Copy it, up that same helper.",
       "reading_seconds": 7.55,
       "voice": "a414a3c633651d46"
     },
     {
-      "start": 126.963,
-      "end": 133.549,
+      "start": 134.865,
+      "end": 141.609,
       "text": "Awesome. Clear Guides, and take a look around.",
       "reading_seconds": 4.03,
       "voice": "d7dd84a078b67618"
     },
     {
-      "start": 133.599,
-      "end": 141.735,
+      "start": 141.659,
+      "end": 149.795,
       "text": "Change that one column's definition later, and all twelve update together.",
       "reading_seconds": 5.686,
       "voice": "2578473d2c56a8c4"

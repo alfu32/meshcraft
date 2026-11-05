@@ -422,3 +422,7 @@ A selected hotspot moves, rotates and scales with the transform tools, and Undo 
 ## C48 — Tutorial videos follow real modeling
 
 Each tutorial is built by `scripts/video/build.py` from a recipe. A new project starts by typing the unit name, unit size and grid size into Model Settings. Points are picked with the real cursor, and the build stops unless the application reports a snap at exactly that point and of that kind. Upward picks run along an axis helper placed with `T`; a typed value appears only as the alternative. The construction cursor keeps its screen size at any model scale. Door and Window snapped to an opening's corner stand in the wall under the cursor. Each line of narration stays up for its spoken length, and each video has one selectable subtitle track with nothing burned in.
+
+## C49 — Dynamic objects from hotspots alone
+
+With no script, an object carries a Stretch handle and a Multiply Linear handle attached to it. Widening the object keeps it a single element, and the multiply handle then makes copies at the new width, edge to edge. A handle dropped after being carried lands where it was dropped. Copies of the instance keep their own values. Tutorial 6 records this from the Architecture template, and its build stops if geometry is left at the old width.

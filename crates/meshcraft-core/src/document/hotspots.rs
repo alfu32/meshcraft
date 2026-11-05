@@ -31,6 +31,15 @@ impl Operation {
         Self::MultiplyRotate2D,
         Self::MultiplyRotate3D,
     ];
+    pub fn multiplies(self) -> bool {
+        matches!(
+            self,
+            Self::MultiplyLinear
+                | Self::MultiplyVolumetric
+                | Self::MultiplyRotate2D
+                | Self::MultiplyRotate3D
+        )
+    }
     pub fn name(self) -> &'static str {
         match self {
             Self::Move => "MOVE",
@@ -580,20 +589,31 @@ impl Document {
             .into_iter()
             .find(|h| h.id == id)
             .ok_or("hotspot no longer exists")?;
-        if matches!(
-            hotspot.operation,
-            Operation::MultiplyLinear
-                | Operation::MultiplyVolumetric
-                | Operation::MultiplyRotate2D
-                | Operation::MultiplyRotate3D
-        ) && hotspot.reference_position.is_none()
-        {
+        if hotspot.operation.multiplies() && hotspot.reference_position.is_none() {
             return Err("this multiply hotspot needs a reference point".into());
         }
         let mut edits = self
             .occurrence_edits(occurrence)
             .cloned()
             .unwrap_or_default();
+        // Evaluation adds what other handles carry this one by, so store the target without it;
+        // otherwise a dropped handle lands that far from where it was dropped.
+        let carried = self
+            .instance_hotspots(occurrence)?
+            .iter()
+            .any(|other| other.attached_hotspot_ids.contains(id))
+            .then(|| self.evaluate_hotspots(occurrence))
+            .transpose()?
+            .and_then(|evaluation| evaluation.positions.get(id).copied())
+            .map_or(Vec3::ZERO, |shown| {
+                shown
+                    - edits
+                        .hotspot_positions
+                        .get(id)
+                        .copied()
+                        .unwrap_or(hotspot.position)
+            });
+        let target = target - carried;
         // A generated marker already contains its last evaluated drag target. It is
         // not an authored anchor: clearing its override here makes the next script
         // frame fall back to the declared position, then alternate on each refresh.
@@ -784,16 +804,30 @@ impl Document {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+        // Where each authored marker has been carried to by the handles it is attached to. A
+        // multiply handle measures its step from here, so its copies follow a resize.
+        let mut anchors = hotspots
+            .iter()
+            .map(|h| (h.id.clone(), h.position))
+            .collect::<BTreeMap<_, _>>();
         for index in order {
             let hotspot = &hotspots[index];
             let target = positions[&hotspot.id];
-            if target.distance(hotspot.position) < 1.0e-9 {
+            let multiplied = hotspot.operation.multiplies().then(|| Hotspot {
+                position: anchors[&hotspot.id],
+                ..hotspot.clone()
+            });
+            let driver = multiplied.as_ref().unwrap_or(hotspot);
+            if target.distance(driver.position) < 1.0e-9 {
                 continue;
             }
-            apply(&mut geometry, hotspot, target)?;
+            apply(&mut geometry, driver, target)?;
             for attached in &hotspot.attached_hotspot_ids {
                 if let Some(position) = positions.get_mut(attached) {
                     *position = transform_point(hotspot, target, *position);
+                }
+                if let Some(anchor) = anchors.get_mut(attached) {
+                    *anchor = transform_point(hotspot, target, *anchor);
                 }
             }
         }
@@ -1520,6 +1554,97 @@ mod tests {
         assert_ne!(first, *d.effective_geometry(&instance).unwrap());
         history.undo(&mut d).unwrap();
         assert_eq!(first, *d.effective_geometry(&instance).unwrap());
+    }
+    /// A 2 wide panel: Size stretches its right edge and carries Count, which multiplies it all.
+    fn resizable_multipliable_panel() -> (Document, OccurrenceRef) {
+        let mut d = Document::new();
+        let instance = d
+            .add_cuboid("Panel", Vec3::new(2., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let def = d.resolve_occurrence(&instance).unwrap().definition.id;
+        let geometry = d.definition(def).unwrap().geometry.clone();
+        let right = geometry
+            .segments
+            .values()
+            .filter(|s| {
+                s.endpoints
+                    .iter()
+                    .all(|v| geometry.vertices[&v.id].position.x > 1.)
+            })
+            .map(|s| SegmentAttachment::from_segment(&geometry, s))
+            .collect();
+        d.put_hotspot(
+            def,
+            Hotspot {
+                id: "count".into(),
+                name: "Count".into(),
+                position: Vec3::new(2., 0., 3.),
+                operation: Operation::MultiplyLinear,
+                reference_position: Some(Vec3::new(0., 0., 3.)),
+                attached_segments: geometry
+                    .segments
+                    .values()
+                    .map(|s| SegmentAttachment::from_segment(&geometry, s))
+                    .collect(),
+                attached_triangles: geometry
+                    .triangles
+                    .values()
+                    .map(|t| TriangleAttachment::from_triangle(&geometry, t))
+                    .collect(),
+                ..Hotspot::default()
+            },
+        )
+        .unwrap();
+        d.put_hotspot(
+            def,
+            Hotspot {
+                id: "size".into(),
+                name: "Size".into(),
+                position: Vec3::new(2., 0., 0.),
+                operation: Operation::Stretch,
+                attached_segments: right,
+                attached_hotspot_ids: ["count".to_owned()].into_iter().collect(),
+                ..Hotspot::default()
+            },
+        )
+        .unwrap();
+        (d, instance)
+    }
+    fn spans(d: &Document, instance: &OccurrenceRef) -> Vec<f64> {
+        let mut xs = d
+            .effective_geometry(instance)
+            .unwrap()
+            .vertices
+            .values()
+            .map(|v| v.position.x)
+            .collect::<Vec<_>>();
+        xs.sort_by(f64::total_cmp);
+        xs.dedup();
+        xs
+    }
+    #[test]
+    fn multiply_follows_a_resize_so_copies_stay_side_by_side() {
+        let (mut d, instance) = resizable_multipliable_panel();
+        // Widen from 2 to 3: still one panel, and no copy appears from the marker being carried.
+        d.set_hotspot_target(&instance, "size", Vec3::new(3., 0., 0.))
+            .unwrap();
+        assert_eq!(vec![0., 3.], spans(&d, &instance));
+        // Two more modules: each copy starts where the last ends, at the new width.
+        d.set_hotspot_target(&instance, "count", Vec3::new(6., 0., 3.))
+            .unwrap();
+        assert_eq!(vec![0., 3., 6., 9.], spans(&d, &instance));
+    }
+    #[test]
+    fn dragging_a_carried_handle_lands_where_it_was_dropped() {
+        let (mut d, instance) = resizable_multipliable_panel();
+        d.set_hotspot_target(&instance, "size", Vec3::new(3., 0., 0.))
+            .unwrap();
+        let dropped = Vec3::new(6., 0., 3.);
+        d.set_hotspot_target(&instance, "count", dropped).unwrap();
+        assert_eq!(
+            dropped,
+            d.evaluate_hotspots(&instance).unwrap().positions["count"]
+        );
     }
     #[test]
     fn stretch_moves_attached_vertices_and_shared_neighbors_not_opposite_end() {
