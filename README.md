@@ -131,7 +131,9 @@ retain material assignments and can be exploded into ordinary mesh geometry.
 ## Materials that bring a model to life
 
 Create named materials, choose colors with **HSL, RGB, swatches and opacity**, and
-apply them to selections or architectural surfaces. Procedural **grass, foliage,
+apply them to selections or architectural surfaces. A material can show an
+**image texture**, picked with the system file dialog and sized in model units;
+**Edit Texture Position** lets you drag the tile's corners on a face. Procedural **grass, foliage,
 water, brick and wood** materials add GPU-generated surface effects. Procedural
 **trees** provide editable shape, seed, wind and distance-based detail.
 
@@ -147,8 +149,8 @@ Fragment tabs**, JSON/GLSL syntax highlighting and a separate GPU preview.
 [Material guide](docs/procedural-materials.md) ·
 [Tree, foliage and surface presets](docs/procedural-presets.md).
 Procedural details are visual: selection and snapping use their source surface or
-owner, and mesh exports omit generated detail. Conventional texture sampling and
-shading interpolation remain future rendering work.
+owner, and mesh exports omit generated detail and textures. Shading interpolation
+remains future rendering work.
 
 ## Open workflows
 

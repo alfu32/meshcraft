@@ -134,6 +134,7 @@ fn evaluate(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>, fit: bool)
         .as_ref()
         .map_err(Clone::clone)
         .and_then(|material| preview_document(&shell.cached_document, material));
+    let texture_root = shell.texture_root();
     let Some(preview) = shell
         .materials
         .editor
@@ -157,6 +158,7 @@ fn evaluate(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>, fit: bool)
                 grid_visible: false,
                 guides_visible: false,
                 black_model_lines: false,
+                texture_root,
                 ..Default::default()
             });
             preview.bridge.publish_camera(preview.camera);

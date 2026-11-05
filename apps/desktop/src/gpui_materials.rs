@@ -59,6 +59,7 @@ pub(super) struct Editor {
     texture: Entity<InputState>,
     u: Entity<InputState>,
     v: Entity<InputState>,
+    tint: Entity<InputState>,
     shading: Entity<SelectState<Vec<String>>>,
     roughness: Entity<InputState>,
     metallic: Entity<InputState>,
@@ -139,6 +140,8 @@ pub(super) fn edit(
         .new(|cx| InputState::new(window, cx).default_value(material.texture_scale_u.to_string()));
     let v = cx
         .new(|cx| InputState::new(window, cx).default_value(material.texture_scale_v.to_string()));
+    let tint =
+        cx.new(|cx| InputState::new(window, cx).default_value(material.texture_tint.to_string()));
     let index = match material.shading_type {
         ShadingType::Unlit => 0,
         ShadingType::Flat => 1,
@@ -262,6 +265,7 @@ pub(super) fn edit(
         texture,
         u,
         v,
+        tint,
         shading,
         roughness,
         metallic,
@@ -321,6 +325,62 @@ pub(super) fn panel(
         .children(shell.bridge.latest_frame().into_iter().filter(|f|f.procedural_candidates>0).map(|f|div().text_xs().text_color(rgb(0xa9b7c5)).child(format!("Procedural GPU: {} candidates · {} draws",f.procedural_candidates,f.procedural_draw_calls))))
         .children(shell.bridge.latest_frame().into_iter().flat_map(|f|f.procedural_diagnostics).map(|d|div().text_xs().text_color(rgb(0xffaa80)).child(d)))
         .child(div().text_xs().text_color(rgb(0xa9b7c5)).child("Double-click to edit. Procedural details are visual; select and snap to the source surface."))
+        .into_any_element()
+}
+
+/// A path box with a Browse button that opens the system file dialog, the same one Open and Save
+/// use, filtered to images. Files beside the project are stored relative to it.
+fn file_input(
+    id: &str,
+    input: &Entity<InputState>,
+    shell: &MeshcraftShell,
+    cx: &mut Context<MeshcraftShell>,
+) -> gpui::AnyElement {
+    let root = shell.texture_root();
+    let browse = input.clone();
+    let clear = input.clone();
+    div()
+        .flex()
+        .flex_1()
+        .items_center()
+        .gap(px(6.))
+        .child(div().flex_1().child(Input::new(input)))
+        .child(
+            Button::new(SharedString::from(format!("{id}/browse")))
+                .small()
+                .label("Browse…")
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    let mut dialog = rfd::FileDialog::new()
+                        .set_title("Choose a texture image")
+                        .add_filter("Images", textures::EXTENSIONS);
+                    let current = browse.read(cx).value().to_string();
+                    let start = if current.trim().is_empty() {
+                        root.clone()
+                    } else {
+                        textures::resolve(&current, root.as_deref())
+                            .parent()
+                            .map(Into::into)
+                    };
+                    if let Some(dir) = start.filter(|d| d.is_dir()) {
+                        dialog = dialog.set_directory(dir);
+                    }
+                    if let Some(file) = dialog.pick_file() {
+                        let value = textures::stored_path(&file, root.as_deref());
+                        browse.update(cx, |state, cx| state.set_value(value, window, cx));
+                        cx.notify();
+                    }
+                })),
+        )
+        .child(
+            Button::new(SharedString::from(format!("{id}/clear")))
+                .small()
+                .ghost()
+                .label("Clear")
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    clear.update(cx, |state, cx| state.set_value("", window, cx));
+                    cx.notify();
+                })),
+        )
         .into_any_element()
 }
 
@@ -408,22 +468,30 @@ pub(super) fn overlay(
                     ),
             )
         })
-        .child(field("Texture path (optional)", &editor.texture))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(div().text_sm().child("Texture image (optional)"))
+                .child(file_input("material/texture", &editor.texture, shell, cx)),
+        )
         .child(
             div()
                 .flex()
                 .gap(px(10.))
-                .child(
-                    div()
-                        .flex_1()
-                        .child(field("Texture size U (model units)", &editor.u)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .child(field("Texture size V (model units)", &editor.v)),
-                ),
-        );
+                .items_end()
+                .child(div().flex_1().child(field("Image width (model units)", &editor.u)))
+                .child(div().pb(px(6.)).child("×"))
+                .child(div().flex_1().child(field("Image height (model units)", &editor.v))),
+        )
+        .child(field(
+            "Colorization · 0 shows the image as it is, 1 multiplies it by the color",
+            &editor.tint,
+        ))
+        .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(
+            "To place the image on a face, use Materials › Edit Texture Position and drag its corners in the viewport.",
+        ));
     let footer =
         div()
             .flex()
@@ -603,6 +671,12 @@ fn draft_material(editor: &Editor, cx: &Context<MeshcraftShell>) -> Result<Mater
         .value()
         .parse()
         .map_err(|_| "texture V size must be a number")?;
+    material.texture_tint = editor
+        .tint
+        .read(cx)
+        .value()
+        .parse()
+        .map_err(|_| "colorization must be a number from 0 to 1")?;
     material.shading_type = match editor.shading.read(cx).selected_value().map(String::as_str) {
         Some("Unlit") => ShadingType::Unlit,
         Some("Flat") => ShadingType::Flat,
@@ -859,6 +933,8 @@ fn procedural_fields(
                         .flex_1()
                         .child(Select::new(choices))
                         .into_any_element()
+                } else if p.kind == "texture" {
+                    file_input(&format!("procedural/{}", p.id), &input, shell, cx)
                 } else {
                     div().flex_1().child(Input::new(&input)).into_any_element()
                 })

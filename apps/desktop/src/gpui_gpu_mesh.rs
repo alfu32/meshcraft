@@ -1,6 +1,7 @@
 //! Retained local-space scene meshes and transform-only GPU instances (OpenGL 3.3).
 //! Resources are created, used and dropped on the raylib context's worker thread.
 use super::*;
+use meshcraft_core::document::texture_mapping::Placement as TexturePlacement;
 use meshcraft_core::{
     document::GeometryBundle,
     geometry::Affine3,
@@ -26,16 +27,31 @@ struct LineVertex {
     end: [f32; 3],
     color: [u8; 4],
 }
+/// Faces whose material has an image draw in their own batch, with that image bound.
+#[derive(Clone, Debug, PartialEq)]
+struct TexturedPart {
+    material: String,
+    glass: bool,
+    vertices: Vec<SurfaceVertex>,
+}
 #[derive(Clone, Debug, Default, PartialEq)]
 struct MeshData {
     opaque: Vec<SurfaceVertex>,
     glass: Vec<SurfaceVertex>,
+    textured: Vec<TexturedPart>,
     lines: Vec<LineVertex>,
 }
 impl MeshData {
     fn key(&self) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        for vertices in [&self.opaque, &self.glass] {
+        for part in &self.textured {
+            part.material.hash(&mut h);
+            part.glass.hash(&mut h);
+        }
+        for vertices in [&self.opaque, &self.glass]
+            .into_iter()
+            .chain(self.textured.iter().map(|p| &p.vertices))
+        {
             vertices.len().hash(&mut h);
             for v in vertices {
                 v.position.map(f32::to_bits).hash(&mut h);
@@ -51,7 +67,10 @@ impl MeshData {
         h.finish()
     }
     fn is_empty(&self) -> bool {
-        self.opaque.is_empty() && self.glass.is_empty() && self.lines.is_empty()
+        self.opaque.is_empty()
+            && self.glass.is_empty()
+            && self.textured.is_empty()
+            && self.lines.is_empty()
     }
 }
 fn xyz(p: Vec3) -> [f32; 3] {
@@ -72,6 +91,8 @@ struct SourcePart {
 struct Placement {
     target: SelectionTarget,
     transform: Affine3,
+    /// Where the part's first vertex sits in its prototype, so textures map in prototype space.
+    origin: Vec3,
 }
 struct PlannedGroup {
     data: Arc<MeshData>,
@@ -82,6 +103,7 @@ struct PlannedGroup {
 struct SourceBuilder {
     origin: Option<Vec3>,
     data: MeshData,
+    textured: BTreeMap<(String, bool), Vec<SurfaceVertex>>,
 }
 impl SourceBuilder {
     fn relative(&mut self, p: Vec3) -> [f32; 3] {
@@ -95,6 +117,7 @@ fn source_parts(
     object_wire: bool,
     colors: &BTreeMap<String, Rgba8>,
     suppressed: &std::collections::BTreeSet<String>,
+    textured: &std::collections::BTreeSet<String>,
 ) -> Vec<SourcePart> {
     let mut parts = BTreeMap::<SelectedEntity, SourceBuilder>::new();
     let edge_key = |a: Vec3, b: Vec3| {
@@ -147,7 +170,13 @@ fn source_parts(
         let part = parts.entry(entity).or_default();
         if let [Some(a), Some(b), Some(corner)] = f.vertices.map(|r| g.vertex_position(r)) {
             let positions = [a, b, corner].map(|p| part.relative(p));
-            let vertices = if c[3] == 255 {
+            let image = meshcraft_core::document::materials::material_id(&f.extensions)
+                .filter(|id| textured.contains(*id));
+            let vertices = if let Some(id) = image {
+                part.textured
+                    .entry((id.to_owned(), c[3] != 255))
+                    .or_default()
+            } else if c[3] == 255 {
                 &mut part.data.opaque
             } else {
                 &mut part.data.glass
@@ -191,6 +220,17 @@ fn source_parts(
     }
     parts
         .into_iter()
+        .map(|(entity, mut part)| {
+            part.data.textured = std::mem::take(&mut part.textured)
+                .into_iter()
+                .map(|((material, glass), vertices)| TexturedPart {
+                    material,
+                    glass,
+                    vertices,
+                })
+                .collect();
+            (entity, part)
+        })
         .filter(|(_, part)| !part.data.is_empty())
         .map(|(entity, part)| SourcePart {
             entity,
@@ -213,6 +253,12 @@ fn plan_with_procedural(
     let mut groups: Vec<PlannedGroup> = vec![];
     let mut by_hash = HashMap::<u64, Vec<usize>>::new();
     let colors = document.material_colors();
+    let textured = document
+        .materials()
+        .into_iter()
+        .filter(|m| m.texture_path.is_some())
+        .map(|m| m.id)
+        .collect();
     for occurrence in document.scene_geometry_refs().unwrap_or_default() {
         if !policy.occurrence_visible(document, &occurrence) {
             continue;
@@ -228,7 +274,7 @@ fn plan_with_procedural(
         // Cache by source identity within this immutable snapshot. No world-space duplication.
         let parts = sources
             .entry((g as *const GeometryBundle as usize, wire))
-            .or_insert_with(|| source_parts(g, policy, wire, &colors, suppressed));
+            .or_insert_with(|| source_parts(g, policy, wire, &colors, suppressed, &textured));
         for part in parts.iter() {
             let at = by_hash.get(&part.key).and_then(|indices| {
                 indices
@@ -254,6 +300,7 @@ fn plan_with_procedural(
                 transform: r
                     .world_transform
                     .compose(Affine3::from_translation(part.origin)),
+                origin: part.origin,
             });
         }
     }
@@ -265,9 +312,10 @@ fn plan_with_procedural(
 struct Instance {
     rows: [[f32; 4]; 3],
     flags: [f32; 4],
+    origin: [f32; 4],
 }
 impl Instance {
-    fn new(transform: Affine3, external: bool, selected: bool) -> Self {
+    fn new(transform: Affine3, origin: Vec3, external: bool, selected: bool) -> Self {
         let t = xyz(transform.translation);
         Self {
             rows: std::array::from_fn(|i| {
@@ -288,6 +336,10 @@ impl Instance {
                 if selected { 1. } else { 0. },
                 0.,
             ],
+            origin: {
+                let [x, y, z] = xyz(origin);
+                [x, y, z, 0.]
+            },
         }
     }
 }
@@ -295,7 +347,7 @@ impl Instance {
 const _: () = {
     assert!(size_of::<SurfaceVertex>() == 16);
     assert!(size_of::<LineVertex>() == 28);
-    assert!(size_of::<Instance>() == 64);
+    assert!(size_of::<Instance>() == 80);
 };
 
 struct Buffer {
@@ -481,13 +533,13 @@ impl Mesh {
                 raylib::ffi::rlEnableVertexArray(chunk.vao);
                 if chunk.instance_binding.get() != instances.id {
                     raylib::ffi::rlEnableVertexBuffer(instances.id);
-                    for i in 0..4 {
+                    for i in 0..5 {
                         attribute(
                             4 + i,
                             4,
                             raylib::ffi::RL_FLOAT as i32,
                             false,
-                            64,
+                            size_of::<Instance>() as i32,
                             i as i32 * 16,
                             1,
                         );
@@ -530,6 +582,8 @@ struct Group {
     data: Arc<MeshData>,
     opaque: Option<Mesh>,
     glass: Option<Mesh>,
+    /// Material ID, translucency and mesh for each textured batch.
+    textured: Vec<(String, bool, Mesh)>,
     lines: Option<Mesh>,
     placements: Vec<Placement>,
     instances: Vec<Instance>,
@@ -555,6 +609,9 @@ pub(super) struct Feedback<'a> {
 }
 pub(super) struct Scene {
     pub procedural: procedural::Renderer,
+    pub textures: textures::Cache,
+    /// The catalog as of the last rebuild; textured batches read their placement from it.
+    materials: HashMap<String, meshcraft_core::document::materials::Material>,
     groups: Vec<Group>,
     surface: Shader,
     line: Shader,
@@ -566,6 +623,8 @@ impl Scene {
     pub fn new(rl: &mut raylib::RaylibHandle, thread: &raylib::RaylibThread) -> Self {
         Self {
             procedural: procedural::Renderer::default(),
+            textures: textures::Cache::default(),
+            materials: HashMap::new(),
             groups: vec![],
             overlay: vec![],
             feedback: [None, None],
@@ -614,6 +673,21 @@ impl Scene {
                 group.placements = planned.placements;
                 self.groups.push(group);
             }
+            self.materials = scene
+                .document
+                .materials()
+                .into_iter()
+                .map(|m| (m.id.clone(), m))
+                .collect();
+            let root = scene.texture_root.as_deref();
+            let used = self
+                .groups
+                .iter()
+                .flat_map(|g| &g.textured)
+                .filter_map(|(id, _, _)| self.materials.get(id)?.texture_path.as_deref())
+                .map(|path| textures::resolve(path, root))
+                .collect();
+            self.textures.retain(&used);
         }
         if rebuild || feedback.is_some() {
             for group in &mut self.groups {
@@ -623,6 +697,7 @@ impl Scene {
                     .map(|p| {
                         Instance::new(
                             p.transform,
+                            p.origin,
                             lighting::external(&scene.edit_context, &scene.document, &p.target),
                             selection.contains(&p.target),
                         )
@@ -648,13 +723,25 @@ impl Scene {
         self.stats.surface_vertices = self
             .groups
             .iter()
-            .map(|g| g.data.opaque.len() + g.data.glass.len())
+            .map(|g| {
+                g.data.opaque.len()
+                    + g.data.glass.len()
+                    + g.data
+                        .textured
+                        .iter()
+                        .map(|p| p.vertices.len())
+                        .sum::<usize>()
+            })
             .sum();
         self.stats.indexed_vertices = self
             .groups
             .iter()
-            .flat_map(|g| [g.opaque.as_ref(), g.glass.as_ref()])
-            .flatten()
+            .flat_map(|g| {
+                [g.opaque.as_ref(), g.glass.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .chain(g.textured.iter().map(|(_, _, mesh)| mesh))
+            })
             .flat_map(|m| &m.chunks)
             .map(|c| c._vertices.capacity / size_of::<SurfaceVertex>())
             .sum();
@@ -668,11 +755,16 @@ impl Scene {
                 self.stats.feedback_uploads += 1;
             }
         }
-        let instance = Instance::new(Affine3::IDENTITY, false, false);
+        let instance = Instance::new(Affine3::IDENTITY, Vec3::ZERO, false, false);
         Group {
             key,
             opaque: Mesh::surfaces(&data.opaque),
             glass: Mesh::surfaces(&data.glass),
+            textured: data
+                .textured
+                .iter()
+                .filter_map(|p| Some((p.material.clone(), p.glass, Mesh::surfaces(&p.vertices)?)))
+                .collect(),
             lines: Mesh::lines(&data.lines),
             data,
             placements: vec![],
@@ -727,7 +819,7 @@ impl Scene {
             } else {
                 self.upload(key, Arc::new(data), false)
             };
-            let instance = Instance::new(Affine3::IDENTITY, false, i == 1);
+            let instance = Instance::new(Affine3::IDENTITY, Vec3::ZERO, false, i == 1);
             if group.instances != [instance] {
                 group.buffer.update(&[instance]);
                 group.instances = vec![instance];
@@ -747,8 +839,67 @@ impl Scene {
             if let Some(mesh) = &g.opaque {
                 mesh.draw(&g.buffer, g.instances.len());
             }
+            for (_, glass, mesh) in &g.textured {
+                if !glass {
+                    mesh.draw(&g.buffer, g.instances.len());
+                }
+            }
         }
         finish();
+    }
+    /// Draws the textured batches of one pass, each with its material's image and placement.
+    /// A batch whose image is missing or still loading shows its material color.
+    fn draw_textured(&mut self, scene: &RenderScene, glass: bool) {
+        let root = scene.texture_root.as_deref();
+        let s = &mut self.surface;
+        s.set_shader_value(s.get_shader_location("surfaceTexture"), 2i32);
+        for g in &self.groups {
+            for (id, translucent, mesh) in &g.textured {
+                let Some(material) = self.materials.get(id).filter(|_| *translucent == glass)
+                else {
+                    continue;
+                };
+                let placement = scene
+                    .texture_preview
+                    .as_ref()
+                    .filter(|(previewed, _)| previewed == id)
+                    .map_or_else(|| TexturePlacement::of(material), |(_, p)| *p);
+                let image = material
+                    .texture_path
+                    .as_deref()
+                    .and_then(|path| self.textures.get(&textures::resolve(path, root)));
+                s.set_shader_value(
+                    s.get_shader_location("textured"),
+                    i32::from(image.is_some()),
+                );
+                s.set_shader_value(
+                    s.get_shader_location("textureFrame"),
+                    raylib::prelude::Vector4::new(
+                        placement.offset[0] as f32,
+                        placement.offset[1] as f32,
+                        placement.size[0] as f32,
+                        placement.size[1] as f32,
+                    ),
+                );
+                float(s, "textureTint", material.texture_tint as f32);
+                unsafe {
+                    raylib::ffi::rlEnableShader(s.id);
+                    raylib::ffi::rlActiveTextureSlot(2);
+                    raylib::ffi::rlEnableTexture(
+                        image.unwrap_or_else(|| raylib::ffi::rlGetTextureIdDefault()),
+                    );
+                    raylib::ffi::rlActiveTextureSlot(0);
+                }
+                mesh.draw(&g.buffer, g.instances.len());
+            }
+        }
+        s.set_shader_value(s.get_shader_location("textured"), 0i32);
+        unsafe {
+            raylib::ffi::rlEnableShader(s.id);
+            raylib::ffi::rlActiveTextureSlot(2);
+            raylib::ffi::rlDisableTexture();
+            raylib::ffi::rlActiveTextureSlot(0);
+        }
     }
     pub fn set_light_matrix(&mut self, matrix: raylib::ffi::Matrix) {
         self.procedural.set_light(matrix);
@@ -780,6 +931,7 @@ impl Scene {
             i32::from(scene.lighting.shadows),
         );
         s.set_shader_value(s.get_shader_location("shadowMap"), 1i32);
+        s.set_shader_value(s.get_shader_location("textured"), 0i32);
         unsafe {
             raylib::ffi::rlEnableShader(s.id);
             raylib::ffi::rlActiveTextureSlot(1);
@@ -792,10 +944,11 @@ impl Scene {
                 mesh.draw(&g.buffer, g.instances.len());
             }
         }
+        self.draw_textured(scene, false);
         self.procedural
             .draw(scene, Some(camera), false, shadow_texture, false);
         unsafe {
-            raylib::ffi::rlEnableShader(s.id);
+            raylib::ffi::rlEnableShader(self.surface.id);
             raylib::ffi::rlActiveTextureSlot(1);
             raylib::ffi::rlEnableTexture(shadow_texture);
             raylib::ffi::rlActiveTextureSlot(0);
@@ -810,6 +963,7 @@ impl Scene {
                 mesh.draw(&g.buffer, g.instances.len());
             }
         }
+        self.draw_textured(scene, true);
         unsafe {
             raylib::ffi::rlEnableDepthMask();
             raylib::ffi::rlActiveTextureSlot(1);
@@ -905,7 +1059,7 @@ impl Scene {
         };
         if self.feedback[slot].as_ref().is_none_or(|g| *g.data != data) {
             self.feedback[slot] = Some(self.upload(data.key(), Arc::new(data), false));
-            let instance = Instance::new(Affine3::IDENTITY, false, false);
+            let instance = Instance::new(Affine3::IDENTITY, Vec3::ZERO, false, false);
             let group = self.feedback[slot].as_mut().unwrap();
             group.buffer.update(&[instance]);
             group.instances = vec![instance];
@@ -1116,7 +1270,7 @@ mod tests {
             [[-2., 0., 0.], [0., 3., 0.], [0., 0., 4.]],
             Vec3::new(5., 6., 7.),
         );
-        let i = Instance::new(transform, true, true);
+        let i = Instance::new(transform, Vec3::ZERO, true, true);
         let p = Vec3::new(2., 3., 4.);
         let output = i
             .rows

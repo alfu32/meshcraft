@@ -59,6 +59,10 @@ mod procedural;
 mod scripts;
 #[path = "gpui_settings.rs"]
 mod settings;
+#[path = "gpui_texture_edit.rs"]
+mod texture_edit;
+#[path = "gpui_textures.rs"]
+mod textures;
 #[path = "gpui_thumbnails.rs"]
 mod thumbnails;
 
@@ -256,6 +260,12 @@ struct RenderScene {
     reference_edges: Vec<[Vec3; 2]>,
     selection_rect: Option<([f32; 4], bool)>,
     hotspot_drag: Option<(meshcraft_core::document::OccurrenceRef, String, Vec3)>,
+    /// The project's folder; relative texture paths resolve against it.
+    texture_root: Option<std::path::PathBuf>,
+    /// A material placement being dragged, shown before it is committed.
+    texture_preview: Option<(String, meshcraft_core::document::texture_mapping::Placement)>,
+    /// The tile outline the texture edit mode shows, in world space.
+    texture_tile: Option<texture_edit::Frame>,
     architecture_handles: Arc<Vec<architecture::Handle>>,
     control_scale: f32,
     grid_spacing: f64,
@@ -296,6 +306,9 @@ impl RenderScene {
             && self.reference_edges == other.reference_edges
             && self.selection_rect == other.selection_rect
             && self.hotspot_drag == other.hotspot_drag
+            && self.texture_root == other.texture_root
+            && self.texture_preview == other.texture_preview
+            && self.texture_tile == other.texture_tile
             && Arc::ptr_eq(&self.architecture_handles, &other.architecture_handles)
             && self.control_scale == other.control_scale
             && self.grid_spacing == other.grid_spacing
@@ -326,6 +339,9 @@ impl Default for RenderScene {
             reference_edges: vec![],
             selection_rect: None,
             hotspot_drag: None,
+            texture_root: None,
+            texture_preview: None,
+            texture_tile: None,
             architecture_handles: Arc::default(),
             control_scale: 1.,
             grid_spacing: 1.0,
@@ -543,13 +559,17 @@ fn render_loop(
         let idle = |revision: &mut u64| {
             *revision == rendered_revision
                 && !lighting.gpu.procedural.animated
+                && !lighting.gpu.textures.pending()
                 && !stop.load(Ordering::Acquire)
         };
         let next_revision = if gpu_probe.is_some() {
             match changed.wait_timeout_while(revision, crate::resource_stats::SAMPLE_INTERVAL, idle)
             {
                 Ok((revision, _)) if !stop.load(Ordering::Acquire) => {
-                    if *revision == rendered_revision && !lighting.gpu.procedural.animated {
+                    if *revision == rendered_revision
+                        && !lighting.gpu.procedural.animated
+                        && !lighting.gpu.textures.pending()
+                    {
                         continue;
                     }
                     *revision
@@ -637,7 +657,14 @@ fn render_loop(
                 sequence,
                 frame_ms: frame_start.elapsed().as_secs_f32() * 1_000.0,
                 request_revision: next_revision,
-                procedural_diagnostics: lighting.gpu.procedural.diagnostics.clone(),
+                procedural_diagnostics: lighting
+                    .gpu
+                    .procedural
+                    .diagnostics
+                    .iter()
+                    .cloned()
+                    .chain(lighting.gpu.textures.errors())
+                    .collect(),
                 procedural_candidates: lighting.gpu.procedural.candidates,
                 procedural_draw_calls: lighting.gpu.procedural.draw_calls,
             });
@@ -762,6 +789,9 @@ fn draw_offscreen_scene(
         (target_width, target_height),
         scene_data.control_scale,
     );
+    if let Some(frame) = &scene_data.texture_tile {
+        texture_edit::draw(&mut drawing, frame, orbit, (target_width, target_height));
+    }
     if let Some((rect, crossing)) = scene_data.selection_rect {
         let fill = if crossing {
             Color::new(27, 176, 132, 56)
@@ -1221,6 +1251,7 @@ struct MeshcraftShell {
     walk_keys: [bool; 7],
     walk_tick: Instant,
     hotspot_drag: Option<hotspots::Drag>,
+    texture_edit: texture_edit::State,
     selection_gesture: Option<SelectionGesture>,
     selection_cursor: Option<(f32, f32)>,
     command_palette_open: bool,
@@ -1286,6 +1317,7 @@ impl MeshcraftShell {
             walk_keys: [false; 7],
             walk_tick: Instant::now(),
             hotspot_drag: None,
+            texture_edit: texture_edit::State::default(),
             selection_gesture: None,
             selection_cursor: None,
             command_palette_open: false,
@@ -1482,6 +1514,9 @@ impl MeshcraftShell {
             }
         };
         self.feedback = feedback;
+        if let Some(feedback) = self.texture_drag_feedback() {
+            self.feedback = Some(feedback);
+        }
         if let Some(ghost) = self.hotspot_drag_preview() {
             preview = Some(ghost);
         }
@@ -1573,6 +1608,9 @@ impl MeshcraftShell {
                 .as_ref()
                 .filter(|d| d.moved)
                 .map(hotspots::Drag::marker),
+            texture_root: self.texture_root(),
+            texture_preview: self.texture_edit.preview(),
+            texture_tile: self.texture_edit.frame(&self.cached_document),
             grid_spacing: self.cached_document.model_settings().grid_size,
             normal_line_width: preferences.normal_grid_width,
             black_model_lines: preferences.black_model_lines,
@@ -1984,7 +2022,8 @@ impl MeshcraftShell {
             self.camera_drag = Some((button, x, y));
         } else if button == gpui::MouseButton::Left && self.cursor_in_viewport(x, y) {
             self.update_pointer(x, y);
-            if self.begin_architecture_drag(x, y, modifiers)
+            if self.begin_texture_edit(x, y)
+                || self.begin_architecture_drag(x, y, modifiers)
                 || self.begin_hotspot_drag(x, y, modifiers)
             {
                 return;
@@ -2051,6 +2090,7 @@ impl MeshcraftShell {
         self.update_pointer(x, y);
         self.update_hotspot_drag(x, y);
         self.update_architecture_drag(x, y);
+        self.update_texture_edit(x, y);
     }
 
     fn pointer_up(&mut self, button: gpui::MouseButton, x: f32, y: f32) {
@@ -2073,7 +2113,14 @@ impl MeshcraftShell {
             self.update_pointer(x, y);
             self.update_hotspot_drag(x, y);
         }
-        if self.finish_architecture_drag() || self.finish_hotspot_drag() {
+        if self.texture_edit_active() {
+            self.update_pointer(x, y);
+            self.update_texture_edit(x, y);
+        }
+        if self.finish_texture_edit()
+            || self.finish_architecture_drag()
+            || self.finish_hotspot_drag()
+        {
             return;
         }
         let Some(gesture) = self.selection_gesture.take() else {
@@ -2220,7 +2267,8 @@ impl MeshcraftShell {
             self.selection_gesture = None;
             self.selection_cursor = None;
             let architecture_drag = self.architecture.drag.take().is_some();
-            if self.hotspot_drag.take().is_none() && !architecture_drag {
+            let texture_drag = self.cancel_texture_drag();
+            if self.hotspot_drag.take().is_none() && !architecture_drag && !texture_drag {
                 self.session.handle_native_escape();
             }
             self.cursor_snap = None;
@@ -3095,6 +3143,7 @@ impl Render for MeshcraftShell {
             window.set_rem_size(rem);
         }
         self.session.poll_native_host_work();
+        self.sync_texture_edit();
         self.sync_document_camera();
         let title = application_title(self.session.current_project_path().as_deref());
         if title != self.window_title {
@@ -3142,6 +3191,9 @@ impl Render for MeshcraftShell {
             } else if panel == "material_editor_new" {
                 materials::edit(self, self.cached_document.next_material(), window, cx);
             } else if panel == "material_editor" {
+                if let Some(id) = self.session.native_current_material() {
+                    self.materials.selected = Some(id);
+                }
                 let material = materials::selected_material(
                     &self.cached_document,
                     self.materials.selected.as_deref(),

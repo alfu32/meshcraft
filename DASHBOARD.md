@@ -1,5 +1,9 @@
 # Dashboard
 
+**0.55.0 textures:** a material can show an image, picked with the system file dialog and sized in model units as
+width × height, with a colorization amount. Edit Texture Position shows one tile on a face; dragging its corners or
+middle resizes or moves the image for every face using the material. [evidence](docs/rewrite/handoffs/T77.md).
+
 **0.54.1 tutorial authoring guide:** [instructions](docs/tutorials/AUTHORING.md) for agents recording further tutorials,
 with the owner's rules, a tested starter recipe, the director reference, known pitfalls and the review and release steps.
 

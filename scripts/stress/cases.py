@@ -1,8 +1,11 @@
 """Operation recipes, shared by local and CI execution. Never time tool activation alone."""
 
 from dataclasses import dataclass
+import math
+import struct
 import time
 import subprocess
+import zlib
 from runtime import Failure
 
 BULK_COMMANDS = {"tool.select", "tool.builtin.move", "tool.builtin.rotate"}
@@ -172,6 +175,11 @@ def recipe(command):
         return Recipe(
             "architecture",
             "Create/modify a canonical architectural owner or owned opening",
+        )
+    if key == "material.edit_texture":
+        return Recipe(
+            "material",
+            "Click a textured face in the texture edit mode, then drag a tile corner with the native pointer until the material resizes",
         )
     if key.startswith("material."):
         return Recipe(
@@ -357,6 +365,101 @@ class Exercise:
                 f"Tool did not commit geometry: {after['activeTool']}: {after['status']}"
             )
         return after
+
+    def textured_box(self):
+        """A 2-unit box with a 2-unit image tile, away from the tier model, framed head-on."""
+        image = self.work / "benchmark-texture.png"
+        raw = b"".join(
+            b"\0"
+            + b"".join(
+                bytes((200, 40, 40, 255) if (x // 4 + y // 4) % 2 else (40, 40, 200, 255))
+                for x in range(16)
+            )
+            for y in range(16)
+        )
+
+        def chunk(kind, data):
+            return (
+                struct.pack(">I", len(data))
+                + kind
+                + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+            )
+
+        image.write_bytes(
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw))
+            + chunk(b"IEND", b"")
+        )
+        self.cmd("geometry.add_cuboid", dict(dimensions=[2, 2, 2], origin=[499, 0, 499]))
+        box = self.rpc.status()["selection"]
+        self.cmd(
+            "material.save",
+            dict(
+                material=dict(
+                    id="benchmark-texture",
+                    name="Benchmark Texture",
+                    color=dict(red=255, green=255, blue=255, alpha=255),
+                    texturePath=str(image),
+                    textureScaleU=2,
+                    textureScaleV=2,
+                )
+            ),
+        )
+        self.rpc.select(box)
+        self.cmd("material.apply", dict(id="benchmark-texture"))
+        self.rpc.select([])
+        self.cmd(
+            "view.camera.set_pose",
+            dict(position=[500, 1.2, 507], target=[500, 1, 500], field_of_view=40),
+        )
+
+    def project(self, point):
+        status = self.rpc.status()
+        camera, view = status["camera"], status["workspace"]["viewport"]
+        position = [camera["position"][k] for k in "xyz"]
+        target = [camera["target"][k] for k in "xyz"]
+
+        def sub(a, b):
+            return [x - y for x, y in zip(a, b)]
+
+        def dot(a, b):
+            return sum(x * y for x, y in zip(a, b))
+
+        def cross(a, b):
+            return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+        def unit(a):
+            return [x / math.sqrt(dot(a, a)) for x in a]
+
+        forward = unit(sub(target, position))
+        right = unit(cross(forward, [0, 1, 0]))
+        up = cross(right, forward)
+        relative = sub(point, position)
+        depth = dot(relative, forward)
+        tangent = math.tan(math.radians(camera["fieldOfView"]) / 2)
+        scale = camera["distance"] if camera["orthographic"] else depth
+        x = dot(relative, right) / (scale * tangent * view["width"] / view["height"])
+        y = dot(relative, up) / (scale * tangent)
+        return (x + 1) / 2 * view["width"], (1 - y) / 2 * view["height"]
+
+    def native(self, action, point):
+        """The mouse's own handlers, at a model point's place in the viewport."""
+        x, y = self.project(point)
+        self.steps.append(f"pointer.native.{action}({point})")
+        self.rpc.call("k3d_pointer_event", dict(action=action, viewportX=x, viewportY=y))
+
+    def native_click(self, point):
+        for action in ("hover", "down", "up"):
+            self.native(action, point)
+
+    def native_drag(self, start, end, steps=4):
+        self.native("hover", start)
+        self.native("down", start)
+        for i in range(1, steps + 1):
+            self.native("hover", [a + (b - a) * i / steps for a, b in zip(start, end)])
+        self.native("up", end)
 
     def mutate(self, key, args=None):
         before = self.rpc.status()
@@ -908,6 +1011,18 @@ class Exercise:
                     ),
                 ),
             )
+        elif key == "material.edit_texture":
+            self.setup(self.textured_box)
+            self.cmd(key, stage="start_ms")
+            face, corner, inside = [500, 1.4, 501], [501, 2, 501], [500, 1, 501]
+            self.timed("pick_ms", self.native_click, face)
+            self.timed("commit_ms", self.native_drag, corner, inside)
+            material = next(
+                m for m in self.scene()["materials"] if m["id"] == "benchmark-texture"
+            )
+            self.rpc.pointer("cancel")
+            if abs(material["textureScaleU"] - 1) > 1e-6:
+                raise Failure(f"texture corner drag did not resize the material: {material}")
         elif key == "material.delete":
             self.setup(self.material, "material.save")
             self.mutate(key, dict(id="benchmark"))

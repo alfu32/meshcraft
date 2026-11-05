@@ -1630,6 +1630,7 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("new_shader", "New Shader", ShellAction::OpenPanel("material_program_new")),
             ("edit", "Edit Material", ShellAction::OpenPanel("material_editor")),
             ("apply", "Apply Material to Selection", ShellAction::MaterialAction("apply")),
+            ("edit_texture", "Edit Texture Position", ShellAction::MaterialAction("texture")),
             ("save", "Save Material", ShellAction::MaterialAction("save")),
             ("program", "Save Procedural Program", ShellAction::MaterialAction("program")),
             ("parameters", "Apply Procedural Parameters", ShellAction::MaterialAction("parameters")),
@@ -1960,6 +1961,7 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("settings", CommandValueType::Object),
         ],
         "material.save" => &[("material", CommandValueType::Object)],
+        "material.edit" => &[("id", CommandValueType::String)],
         "hotspot.add" => &[("position", CommandValueType::Object)],
         "hotspot.update" => &[
             ("name", CommandValueType::String),
@@ -2395,6 +2397,8 @@ pub struct MeshcraftApp {
     hotspot_inspector: Option<(OccurrenceRef, String)>,
     hotspot_defaults: meshcraft_core::document::hotspots::Hotspot,
     hotspot_reference_pick: bool,
+    /// Texture edit mode: the viewport shows a material's tile on a face, with draggable corners.
+    texture_edit: bool,
     viewport: Viewport,
     guides: Vec<ConstructionGuide>,
     cuboid_first: Option<Vec3>,
@@ -3541,6 +3545,7 @@ impl MeshcraftApp {
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,
+            texture_edit: false,
             viewport,
             guides: Vec::new(),
             cuboid_first: None,
@@ -6249,6 +6254,7 @@ impl MeshcraftApp {
         }
         self.tool_cycle_state.cancel_hotspot_placement();
         self.hotspot_reference_pick = false;
+        self.texture_edit = false;
         self.object_place_tool_state.cancel();
         self.placement_preview = Default::default();
         self.array_tool_state
@@ -6516,6 +6522,12 @@ impl MeshcraftApp {
     fn execute_command(&mut self, action: ShellAction, payload: &CommandPayload) -> CommandResult {
         match action {
             ShellAction::MaterialAction(action) => {
+                if action == "texture" {
+                    self.activate_tool("Select");
+                    self.texture_edit = true;
+                    self.status = materials_workflow::TEXTURE_EDIT_HINT.to_owned();
+                    return CommandResult::completed();
+                }
                 if action == "object" {
                     let result = (|| {
                         let definition = payload
@@ -7622,7 +7634,16 @@ impl MeshcraftApp {
                 self.guides.clear();
                 self.status = format!("Cleared {count} construction guide(s).");
             }
-            ShellAction::OpenPanel(panel) => self.open_panels(&[panel]),
+            ShellAction::OpenPanel(panel) => {
+                // Edit Material can name the material; otherwise the panel's choice is used.
+                if panel == "material_editor"
+                    && let Some(id) = payload.values.get("id").and_then(serde_json::Value::as_str)
+                    && let Err(error) = self.choose_native_material(id)
+                {
+                    return CommandResult::failed(error);
+                }
+                self.open_panels(&[panel]);
+            }
             ShellAction::OpenPanelGroup(panels) => self.open_panels(panels),
             ShellAction::Unsupported => {
                 return CommandResult::failed("this command is not implemented in this build");
@@ -8827,6 +8848,11 @@ impl MeshcraftApp {
     }
 
     fn handle_escape(&mut self) {
+        if self.texture_edit {
+            self.texture_edit = false;
+            self.status = "Finished editing the texture position.".to_owned();
+            return;
+        }
         if self.clipboard.placement.is_some() {
             self.cancel_active_tool();
             return;
@@ -13361,6 +13387,7 @@ mod tests {
             hotspot_inspector: None,
             hotspot_defaults: Default::default(),
             hotspot_reference_pick: false,
+            texture_edit: false,
             viewport: Default::default(),
             guides: Vec::new(),
             cuboid_first: None,

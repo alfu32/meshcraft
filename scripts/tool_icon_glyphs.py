@@ -74,6 +74,9 @@ def symbols():
         hotspot=hotspot, hotspot_attach=hotspot+path('M3 3L10 10M22 22L29 29',GREEN)+circle(3,3,2,GREEN,GREEN)+circle(29,29,2,GREEN,GREEN),
         hotspot_reference=hotspot+path('M16 16L28 4M23 4H28V9',ORANGE),
         hotspot_select=hotspot+path('M5 4L15 10L9 12Z',ORANGE,ORANGE),
+        # One repeat of an image with grab handles at its corners.
+        texture=rect(5,5,20,20,BLUE)+rect(5,5,10,10,BLUE,'#355d76',0)+rect(15,15,10,10,BLUE,'#355d76',0)
+        +''.join(rect(x,y,5,5,ORANGE,ORANGE,0) for x,y in [(2.5,2.5),(22.5,2.5),(2.5,22.5)]),
         material=material, paint=path('M8 23L23 4L28 8L13 27ZM8 23C2 23 6 30 2 30C10 30 13 29 13 27',ORANGE)+path('M8 23L13 27',WHITE),
         grass=path('M3 28H29M7 28L3 9L13 25L16 3L19 25L29 10L25 28',GREEN),
         foliage=path('M16 29V13M16 22L7 14M16 18L25 10',ORANGE)+path('M7 14Q0 8 4 3Q15 4 7 14ZM25 10Q18 1 29 3Q32 13 25 10ZM16 15Q9 8 16 3Q24 8 16 15Z',GREEN,'#28523d'),
@@ -259,6 +262,7 @@ assign('material','material.delete','delete')
 assign('material','material.apply paint.apply_selection','check')
 assign('material','paint.set_color','picker')
 assign('material','material.save','save')
+assign('texture','material.edit_texture','scale')
 assign('material','view.panel.materials.toggle','list')
 assign('parameters','material.parameters')
 assign('shader','material.new_shader','plus')

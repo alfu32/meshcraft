@@ -242,6 +242,11 @@ fn status(shell: &MeshcraftShell) -> Value {
         |snap| json!({"point":snap.point,"normal":snap.normal,"kind":snap.kind.label()}),
     );
     state["constructionGuides"] = json!(shell.session.native_construction_guides().len());
+    // The tile the texture edit mode shows, so a client can aim at its handles.
+    state["textureEdit"] = json!({
+        "active": shell.texture_edit_active(),
+        "tile": shell.texture_edit.frame(&shell.cached_document).map(|f| json!({"corners":f.corners,"center":f.center})),
+    });
     state["workspace"]["viewport"] = json!({"x":shell.layout.x,"y":shell.layout.y,"width":shell.layout.width,"height":shell.layout.height,"coordinateSpace":"window physical pixels"});
     state
 }

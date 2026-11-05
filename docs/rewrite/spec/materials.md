@@ -4,11 +4,11 @@
 
 **User requirement (updated 2026-10-23).** Each project exposes a Materials inspector, initially populated with 16 named ANSI colors and four architecture materials. Users can create additional materials, see their color swatches and names, select them, and open a material editor by double-click or Edit. Preserve text labels on controls.
 
-A material has a stable ID, name, RGBA color including transparent alpha, shading type (Unlit, Flat, Gouraud or Phong initially), optional texture path, and positive finite texture U/V sizes in model units. Defaults are an opaque neutral color, Phong shading, no texture and unit U/V sizes. The first rendering phase uses material colors/alpha with existing viewport lighting; texture mapping and distinct shading algorithms are retained metadata, not implemented rendering promises.
+A material has a stable ID, name, RGBA color including transparent alpha, shading type (Unlit, Flat, Gouraud or Phong initially), optional texture path, and positive finite texture U/V sizes in model units. Defaults are an opaque neutral color, Phong shading, no texture and unit U/V sizes. The viewport renders material colors/alpha with existing viewport lighting, and the texture image as specified in [Textures](#textures-t77). Distinct shading algorithms remain retained metadata, not implemented rendering promises.
 
 Save validates and commits one undoable edit. Cancel/Escape discards the draft. Modal pointer, wheel and keyboard input cannot reach modeling tools or camera navigation. Apply to Selection binds editable selected edges/faces or selected instance content to the material, respecting prototype editing context and independent instances. Later edits to a referenced material update its displayed color. Direct color painting replaces the material reference. Existing imported colors remain intact until explicitly assigned; new model geometry uses separate line and face defaults. A material catalog and its references survive project IO and history; scene import remaps conflicting material IDs without recoloring the host catalog.
 
-Source: new user contract; existing [object workflow](objects.md), paint and project/history APIs. Acceptance: C42. Implementation: T61. Texture evaluation remains future work.
+Source: new user contract; existing [object workflow](objects.md), paint and project/history APIs. Acceptance: C42. Implementation: T61; textures T77.
 
 New drawings start with 16 named ANSI materials using conventional VGA RGB values.
 ANSI defines [16 color slots](https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#text-formatting),
@@ -33,7 +33,38 @@ creation defaults count as use. Implicit line/face/architecture defaults count a
 use even before geometry is created. Unused ANSI colors and custom materials can
 be deleted, with no forced replacement or recoloring of geometry.
 
-### #30 Procedural materials (under #29, T63)
+### Textures (T77)
+
+**User requirement (2026-11-05).** A conventional material can show an image.
+
+- **Picking.** The Material Editor's texture field is a file input. Its Browse button opens the
+  system file dialog that Open and Save use, filtered to PNG, JPEG, WebP, BMP and TGA. A file in or
+  below the project's folder is stored relative to the project; any other file, or any file picked
+  before the project is saved, keeps its full path. Relative paths resolve against the project's
+  folder. Clear removes the image. Procedural `texture` parameters use the same input.
+- **Size.** Width × height of one image tile, in model units (`textureScaleU`, `textureScaleV`).
+- **Colorization.** `textureTint`, 0 to 1. 0 shows the image as it is; 1 multiplies it by the
+  material color. The color's alpha keeps meaning opacity: an opaque material cuts out pixels
+  whose image alpha is under one half, and a translucent one blends them.
+- **Mapping.** Each face projects onto its own plane in its prototype's space, so the image stays
+  put on an object that moves. U runs horizontally to the right as the face is seen and V runs up
+  it; a face within 0.999 of horizontal uses X for U. `textureOffsetU/V` place a tile's lower-left
+  corner along those axes. The tile repeats in both directions, upright. The viewport shader and
+  `texture_mapping.rs` evaluate the same formulas.
+- **Loading.** Images decode off the render thread and draw at most 4096 pixels on a side, with
+  mipmaps. A face whose image is missing or still loading shows its material color, and the
+  Materials panel reports an unreadable file.
+- **Edit Texture Position** (`material.edit_texture`). Clicking a textured face shows one tile of
+  its image on that face, with a handle at each corner and one in the middle. Dragging a corner
+  resizes the tile while the opposite corner stays put; dragging past it reverses the span without
+  mirroring the image. Dragging the middle slides the image. A drag follows snaps that lie on the
+  face's plane and otherwise the plane under the pointer. Releasing saves the size and offset to
+  the material, which changes every face using it, as one undoable edit. Escape cancels a drag in
+  progress, then ends the mode; choosing another tool ends it too. `material.edit` accepts an `id`
+  naming the material to open.
+- Interchange export still reports textures as omitted.
+
+
 
 A conventional material may carry an optional procedural configuration: stable
 program ID, typed parameter values, optional conventional/PBR base-material

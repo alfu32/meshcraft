@@ -5,14 +5,18 @@ layout(location=4) in vec4 instanceRow0;
 layout(location=5) in vec4 instanceRow1;
 layout(location=6) in vec4 instanceRow2;
 layout(location=7) in vec4 instanceFlags;
+layout(location=8) in vec4 instanceOrigin;
 uniform mat4 viewProjection;
 uniform float depthOffset;
 out vec3 worldPosition;
+// Prototype-space position, so a texture stays put on its object when the object moves.
+out vec3 localPosition;
 out vec4 color;
 flat out float faceOrientation;
 void main() {
     vec4 p=vec4(vertexPosition,1.0);
     worldPosition=vec3(dot(instanceRow0,p),dot(instanceRow1,p),dot(instanceRow2,p));
+    localPosition=vertexPosition+instanceOrigin.xyz;
     color=instanceFlags.y>0.5 ? vec4(188.0/255.0,201.0/255.0,212.0/255.0,1.0) : vertexColor;
     faceOrientation=instanceFlags.x;
     gl_Position=viewProjection*vec4(worldPosition,1.0);

@@ -3,6 +3,8 @@ use super::*;
 use meshcraft_core::document::materials::Material;
 use serde_json::Value;
 
+pub(crate) const TEXTURE_EDIT_HINT: &str = "Texture: click a textured face, then drag a corner to size the image or its middle to move it. The material changes everywhere it is used. Esc finishes.";
+
 impl MeshcraftApp {
     pub(super) fn current_face_color(&self) -> Rgba8 {
         if self.current_paint_material.is_none() && self.current_paint_color == Rgba8::ANSI_GREY {
@@ -125,6 +127,11 @@ impl MeshcraftApp {
         result
     }
 
+    /// The material last chosen in the panel, the Home dropdown or by Edit Material's `id`.
+    pub fn native_current_material(&self) -> Option<String> {
+        self.current_paint_material.clone()
+    }
+
     pub fn choose_native_material(&mut self, id: &str) -> Result<(), String> {
         let material = self
             .document
@@ -151,6 +158,15 @@ impl MeshcraftApp {
             };
         modeling_transforms::assign_material(document, selection, &id)
     }
+    /// True while the viewport edits a material's texture position instead of selecting.
+    pub fn native_texture_edit_active(&self) -> bool {
+        self.texture_edit && self.active_tool == "Select"
+    }
+
+    pub fn finish_native_texture_edit(&mut self) {
+        self.texture_edit = false;
+    }
+
     pub fn save_native_material(&mut self, material: Material) -> Result<(), String> {
         let name = material.name.clone();
         let current = self.current_paint_material.as_deref() == Some(&material.id);

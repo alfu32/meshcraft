@@ -3616,6 +3616,48 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T77",
+      "title": "Textured materials and the texture edit mode",
+      "phase": "desktop",
+      "dependencies": [
+        "T61"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C50"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/texture_mapping.rs",
+        "crates/meshcraft-core/src/document/materials.rs",
+        "apps/desktop/src/gpui_textures.rs",
+        "apps/desktop/src/gpui_texture_edit.rs",
+        "apps/desktop/src/gpui_gpu_mesh.rs",
+        "apps/desktop/src/gpui_materials.rs",
+        "assets/shaders/scene.fs",
+        "scripts/verify_textures.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/rewrite/handoffs/T77.md"
+      ],
+      "slices": [
+        "Add a texture offset and colorization to the material, and one planar mapping shared by the shader and the edit mode.",
+        "Draw textured faces in their own batches with the image decoded off the render thread.",
+        "Pick the image with the system file dialog, and size, move and colorize it from the Material Editor and the viewport."
+      ],
+      "done": [
+        "C50 passes in the native app: the image lands upright, and corner and middle drags change the material everywhere, undoably."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

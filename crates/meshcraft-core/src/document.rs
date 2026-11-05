@@ -16,6 +16,7 @@ pub mod materials;
 pub mod procedural;
 pub mod scripts;
 pub mod subscenes;
+pub mod texture_mapping;
 
 macro_rules! stable_id {
     ($name:ident) => {

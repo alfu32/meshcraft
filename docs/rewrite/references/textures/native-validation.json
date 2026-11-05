@@ -1,0 +1,17 @@
+{
+  "version": "0.55.0",
+  "checks": {
+    "the texture path is stored relative to the project": true,
+    "the image covers the face upright, lower-left quadrant at lower left": true,
+    "the command turns the edit mode on": true,
+    "clicking the face shows its tile, corner to corner": true,
+    "a corner drag resizes the material, keeping the opposite corner": true,
+    "every face with the material shows the smaller tiles": true,
+    "the outline stays on the dragged tile": true,
+    "a middle drag moves the image and keeps its size": true,
+    "undo restores the placement before the drag": true,
+    "a second undo restores the original size": true,
+    "Esc ends the edit mode and hides the outline": true
+  },
+  "platform": "Actual GPUI app; isolated Linux Xvfb/Mesa desktop"
+}

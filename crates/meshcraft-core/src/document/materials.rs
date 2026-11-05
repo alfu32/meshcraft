@@ -41,6 +41,14 @@ pub struct Material {
     pub texture_path: Option<String>,
     pub texture_scale_u: f64,
     pub texture_scale_v: f64,
+    /// Where a tile starts on each face plane, in model units along the texture axes.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub texture_offset_u: f64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub texture_offset_v: f64,
+    /// 0 shows the image as it is; 1 multiplies it by the material color.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub texture_tint: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub procedural: Option<super::procedural::ProceduralMaterial>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,6 +65,9 @@ impl Default for Material {
             texture_path: None,
             texture_scale_u: 1.,
             texture_scale_v: 1.,
+            texture_offset_u: 0.,
+            texture_offset_v: 0.,
+            texture_tint: 0.,
             procedural: None,
             pbr: None,
         }
@@ -122,6 +133,12 @@ impl Material {
         {
             return Err("texture U/V sizes must be positive model-unit distances".into());
         }
+        if !self.texture_offset_u.is_finite() || !self.texture_offset_v.is_finite() {
+            return Err("texture offsets must be finite model-unit distances".into());
+        }
+        if !(0.0..=1.0).contains(&self.texture_tint) {
+            return Err("texture colorization must be between zero and one".into());
+        }
         if self.pbr.as_ref().is_some_and(|p| {
             [p.roughness, p.metallic]
                 .iter()
@@ -134,6 +151,10 @@ impl Material {
         }
         Ok(())
     }
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.
 }
 
 pub fn material_id(extensions: &BTreeMap<String, Value>) -> Option<&str> {

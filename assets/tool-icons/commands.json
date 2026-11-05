@@ -261,6 +261,10 @@
       "symbol": "material",
       "overlay": "edit"
     },
+    "material.edit_texture": {
+      "symbol": "texture",
+      "overlay": "scale"
+    },
     "material.new": {
       "symbol": "material",
       "overlay": "plus"

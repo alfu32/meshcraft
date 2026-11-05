@@ -318,6 +318,22 @@ Scripted hotspot appearance uses `$HOTSPOT(position, id, label, shape, color)`.
 `meshcraft_geometry` returns the resulting marker shape and RGBA color. See the
 [appearance API](script-parameters.md#hotspot-appearance).
 
+## Textured materials
+
+A material saved with `material.save` may name an image in `texturePath`, relative to the project's
+folder or absolute. `textureScaleU/V` are one tile's width and height in model units,
+`textureOffsetU/V` where a tile starts along the face's axes, and `textureTint` (0 to 1) how much
+the material color multiplies the image. Faces project the image onto their own plane in their
+prototype's space; see [Textures](rewrite/spec/materials.md#textures-t77). `material.edit` takes an
+optional `id` to open that material in the editor.
+
+`material.edit_texture` starts the texture edit mode. It works through the native pointer only: a
+`down`/`up` on a textured face shows its tile, and `k3d_status.textureEdit` then reports
+`{active, tile:{corners, center}}` in world coordinates, corners counter-clockwise from the image's
+lower-left. A native drag from a corner resizes the material with the opposite corner fixed; a drag
+from `center` moves it. `cancel` ends the mode and drops any drag in progress; the Escape key first cancels a drag, then ends the mode.
+`scripts/verify_textures.py` drives the whole sequence.
+
 ## Procedural materials (#30)
 
 `meshcraft_scene.proceduralPrograms` publishes every program, its parameter

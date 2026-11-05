@@ -4,10 +4,12 @@ in vec4 vertexColor;
 uniform mat4 mvp;
 uniform float depthOffset;
 out vec3 worldPosition;
+out vec3 localPosition;
 out vec4 color;
 flat out float faceOrientation;
 void main() {
     worldPosition = vertexPosition;
+    localPosition = vertexPosition;
     color = vertexColor;
     faceOrientation = 1.0;
     gl_Position = mvp * vec4(vertexPosition, 1.0);

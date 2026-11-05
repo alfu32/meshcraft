@@ -426,3 +426,7 @@ Each tutorial is built by `scripts/video/build.py` from a recipe. A new project 
 ## C49 — Dynamic objects from hotspots alone
 
 With no script, an object carries a Stretch handle and a Multiply Linear handle attached to it. Widening the object keeps it a single element, and the multiply handle then makes copies at the new width, edge to edge. A handle dropped after being carried lands where it was dropped. Copies of the instance keep their own values. Tutorial 6 records this from the Architecture template, and its build stops if geometry is left at the old width.
+
+## C50 — Textured materials
+
+A material given an image shows it on every face it is applied to, upright, one tile per width × height model units, starting at the material's offset, in the face's prototype space. Colorization 0 shows the image's own colors and 1 multiplies them by the material color. Browse opens the system file dialog for images and stores a file beside the project relative to it. In Edit Texture Position, clicking a textured face outlines one tile on it; dragging a corner resizes the material with the opposite corner fixed, dragging the middle moves it without resizing, every face using the material follows, and Undo restores the previous placement in one step per drag. Escape ends the mode and removes the outline. Run `python3 scripts/verify_textures.py`; the file dialog itself needs a manual check on a desktop with a portal.

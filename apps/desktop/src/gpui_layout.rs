@@ -1109,6 +1109,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             ("material.edit", "Edit"),
             ("material.delete", "Delete Unused"),
             ("material.apply", "Apply to Selection"),
+            ("material.edit_texture", "Edit Texture Position"),
             ("material.new_shader", "New Shader"),
             ("material.new_grass", "New Grass"),
             ("material.new_foliage", "New Foliage"),

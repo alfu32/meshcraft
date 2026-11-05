@@ -280,6 +280,7 @@ pub(crate) const SECTIONS: &[Section] = &[
             ("material.new_shader", "New Shader"),
             ("material.edit", "Edit Material"),
             ("material.apply", "Apply Material"),
+            ("material.edit_texture", "Edit Texture Position"),
             ("material.delete", "Delete Unused Material"),
             ("tool.builtin.paint", "Paint"),
         ],
