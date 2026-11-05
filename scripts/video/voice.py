@@ -19,6 +19,9 @@ import subtitles  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 VOICE = ROOT / "docs/tutorials/voice"
 LINES = ROOT / "target/tutorial-work/lines"
+# Speech here runs near 11 characters per second; the runaway clip that prompted this was 3.
+MIN_CHARS_PER_SECOND = 6.0
+ATTEMPTS = 3
 
 
 def duration(path):
@@ -35,6 +38,18 @@ def peak_db(path):
 
 
 def generate(text, engine, speaker, frames):
+    """The model can run away and babble past a sentence, so a clip far too long is tried again."""
+    for attempt in range(1, ATTEMPTS + 1):
+        key, seconds = render(text, engine, speaker, frames)
+        rate = len(subtitles.spoken(text)) / seconds
+        if rate >= MIN_CHARS_PER_SECOND:
+            return key, seconds
+        print(f"attempt {attempt}: {seconds:.1f}s is too long for {text!r}", flush=True)
+        (VOICE / f"{key}.flac").unlink()
+    raise RuntimeError(f"Speech keeps running away for {text!r}; reword the line")
+
+
+def render(text, engine, speaker, frames):
     with tempfile.TemporaryDirectory() as directory:
         wav = Path(directory) / "line.wav"
         result = subprocess.run(
