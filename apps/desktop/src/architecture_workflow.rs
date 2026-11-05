@@ -651,7 +651,8 @@ impl MeshcraftApp {
         if self.architecture.points.is_empty() && self.polyline_tool_state.points().is_empty() {
             if tool == "Add Hole" {
                 let owner = target
-                    .and_then(|t| self.document.architecture_element(&t))
+                    .as_ref()
+                    .and_then(|t| self.document.architecture_element(t))
                     .or_else(|| self.native_selected_architecture())
                     .filter(|e| {
                         matches!(e.element, Element::Wall(_) | Element::Slab(_))
@@ -677,7 +678,21 @@ impl MeshcraftApp {
             } else if tool == "Add Hole" {
                 self.architecture.normal.unwrap_or(Vec3::Y)
             } else if matches!(tool.as_str(), "Window" | "Door") {
-                snap.and_then(|s| self.arch_cursor_blue(s))
+                // A wall or slab under the cursor decides the plane, so snapping to an
+                // opening's corner stands the frame in that wall instead of laying it flat.
+                target
+                    .as_ref()
+                    .and_then(|t| self.document.architecture_element(t))
+                    .filter(|e| matches!(e.element, Element::Wall(_) | Element::Slab(_)))
+                    .and_then(|owner| {
+                        let plane = owner.element.plane().ok()?;
+                        owner
+                            .transform
+                            .transform_vector(plane.u)
+                            .cross(owner.transform.transform_vector(plane.v))
+                            .try_normalized(1e-9)
+                    })
+                    .or_else(|| snap.and_then(|s| self.arch_cursor_blue(s)))
                     .unwrap_or(self.architecture.normal.unwrap_or(Vec3::Z))
             } else {
                 snap.and_then(|s| s.normal.try_normalized(1e-9))
@@ -1771,6 +1786,27 @@ mod tests {
         assert_eq!(app.arch_defaults().wall.height, 4.);
         assert_eq!(app.arch_defaults().frame.depth, 0.2);
     }
+    #[test]
+    fn frame_snapped_to_an_opening_corner_stands_in_the_wall_under_the_cursor() {
+        let mut app = app();
+        let target = wall(&mut app);
+        command(&mut app, "tool.builtin.arch_door_frame", json!({}));
+        // An endpoint snap reports an upward normal; the wall under the cursor must win.
+        let snap = |point| {
+            Some(SnapResult {
+                point,
+                normal: Vec3::Y,
+                kind: SnapKind::Endpoint,
+                screen_distance: 0.0,
+            })
+        };
+        let a = Vec3::new(2.0, 2.5, 0.1);
+        let b = Vec3::new(1.0, 0.5, 0.1);
+        app.handle_native_world_pick(a, snap(a), Some(target));
+        app.handle_native_world_pick(b, snap(b), None);
+        assert_eq!(app.status, "Door created.");
+    }
+
     #[test]
     fn interactive_hole_locks_to_the_first_picked_owner_and_is_undoable() {
         let mut app = app();

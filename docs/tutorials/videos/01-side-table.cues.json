@@ -1,0 +1,149 @@
+{
+  "video": "01-side-table.mp4",
+  "app_version": "0.53.0",
+  "recipe": "docs/tutorials/recipes/01-side-table.py",
+  "duration": 203.979,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.649,
+      "end": 9.07,
+      "text": "Before drawing anything, set the units in Model Settings.",
+      "reading_seconds": 5.47,
+      "voice": "ad193874b5ad3281"
+    },
+    {
+      "start": 9.12,
+      "end": 15.82,
+      "text": "Unit name is the suffix shown on every measurement. Type cm.",
+      "reading_seconds": 6.75,
+      "voice": "025d555ad7c23c4e"
+    },
+    {
+      "start": 15.87,
+      "end": 23.45,
+      "text": "Unit size says how long one model unit is. One unit, one centimetre.",
+      "reading_seconds": 7.63,
+      "voice": "25fd2f82c1c93303"
+    },
+    {
+      "start": 23.5,
+      "end": 31.48,
+      "text": "Grid size is the snap spacing, in units. Five gives a 5 cm grid.",
+      "reading_seconds": 8.03,
+      "voice": "fd7f9af47f632779"
+    },
+    {
+      "start": 31.53,
+      "end": 39.51,
+      "text": "Good. Now move over the grid. The coloured axes on the cursor show where it snaps.",
+      "reading_seconds": 8.03,
+      "voice": "ae172a7d4fbfbe8a"
+    },
+    {
+      "start": 39.56,
+      "end": 43.781,
+      "text": "Start with the table top. Choose Rectangle.",
+      "reading_seconds": 4.27,
+      "voice": "ef5d96e3f1e00874"
+    },
+    {
+      "start": 43.831,
+      "end": 50.828,
+      "text": "Click two grid points, 60 cm apart in each direction.",
+      "reading_seconds": 5.15,
+      "voice": "b198f6858b13fbd1"
+    },
+    {
+      "start": 50.878,
+      "end": 58.778,
+      "text": "Uh oh, nothing to snap to up in the air. Press T to add an axis helper.",
+      "reading_seconds": 7.95,
+      "voice": "7ee4efa2c9bf217b"
+    },
+    {
+      "start": 58.828,
+      "end": 64.489,
+      "text": "Its blue axis points straight up and snaps at every grid step.",
+      "reading_seconds": 5.71,
+      "voice": "da94b1c7b5112de4"
+    },
+    {
+      "start": 64.539,
+      "end": 81.445,
+      "text": "Push/Pull: pick the corner, then a point one step up the helper.",
+      "reading_seconds": 8.99,
+      "voice": "cbc08278557c64f7"
+    },
+    {
+      "start": 81.495,
+      "end": 91.177,
+      "text": "Nice! Make Object keeps this part from merging with what we draw next.",
+      "reading_seconds": 5.4,
+      "voice": "d314bad632ee0940"
+    },
+    {
+      "start": 91.227,
+      "end": 105.182,
+      "text": "Now lift the top. Move: pick its corner, then a point up the helper.",
+      "reading_seconds": 5.71,
+      "voice": "ad2382c15168ada3"
+    },
+    {
+      "start": 105.232,
+      "end": 114.288,
+      "text": "Goooood. Next, one leg: a small square under the corner of the top.",
+      "reading_seconds": 5.71,
+      "voice": "a64d9637b1348935"
+    },
+    {
+      "start": 114.338,
+      "end": 128.728,
+      "text": "Pull it up until the cursor snaps to the corner underneath the top.",
+      "reading_seconds": 5.39,
+      "voice": "c2f76b7e32e76d33"
+    },
+    {
+      "start": 130.244,
+      "end": 139.678,
+      "text": "Make it an object too, so all four legs share one definition.",
+      "reading_seconds": 5.63,
+      "voice": "e2d8e7abb3b14aee"
+    },
+    {
+      "start": 139.728,
+      "end": 153.839,
+      "text": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 cm along.",
+      "reading_seconds": 7.79,
+      "voice": "4fd60be7ad38ed57"
+    },
+    {
+      "start": 153.889,
+      "end": 170.519,
+      "text": "You can also type a distance. Pick a start, aim, type 55 and press Enter.",
+      "reading_seconds": 7.63,
+      "voice": "69a4bada0c3aaff5"
+    },
+    {
+      "start": 170.909,
+      "end": 180.569,
+      "text": "Niiiice! Clear Guides removes the helper once it has done its job.",
+      "reading_seconds": 9.71,
+      "voice": "30f728abfc8dcc5e"
+    },
+    {
+      "start": 180.619,
+      "end": 186.519,
+      "text": "Right-drag to orbit and check the result from another side.",
+      "reading_seconds": 5.95,
+      "voice": "46e30fc3540f135a"
+    },
+    {
+      "start": 186.569,
+      "end": 196.626,
+      "text": "Cool. That's the whole method: set units, snap to the grid, climb with helpers.",
+      "reading_seconds": 7.39,
+      "voice": "854cffe92859a34b"
+    }
+  ]
+}

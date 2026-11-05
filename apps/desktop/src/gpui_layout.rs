@@ -783,6 +783,7 @@ fn command_row(
 }
 
 fn ribbon_group(
+    tab: &'static str,
     title: &'static str,
     namespace: &'static str,
     commands: &'static [(&'static str, &'static str)],
@@ -812,11 +813,21 @@ fn ribbon_group(
                 .child(title),
         )
         .child(
-            div().flex().flex_wrap().gap(px(3.)).children(
-                commands
-                    .iter()
-                    .map(|(command, label)| bindings.button(namespace, command, label).w(px(108.))),
-            ),
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(3.))
+                .children(commands.iter().map(|(command, label)| {
+                    let probe = super::workspace_controls::bounds_probe(
+                        bindings.shell,
+                        format!("tool/{tab}/{command}"),
+                    );
+                    div()
+                        .relative()
+                        .w(px(108.))
+                        .child(bindings.button(namespace, command, label).w(px(108.)))
+                        .child(probe)
+                })),
         ))
     .into_any_element()
 }
@@ -835,6 +846,7 @@ pub(super) fn ribbon_content(
         .bg(rgb(0x20262e));
     for group in ribbon_groups(tab) {
         ribbon = ribbon.child(ribbon_group(
+            tab,
             group.title,
             if tab == "Home" {
                 "ribbon/home/functional"
@@ -873,7 +885,12 @@ fn setting_field(
     value: &'static str,
     bindings: &mut LayoutBindings<'_, '_, '_>,
 ) -> gpui::AnyElement {
-    (bindings.field(label, value)).into_any_element()
+    let probe = super::workspace_controls::bounds_probe(bindings.shell, format!("setting/{label}"));
+    div()
+        .relative()
+        .child(bindings.field(label, value))
+        .child(probe)
+        .into_any_element()
 }
 
 fn setting_pair(

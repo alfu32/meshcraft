@@ -1,0 +1,78 @@
+WEBVTT
+
+00:00:03.649 --> 00:00:09.070
+Before drawing anything, set the units in Model Settings.
+
+00:00:09.120 --> 00:00:15.820
+Unit name is the suffix shown
+on every measurement. Type cm.
+
+00:00:15.870 --> 00:00:23.450
+Unit size says how long one model
+unit is. One unit, one centimetre.
+
+00:00:23.500 --> 00:00:31.480
+Grid size is the snap spacing,
+in units. Five gives a 5 cm grid.
+
+00:00:31.530 --> 00:00:39.510
+Good. Now move over the grid. The coloured
+axes on the cursor show where it snaps.
+
+00:00:39.560 --> 00:00:43.781
+Start with the table top. Choose Rectangle.
+
+00:00:43.831 --> 00:00:50.828
+Click two grid points, 60 cm apart in each direction.
+
+00:00:50.878 --> 00:00:58.778
+Uh oh, nothing to snap to up in the
+air. Press T to add an axis helper.
+
+00:00:58.828 --> 00:01:04.489
+Its blue axis points straight
+up and snaps at every grid step.
+
+00:01:04.539 --> 00:01:21.445
+Push/Pull: pick the corner, then
+a point one step up the helper.
+
+00:01:21.495 --> 00:01:31.177
+Nice! Make Object keeps this part
+from merging with what we draw next.
+
+00:01:31.227 --> 00:01:45.182
+Now lift the top. Move: pick its
+corner, then a point up the helper.
+
+00:01:45.232 --> 00:01:54.288
+Goooood. Next, one leg: a small
+square under the corner of the top.
+
+00:01:54.338 --> 00:02:08.728
+Pull it up until the cursor snaps
+to the corner underneath the top.
+
+00:02:10.244 --> 00:02:19.678
+Make it an object too, so all
+four legs share one definition.
+
+00:02:19.728 --> 00:02:33.839
+Move Copy repeats it. Pick the leg's
+corner, then a grid point 55 cm along.
+
+00:02:33.889 --> 00:02:50.519
+You can also type a distance. Pick a
+start, aim, type 55 and press Enter.
+
+00:02:50.909 --> 00:03:00.569
+Niiiice! Clear Guides removes the
+helper once it has done its job.
+
+00:03:00.619 --> 00:03:06.519
+Right-drag to orbit and check
+the result from another side.
+
+00:03:06.569 --> 00:03:16.626
+Cool. That's the whole method: set units,
+snap to the grid, climb with helpers.

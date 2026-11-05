@@ -1,0 +1,48 @@
+{
+  "duration": 62.886,
+  "narration": false,
+  "cues": [
+    {
+      "start": 0.0,
+      "end": 7.343,
+      "text": "Build a simple side table with Rectangle, Push/Pull, Make Object, Move, and Move Copy."
+    },
+    {
+      "start": 7.343,
+      "end": 15.043,
+      "text": "Choose Rectangle. Pick opposite corners to draw a tabletop sixty centimeters wide and deep."
+    },
+    {
+      "start": 15.043,
+      "end": 22.886,
+      "text": "Choose Push/Pull, select the face, and pull it upward. Type three for the tabletop thickness."
+    },
+    {
+      "start": 22.886,
+      "end": 30.514,
+      "text": "Select the tabletop geometry and choose Make Object. This keeps it separate from the legs."
+    },
+    {
+      "start": 30.514,
+      "end": 38.357,
+      "text": "With Move, lift the tabletop forty-two centimeters. Its upper surface is now forty-five high."
+    },
+    {
+      "start": 38.357,
+      "end": 46.914,
+      "text": "Draw a four-centimeter square below a corner. Pull it up forty-two centimeters, then make it an object."
+    },
+    {
+      "start": 46.914,
+      "end": 54.543,
+      "text": "Use Move Copy to make a second leg. Select both legs and copy them across to the far side."
+    },
+    {
+      "start": 54.543,
+      "end": 62.886,
+      "text": "The table is complete: one top and four linked legs. Save the project, then explore your own design."
+    }
+  ],
+  "endpoint": "http://127.0.0.1:8766/mcp",
+  "app_version": "0.52.0"
+}

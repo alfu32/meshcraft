@@ -455,10 +455,28 @@ impl MeshcraftApp {
                         .ok_or_else(|| format!("{key} must be a finite number"))
                 };
                 let p = Vec3::new(number("worldX")?, number("worldY")?, number("worldZ")?);
+                // A supplied normal stands for the surface under the cursor; tools such
+                // as Window and Door orient themselves from it.
+                let surface = if ["normalX", "normalY", "normalZ"]
+                    .iter()
+                    .any(|key| args.get(*key).is_some())
+                {
+                    Some(
+                        Vec3::new(number("normalX")?, number("normalY")?, number("normalZ")?)
+                            .try_normalized(1e-9)
+                            .ok_or("surface normal must not be zero")?,
+                    )
+                } else {
+                    None
+                };
                 let snap = SnapResult {
                     point: p,
-                    normal: Vec3::Y,
-                    kind: SnapKind::Free,
+                    normal: surface.unwrap_or(Vec3::Y),
+                    kind: if surface.is_some() {
+                        SnapKind::Face
+                    } else {
+                        SnapKind::Free
+                    },
                     screen_distance: 0.,
                 };
                 self.cursor_snap = Some(snap);
@@ -536,6 +554,35 @@ impl MeshcraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pointer_normal_lets_a_door_stand_on_a_vertical_surface() {
+        let pick = |x, y, normal: bool| {
+            let mut args = json!({"action":"click","worldX":x,"worldY":y,"worldZ":6});
+            if normal {
+                args["normalX"] = json!(0);
+                args["normalY"] = json!(0);
+                args["normalZ"] = json!(1);
+            }
+            args
+        };
+        let door = |app: &mut MeshcraftApp, normal: bool| {
+            app.dispatch_command("tool.builtin.arch_door_frame", &CommandPayload::default());
+            app.mcp_pointer(&pick(3.2, 0.0, normal)).unwrap();
+            app.mcp_pointer(&pick(4.2, 2.1, normal)).unwrap();
+            app.status.clone()
+        };
+        let mut app = super::super::tests::test_app();
+        assert_eq!(door(&mut app, true), "Door created.");
+        assert_eq!(app.history.cursor(), 1);
+        let mut app = super::super::tests::test_app();
+        assert_ne!(door(&mut app, false), "Door created.");
+        assert_eq!(app.history.cursor(), 0);
+        let zero = json!({"action":"move","worldX":0,"worldY":0,"worldZ":0,
+            "normalX":0,"normalY":0,"normalZ":0});
+        assert!(app.mcp_pointer(&zero).is_err());
+        let partial = json!({"action":"move","worldX":0,"worldY":0,"worldZ":0,"normalX":1});
+        assert!(app.mcp_pointer(&partial).is_err());
+    }
     #[test]
     fn world_points_work_for_hotspot_placement_and_reference_while_select_is_active() {
         let mut app = super::super::tests::test_app();

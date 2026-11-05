@@ -54,6 +54,26 @@ Call `k3d_execute_command` with `{"commandId":"tool.builtin.line"}`, then call
 ```
 
 Use `{"action":"move","worldX":4,"worldY":0,"worldZ":1}` for live tool feedback.
+### Native pointer: the 3D cursor, picks and the selection window
+
+`click` and `move` take a world point directly, without snapping. To work as a user does, use `hover`, `down` and
+`up` with `viewportX`/`viewportY` pixels relative to `k3d_status.workspace.viewport`. They run the mouse's own handlers
+and each returns the full status:
+
+```json
+{"action":"hover","viewportX":640,"viewportY":420}
+{"action":"down","viewportX":640,"viewportY":420}
+{"action":"up","viewportX":640,"viewportY":420}
+```
+
+`hover` places the oriented 3D cursor at the snapped point and reports it in `cursorSnap` with its `kind`. With the
+current tool, `down` and `up` pick that point; with Select they select what is under it. Dragging with `hover` between
+them draws the selection window (left to right selects what is inside, right to left what it crosses) and drags
+hotspots and architecture handles. `button` is `left`, `right` or `middle`, and `shift`, `ctrl` and `alt` are booleans.
+`view.axis_guide` and `view.grid_guide` place a guide at the current 3D cursor, as `T` and `G` do.
+
+Add `normalX`, `normalY` and `normalZ` to state the surface under a click or move. Window and Door need
+it to stand upright: `{"action":"click","worldX":3,"worldY":0,"worldZ":6,"normalX":0,"normalY":0,"normalZ":1}`.
 Use `{"action":"finish"}` to finish a polyline/path or `{"action":"cancel"}` to press
 Escape. To save, discover `file.save_as` and provide an absolute `path`; this avoids a file dialog.
 Use `edit.undo` to undo an edit. Open/save/import can return a pending job.
@@ -398,6 +418,12 @@ catalog pickers. `titleToolsBlocked` is true while a modal editor or prompt disa
 the title bar buttons. `commandListOpen` and `commandQuery` report command search. `controls` uses stable
 keys such as `title/edit.undo`, `search/box`, `search/button`, `search/chevron`,
 `search/list`,
-`ribbon/Home`, `left/search`, `left/resize`, `home/material`, `home/object` and `materials/material`. Bounds are in window
+`ribbon/Home`, `left/search`, `left/resize`, `home/material`, `home/object`, `materials/material` and,
+for the active ribbon tab, `tool/<tab>/<command>` such as `tool/Home/tool.builtin.line`. Bounds are in window
 logical pixels; use their centers for native pointer automation. These are
 read-only observations of the actual rendered controls, not command replacements.
+`workspace.viewport` is the 3D viewport rectangle in window physical pixels and `camera.distance`
+is the orbit distance; together with the camera pose they let a driver project a world point to the screen.
+`cursorSnap` reports the current snapped point, surface normal and snap kind (`Grid`, `Axis guide`, ...), and
+`constructionGuides` the number of placed guides, so a driver using real pointer input can check where it landed.
+`setting/<label>` controls, such as `setting/Grid size`, are the settings fields last drawn; they are valid while their panel is open.

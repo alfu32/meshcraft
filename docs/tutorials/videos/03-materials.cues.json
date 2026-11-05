@@ -1,0 +1,72 @@
+{
+  "video": "03-materials.mp4",
+  "app_version": "0.53.0",
+  "recipe": "docs/tutorials/recipes/03-materials.py",
+  "duration": 109.772,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.666,
+      "end": 10.686,
+      "text": "Here's our table, units already set. Let's give it real materials.",
+      "reading_seconds": 7.07,
+      "voice": "95395d5792b67469"
+    },
+    {
+      "start": 10.736,
+      "end": 31.516,
+      "text": "On the Materials tab, New Wood opens a procedural wood material.",
+      "reading_seconds": 20.83,
+      "voice": "15e58c8ef5547eba"
+    },
+    {
+      "start": 31.566,
+      "end": 40.511,
+      "text": "The editor previews the material as you adjust it. Save adds it to the project.",
+      "reading_seconds": 6.19,
+      "voice": "a8e29c2bd04aff95"
+    },
+    {
+      "start": 40.561,
+      "end": 47.661,
+      "text": "Select the table top, then choose Apply Material.",
+      "reading_seconds": 7.15,
+      "voice": "1793260688534a38"
+    },
+    {
+      "start": 47.711,
+      "end": 63.885,
+      "text": "Ooh, look at that grain! Materials belong to each instance, so select all four legs.",
+      "reading_seconds": 9.63,
+      "voice": "b2708decb4a5ee66"
+    },
+    {
+      "start": 63.935,
+      "end": 73.952,
+      "text": "Nice. For the ground, snap a large rectangle around the table.",
+      "reading_seconds": 6.19,
+      "voice": "e09d0b848ddbefdc"
+    },
+    {
+      "start": 74.002,
+      "end": 78.927,
+      "text": "New Grass grows real blades on whatever surface it's applied to.",
+      "reading_seconds": 4.971,
+      "voice": "d8c2c26e619f826c"
+    },
+    {
+      "start": 78.977,
+      "end": 92.727,
+      "text": "Set the blade height and density here, then Save.",
+      "reading_seconds": 4.75,
+      "voice": "17c914ef7cf80437"
+    },
+    {
+      "start": 93.301,
+      "end": 102.83,
+      "text": "Wooow, real grass! Materials are saved with the project, editable at any time.",
+      "reading_seconds": 7.07,
+      "voice": "b54d1dec39b99235"
+    }
+  ]
+}

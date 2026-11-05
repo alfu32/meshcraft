@@ -1,0 +1,93 @@
+{
+  "video": "04-parametric-bookcase.mp4",
+  "app_version": "0.53.0",
+  "recipe": "docs/tutorials/recipes/04-parametric-bookcase.py",
+  "duration": 99.785,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.634,
+      "end": 11.403,
+      "text": "Units first: centimetres, on a twenty centimetre grid.",
+      "reading_seconds": 4.75,
+      "voice": "331b8becfc3f8d9e"
+    },
+    {
+      "start": 11.453,
+      "end": 17.433,
+      "text": "Script objects are built by code, so one design can take many sizes.",
+      "reading_seconds": 6.03,
+      "voice": "fd049962ea972436"
+    },
+    {
+      "start": 17.483,
+      "end": 26.813,
+      "text": "Edit Script shows the code: parameters first, then the geometry.",
+      "reading_seconds": 5.95,
+      "voice": "57323a25eeebd63b"
+    },
+    {
+      "start": 26.863,
+      "end": 36.563,
+      "text": "$NUMBER adds a field to the panel. $HOTSPOT adds a handle you can drag.",
+      "reading_seconds": 8.75,
+      "voice": "834767a2b696e3c4"
+    },
+    {
+      "start": 36.613,
+      "end": 40.085,
+      "text": "Close the editor to get back to the model.",
+      "reading_seconds": 3.47,
+      "voice": "e25b4ba0572bcfc9"
+    },
+    {
+      "start": 40.135,
+      "end": 45.956,
+      "text": "To size it, press G for a grid helper on the face of the bookcase.",
+      "reading_seconds": 5.87,
+      "voice": "ca1a4100bf660b4c"
+    },
+    {
+      "start": 46.006,
+      "end": 52.226,
+      "text": "Now drag the hotspot along that grid. The bookcase is rebuilt as it moves.",
+      "reading_seconds": 6.27,
+      "voice": "f5427a44bc4153b8"
+    },
+    {
+      "start": 52.276,
+      "end": 59.378,
+      "text": "Parameters sit in the Object Instance panel. Set this one to 5 shelves.",
+      "reading_seconds": 7.15,
+      "voice": "3b6a216fc577dffe"
+    },
+    {
+      "start": 59.428,
+      "end": 69.814,
+      "text": "Awesome. Move Copy it: pick its corner, then a grid point further along.",
+      "reading_seconds": 7.31,
+      "voice": "2068f09ea7605e48"
+    },
+    {
+      "start": 69.864,
+      "end": 79.436,
+      "text": "Make the copy shorter, on that same grid helper. The first stays as it was.",
+      "reading_seconds": 6.51,
+      "voice": "40bedf7f421fdd6a"
+    },
+    {
+      "start": 79.486,
+      "end": 82.586,
+      "text": "Clear Guides to tidy up.",
+      "reading_seconds": 3.15,
+      "voice": "a8565e91012f9860"
+    },
+    {
+      "start": 82.636,
+      "end": 92.651,
+      "text": "Wooow! One script, two independent bookcases, both still adjustable.",
+      "reading_seconds": 7.55,
+      "voice": "6ee57ab21689649d"
+    }
+  ]
+}

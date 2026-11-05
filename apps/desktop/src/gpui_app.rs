@@ -708,7 +708,7 @@ fn draw_offscreen_scene(
                 orbit,
                 target_height,
             );
-            draw_cursor(&mut view, cursor, axes);
+            draw_cursor(&mut view, cursor, axes, orbit, target_height);
         }
         if !scene_data.reference_edges.is_empty() {
             draw_preview(
@@ -867,18 +867,48 @@ fn draw_guides(scene: &mut impl RaylibDraw3D, guides: &[ConstructionGuide], spac
     helpers::draw_guides(scene, guides, spacing);
 }
 
-fn draw_cursor(scene: &mut impl RaylibDraw3D, cursor: SnapResult, axes: [Vec3; 3]) {
+/// World length of one screen pixel at a point, so overlays keep their size in any unit scale.
+fn world_per_pixel(camera: OrbitCamera, viewport_height: f32, point: Vec3) -> f64 {
+    let position = camera.position();
+    let depth = if camera.orthographic {
+        f64::from(camera.distance)
+    } else {
+        (camera.target - position)
+            .try_normalized(1.0e-12)
+            .map_or(f64::from(camera.distance), |forward| {
+                (point - position).dot(forward).max(1.0e-6)
+            })
+    };
+    2.0 * depth * (camera.field_of_view.to_radians() * 0.5).tan() as f64
+        / f64::from(viewport_height.max(1.0))
+}
+
+const CURSOR_AXIS_PIXELS: f64 = 46.0;
+const CURSOR_BULLET_PIXELS: f64 = 4.0;
+
+fn draw_cursor(
+    scene: &mut impl RaylibDraw3D,
+    cursor: SnapResult,
+    axes: [Vec3; 3],
+    camera: OrbitCamera,
+    viewport_height: f32,
+) {
     let origin = ray_vec3(cursor.point);
+    let pixel = world_per_pixel(camera, viewport_height, cursor.point);
     let colors = [
         Color::new(217, 69, 62, 255),
         Color::new(51, 155, 94, 255),
         Color::new(58, 112, 204, 255),
     ];
     for (axis, color) in axes.into_iter().zip(colors) {
-        let tip = cursor.point + axis * 0.65;
+        let tip = cursor.point + axis * (CURSOR_AXIS_PIXELS * pixel);
         scene.draw_line3D(origin, ray_vec3(tip), color);
     }
-    scene.draw_sphere(origin, 0.055, Color::new(55, 66, 78, 255));
+    scene.draw_sphere(
+        origin,
+        (CURSOR_BULLET_PIXELS * pixel) as f32,
+        Color::new(55, 66, 78, 255),
+    );
 }
 
 fn draw_preview(
@@ -4008,6 +4038,35 @@ fn wheel_zoom_steps(steps: f32, modifiers: gpui::Modifiers) -> f32 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn construction_cursor_keeps_its_screen_size_at_any_model_scale() {
+        use super::*;
+        let size = (1270.0, 895.0);
+        for distance in [1.5_f32, 15.0, 150.0, 1500.0] {
+            for orthographic in [false, true] {
+                let camera = OrbitCamera {
+                    distance,
+                    orthographic,
+                    ..OrbitCamera::default()
+                };
+                let point = camera.target;
+                let right = (camera.target - camera.position())
+                    .cross(camera.up)
+                    .try_normalized(1.0e-12)
+                    .unwrap();
+                let pixel = world_per_pixel(camera, size.1, point);
+                let tip = point + right * (CURSOR_AXIS_PIXELS * pixel);
+                let (a, _) = project_point(camera, size, point).unwrap();
+                let (b, _) = project_point(camera, size, tip).unwrap();
+                let drawn = f64::from((b - a).abs());
+                assert!(
+                    (drawn - CURSOR_AXIS_PIXELS).abs() < 0.5,
+                    "distance {distance}: drew {drawn} px"
+                );
+            }
+        }
+    }
 
     #[test]
     #[ignore = "manual selection latency probe; set MESHCRAFT_BENCH_PROJECT"]

@@ -1,0 +1,35 @@
+WEBVTT
+
+00:00:03.666 --> 00:00:10.686
+Here's our table, units already
+set. Let's give it real materials.
+
+00:00:10.736 --> 00:00:31.516
+On the Materials tab, New Wood
+opens a procedural wood material.
+
+00:00:31.566 --> 00:00:40.511
+The editor previews the material as you
+adjust it. Save adds it to the project.
+
+00:00:40.561 --> 00:00:47.661
+Select the table top, then choose Apply Material.
+
+00:00:47.711 --> 00:01:03.885
+Ooh, look at that grain! Materials belong
+to each instance, so select all four legs.
+
+00:01:03.935 --> 00:01:13.952
+Nice. For the ground, snap a
+large rectangle around the table.
+
+00:01:14.002 --> 00:01:18.927
+New Grass grows real blades on
+whatever surface it's applied to.
+
+00:01:18.977 --> 00:01:32.727
+Set the blade height and density here, then Save.
+
+00:01:33.301 --> 00:01:42.830
+Wooow, real grass! Materials are saved
+with the project, editable at any time.

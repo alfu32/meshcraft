@@ -4,6 +4,8 @@ use crate::mcp;
 use std::collections::VecDeque;
 #[derive(Default)]
 pub(super) struct Ui {
+    /// Button held by a native MCP drag, as a mouse move would report it.
+    pub pressed: Option<gpui::MouseButton>,
     server: Option<mcp::Server>,
     port: Option<Entity<InputState>>,
     subscription: Option<gpui::Subscription>,
@@ -229,17 +231,66 @@ pub(super) fn poll(shell: &mut MeshcraftShell) -> bool {
     }
     handled
 }
+fn status(shell: &MeshcraftShell) -> Value {
+    let mut state = shell.session.mcp_status();
+    state["server"] = json!({"running":running(shell),"port":shell.mcp.server.as_ref().map(|s|s.port),"configuredPort":shell.session.native_mcp_port()});
+    state["camera"] = json!({"position":shell.camera.position(),"target":shell.camera.target,"orthographic":shell.camera.orthographic,"walkthrough":shell.walking,"fieldOfView":shell.camera.field_of_view,"distance":shell.camera.distance});
+    state["scriptErrors"] = json!(shell.scripts.errors);
+    state["workspace"] = super::workspace_controls::status(shell);
+    state["cursorSnap"] = shell.cursor_snap.map_or(
+        Value::Null,
+        |snap| json!({"point":snap.point,"normal":snap.normal,"kind":snap.kind.label()}),
+    );
+    state["constructionGuides"] = json!(shell.session.native_construction_guides().len());
+    state["workspace"]["viewport"] = json!({"x":shell.layout.x,"y":shell.layout.y,"width":shell.layout.width,"height":shell.layout.height,"coordinateSpace":"window physical pixels"});
+    state
+}
+
+/// `hover`, `down` and `up` run the same handlers as the mouse, so snapping, the 3D cursor, the
+/// selection window, picks and drags all behave and draw exactly as they do for a user.
+fn native_pointer(shell: &mut MeshcraftShell, action: &str, args: &Value) -> Result<Value, String> {
+    let coordinate = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .map(|value| value as f32)
+            .ok_or_else(|| format!("{key} must be a finite number"))
+    };
+    let (x, y) = (coordinate("viewportX")?, coordinate("viewportY")?);
+    if !shell.cursor_in_viewport(x, y) {
+        return Err(format!("({x}, {y}) is outside the viewport"));
+    }
+    let button = match args["button"].as_str().unwrap_or("left") {
+        "left" => gpui::MouseButton::Left,
+        "right" => gpui::MouseButton::Right,
+        "middle" => gpui::MouseButton::Middle,
+        other => return Err(format!("unknown button {other}")),
+    };
+    let flag = |key: &str| args[key].as_bool().unwrap_or(false);
+    let modifiers = gpui::Modifiers {
+        shift: flag("shift"),
+        control: flag("ctrl"),
+        alt: flag("alt"),
+        ..Default::default()
+    };
+    match action {
+        "hover" => shell.pointer_move(x, y, modifiers, shell.mcp.pressed),
+        "down" => {
+            shell.mcp.pressed = Some(button);
+            shell.pointer_down(button, x, y, modifiers);
+        }
+        _ => {
+            shell.mcp.pressed = None;
+            shell.pointer_up(button, x, y);
+        }
+    }
+    Ok(status(shell))
+}
+
 fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "k3d_contract" => Ok(mcp::contract()),
-        "k3d_status" => {
-            let mut state = shell.session.mcp_status();
-            state["server"] = json!({"running":running(shell),"port":shell.mcp.server.as_ref().map(|s|s.port),"configuredPort":shell.session.native_mcp_port()});
-            state["camera"] = json!({"position":shell.camera.position(),"target":shell.camera.target,"orthographic":shell.camera.orthographic,"walkthrough":shell.walking,"fieldOfView":shell.camera.field_of_view});
-            state["scriptErrors"] = json!(shell.scripts.errors);
-            state["workspace"] = super::workspace_controls::status(shell);
-            Ok(state)
-        }
+        "k3d_status" => Ok(status(shell)),
         "k3d_list_commands" => Ok(shell.session.mcp_commands(args)),
         "k3d_execute_command" => {
             let id = args["commandId"].as_str().ok_or("commandId required")?;
@@ -288,6 +339,9 @@ fn call(shell: &mut MeshcraftShell, name: &str, args: &Value) -> Result<Value, S
             Ok(result)
         }
         "k3d_pointer_event" => {
+            if let action @ ("hover" | "down" | "up") = args["action"].as_str().unwrap_or("") {
+                return native_pointer(shell, action, args);
+            }
             let result = shell.session.mcp_pointer(args)?;
             if matches!(args["action"].as_str(), Some("move" | "click")) {
                 let point = Vec3::new(

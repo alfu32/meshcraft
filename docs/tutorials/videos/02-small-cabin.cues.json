@@ -1,0 +1,128 @@
+{
+  "video": "02-small-cabin.mp4",
+  "app_version": "0.53.0",
+  "recipe": "docs/tutorials/recipes/02-small-cabin.py",
+  "duration": 148.485,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.659,
+      "end": 10.199,
+      "text": "Start on the Home screen. The Architecture template sets one unit to 30 cm.",
+      "reading_seconds": 6.59,
+      "voice": "ee3a87bbe0a52715"
+    },
+    {
+      "start": 10.249,
+      "end": 17.669,
+      "text": "Grid and walls follow it: walls one unit thick and nine units high.",
+      "reading_seconds": 7.47,
+      "voice": "944359a73e65c3da"
+    },
+    {
+      "start": 17.719,
+      "end": 23.939,
+      "text": "Ok, lay the floor. On the Civil tab, choose Rectangular Slab.",
+      "reading_seconds": 6.27,
+      "voice": "4095b296edf00b08"
+    },
+    {
+      "start": 23.989,
+      "end": 31.106,
+      "text": "Click two grid points: nine metres by six.",
+      "reading_seconds": 4.59,
+      "voice": "fdd7ae43659fc363"
+    },
+    {
+      "start": 31.156,
+      "end": 37.536,
+      "text": "Now the walls. The Wall tool draws a connected chain.",
+      "reading_seconds": 6.43,
+      "voice": "fb25245acf271730"
+    },
+    {
+      "start": 37.586,
+      "end": 51.656,
+      "text": "Snap to each corner of the floor. Walls join by themselves.",
+      "reading_seconds": 5.07,
+      "voice": "91b6af9c9cd45a8a"
+    },
+    {
+      "start": 53.265,
+      "end": 56.686,
+      "text": "Press Enter to finish the chain.",
+      "reading_seconds": 3.47,
+      "voice": "2303d9ca103de5f1"
+    },
+    {
+      "start": 56.736,
+      "end": 70.205,
+      "text": "Openings need points up the wall, so place axis helpers along its base.",
+      "reading_seconds": 5.95,
+      "voice": "5ea19bec730f7ba0"
+    },
+    {
+      "start": 70.255,
+      "end": 79.061,
+      "text": "Add Hole: click up one helper on the wall, then the base of the other.",
+      "reading_seconds": 6.27,
+      "voice": "faf44358d918fbfe"
+    },
+    {
+      "start": 79.111,
+      "end": 88.605,
+      "text": "Same again for the window, on its own two helpers.",
+      "reading_seconds": 4.43,
+      "voice": "6da0030b77cf9e63"
+    },
+    {
+      "start": 88.655,
+      "end": 94.555,
+      "text": "Good. The helpers have done their job, so Clear Guides removes them.",
+      "reading_seconds": 5.95,
+      "voice": "50b544a4321b5aee"
+    },
+    {
+      "start": 94.605,
+      "end": 101.385,
+      "text": "Holes are only openings. Doors and windows are separate objects.",
+      "reading_seconds": 6.83,
+      "voice": "32e1237028c01f65"
+    },
+    {
+      "start": 101.435,
+      "end": 107.893,
+      "text": "Door: snap to two opposite corners of the opening.",
+      "reading_seconds": 4.83,
+      "voice": "2d48e29474480892"
+    },
+    {
+      "start": 107.943,
+      "end": 117.53,
+      "text": "Ooh, nice. Now the same with the Window tool.",
+      "reading_seconds": 4.67,
+      "voice": "669086edd20ae38b"
+    },
+    {
+      "start": 117.58,
+      "end": 127.505,
+      "text": "Finish with a roof: one more slab, snapped to the top corners of the walls.",
+      "reading_seconds": 7.39,
+      "voice": "966c96e988a07d3f"
+    },
+    {
+      "start": 127.555,
+      "end": 133.216,
+      "text": "Niiiice! Right-drag to look around the finished cabin.",
+      "reading_seconds": 5.71,
+      "voice": "64fec0f278947779"
+    },
+    {
+      "start": 133.266,
+      "end": 141.186,
+      "text": "Everything stays editable: select a wall later to change its height.",
+      "reading_seconds": 5.47,
+      "voice": "2cb8cd1e08c87a3c"
+    }
+  ]
+}

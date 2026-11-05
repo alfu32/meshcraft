@@ -3530,6 +3530,53 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T75",
+      "title": "Tutorial video suite with real snapping, narration and selectable subtitles",
+      "phase": "desktop",
+      "dependencies": [
+        "T74"
+      ],
+      "requirements": [
+        "F04"
+      ],
+      "acceptance": [
+        "C48"
+      ],
+      "targets": [
+        "scripts/video/director.py",
+        "scripts/video/subtitles.py",
+        "scripts/video/build.py",
+        "scripts/video/voice.py",
+        "scripts/video/assemble.py",
+        "docs/tutorials/README.md",
+        "apps/desktop/src/gpui_app.rs",
+        "apps/desktop/src/architecture_workflow.rs",
+        "apps/desktop/src/mcp_workflow.rs",
+        "apps/desktop/src/gpui_mcp.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/input/Snapper.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/tools/GuidePlacementTool.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/README.md",
+        "docs/rewrite/handoffs/T75.md"
+      ],
+      "slices": [
+        "Drive the app with real pointer input and verify each snap over MCP.",
+        "Start each new project by setting units, and use axis helpers to go upward.",
+        "Generate narration locally and pace each recording by its clips.",
+        "Edit the sound with FilmCraft and keep subtitles as a selectable track."
+      ],
+      "done": [
+        "Five tutorials build from their recipes, each checking its model and every snap it clicks."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

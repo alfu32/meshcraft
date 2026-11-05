@@ -1,0 +1,46 @@
+WEBVTT
+
+00:00:03.634 --> 00:00:11.403
+Units first: centimetres, on a twenty centimetre grid.
+
+00:00:11.453 --> 00:00:17.433
+Script objects are built by code,
+so one design can take many sizes.
+
+00:00:17.483 --> 00:00:26.813
+Edit Script shows the code:
+parameters first, then the geometry.
+
+00:00:26.863 --> 00:00:36.563
+$NUMBER adds a field to the panel.
+$HOTSPOT adds a handle you can drag.
+
+00:00:36.613 --> 00:00:40.085
+Close the editor to get back to the model.
+
+00:00:40.135 --> 00:00:45.956
+To size it, press G for a grid
+helper on the face of the bookcase.
+
+00:00:46.006 --> 00:00:52.226
+Now drag the hotspot along that grid.
+The bookcase is rebuilt as it moves.
+
+00:00:52.276 --> 00:00:59.378
+Parameters sit in the Object Instance
+panel. Set this one to 5 shelves.
+
+00:00:59.428 --> 00:01:09.814
+Awesome. Move Copy it: pick its corner,
+then a grid point further along.
+
+00:01:09.864 --> 00:01:19.436
+Make the copy shorter, on that same
+grid helper. The first stays as it was.
+
+00:01:19.486 --> 00:01:22.586
+Clear Guides to tidy up.
+
+00:01:22.636 --> 00:01:32.651
+Wooow! One script, two independent
+bookcases, both still adjustable.

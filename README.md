@@ -17,7 +17,8 @@ JavaScript and connect an agent through MCP.
 **[Download the latest release](https://github.com/alfu32/meshcraft/releases/latest)** ·
 **[Try the example drawings](examples)** ·
 **[Scripting guide](docs/script-parameters.md)** ·
-**[MCP guide](docs/mcp.md)**
+**[MCP guide](docs/mcp.md)** ·
+**[Tutorial videos](docs/tutorials/README.md)**
 
 [![Get it from the Snap Store](https://snapcraft.io/en/dark/install.svg)](https://snapcraft.io/meshcraft)
 

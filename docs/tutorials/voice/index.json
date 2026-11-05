@@ -1,0 +1,488 @@
+{
+ "025d555ad7c23c4e": {
+  "seconds": 6.4,
+  "speaker": "ryan",
+  "spoken": "Unit name is the suffix shown on every measurement. Type centimetres.",
+  "text": "Unit name is the suffix shown on every measurement. Type cm."
+ },
+ "12c520f4e16b97ea": {
+  "seconds": 6.32,
+  "speaker": "ryan",
+  "spoken": "Units first: centimetres, on a ten centimetre grid.",
+  "text": "Units first: centimetres, on a ten centimetre grid."
+ },
+ "13eac076970d75b8": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "Add Hole: click two metres up one helper, then the base of the other.",
+  "text": "Add Hole: click two metres up one helper, then the base of the other."
+ },
+ "15e58c8ef5547eba": {
+  "seconds": 20.48,
+  "speaker": "ryan",
+  "spoken": "On the Materials tab, New Wood opens a procedural wood material.",
+  "text": "On the Materials tab, New Wood opens a procedural wood material."
+ },
+ "1793260688534a38": {
+  "seconds": 6.8,
+  "speaker": "ryan",
+  "spoken": "Select the table top, then choose Apply Material.",
+  "text": "Select the table top, then choose Apply Material."
+ },
+ "17c914ef7cf80437": {
+  "seconds": 4.4,
+  "speaker": "ryan",
+  "spoken": "Set the blade height and density here, then Save.",
+  "text": "Set the blade height and density here, then Save."
+ },
+ "2068f09ea7605e48": {
+  "seconds": 6.96,
+  "speaker": "ryan",
+  "spoken": "Awesome. Move Copy it: pick its corner, then a grid point further along.",
+  "text": "Awesome. Move Copy it: pick its corner, then a grid point further along."
+ },
+ "2303d9ca103de5f1": {
+  "seconds": 3.12,
+  "speaker": "ryan",
+  "spoken": "Press Enter to finish the chain.",
+  "text": "Press Enter to finish the chain."
+ },
+ "2578473d2c56a8c4": {
+  "seconds": 5.12,
+  "speaker": "ryan",
+  "spoken": "Change that one column's definition later, and all twelve update together.",
+  "text": "Change that one column's definition later, and all twelve update together."
+ },
+ "25fd2f82c1c93303": {
+  "seconds": 7.28,
+  "speaker": "ryan",
+  "spoken": "Unit size says how long one model unit is. One unit, one centimetre.",
+  "text": "Unit size says how long one model unit is. One unit, one centimetre."
+ },
+ "2cb8cd1e08c87a3c": {
+  "seconds": 5.12,
+  "speaker": "ryan",
+  "spoken": "Everything stays editable: select a wall later to change its height.",
+  "text": "Everything stays editable: select a wall later to change its height."
+ },
+ "2d48e29474480892": {
+  "seconds": 4.48,
+  "speaker": "ryan",
+  "spoken": "Door: snap to two opposite corners of the opening.",
+  "text": "Door: snap to two opposite corners of the opening."
+ },
+ "305b7b385e2ca303": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Press T on the edge for a helper, then push pull three metres up it.",
+  "text": "Press T on the edge for a helper, then Push/Pull three metres up it."
+ },
+ "30f728abfc8dcc5e": {
+  "seconds": 9.36,
+  "speaker": "ryan",
+  "spoken": "Niiiice! Clear Guides removes the helper once it has done its job.",
+  "text": "Niiiice! Clear Guides removes the helper once it has done its job."
+ },
+ "32e1237028c01f65": {
+  "seconds": 6.48,
+  "speaker": "ryan",
+  "spoken": "Holes are only openings. Doors and windows are separate objects.",
+  "text": "Holes are only openings. Doors and windows are separate objects."
+ },
+ "331b8becfc3f8d9e": {
+  "seconds": 4.4,
+  "speaker": "ryan",
+  "spoken": "Units first: centimetres, on a twenty centimetre grid.",
+  "text": "Units first: centimetres, on a twenty centimetre grid."
+ },
+ "3b6a216fc577dffe": {
+  "seconds": 6.8,
+  "speaker": "ryan",
+  "spoken": "Parameters sit in the Object Instance panel. Set this one to 5 shelves.",
+  "text": "Parameters sit in the Object Instance panel. Set this one to 5 shelves."
+ },
+ "3dddd1a44f1fcf79": {
+  "seconds": 7.28,
+  "speaker": "ryan",
+  "spoken": "Same again: a helper on its edge, push pull up one grid step.",
+  "text": "Same again: a helper on its edge, Push/Pull up one grid step."
+ },
+ "4095b296edf00b08": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "Ok, lay the floor. On the Civil tab, choose Rectangular Slab.",
+  "text": "Ok, lay the floor. On the Civil tab, choose Rectangular Slab."
+ },
+ "40bedf7f421fdd6a": {
+  "seconds": 6.16,
+  "speaker": "ryan",
+  "spoken": "Make the copy shorter, on that same grid helper. The first stays as it was.",
+  "text": "Make the copy shorter, on that same grid helper. The first stays as it was."
+ },
+ "46e30fc3540f135a": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Right-drag to orbit and check the result from another side.",
+  "text": "Right-drag to orbit and check the result from another side."
+ },
+ "4fd60be7ad38ed57": {
+  "seconds": 7.44,
+  "speaker": "ryan",
+  "spoken": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 centimetres along.",
+  "text": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 cm along."
+ },
+ "50b544a4321b5aee": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Good. The helpers have done their job, so Clear Guides removes them.",
+  "text": "Good. The helpers have done their job, so Clear Guides removes them."
+ },
+ "52da0cc0ddd42642": {
+  "seconds": 6.16,
+  "speaker": "ryan",
+  "spoken": "Make the copy shorter, with a helper again. The first one stays as it was.",
+  "text": "Make the copy shorter, with a helper again. The first one stays as it was."
+ },
+ "5425951febbfe55b": {
+  "seconds": 3.76,
+  "speaker": "ryan",
+  "spoken": "Units first: metres, on a quarter metre grid.",
+  "text": "Units first: metres, on a quarter metre grid."
+ },
+ "54616ab678a592ef": {
+  "seconds": 5.28,
+  "speaker": "ryan",
+  "spoken": "Same again for the window: one metre up one helper, two up the other.",
+  "text": "Same again for the window: one metre up one helper, two up the other."
+ },
+ "57323a25eeebd63b": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Edit Script shows the code: parameters first, then the geometry.",
+  "text": "Edit Script shows the code: parameters first, then the geometry."
+ },
+ "5e02adcf424194b0": {
+  "seconds": 5.68,
+  "speaker": "ryan",
+  "spoken": "Pick the centre of the circle, on the grid, then the edge of the column.",
+  "text": "Pick the centre of the circle, on the grid, then the edge of the column."
+ },
+ "5ea19bec730f7ba0": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Openings need points up the wall, so place axis helpers along its base.",
+  "text": "Openings need points up the wall, so place axis helpers along its base."
+ },
+ "64fec0f278947779": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Niiiice! Right-drag to look around the finished cabin.",
+  "text": "Niiiice! Right-drag to look around the finished cabin."
+ },
+ "651f37a485d00cac": {
+  "seconds": 6.96,
+  "speaker": "ryan",
+  "spoken": "Rotate Copy spins copies around a centre. Select the column first.",
+  "text": "Rotate Copy spins copies around a centre. Select the column first."
+ },
+ "669086edd20ae38b": {
+  "seconds": 4.32,
+  "speaker": "ryan",
+  "spoken": "Ooh, nice. Now the same with the Window tool.",
+  "text": "Ooh, nice. Now the same with the Window tool."
+ },
+ "69a4bada0c3aaff5": {
+  "seconds": 7.28,
+  "speaker": "ryan",
+  "spoken": "You can also type a distance. Pick a start, aim, type 55 and press Enter.",
+  "text": "You can also type a distance. Pick a start, aim, type 55 and press Enter."
+ },
+ "6da0030b77cf9e63": {
+  "seconds": 4.08,
+  "speaker": "ryan",
+  "spoken": "Same again for the window, on its own two helpers.",
+  "text": "Same again for the window, on its own two helpers."
+ },
+ "6ee57ab21689649d": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "Wooow! One script, two independent bookcases, both still adjustable.",
+  "text": "Wooow! One script, two independent bookcases, both still adjustable."
+ },
+ "7eb80a215aa4cc87": {
+  "seconds": 2.08,
+  "speaker": "ryan",
+  "spoken": "Make it an object too.",
+  "text": "Make it an object too."
+ },
+ "7ee4efa2c9bf217b": {
+  "seconds": 7.6,
+  "speaker": "ryan",
+  "spoken": "Uh oh, nothing to snap to up in the air. Press T to add an axis helper.",
+  "text": "Uh oh, nothing to snap to up in the air. Press T to add an axis helper."
+ },
+ "834767a2b696e3c4": {
+  "seconds": 8.4,
+  "speaker": "ryan",
+  "spoken": "dollar number adds a field to the panel. dollar hotspot adds a handle you can drag.",
+  "text": "$NUMBER adds a field to the panel. $HOTSPOT adds a handle you can drag."
+ },
+ "854cffe92859a34b": {
+  "seconds": 7.04,
+  "speaker": "ryan",
+  "spoken": "Cool. That's the whole method: set units, snap to the grid, climb with helpers.",
+  "text": "Cool. That's the whole method: set units, snap to the grid, climb with helpers."
+ },
+ "86af60ac01a99d27": {
+  "seconds": 5.84,
+  "speaker": "ryan",
+  "spoken": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion.",
+  "text": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion."
+ },
+ "8953d4825f664c4e": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "To size it exactly, press T for a helper at the grid point we want to reach.",
+  "text": "To size it exactly, press T for a helper at the grid point we want to reach."
+ },
+ "8a0c69c9bfffe19b": {
+  "seconds": 5.84,
+  "speaker": "ryan",
+  "spoken": "One column first. Circle: click the centre, then a grid point on the edge.",
+  "text": "One column first. Circle: click the centre, then a grid point on the edge."
+ },
+ "91b6af9c9cd45a8a": {
+  "seconds": 4.72,
+  "speaker": "ryan",
+  "spoken": "Snap to each corner of the floor. Walls join by themselves.",
+  "text": "Snap to each corner of the floor. Walls join by themselves."
+ },
+ "944359a73e65c3da": {
+  "seconds": 7.12,
+  "speaker": "ryan",
+  "spoken": "Grid and walls follow it: walls one unit thick and nine units high.",
+  "text": "Grid and walls follow it: walls one unit thick and nine units high."
+ },
+ "95395d5792b67469": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "Here's our table, units already set. Let's give it real materials.",
+  "text": "Here's our table, units already set. Let's give it real materials."
+ },
+ "966c96e988a07d3f": {
+  "seconds": 7.04,
+  "speaker": "ryan",
+  "spoken": "Finish with a roof: one more slab, snapped to the top corners of the walls.",
+  "text": "Finish with a roof: one more slab, snapped to the top corners of the walls."
+ },
+ "a414a3c633651d46": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "The roof is just the floor again. Move Copy it, up that same helper.",
+  "text": "The roof is just the floor again. Move Copy it, up that same helper."
+ },
+ "a64d9637b1348935": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Goooood. Next, one leg: a small square under the corner of the top.",
+  "text": "Goooood. Next, one leg: a small square under the corner of the top."
+ },
+ "a8565e91012f9860": {
+  "seconds": 2.8,
+  "speaker": "ryan",
+  "spoken": "Clear Guides to tidy up.",
+  "text": "Clear Guides to tidy up."
+ },
+ "a8e29c2bd04aff95": {
+  "seconds": 5.84,
+  "speaker": "ryan",
+  "spoken": "The editor previews the material as you adjust it. Save adds it to the project.",
+  "text": "The editor previews the material as you adjust it. Save adds it to the project."
+ },
+ "ad193874b5ad3281": {
+  "seconds": 5.12,
+  "speaker": "ryan",
+  "spoken": "Before drawing anything, set the units in Model Settings.",
+  "text": "Before drawing anything, set the units in Model Settings."
+ },
+ "ad2382c15168ada3": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Now lift the top. Move: pick its corner, then a point up the helper.",
+  "text": "Now lift the top. Move: pick its corner, then a point up the helper."
+ },
+ "ad51a6465458fa43": {
+  "seconds": 3.84,
+  "speaker": "ryan",
+  "spoken": "Click two grid points: eight metres by six.",
+  "text": "Click two grid points: eight metres by six."
+ },
+ "ae172a7d4fbfbe8a": {
+  "seconds": 7.68,
+  "speaker": "ryan",
+  "spoken": "Good. Now move over the grid. The coloured axes on the cursor show where it snaps.",
+  "text": "Good. Now move over the grid. The coloured axes on the cursor show where it snaps."
+ },
+ "b198f6858b13fbd1": {
+  "seconds": 4.8,
+  "speaker": "ryan",
+  "spoken": "Click two grid points, 60 centimetres apart in each direction.",
+  "text": "Click two grid points, 60 cm apart in each direction."
+ },
+ "b2708decb4a5ee66": {
+  "seconds": 9.28,
+  "speaker": "ryan",
+  "spoken": "Ooh, look at that grain! Materials belong to each instance, so select all four legs.",
+  "text": "Ooh, look at that grain! Materials belong to each instance, so select all four legs."
+ },
+ "b54d1dec39b99235": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "Wooow, real grass! Materials are saved with the project, editable at any time.",
+  "text": "Wooow, real grass! Materials are saved with the project, editable at any time."
+ },
+ "b6f9075e7e1ce263": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "Good. Make it an object. That's what the copies will share.",
+  "text": "Good. Make it an object. That's what the copies will share."
+ },
+ "c1b80c300bb82c5b": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Now the floor: a big circle around them, on the same centre.",
+  "text": "Now the floor: a big circle around them, on the same centre."
+ },
+ "c2f76b7e32e76d33": {
+  "seconds": 5.04,
+  "speaker": "ryan",
+  "spoken": "Pull it up until the cursor snaps to the corner underneath the top.",
+  "text": "Pull it up until the cursor snaps to the corner underneath the top."
+ },
+ "ca1a4100bf660b4c": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "To size it, press G for a grid helper on the face of the bookcase.",
+  "text": "To size it, press G for a grid helper on the face of the bookcase."
+ },
+ "cbc08278557c64f7": {
+  "seconds": 8.64,
+  "speaker": "ryan",
+  "spoken": "push pull: pick the corner, then a point one step up the helper.",
+  "text": "Push/Pull: pick the corner, then a point one step up the helper."
+ },
+ "d314bad632ee0940": {
+  "seconds": 4.96,
+  "speaker": "ryan",
+  "spoken": "Nice! Make Object keeps this part from merging with what we draw next.",
+  "text": "Nice! Make Object keeps this part from merging with what we draw next."
+ },
+ "d441a42abbf6d9dc": {
+  "seconds": 7.6,
+  "speaker": "ryan",
+  "spoken": "Aim roughly around, then type an angle and a count: thirty, times eleven adds eleven.",
+  "text": "Aim roughly around, then type an angle and a count: 30 x11 adds eleven."
+ },
+ "d7dd84a078b67618": {
+  "seconds": 3.68,
+  "speaker": "ryan",
+  "spoken": "Awesome. Clear Guides, and take a look around.",
+  "text": "Awesome. Clear Guides, and take a look around."
+ },
+ "d8c2c26e619f826c": {
+  "seconds": 4.24,
+  "speaker": "ryan",
+  "spoken": "New Grass grows real blades on whatever surface it's applied to.",
+  "text": "New Grass grows real blades on whatever surface it's applied to."
+ },
+ "da0b6606b53b2d3e": {
+  "seconds": 6.96,
+  "speaker": "ryan",
+  "spoken": "Now drag the hotspot up the helper. The bookcase is rebuilt as it moves.",
+  "text": "Now drag the hotspot up the helper. The bookcase is rebuilt as it moves."
+ },
+ "da94b1c7b5112de4": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Its blue axis points straight up and snaps at every grid step.",
+  "text": "Its blue axis points straight up and snaps at every grid step."
+ },
+ "e09d0b848ddbefdc": {
+  "seconds": 5.84,
+  "speaker": "ryan",
+  "spoken": "Nice. For the ground, snap a large rectangle around the table.",
+  "text": "Nice. For the ground, snap a large rectangle around the table."
+ },
+ "e1a75338d3dbffba": {
+  "seconds": 4.32,
+  "speaker": "ryan",
+  "spoken": "Wooooow! Twelve columns from one.",
+  "text": "Wooooow! Twelve columns from one."
+ },
+ "e25b4ba0572bcfc9": {
+  "seconds": 3.12,
+  "speaker": "ryan",
+  "spoken": "Close the editor to get back to the model.",
+  "text": "Close the editor to get back to the model."
+ },
+ "e2d8e7abb3b14aee": {
+  "seconds": 5.28,
+  "speaker": "ryan",
+  "spoken": "Make it an object too, so all four legs share one definition.",
+  "text": "Make it an object too, so all four legs share one definition."
+ },
+ "e60ab6d552d51b57": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "First the units, as always. Metres this time, on a one metre grid.",
+  "text": "First the units, as always. Metres this time, on a one metre grid."
+ },
+ "ee3a87bbe0a52715": {
+  "seconds": 6.24,
+  "speaker": "ryan",
+  "spoken": "Start on the Home screen. The Architecture template sets one unit to 30 centimetres.",
+  "text": "Start on the Home screen. The Architecture template sets one unit to 30 cm."
+ },
+ "ef5d96e3f1e00874": {
+  "seconds": 3.92,
+  "speaker": "ryan",
+  "spoken": "Start with the table top. Choose Rectangle.",
+  "text": "Start with the table top. Choose Rectangle."
+ },
+ "f5427a44bc4153b8": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "Now drag the hotspot along that grid. The bookcase is rebuilt as it moves.",
+  "text": "Now drag the hotspot along that grid. The bookcase is rebuilt as it moves."
+ },
+ "faf44358d918fbfe": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "Add Hole: click up one helper on the wall, then the base of the other.",
+  "text": "Add Hole: click up one helper on the wall, then the base of the other."
+ },
+ "fb25245acf271730": {
+  "seconds": 6.08,
+  "speaker": "ryan",
+  "spoken": "Now the walls. The Wall tool draws a connected chain.",
+  "text": "Now the walls. The Wall tool draws a connected chain."
+ },
+ "fd049962ea972436": {
+  "seconds": 5.68,
+  "speaker": "ryan",
+  "spoken": "Script objects are built by code, so one design can take many sizes.",
+  "text": "Script objects are built by code, so one design can take many sizes."
+ },
+ "fd7f9af47f632779": {
+  "seconds": 7.68,
+  "speaker": "ryan",
+  "spoken": "Grid size is the snap spacing, in units. Five gives a 5 centimetres grid.",
+  "text": "Grid size is the snap spacing, in units. Five gives a 5 cm grid."
+ },
+ "fdd7ae43659fc363": {
+  "seconds": 4.24,
+  "speaker": "ryan",
+  "spoken": "Click two grid points: nine metres by six.",
+  "text": "Click two grid points: nine metres by six."
+ }
+}

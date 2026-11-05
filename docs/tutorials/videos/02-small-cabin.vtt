@@ -1,0 +1,62 @@
+WEBVTT
+
+00:00:03.659 --> 00:00:10.199
+Start on the Home screen. The Architecture
+template sets one unit to 30 cm.
+
+00:00:10.249 --> 00:00:17.669
+Grid and walls follow it: walls
+one unit thick and nine units high.
+
+00:00:17.719 --> 00:00:23.939
+Ok, lay the floor. On the Civil
+tab, choose Rectangular Slab.
+
+00:00:23.989 --> 00:00:31.106
+Click two grid points: nine metres by six.
+
+00:00:31.156 --> 00:00:37.536
+Now the walls. The Wall tool draws a connected chain.
+
+00:00:37.586 --> 00:00:51.656
+Snap to each corner of the
+floor. Walls join by themselves.
+
+00:00:53.265 --> 00:00:56.686
+Press Enter to finish the chain.
+
+00:00:56.736 --> 00:01:10.205
+Openings need points up the wall, so
+place axis helpers along its base.
+
+00:01:10.255 --> 00:01:19.061
+Add Hole: click up one helper on the
+wall, then the base of the other.
+
+00:01:19.111 --> 00:01:28.605
+Same again for the window, on its own two helpers.
+
+00:01:28.655 --> 00:01:34.555
+Good. The helpers have done their
+job, so Clear Guides removes them.
+
+00:01:34.605 --> 00:01:41.385
+Holes are only openings. Doors
+and windows are separate objects.
+
+00:01:41.435 --> 00:01:47.893
+Door: snap to two opposite corners of the opening.
+
+00:01:47.943 --> 00:01:57.530
+Ooh, nice. Now the same with the Window tool.
+
+00:01:57.580 --> 00:02:07.505
+Finish with a roof: one more slab,
+snapped to the top corners of the walls.
+
+00:02:07.555 --> 00:02:13.216
+Niiiice! Right-drag to look around the finished cabin.
+
+00:02:13.266 --> 00:02:21.186
+Everything stays editable: select
+a wall later to change its height.

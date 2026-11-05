@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.53.0 tutorial videos:** five narrated [tutorials](docs/tutorials/README.md) with selectable subtitles, built
+locally from recipes. MCP gains a native pointer that places the 3D cursor, picks and draws the selection window. The
+3D cursor keeps its screen size at any model scale, and Door and Window stand in the wall when snapped to an opening's
+corner. [evidence](docs/rewrite/handoffs/T75.md).
+
 **0.52.0 hotspots as content:** the transform tools, copies, arrays and Copy/Paste work on hotspots.
 Explode keeps them, and Make Object accepts mesh, dimensions, text, hotspots and objects together. A
 selected hotspot shows its reference point and attached geometry, and Escape inside an open object now

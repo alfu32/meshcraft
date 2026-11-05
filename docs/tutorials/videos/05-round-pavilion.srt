@@ -1,0 +1,70 @@
+1
+00:00:03,645 --> 00:00:11,515
+Units first: metres, on a quarter metre grid.
+
+2
+00:00:11,565 --> 00:00:17,705
+Ok! Repeating parts is where modeling
+gets quick. Let's build a pavilion.
+
+3
+00:00:17,755 --> 00:00:27,111
+One column first. Circle: click the
+centre, then a grid point on the edge.
+
+4
+00:00:27,161 --> 00:00:42,111
+Press T on the edge for a helper,
+then Push/Pull three metres up it.
+
+5
+00:00:46,867 --> 00:00:56,540
+Good. Make it an object. That's
+what the copies will share.
+
+6
+00:00:56,590 --> 00:01:04,333
+Rotate Copy spins copies around a
+centre. Select the column first.
+
+7
+00:01:04,383 --> 00:01:10,402
+Pick the centre of the circle, on the
+grid, then the edge of the column.
+
+8
+00:01:10,452 --> 00:01:18,352
+Aim roughly around, then type an
+angle and a count: 30 x11 adds eleven.
+
+9
+00:01:18,402 --> 00:01:23,023
+Wooooow! Twelve columns from one.
+
+10
+00:01:23,073 --> 00:01:31,813
+Now the floor: a big circle
+around them, on the same centre.
+
+11
+00:01:31,863 --> 00:01:46,947
+Same again: a helper on its
+edge, Push/Pull up one grid step.
+
+12
+00:01:46,997 --> 00:01:52,420
+Make it an object too.
+
+13
+00:01:52,470 --> 00:02:06,913
+The roof is just the floor again.
+Move Copy it, up that same helper.
+
+14
+00:02:06,963 --> 00:02:13,549
+Awesome. Clear Guides, and take a look around.
+
+15
+00:02:13,599 --> 00:02:21,735
+Change that one column's definition
+later, and all twelve update together.
