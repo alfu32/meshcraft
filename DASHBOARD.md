@@ -1,7 +1,8 @@
 # Dashboard
 
-**0.53.1 narration fix:** replaces a runaway narration clip in tutorial 3, and the voice script now rejects clips far
-too long for their text. [evidence](docs/rewrite/handoffs/T75.md).
+**0.53.2 release of the narration fix:** replaces a runaway narration clip in tutorial 3, and the voice script now
+rejects clips far too long for their text. 0.53.1 never published, because its Linux build got an HTTP 504 downloading
+the AppImage tool. [evidence](docs/rewrite/handoffs/T75.md).
 
 **0.53.0 tutorial videos:** five narrated [tutorials](docs/tutorials/README.md) with selectable subtitles, built
 locally from recipes. MCP gains a native pointer that places the 3D cursor, picks and draws the selection window. The
