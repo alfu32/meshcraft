@@ -3816,7 +3816,8 @@
         "docs/tutorials/README.md",
         "docs/tutorials/videos/07-office-floor-part-1.mp4",
         "docs/tutorials/videos/07-office-floor-part-2.mp4",
-        "scripts/video/verify_split_office.py"
+        "scripts/video/verify_split_office.py",
+        ".github/workflows/distribution.yaml"
       ],
       "source_paths": [
         "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt"
@@ -3829,7 +3830,7 @@
       "slices": [
         "Choose a silent keyframe boundary and produce two sub-15-minute editions with continuation/title cards, preserving the full original.",
         "Retime selectable subtitles and metadata, retain narration and verify decoded frame continuity and original file hashes.",
-        "Review, document, version and publish the two editions alongside the original."
+        "Review, document, version and publish the two editions alongside the original; recover hosted macOS ARM queue failures using a supported native runner image while preserving the complete matrix and checks."
       ],
       "done": [
         "C54 passes with measured durations, continuity evidence and both published parts."
