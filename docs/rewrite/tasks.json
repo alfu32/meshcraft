@@ -3795,6 +3795,47 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T81",
+      "title": "Split tutorial 7 into two under-15-minute parts while retaining the original",
+      "phase": "desktop",
+      "dependencies": [
+        "T80"
+      ],
+      "requirements": [
+        "F04",
+        "R01",
+        "R04"
+      ],
+      "acceptance": [
+        "C54"
+      ],
+      "targets": [
+        "scripts/video/split_office.py",
+        "docs/tutorials/README.md",
+        "docs/tutorials/videos/07-office-floor-part-1.mp4",
+        "docs/tutorials/videos/07-office-floor-part-2.mp4",
+        "scripts/video/verify_split_office.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/AUTHORING.md",
+        "docs/rewrite/handoffs/T81.md"
+      ],
+      "slices": [
+        "Choose a silent keyframe boundary and produce two sub-15-minute editions with continuation/title cards, preserving the full original.",
+        "Retime selectable subtitles and metadata, retain narration and verify decoded frame continuity and original file hashes.",
+        "Review, document, version and publish the two editions alongside the original."
+      ],
+      "done": [
+        "C54 passes with measured durations, continuity evidence and both published parts."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

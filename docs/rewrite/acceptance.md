@@ -502,3 +502,19 @@ Both generated flight meshes meet the same mid-landing at the 1.8 m elevation;
 the lower flight reaches it and the upper flight leaves it towards the entry end.
 Inspect a plan and an oblique view. Preserve the existing narration clips,
 re-record the corrected actions and downstream model, review and release.
+
+## C54 — Tutorial 7 in two parts, preserving the original
+
+**Tasks:** T81. **Requirements:** F04, R01, R04.
+
+Derive two editions from the finished tutorial 7, each strictly under 900 seconds.
+Cut on a source video keyframe during silence between complete narrated steps;
+retain every source frame in order across the two bodies, with no duplicate or
+missing frame at the join. Part 1 closes with a continuation card; part 2 opens
+with its own title and retains the original completed-model ending.
+
+Preserve the original MP4, cue metadata and subtitle sidecars byte for byte.
+Retain all 47 existing narration lines and voice keys, retime each part's
+selectable English subtitle track and sidecars, and inspect opening/ending and
+join frames. Verify codecs, durations, subtitle selection and decoded video
+continuity; publish both parts alongside the original.

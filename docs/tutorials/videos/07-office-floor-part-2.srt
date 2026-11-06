@@ -1,0 +1,99 @@
+1
+00:00:04,468 --> 00:00:20,458
+Storage and kitchen open from the east hall;
+the copier room connects through storage.
+
+2
+00:01:24,037 --> 00:01:38,897
+Door fits the first lift opening: ninety
+centimetres wide and 2.1 metres high.
+
+3
+00:01:38,947 --> 00:01:56,777
+Move Copy repeats that door. Use matching
+floor-grid references in the clear open space.
+
+4
+00:03:30,645 --> 00:03:45,355
+The meeting room gets a wider
+entrance from the north open space.
+
+5
+00:04:11,603 --> 00:04:28,393
+The east and west sides are plain walls, one
+unit thick: thirty centimetres, with no windows.
+
+6
+00:04:36,994 --> 00:04:57,704
+Label axes A to H and rows one to
+four. Each bay is six metres square.
+
+7
+00:05:53,285 --> 00:06:11,995
+Mark the lift and stair enclosures FR90,
+and the side halls FR30, following the plan.
+
+8
+00:08:56,233 --> 00:09:03,093
+Keep the north and south bands as open offices,
+connected around this central service core.
+
+9
+00:09:06,744 --> 00:09:23,694
+Show Objects and lock the labels. On a quarter-unit
+grid, build two mullions with no top rail.
+
+10
+00:09:50,700 --> 00:10:06,029
+Join their inner corners with a closed
+Polyline. The glazing fills the full height.
+
+11
+00:10:18,574 --> 00:10:35,962
+Make Object, and Edit Prototype. This
+panel is one and a half metres wide.
+
+12
+00:10:36,012 --> 00:10:52,802
+Add a Multiply Linear hotspot, attach the panel,
+and pick a reference one panel width back.
+
+13
+00:10:53,422 --> 00:11:03,432
+Nice. Drag the instance handle across
+the frontage: twenty-eight glazed panels.
+
+14
+00:11:03,482 --> 00:11:19,552
+Move the assembled curtain wall onto the
+south edge, using its corner and a helper.
+
+15
+00:11:23,737 --> 00:11:42,527
+Copy the wall to the north edge. Both facades
+share one definition. Then unlock the labels.
+
+16
+00:11:49,576 --> 00:12:05,245
+For the ceiling, make one reusable sixty
+centimetre square panel in the open office zone.
+
+17
+00:12:05,295 --> 00:12:21,605
+Edit Prototype. A volumetric array hotspot
+repeats the panel in both plan directions.
+
+18
+00:12:24,158 --> 00:12:40,868
+Drag the instance handle to form two rows of
+twenty panels, then lift the assembly on a helper.
+
+19
+00:13:00,271 --> 00:13:13,663
+Good. Seven by three structural bays, four lifts, two
+staircases and open offices around one central core.
+
+20
+00:13:13,713 --> 00:13:26,606
+The partial ceiling leaves the layout visible. The
+structural and facade grids remain hotspot-driven.

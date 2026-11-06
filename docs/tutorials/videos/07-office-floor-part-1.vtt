@@ -1,0 +1,108 @@
+WEBVTT
+
+00:00:03.644 --> 00:00:13.465
+Start with Architecture: one unit is 30 centimetres.
+Use a half-unit grid for the partitions.
+
+00:00:13.515 --> 00:00:27.507
+Draw the slab, forty-two by
+eighteen metres: 140 by 60 units.
+
+00:00:27.557 --> 00:00:46.507
+Build one six metre square frame. Four corner
+columns come first, using Cuboid and axis helpers.
+
+00:01:42.379 --> 00:01:59.889
+Nice. Add the beams at the column tops. Twelve
+units overall gives a height of 3.6 metres.
+
+00:03:13.373 --> 00:03:29.443
+Window-select the frame and Make Object. Then
+Edit Prototype to define its array handle.
+
+00:03:32.079 --> 00:03:40.769
+Place the hotspot above the second grid diagonal,
+on an axis helper. Choose Multiply Volumetric.
+
+00:03:40.819 --> 00:03:51.768
+Attach every beam and column. Pick Reference
+at the far corner of the first six metre bay.
+
+00:03:51.818 --> 00:04:06.337
+Good. Select the instance and drag its
+hotspot to the opposite corner of the slab.
+
+00:04:06.387 --> 00:04:15.727
+Twenty-one structural modules: seven across and
+three deep, all driven by one instance hotspot.
+
+00:04:19.378 --> 00:04:25.598
+For the core stairs, set flight height to
+six units and the step count to twelve.
+
+00:04:25.648 --> 00:04:38.087
+Draw a rectangular contour C and Make Object,
+so the same outline can define both flights.
+
+00:04:38.137 --> 00:04:54.767
+Add helpers for the contour copy and the landing.
+Copy the contour six units across and up.
+
+00:05:08.411 --> 00:05:27.041
+Nice. Draw walking path P in the lower outline.
+Set C, then P, to create twelve risers.
+
+00:05:28.156 --> 00:05:41.961
+Use the landing helpers at six units:
+half the 3.6 metre storey height.
+
+00:05:42.011 --> 00:05:58.961
+Reverse the walking path in the upper contour,
+then set C and P for the return flight.
+
+00:06:01.786 --> 00:06:09.065
+Hide Objects in the selection filters while drafting
+the core, to keep the floor grid accessible.
+
+00:06:09.115 --> 00:06:24.801
+Select both flights and the landing. Move Copy
+places the second evacuation stair in the east bay.
+
+00:06:24.851 --> 00:06:32.671
+Set partition thickness to half a unit: fifteen
+centimetres. The offset is a quarter unit.
+
+00:06:32.721 --> 00:06:47.431
+Draw the two lift cases on the
+left of the central lift hall.
+
+00:07:09.540 --> 00:07:25.690
+Move Copy repeats the partition assembly on the
+right: four lift cases around one shared hall.
+
+00:07:25.773 --> 00:07:41.173
+Good. Parallel partitions separate the stair
+enclosures from their outer side halls.
+
+00:08:19.587 --> 00:08:38.057
+Enclose the stair bays at north and south.
+The middle hall remains open at both ends.
+
+00:09:11.838 --> 00:09:28.096
+To the west, divide the service bay into women's
+and men's toilets, accessed from the side hall.
+
+00:10:06.201 --> 00:10:22.315
+To the east, put storage and copying north of
+the kitchen, then a meeting room in the end bay.
+
+00:11:15.520 --> 00:11:32.390
+Cut the lift openings on the wall faces.
+Axis helpers carry their 2.1 metre heads.
+
+00:12:57.506 --> 00:13:11.576
+Give each toilet its own door from the west side hall.
+
+00:13:48.646 --> 00:14:04.316
+Good. Add doors between the side halls and
+the two protected staircase enclosures.

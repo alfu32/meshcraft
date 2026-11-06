@@ -1,0 +1,206 @@
+{
+  "video": "07-office-floor-part-1.mp4",
+  "app_version": "0.57.1",
+  "recipe": "docs/tutorials/recipes/07-office-floor.py",
+  "duration": 883.967,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.644,
+      "end": 13.465,
+      "text": "Start with Architecture: one unit is 30 centimetres. Use a half-unit grid for the partitions.",
+      "reading_seconds": 9.87,
+      "voice": "d75112edde720f39"
+    },
+    {
+      "start": 13.515,
+      "end": 27.507,
+      "text": "Draw the slab, forty-two by eighteen metres: 140 by 60 units.",
+      "reading_seconds": 6.83,
+      "voice": "ad321f19f363036b"
+    },
+    {
+      "start": 27.557,
+      "end": 46.507,
+      "text": "Build one six metre square frame. Four corner columns come first, using Cuboid and axis helpers.",
+      "reading_seconds": 9.95,
+      "voice": "3800d626340e78e6"
+    },
+    {
+      "start": 102.379,
+      "end": 119.889,
+      "text": "Nice. Add the beams at the column tops. Twelve units overall gives a height of 3.6 metres.",
+      "reading_seconds": 8.51,
+      "voice": "acfcf26b7f1bbd3c"
+    },
+    {
+      "start": 193.373,
+      "end": 209.443,
+      "text": "Window-select the frame and Make Object. Then Edit Prototype to define its array handle.",
+      "reading_seconds": 7.07,
+      "voice": "8e03995badc33ac8"
+    },
+    {
+      "start": 212.079,
+      "end": 220.769,
+      "text": "Place the hotspot above the second grid diagonal, on an axis helper. Choose Multiply Volumetric.",
+      "reading_seconds": 8.43,
+      "voice": "a085d1aef8760690"
+    },
+    {
+      "start": 220.819,
+      "end": 231.768,
+      "text": "Attach every beam and column. Pick Reference at the far corner of the first six metre bay.",
+      "reading_seconds": 8.03,
+      "voice": "306d1f114d65581d"
+    },
+    {
+      "start": 231.818,
+      "end": 246.337,
+      "text": "Good. Select the instance and drag its hotspot to the opposite corner of the slab.",
+      "reading_seconds": 6.51,
+      "voice": "97c3e4447b861c73"
+    },
+    {
+      "start": 246.387,
+      "end": 255.727,
+      "text": "Twenty-one structural modules: seven across and three deep, all driven by one instance hotspot.",
+      "reading_seconds": 9.39,
+      "voice": "4f6a81818f86f6ec"
+    },
+    {
+      "start": 259.378,
+      "end": 265.598,
+      "text": "For the core stairs, set flight height to six units and the step count to twelve.",
+      "reading_seconds": 6.27,
+      "voice": "c996f11f238f402e"
+    },
+    {
+      "start": 265.648,
+      "end": 278.087,
+      "text": "Draw a rectangular contour C and Make Object, so the same outline can define both flights.",
+      "reading_seconds": 10.19,
+      "voice": "3839919d0617c206"
+    },
+    {
+      "start": 278.137,
+      "end": 294.767,
+      "text": "Add helpers for the contour copy and the landing. Copy the contour six units across and up.",
+      "reading_seconds": 7.63,
+      "voice": "6f13b9186edcd151"
+    },
+    {
+      "start": 308.411,
+      "end": 327.041,
+      "text": "Nice. Draw walking path P in the lower outline. Set C, then P, to create twelve risers.",
+      "reading_seconds": 9.63,
+      "voice": "cd373e89c28f912b"
+    },
+    {
+      "start": 328.156,
+      "end": 341.961,
+      "text": "Use the landing helpers at six units: half the 3.6 metre storey height.",
+      "reading_seconds": 7.15,
+      "voice": "67f9d2dc03f33557"
+    },
+    {
+      "start": 342.011,
+      "end": 358.961,
+      "text": "Reverse the walking path in the upper contour, then set C and P for the return flight.",
+      "reading_seconds": 7.95,
+      "voice": "1146e625ca3ed531"
+    },
+    {
+      "start": 361.786,
+      "end": 369.065,
+      "text": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible.",
+      "reading_seconds": 7.329,
+      "voice": "7f281afd3af0c516"
+    },
+    {
+      "start": 369.115,
+      "end": 384.801,
+      "text": "Select both flights and the landing. Move Copy places the second evacuation stair in the east bay.",
+      "reading_seconds": 8.43,
+      "voice": "3161e61b17a04b6e"
+    },
+    {
+      "start": 384.851,
+      "end": 392.671,
+      "text": "Set partition thickness to half a unit: fifteen centimetres. The offset is a quarter unit.",
+      "reading_seconds": 7.87,
+      "voice": "b687fbed4c5c7938"
+    },
+    {
+      "start": 392.721,
+      "end": 407.431,
+      "text": "Draw the two lift cases on the left of the central lift hall.",
+      "reading_seconds": 5.71,
+      "voice": "61f4dbc1a2a0c91f"
+    },
+    {
+      "start": 429.54,
+      "end": 445.69,
+      "text": "Move Copy repeats the partition assembly on the right: four lift cases around one shared hall.",
+      "reading_seconds": 7.15,
+      "voice": "de884d1dc97942ca"
+    },
+    {
+      "start": 445.773,
+      "end": 461.173,
+      "text": "Good. Parallel partitions separate the stair enclosures from their outer side halls.",
+      "reading_seconds": 6.4,
+      "voice": "506ed1a0cecfb654"
+    },
+    {
+      "start": 499.587,
+      "end": 518.057,
+      "text": "Enclose the stair bays at north and south. The middle hall remains open at both ends.",
+      "reading_seconds": 9.47,
+      "voice": "5c07a41a48aefc9d"
+    },
+    {
+      "start": 551.838,
+      "end": 568.096,
+      "text": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall.",
+      "reading_seconds": 7.257,
+      "voice": "9c7ded3f8c1df8ec"
+    },
+    {
+      "start": 606.201,
+      "end": 622.315,
+      "text": "To the east, put storage and copying north of the kitchen, then a meeting room in the end bay.",
+      "reading_seconds": 7.114,
+      "voice": "14f393095bf152c4"
+    },
+    {
+      "start": 675.52,
+      "end": 692.39,
+      "text": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads.",
+      "reading_seconds": 7.87,
+      "voice": "0cd0c4358e4bddec"
+    },
+    {
+      "start": 777.506,
+      "end": 791.576,
+      "text": "Give each toilet its own door from the west side hall.",
+      "reading_seconds": 5.07,
+      "voice": "0037591c7eb78577"
+    },
+    {
+      "start": 828.646,
+      "end": 844.316,
+      "text": "Good. Add doors between the side halls and the two protected staircase enclosures.",
+      "reading_seconds": 6.67,
+      "voice": "46f26cf6003e9933"
+    }
+  ],
+  "source_video": "07-office-floor.mp4",
+  "source_sha256": "c844e32fb8fc09d1b29358b897932fecb744fb3efe337749ca3c88be67bebb55",
+  "source_range_seconds": [
+    0,
+    879.9666666666667
+  ],
+  "leading_card_seconds": 0,
+  "trailing_card_seconds": 4.0
+}

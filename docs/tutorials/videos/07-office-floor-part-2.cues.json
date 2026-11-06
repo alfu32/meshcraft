@@ -1,0 +1,157 @@
+{
+  "video": "07-office-floor-part-2.mp4",
+  "app_version": "0.57.1",
+  "recipe": "docs/tutorials/recipes/07-office-floor.py",
+  "duration": 813.133,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 4.468,
+      "end": 20.458,
+      "text": "Storage and kitchen open from the east hall; the copier room connects through storage.",
+      "reading_seconds": 6.99,
+      "voice": "74f3c2d96dd9a8aa"
+    },
+    {
+      "start": 84.037,
+      "end": 98.897,
+      "text": "Door fits the first lift opening: ninety centimetres wide and 2.1 metres high.",
+      "reading_seconds": 6.91,
+      "voice": "b6d3b65ee1f9f6a0"
+    },
+    {
+      "start": 98.947,
+      "end": 116.777,
+      "text": "Move Copy repeats that door. Use matching floor-grid references in the clear open space.",
+      "reading_seconds": 8.83,
+      "voice": "a84daf7485a95c8a"
+    },
+    {
+      "start": 210.645,
+      "end": 225.355,
+      "text": "The meeting room gets a wider entrance from the north open space.",
+      "reading_seconds": 5.71,
+      "voice": "16644fa0dbf7d0ba"
+    },
+    {
+      "start": 251.603,
+      "end": 268.393,
+      "text": "The east and west sides are plain walls, one unit thick: thirty centimetres, with no windows.",
+      "reading_seconds": 7.79,
+      "voice": "9a7285a1583d7ebd"
+    },
+    {
+      "start": 276.994,
+      "end": 297.704,
+      "text": "Label axes A to H and rows one to four. Each bay is six metres square.",
+      "reading_seconds": 11.71,
+      "voice": "35a52d8fa0214ed3"
+    },
+    {
+      "start": 353.285,
+      "end": 371.995,
+      "text": "Mark the lift and stair enclosures FR90, and the side halls FR30, following the plan.",
+      "reading_seconds": 9.71,
+      "voice": "77af1ff2b71a4539"
+    },
+    {
+      "start": 536.233,
+      "end": 543.093,
+      "text": "Keep the north and south bands as open offices, connected around this central service core.",
+      "reading_seconds": 6.91,
+      "voice": "7d78b86b1a0bb082"
+    },
+    {
+      "start": 546.744,
+      "end": 563.694,
+      "text": "Show Objects and lock the labels. On a quarter-unit grid, build two mullions with no top rail.",
+      "reading_seconds": 7.95,
+      "voice": "68e7a37a42490005"
+    },
+    {
+      "start": 590.7,
+      "end": 606.029,
+      "text": "Join their inner corners with a closed Polyline. The glazing fills the full height.",
+      "reading_seconds": 6.329,
+      "voice": "c15402dfda19f1d7"
+    },
+    {
+      "start": 618.574,
+      "end": 635.962,
+      "text": "Make Object, and Edit Prototype. This panel is one and a half metres wide.",
+      "reading_seconds": 8.67,
+      "voice": "f13465c8c1bdff14"
+    },
+    {
+      "start": 636.012,
+      "end": 652.802,
+      "text": "Add a Multiply Linear hotspot, attach the panel, and pick a reference one panel width back.",
+      "reading_seconds": 7.79,
+      "voice": "71fc144141a5681e"
+    },
+    {
+      "start": 653.422,
+      "end": 663.432,
+      "text": "Nice. Drag the instance handle across the frontage: twenty-eight glazed panels.",
+      "reading_seconds": 6.67,
+      "voice": "dfbe45dd34cb363e"
+    },
+    {
+      "start": 663.482,
+      "end": 679.552,
+      "text": "Move the assembled curtain wall onto the south edge, using its corner and a helper.",
+      "reading_seconds": 7.07,
+      "voice": "cfed0c0db721f906"
+    },
+    {
+      "start": 683.737,
+      "end": 702.527,
+      "text": "Copy the wall to the north edge. Both facades share one definition. Then unlock the labels.",
+      "reading_seconds": 9.79,
+      "voice": "b4ac74e8cbaf829a"
+    },
+    {
+      "start": 709.576,
+      "end": 725.245,
+      "text": "For the ceiling, make one reusable sixty centimetre square panel in the open office zone.",
+      "reading_seconds": 7.87,
+      "voice": "4be10d744f87ebe5"
+    },
+    {
+      "start": 725.295,
+      "end": 741.605,
+      "text": "Edit Prototype. A volumetric array hotspot repeats the panel in both plan directions.",
+      "reading_seconds": 7.31,
+      "voice": "fc9e77be45c0bd60"
+    },
+    {
+      "start": 744.158,
+      "end": 760.868,
+      "text": "Drag the instance handle to form two rows of twenty panels, then lift the assembly on a helper.",
+      "reading_seconds": 7.71,
+      "voice": "dd208bf7cd56d6ac"
+    },
+    {
+      "start": 780.271,
+      "end": 793.663,
+      "text": "Good. Seven by three structural bays, four lifts, two staircases and open offices around one central core.",
+      "reading_seconds": 8.67,
+      "voice": "1f848a34cb003e8c"
+    },
+    {
+      "start": 793.713,
+      "end": 806.606,
+      "text": "The partial ceiling leaves the layout visible. The structural and facade grids remain hotspot-driven.",
+      "reading_seconds": 8.19,
+      "voice": "f23a88787bdbb334"
+    }
+  ],
+  "source_video": "07-office-floor.mp4",
+  "source_sha256": "c844e32fb8fc09d1b29358b897932fecb744fb3efe337749ca3c88be67bebb55",
+  "source_range_seconds": [
+    879.9666666666667,
+    1689.1
+  ],
+  "leading_card_seconds": 4.0,
+  "trailing_card_seconds": 0
+}

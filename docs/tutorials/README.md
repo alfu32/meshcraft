@@ -10,7 +10,9 @@ Tutorials recorded from the real application at a pace a person can follow.
 | 4 | [A parametric bookcase](videos/04-parametric-bookcase.mp4) | Script objects, a grid helper on a face, dragging a hotspot along it, instance parameters |
 | 5 | [A round pavilion](videos/05-round-pavilion.mp4) | Circle, axis helpers, Rotate Copy with a repeat count, shared definitions |
 | 6 | [A curtain wall with no code](videos/06-curtain-wall.mp4) | A dynamic object from hotspots alone: a Stretch handle for size and a Multiply Linear handle that lays out the wall |
-| 7 | [An office floor: 42 × 18 m](videos/07-office-floor.mp4) | A 6 × 6 × 3.6 m frame and volumetric hotspot array, central stair/lift core with clear approaches and connected return flights, repeated partitions, doors, glazed facades and ceiling panels |
+| 7.1 | [Office floor — Part 1 · 14:44](videos/07-office-floor-part-1.mp4) | Structural frame and hotspot array, stairs, lifts, core partitions and initial openings |
+| 7.2 | [Office floor — Part 2 · 13:33](videos/07-office-floor-part-2.mp4) | Remaining door openings and frames, labels, repeating glazed facades and ceiling panels |
+| 7 | [Original full office floor · 28:09](videos/07-office-floor.mp4) | A 6 × 6 × 3.6 m frame and volumetric hotspot array, central stair/lift core with clear approaches and connected return flights, repeated partitions, doors, glazed facades and ceiling panels |
 
 Each video has narration and a selectable English subtitle track; `.srt` and `.vtt` copies sit beside
 it. Subtitles are never burned in. A player that auto-loads the sidecar still shows only one set.
@@ -78,3 +80,8 @@ badly, such as `Push/Pull`.
   build sets to an arrow, so the videos do not show the crosshair a desktop shows during a tool.
 - The Save button in the material editor has no measured position, so `03-materials.py` holds a fixed
   coordinate. The button position only aims the cursor, and the save itself goes through MCP.
+
+Tutorial 7 also has two editions under 15 minutes. Recreate them with
+`python3 scripts/video/split_office.py`; this preserves the original video and its sidecars,
+copies the source picture without re-encoding, and retimes the selectable subtitles.
+The existing narration is retained, with silence during the added part cards.

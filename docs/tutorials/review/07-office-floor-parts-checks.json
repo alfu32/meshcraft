@@ -1,0 +1,67 @@
+{
+  "original_files_unchanged": {
+    "07-office-floor.mp4": "c844e32fb8fc09d1b29358b897932fecb744fb3efe337749ca3c88be67bebb55",
+    "07-office-floor.cues.json": "9e42fcb11c40d2aabd669b0029b1f45d2d29fe941a5fc4f2c4d062f81631f64a",
+    "07-office-floor.srt": "b725f72c3b081a8cfa199e3540cce76dfdb05b86bc6892dd2837b7d22fbb3922",
+    "07-office-floor.vtt": "b3930f570e3fe4baa922eeb635c3edd3d55cd9854e54d8d07d1451764a2a8147"
+  },
+  "cut_seconds": 879.9666666666667,
+  "source_frames": 50673,
+  "source_frame_continuity": "Every decoded source frame matches exactly, in order",
+  "narration_lines_unchanged": 47,
+  "parts": [
+    {
+      "video": "07-office-floor-part-1.mp4",
+      "duration_seconds": 883.966667,
+      "cues": 27,
+      "bytes": 52945590,
+      "codecs": [
+        "h264",
+        "aac",
+        "mov_text"
+      ],
+      "decoded_frames": 26519,
+      "source_frames": 26399,
+      "loudness": "Integrated loudness:\n    I:         -16.5 LUFS\n    Threshold: -27.3 LUFS\n\n  Loudness range:\n    LRA:         9.0 LU\n    Threshold: -38.5 LUFS\n    LRA low:   -24.4 LUFS\n    LRA high:  -15.4 LUFS\n[out#0/null @ 0x55e5375b4580] video:0KiB audio:165744KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown\nsize=N/A time=00:14:43.96 bitrate=N/A speed=34.9x",
+      "player_subtitles": [
+        "\u25cb Subs   --sid=1  --slang=eng  (mov_text) [default]",
+        "\u25cf Subs   --sid=2               'srt' (subrip) [external]",
+        "\u25cb Subs   --sid=3               'vtt' (webvtt) [external]"
+      ],
+      "frame_samples": {
+        "opening": 1.5,
+        "ending": 882.466667,
+        "join": 879.816667
+      }
+    },
+    {
+      "video": "07-office-floor-part-2.mp4",
+      "duration_seconds": 813.133333,
+      "cues": 20,
+      "bytes": 49599505,
+      "codecs": [
+        "h264",
+        "aac",
+        "mov_text"
+      ],
+      "decoded_frames": 24394,
+      "source_frames": 24274,
+      "loudness": "Integrated loudness:\n    I:         -15.7 LUFS\n    Threshold: -26.3 LUFS\n\n  Loudness range:\n    LRA:         9.6 LU\n    Threshold: -37.6 LUFS\n    LRA low:   -24.1 LUFS\n    LRA high:  -14.5 LUFS\n[out#0/null @ 0x5ae98bd57680] video:0KiB audio:151724KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown\nsize=N/A time=00:13:33.15 bitrate=N/A speed=33.5x",
+      "player_subtitles": [
+        "\u25cb Subs   --sid=1  --slang=eng  (mov_text) [default]",
+        "\u25cf Subs   --sid=2               'srt' (subrip) [external]",
+        "\u25cb Subs   --sid=3               'vtt' (webvtt) [external]"
+      ],
+      "frame_samples": {
+        "opening": 1.5,
+        "ending": 810.133333,
+        "join": 4.15
+      }
+    }
+  ],
+  "audio_listened_to": false,
+  "visual_review": {
+    "openings_endings_and_join_frames": "inspected",
+    "result": "Readable part cards, uninterrupted source picture at the boundary and original final overview/thank-you retained."
+  }
+}

@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.57.2 tutorial 7 in two parts:** [Part 1](docs/tutorials/videos/07-office-floor-part-1.mp4)
+(14:44) and [Part 2](docs/tutorials/videos/07-office-floor-part-2.mp4) (13:33) retain the
+existing narration and picture, with part cards and retimed selectable subtitles.
+The original full video is preserved. [evidence](docs/rewrite/handoffs/T81.md).
+
 **0.57.1 office stair correction:** tutorial 7 now connects each return flight to its mid-landing and
 leaves 1.35 m of clear approach, with stair doors opening into that space. Drawn lines preserve their
 orientation through overlap consolidation and splits. Existing narration is retained.
