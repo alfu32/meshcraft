@@ -555,7 +555,7 @@ impl Renderer {
         );
         shader.set_shader_value(shader.get_shader_location("eye"), ray_vec3(eye));
         for (key, value) in [
-            ("depthOffset", 0.00015),
+            ("depthOffset", 0.000002),
             ("ambient", settings.ambient),
             ("directional", settings.directional),
             ("shadowStrength", settings.shadow_strength),
@@ -717,6 +717,74 @@ mod tests {
         faces[0].target.entity = SelectedEntity::Occurrence;
         assert_eq!(face_outlines(&faces).len(), 3);
     }
+    #[test]
+    #[ignore = "requires X11/OpenGL; checks floor/ground depth precision"]
+    fn office_floor_stays_opaque_above_the_ground_while_orbiting() {
+        let (mut rl, thread) = raylib::init()
+            .size(640, 480)
+            .hidden()
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut document = Document::new();
+        let root = document.ensure_scene_root();
+        document
+            .append_colored_indexed_mesh_to_definition(
+                root,
+                vec![
+                    Vec3::ZERO,
+                    Vec3::new(0., 0., 50.),
+                    Vec3::new(90., 0., 50.),
+                    Vec3::new(90., 0., 0.),
+                ],
+                vec![],
+                vec![([0, 1, 2], Rgba8::WHITE), ([0, 2, 3], Rgba8::WHITE)],
+            )
+            .unwrap();
+        let mut scene = RenderScene {
+            document: Arc::new(document),
+            grid_visible: false,
+            ..Default::default()
+        };
+        scene.lighting.ambient = 1.;
+        scene.lighting.directional = 0.;
+        scene.lighting.specular = 0.;
+        scene.lighting.shadows = false;
+        let mut renderer = Renderer::new(&mut rl, &thread);
+        let mut target = rl.load_render_texture(&thread, 640, 480).unwrap();
+        renderer.prepare(&mut rl, &thread, &scene);
+        for yaw in [0.45, 0.8, 1.1] {
+            let camera = OrbitCamera {
+                target: Vec3::new(45., 0., 25.),
+                distance: 170.,
+                pitch: 0.9,
+                yaw,
+                field_of_view: 36.,
+                ..Default::default()
+            };
+            super::super::draw_offscreen_scene(
+                &mut rl,
+                &thread,
+                &mut target,
+                camera,
+                &scene,
+                0,
+                &mut renderer,
+            );
+            let image = super::super::copy_target_to_gpui_image(&target).unwrap();
+            for x in [10., 20., 30., 60., 70., 80.] {
+                for z in [8., 16., 32., 40.] {
+                    let point = Vec3::new(x, 0., z);
+                    let (px, py) = project_point(camera, (640., 480.), point).unwrap();
+                    let color = image.get_pixel(px.round() as u32, py.round() as u32);
+                    assert!(
+                        color.0[..3].iter().all(|channel| *channel > 240),
+                        "ground shows through the white floor at {point:?}, yaw {yaw}: {color:?}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn lighting_defaults_match_the_requested_shader_preset() {
         let l = Lighting::default();

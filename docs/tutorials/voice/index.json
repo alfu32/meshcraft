@@ -119,6 +119,12 @@
   "spoken": "Units first: centimetres, on a twenty centimetre grid.",
   "text": "Units first: centimetres, on a twenty centimetre grid."
  },
+ "333f958a53b4569f": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Nice. A helper at ceiling level gives the horizontal pitch for Move Copy.",
+  "text": "Nice. A helper at ceiling level gives the horizontal pitch for Move Copy."
+ },
  "3b6a216fc577dffe": {
   "seconds": 6.8,
   "speaker": "ryan",
@@ -149,6 +155,12 @@
   "spoken": "Make the copy shorter, on that same grid helper. The first stays as it was.",
   "text": "Make the copy shorter, on that same grid helper. The first stays as it was."
  },
+ "46a5bc8ac9cf81bc": {
+  "seconds": 8.08,
+  "speaker": "ryan",
+  "spoken": "For a long repeat, type two, times thirty nine: thirty-nine more panels, two units apart.",
+  "text": "For a long repeat, type 2 x39: thirty-nine more panels, two units apart."
+ },
  "46e30fc3540f135a": {
   "seconds": 5.6,
   "speaker": "ryan",
@@ -161,11 +173,29 @@
   "spoken": "Now the multiplier: another hotspot on the grid in front, named Count, set to Multiply Linear.",
   "text": "Now the multiplier: another hotspot on the grid in front, named Count, set to Multiply Linear."
  },
+ "4d180d41153660dd": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "Move Copy repeats the partition nine metres along the floor grid.",
+  "text": "Move Copy repeats the partition nine metres along the floor grid."
+ },
+ "4d18a6f7783882b9": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "Cool. Copy both partitions to the south office zone, using the same grid spacing.",
+  "text": "Cool. Copy both partitions to the south office zone, using the same grid spacing."
+ },
  "4fd60be7ad38ed57": {
   "seconds": 7.44,
   "speaker": "ryan",
   "spoken": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 centimetres along.",
   "text": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 cm along."
+ },
+ "5082a3e2159491ca": {
+  "seconds": 6.0,
+  "speaker": "ryan",
+  "spoken": "Leave side passages in the lobby walls. All four office zones lead to this node.",
+  "text": "Leave side passages in the lobby walls. All four office zones lead to this node."
  },
  "50b544a4321b5aee": {
   "seconds": 5.6,
@@ -196,6 +226,18 @@
   "speaker": "ryan",
   "spoken": "Edit Script shows the code: parameters first, then the geometry.",
   "text": "Edit Script shows the code: parameters first, then the geometry."
+ },
+ "576d4437f0d11822": {
+  "seconds": 5.76,
+  "speaker": "ryan",
+  "spoken": "We leave the ceiling partial so the office layout stays visible below it.",
+  "text": "We leave the ceiling partial so the office layout stays visible below it."
+ },
+ "579c7c7748f699e3": {
+  "seconds": 7.92,
+  "speaker": "ryan",
+  "spoken": "Repeat for the entrance. Copy the component instead of drawing each door again.",
+  "text": "Repeat for the entrance. Copy the component instead of drawing each door again."
  },
  "5e02adcf424194b0": {
   "seconds": 5.68,
@@ -232,6 +274,12 @@
   "speaker": "ryan",
   "spoken": "Ooh, nice. Now the same with the Window tool.",
   "text": "Ooh, nice. Now the same with the Window tool."
+ },
+ "67cbf17a7098619d": {
+  "seconds": 8.4,
+  "speaker": "ryan",
+  "spoken": "One central lobby, repeated partitions and doors, and a reusable ceiling module.",
+  "text": "One central lobby, repeated partitions and doors, and a reusable ceiling module."
  },
  "685db5885fc5fc89": {
   "seconds": 7.04,
@@ -281,6 +329,12 @@
   "spoken": "dollar number adds a field to the panel. dollar hotspot adds a handle you can drag.",
   "text": "$NUMBER adds a field to the panel. $HOTSPOT adds a handle you can drag."
  },
+ "84de0dc14fe511fd": {
+  "seconds": 7.84,
+  "speaker": "ryan",
+  "spoken": "For repeatable office bays, draw one short partition, leaving a shared access strip.",
+  "text": "For repeatable office bays, draw one short partition, leaving a shared access strip."
+ },
  "854cffe92859a34b": {
   "seconds": 7.04,
   "speaker": "ryan",
@@ -311,11 +365,23 @@
   "spoken": "One column first. Circle: click the centre, then a grid point on the edge.",
   "text": "One column first. Circle: click the centre, then a grid point on the edge."
  },
+ "8c9dbf48265a6394": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "Now a ceiling module. Zoom in and draw a 60 centimetre square on the floor.",
+  "text": "Now a ceiling module. Zoom in and draw a 60 centimetre square on the floor."
+ },
  "8f29d398a784c68a": {
   "seconds": 6.16,
   "speaker": "ryan",
   "spoken": "That's a dynamic object with no code: one size handle and one multiply handle.",
   "text": "That's a dynamic object with no code: one size handle and one multiply handle."
+ },
+ "9142d97c19a9090a": {
+  "seconds": 8.4,
+  "speaker": "ryan",
+  "spoken": "Nice. Two cross walls mark the north and south sides of a single central lobby.",
+  "text": "Nice. Two cross walls mark the north and south sides of a single central lobby."
  },
  "91b6af9c9cd45a8a": {
   "seconds": 4.72,
@@ -346,6 +412,12 @@
   "speaker": "ryan",
   "spoken": "Finish with a roof: one more slab, snapped to the top corners of the walls.",
   "text": "Finish with a roof: one more slab, snapped to the top corners of the walls."
+ },
+ "a1c88810828ff4fb": {
+  "seconds": 5.76,
+  "speaker": "ryan",
+  "spoken": "Add Hole: pick the top of one helper, then the opposite base on the wall.",
+  "text": "Add Hole: pick the top of one helper, then the opposite base on the wall."
  },
  "a414a3c633651d46": {
   "seconds": 7.2,
@@ -395,6 +467,12 @@
   "spoken": "Click two grid points: eight metres by six.",
   "text": "Click two grid points: eight metres by six."
  },
+ "ad7b9e153fb7ed63": {
+  "seconds": 7.68,
+  "speaker": "ryan",
+  "spoken": "Good. Door fits the first opening. These are 1.8 metres wide and 2.1 high.",
+  "text": "Good. Door fits the first opening. These are 1.8 metres wide and 2.1 high."
+ },
  "ae172a7d4fbfbe8a": {
   "seconds": 7.68,
   "speaker": "ryan",
@@ -443,11 +521,23 @@
   "spoken": "Pick Reference, one panel width back. That distance is the step between copies.",
   "text": "Pick Reference, one panel width back. That distance is the step between copies."
  },
+ "c1108d898ccb7116": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "Wall draws the perimeter as a chain. Enter finishes it.",
+  "text": "Wall draws the perimeter as a chain. Enter finishes it."
+ },
  "c1b80c300bb82c5b": {
   "seconds": 5.36,
   "speaker": "ryan",
   "spoken": "Now the floor: a big circle around them, on the same centre.",
   "text": "Now the floor: a big circle around them, on the same centre."
+ },
+ "c1f981a4093df272": {
+  "seconds": 7.28,
+  "speaker": "ryan",
+  "spoken": "Choose Rectangular Slab, and snap out the 27 by 15 metre footprint.",
+  "text": "Choose Rectangular Slab, and snap out the 27 by 15 metre footprint."
  },
  "c2840e10b96b6d8f": {
   "seconds": 7.2,
@@ -460,6 +550,12 @@
   "speaker": "ryan",
   "spoken": "Pull it up until the cursor snaps to the corner underneath the top.",
   "text": "Pull it up until the cursor snaps to the corner underneath the top."
+ },
+ "c9c68c917fc9a27d": {
+  "seconds": 6.4,
+  "speaker": "ryan",
+  "spoken": "Door openings need helpers. Press T on the wall base at each jamb.",
+  "text": "Door openings need helpers. Press T on the wall base at each jamb."
  },
  "ca1a4100bf660b4c": {
   "seconds": 5.52,
@@ -490,6 +586,12 @@
   "speaker": "ryan",
   "spoken": "Awesome. Clear Guides, and take a look around.",
   "text": "Awesome. Clear Guides, and take a look around."
+ },
+ "d819a5d82563f2fd": {
+  "seconds": 6.08,
+  "speaker": "ryan",
+  "spoken": "Select the door, then Move Copy between matching corners of the next opening.",
+  "text": "Select the door, then Move Copy between matching corners of the next opening."
  },
  "d8c2c26e619f826c": {
   "seconds": 4.24,
@@ -545,11 +647,23 @@
   "spoken": "First the units, as always. Metres this time, on a one metre grid.",
   "text": "First the units, as always. Metres this time, on a one metre grid."
  },
+ "e61c0a085a19fac9": {
+  "seconds": 6.24,
+  "speaker": "ryan",
+  "spoken": "Press T at its corner. Move the panel up the helper to the 2.7 metre wall height.",
+  "text": "Press T at its corner. Move the panel up the helper to the 2.7 metre wall height."
+ },
  "e715e9d108b6ffa2": {
   "seconds": 5.6,
   "speaker": "ryan",
   "spoken": "Delete the wall and clear the helpers, and we're left with the panel.",
   "text": "Delete the wall and clear the helpers, and we're left with the panel."
+ },
+ "e7c9ed34d164f830": {
+  "seconds": 7.44,
+  "speaker": "ryan",
+  "spoken": "Start with Architecture. One unit is 30 centimetres, so our floor is 90 by 50 units.",
+  "text": "Start with Architecture. One unit is 30 cm, so our floor is 90 by 50 units."
  },
  "ee3a87bbe0a52715": {
   "seconds": 6.24,

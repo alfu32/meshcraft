@@ -366,7 +366,7 @@ PageUp to adjust eye height, and Space to jump with the existing surface-support
 Movement stops while the canvas lacks focus, the window is inactive, or a modal/menu is open.
 Perspective and Frame Document leave walkthrough. UI Settings supplies walking speed/jump/gravity.
 The ribbon content is 82 px (previously 138); its buttons use compact 24 px rows and retain labels.
-The ground receiver has only an upper face; authored open meshes still render from both sides.
+The ground receiver has only an upper face; authored open meshes still render from both sides. The synthetic ground uses a small constant clip-depth bias behind authored surfaces, so a floor at Y = 0 stays opaque while orbiting at architectural camera distances. This changes rendering depth only; model coordinates, shadows and the instanced mesh fill bias remain unchanged.
 
 The native viewport displays the camera target as a world-axis 3D cross spanning 2 × 2 × 2
 internal model units (±1 along each axis). Its colored strokes have a contrasting outline and

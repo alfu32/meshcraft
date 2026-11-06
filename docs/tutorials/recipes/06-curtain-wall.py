@@ -214,4 +214,4 @@ def record(d):
 
     d.say("That's a dynamic object with no code: one size handle and one multiply handle.")
     d.orbit(-120, 25)
-    d.finish("Thanks for watching", "Meshcraft tutorials · 6")
+    d.finish("Next: an office floor", "Meshcraft tutorials · 7")

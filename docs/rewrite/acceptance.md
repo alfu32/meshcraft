@@ -430,3 +430,20 @@ With no script, an object carries a Stretch handle and a Multiply Linear handle 
 ## C50 — Textured materials
 
 A material given an image shows it on every face it is applied to, upright, one tile per width × height model units, starting at the material's offset, in the face's prototype space. Colorization 0 shows the image's own colors and 1 multiplies them by the material color. Browse opens the system file dialog for images and stores a file beside the project relative to it. In Edit Texture Position, clicking a textured face outlines one tile on it; dragging a corner resizes the material with the opposite corner fixed, dragging the middle moves it without resizing, every face using the material follows, and Undo restores the previous placement in one step per drag. Escape ends the mode and removes the outline. Run `python3 scripts/verify_textures.py`; the file dialog itself needs a manual check on a desktop with a portal.
+
+## C51 — Office floor tutorial with repeated components
+
+Tutorial 7 starts from Architecture at 30 cm per unit and drafts a 90 × 50 unit slab
+(27 × 15 m). One central 9 × 6 m circulation lobby connects north, south, east and west
+office zones. Snap every point through the native cursor. Create real wall openings and
+copy matching doors into them. Copy one partition into four partition bays. Make a
+600 mm square ceiling panel an object, lift it along an axis helper to 2.7 m, and repeat
+it with a shared definition. Leave the ceiling partial for visibility. Check geometry,
+review frames, and deliver one video, audio and selectable English subtitle track with
+a closing card. This is a schematic drafting exercise, with no vertical circulation,
+services or regulatory approval claimed.
+
+At architectural camera distances, an opaque floor at Y = 0 must not show the
+synthetic ground through it as the camera orbits. The native rendering regression
+`office_floor_stays_opaque_above_the_ground_while_orbiting` must pass, together
+with the existing shadow alignment and black-line composition checks.

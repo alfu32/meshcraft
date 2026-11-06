@@ -1,146 +1,146 @@
 {
   "video": "06-curtain-wall.mp4",
-  "app_version": "0.54.0",
+  "app_version": "0.56.0",
   "recipe": "docs/tutorials/recipes/06-curtain-wall.py",
-  "duration": 190.976,
+  "duration": 178.27,
   "chars_per_second": 14.0,
   "cues": [
     {
-      "start": 3.648,
-      "end": 6.908,
+      "start": 3.636,
+      "end": 6.896,
       "text": "Start with the Architecture template.",
       "reading_seconds": 3.31,
       "voice": "aa908771f38622e0"
     },
     {
-      "start": 6.958,
-      "end": 19.39,
+      "start": 6.946,
+      "end": 18.063,
       "text": "Draw a wall to hold the panel while we build it.",
       "reading_seconds": 5.79,
       "voice": "3d3f7f52a80ca18f"
     },
     {
-      "start": 19.44,
-      "end": 26.137,
+      "start": 18.113,
+      "end": 24.404,
       "text": "Place axis helpers at the base, one at each side of the panel.",
       "reading_seconds": 5.55,
       "voice": "92a8fe88f3aa1a04"
     },
     {
-      "start": 26.187,
-      "end": 35.489,
+      "start": 24.454,
+      "end": 33.636,
       "text": "The Window tool gives us a frame and glass in two clicks.",
       "reading_seconds": 4.99,
       "voice": "5fcf5401ac002233"
     },
     {
-      "start": 35.539,
-      "end": 43.039,
+      "start": 33.686,
+      "end": 41.187,
       "text": "Good. Explode turns the window into plain geometry that hotspots can drive.",
       "reading_seconds": 7.55,
       "voice": "6abafaf653167494"
     },
     {
-      "start": 43.089,
-      "end": 51.361,
+      "start": 41.237,
+      "end": 49.629,
       "text": "Delete the wall and clear the helpers, and we're left with the panel.",
       "reading_seconds": 5.95,
       "voice": "e715e9d108b6ffa2"
     },
     {
-      "start": 51.411,
-      "end": 67.801,
+      "start": 49.679,
+      "end": 65.758,
       "text": "Make Object, then Edit Prototype. Hotspots are defined inside the object.",
       "reading_seconds": 7.39,
       "voice": "685db5885fc5fc89"
     },
     {
-      "start": 69.218,
-      "end": 76.719,
+      "start": 65.808,
+      "end": 73.308,
       "text": "First the size handle. Place Hotspot on the panel's right corner, set to Stretch.",
       "reading_seconds": 7.55,
       "voice": "874591f821f340b1"
     },
     {
-      "start": 76.769,
-      "end": 85.229,
+      "start": 73.358,
+      "end": 81.819,
       "text": "Now the multiplier: another hotspot on the grid in front, named Count, set to Multiply Linear.",
       "reading_seconds": 8.51,
       "voice": "4ceab12483f12b19"
     },
     {
-      "start": 85.279,
-      "end": 95.349,
+      "start": 81.869,
+      "end": 90.058,
       "text": "Window-select the whole panel and attach it. This is what gets copied.",
       "reading_seconds": 5.4,
       "voice": "f4fa1bb1c9bb3702"
     },
     {
-      "start": 95.399,
-      "end": 102.42,
+      "start": 90.108,
+      "end": 97.128,
       "text": "Pick Reference, one panel width back. That distance is the step between copies.",
       "reading_seconds": 7.07,
       "voice": "c065f03cc77139b6"
     },
     {
-      "start": 102.47,
-      "end": 113.17,
+      "start": 97.178,
+      "end": 105.956,
       "text": "Back to Size: select the panel's right side and the Count hotspot too, then attach them.",
       "reading_seconds": 7.55,
       "voice": "c2840e10b96b6d8f"
     },
     {
-      "start": 113.22,
-      "end": 118.641,
+      "start": 106.006,
+      "end": 111.428,
       "text": "Attaching Count means the copies will follow when the panel gets wider.",
       "reading_seconds": 5.471,
       "voice": "b30e50c061f16a39"
     },
     {
-      "start": 118.691,
-      "end": 127.631,
+      "start": 111.478,
+      "end": 120.418,
       "text": "Nice. Finish Editing. That's the whole definition, with no code at all.",
       "reading_seconds": 8.99,
       "voice": "0b7608ea80901f2d"
     },
     {
-      "start": 127.681,
-      "end": 136.472,
+      "start": 120.468,
+      "end": 128.469,
       "text": "Select the panel, and both handles appear. Drag Size to make it wider.",
       "reading_seconds": 5.79,
       "voice": "e21184e0ff88944c"
     },
     {
-      "start": 136.522,
-      "end": 146.037,
+      "start": 128.519,
+      "end": 136.959,
       "text": "Now pull back to see more, and drag Count along the grid. Each panel width adds a panel.",
       "reading_seconds": 7.47,
       "voice": "30bd2f82fab98e2b"
     },
     {
-      "start": 146.087,
-      "end": 150.387,
+      "start": 137.009,
+      "end": 141.309,
       "text": "Wow! A whole curtain wall from one drag.",
       "reading_seconds": 4.35,
       "voice": "12ca35f5e693b866"
     },
     {
-      "start": 150.437,
-      "end": 165.336,
+      "start": 141.359,
+      "end": 153.912,
       "text": "Move Copy it, and each copy keeps its own size and count.",
       "reading_seconds": 6.83,
       "voice": "03170fb72b48c01d"
     },
     {
-      "start": 165.386,
-      "end": 174.978,
+      "start": 153.962,
+      "end": 162.361,
       "text": "Drag this one back to three panels. The first doesn't change.",
       "reading_seconds": 5.07,
       "voice": "b9e4ddb8445c25bd"
     },
     {
-      "start": 175.028,
-      "end": 183.989,
+      "start": 162.411,
+      "end": 171.371,
       "text": "That's a dynamic object with no code: one size handle and one multiply handle.",
       "reading_seconds": 6.51,
       "voice": "8f29d398a784c68a"

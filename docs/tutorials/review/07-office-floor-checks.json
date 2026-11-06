@@ -1,0 +1,36 @@
+{
+  "video": "docs/tutorials/videos/07-office-floor.mp4",
+  "duration_seconds": 321.733333,
+  "bytes": 22843469,
+  "cues": 19,
+  "app_version": "0.56.0",
+  "codecs": [
+    "h264",
+    "aac",
+    "mov_text"
+  ],
+  "speech_rate_cps": {
+    "min": 9.203296703296703,
+    "median": 11.29032258064516,
+    "max": 13.619402985074625
+  },
+  "loudness": "Integrated loudness:\n    I:         -16.1 LUFS\n    Threshold: -27.1 LUFS\n\n  Loudness range:\n    LRA:        11.5 LU\n    Threshold: -38.4 LUFS\n    LRA low:   -26.1 LUFS\n    LRA high:  -14.6 LUFS",
+  "player_subtitles": [
+    "\u25cb Subs   --sid=1  --slang=eng  (mov_text) [default]",
+    "\u25cf Subs   --sid=2               'srt' (subrip) [external]",
+    "\u25cb Subs   --sid=3               'vtt' (webvtt) [external]"
+  ],
+  "frame_times": {
+    "opening": 1.5,
+    "final": 314.412,
+    "closing": 319.733,
+    "openings": 163.376,
+    "doors": 199.394,
+    "partitions": 233.044,
+    "ceiling-module": 255.947,
+    "ceiling-height": 273.107,
+    "ceiling-repeat": 297.402
+  },
+  "personal_path_scan": "passed",
+  "audio_listened_to": false
+}

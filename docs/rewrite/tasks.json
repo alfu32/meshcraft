@@ -3658,6 +3658,49 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T78",
+      "title": "Office floor tutorial with repeatable partitions, doors and ceiling panels",
+      "phase": "desktop",
+      "dependencies": [
+        "T75",
+        "T76"
+      ],
+      "requirements": [
+        "F04",
+        "R01",
+        "R04"
+      ],
+      "acceptance": [
+        "C51"
+      ],
+      "targets": [
+        "docs/tutorials/recipes/07-office-floor.py",
+        "docs/tutorials/README.md",
+        "apps/desktop/src/gpui_lighting.rs",
+        "assets/shaders/scene.vs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt",
+        "core/src/main/kotlin/com/github/alfu32/sketch/render/SketchDefaultShader.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/AUTHORING.md",
+        "docs/rewrite/handoffs/T78.md",
+        "docs/rewrite/spec/interface.md"
+      ],
+      "slices": [
+        "Draft a 27 × 15 m floor around one central circulation lobby using native snapped picks.",
+        "Repeat partition bays, door modules and ceiling panels; record and narrate the workflow.",
+        "Keep the synthetic ground behind architectural floor faces during orbit, backed by a failing native rendering test."
+      ],
+      "done": [
+        "Tutorial 7 checks the footprint and repeated components, and ships with narration and selectable subtitles."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

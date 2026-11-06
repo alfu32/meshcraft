@@ -1,0 +1,76 @@
+WEBVTT
+
+00:00:03.641 --> 00:00:11.381
+Start with Architecture. One unit is
+30 cm, so our floor is 90 by 50 units.
+
+00:00:11.431 --> 00:00:20.758
+Choose Rectangular Slab, and snap
+out the 27 by 15 metre footprint.
+
+00:00:20.808 --> 00:00:35.678
+Wall draws the perimeter as a chain. Enter finishes it.
+
+00:00:40.243 --> 00:00:57.993
+Nice. Two cross walls mark the north and
+south sides of a single central lobby.
+
+00:00:59.208 --> 00:01:14.558
+Leave side passages in the lobby walls.
+All four office zones lead to this node.
+
+00:01:39.864 --> 00:01:46.565
+Door openings need helpers. Press
+T on the wall base at each jamb.
+
+00:01:46.615 --> 00:02:01.725
+Add Hole: pick the top of one helper,
+then the opposite base on the wall.
+
+00:02:44.076 --> 00:02:53.861
+Good. Door fits the first opening.
+These are 1.8 metres wide and 2.1 high.
+
+00:02:53.911 --> 00:03:06.048
+Select the door, then Move Copy between
+matching corners of the next opening.
+
+00:03:06.098 --> 00:03:20.044
+Repeat for the entrance. Copy the component
+instead of drawing each door again.
+
+00:03:20.094 --> 00:03:30.746
+For repeatable office bays, draw one short
+partition, leaving a shared access strip.
+
+00:03:30.796 --> 00:03:42.775
+Move Copy repeats the partition
+nine metres along the floor grid.
+
+00:03:42.825 --> 00:03:53.694
+Cool. Copy both partitions to the south
+office zone, using the same grid spacing.
+
+00:03:53.744 --> 00:04:09.014
+Now a ceiling module. Zoom in and draw
+a 60 centimetre square on the floor.
+
+00:04:16.647 --> 00:04:32.237
+Press T at its corner. Move the panel up
+the helper to the 2.7 metre wall height.
+
+00:04:33.807 --> 00:04:48.517
+Nice. A helper at ceiling level gives
+the horizontal pitch for Move Copy.
+
+00:04:48.679 --> 00:04:58.052
+For a long repeat, type 2 x39:
+thirty-nine more panels, two units apart.
+
+00:04:58.102 --> 00:05:04.162
+We leave the ceiling partial so the
+office layout stays visible below it.
+
+00:05:04.212 --> 00:05:15.412
+One central lobby, repeated partitions
+and doors, and a reusable ceiling module.

@@ -13,6 +13,8 @@ void main() {
     color = vertexColor;
     faceOrientation = 1.0;
     gl_Position = mvp * vec4(vertexPosition, 1.0);
-    // Small eye-depth-aware fill bias keeps coplanar black lines continuous.
-    gl_Position.z += depthOffset / max(abs(gl_Position.w), 0.01);
+    // This shader draws the synthetic ground receiver. Keep it a few depth
+    // samples behind authored faces, even when a distant camera makes its
+    // 0.01 model-unit separation from a floor too small for the depth buffer.
+    gl_Position.z += depthOffset * gl_Position.w;
 }

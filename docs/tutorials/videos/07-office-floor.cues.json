@@ -1,0 +1,142 @@
+{
+  "video": "07-office-floor.mp4",
+  "app_version": "0.56.0",
+  "recipe": "docs/tutorials/recipes/07-office-floor.py",
+  "duration": 322.491,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.641,
+      "end": 11.381,
+      "text": "Start with Architecture. One unit is 30 cm, so our floor is 90 by 50 units.",
+      "reading_seconds": 7.79,
+      "voice": "e7c9ed34d164f830"
+    },
+    {
+      "start": 11.431,
+      "end": 20.758,
+      "text": "Choose Rectangular Slab, and snap out the 27 by 15 metre footprint.",
+      "reading_seconds": 7.63,
+      "voice": "c1f981a4093df272"
+    },
+    {
+      "start": 20.808,
+      "end": 35.678,
+      "text": "Wall draws the perimeter as a chain. Enter finishes it.",
+      "reading_seconds": 5.87,
+      "voice": "c1108d898ccb7116"
+    },
+    {
+      "start": 40.243,
+      "end": 57.993,
+      "text": "Nice. Two cross walls mark the north and south sides of a single central lobby.",
+      "reading_seconds": 8.75,
+      "voice": "9142d97c19a9090a"
+    },
+    {
+      "start": 59.208,
+      "end": 74.558,
+      "text": "Leave side passages in the lobby walls. All four office zones lead to this node.",
+      "reading_seconds": 6.35,
+      "voice": "5082a3e2159491ca"
+    },
+    {
+      "start": 99.864,
+      "end": 106.565,
+      "text": "Door openings need helpers. Press T on the wall base at each jamb.",
+      "reading_seconds": 6.75,
+      "voice": "c9c68c917fc9a27d"
+    },
+    {
+      "start": 106.615,
+      "end": 121.725,
+      "text": "Add Hole: pick the top of one helper, then the opposite base on the wall.",
+      "reading_seconds": 6.11,
+      "voice": "a1c88810828ff4fb"
+    },
+    {
+      "start": 164.076,
+      "end": 173.861,
+      "text": "Good. Door fits the first opening. These are 1.8 metres wide and 2.1 high.",
+      "reading_seconds": 8.03,
+      "voice": "ad7b9e153fb7ed63"
+    },
+    {
+      "start": 173.911,
+      "end": 186.048,
+      "text": "Select the door, then Move Copy between matching corners of the next opening.",
+      "reading_seconds": 6.43,
+      "voice": "d819a5d82563f2fd"
+    },
+    {
+      "start": 186.098,
+      "end": 200.044,
+      "text": "Repeat for the entrance. Copy the component instead of drawing each door again.",
+      "reading_seconds": 8.27,
+      "voice": "579c7c7748f699e3"
+    },
+    {
+      "start": 200.094,
+      "end": 210.746,
+      "text": "For repeatable office bays, draw one short partition, leaving a shared access strip.",
+      "reading_seconds": 8.19,
+      "voice": "84de0dc14fe511fd"
+    },
+    {
+      "start": 210.796,
+      "end": 222.775,
+      "text": "Move Copy repeats the partition nine metres along the floor grid.",
+      "reading_seconds": 5.87,
+      "voice": "4d180d41153660dd"
+    },
+    {
+      "start": 222.825,
+      "end": 233.694,
+      "text": "Cool. Copy both partitions to the south office zone, using the same grid spacing.",
+      "reading_seconds": 6.91,
+      "voice": "4d18a6f7783882b9"
+    },
+    {
+      "start": 233.744,
+      "end": 249.014,
+      "text": "Now a ceiling module. Zoom in and draw a 60 centimetre square on the floor.",
+      "reading_seconds": 6.27,
+      "voice": "8c9dbf48265a6394"
+    },
+    {
+      "start": 256.647,
+      "end": 272.237,
+      "text": "Press T at its corner. Move the panel up the helper to the 2.7 metre wall height.",
+      "reading_seconds": 6.59,
+      "voice": "e61c0a085a19fac9"
+    },
+    {
+      "start": 273.807,
+      "end": 288.517,
+      "text": "Nice. A helper at ceiling level gives the horizontal pitch for Move Copy.",
+      "reading_seconds": 5.71,
+      "voice": "333f958a53b4569f"
+    },
+    {
+      "start": 288.679,
+      "end": 298.052,
+      "text": "For a long repeat, type 2 x39: thirty-nine more panels, two units apart.",
+      "reading_seconds": 8.43,
+      "voice": "46a5bc8ac9cf81bc"
+    },
+    {
+      "start": 298.102,
+      "end": 304.162,
+      "text": "We leave the ceiling partial so the office layout stays visible below it.",
+      "reading_seconds": 6.11,
+      "voice": "576d4437f0d11822"
+    },
+    {
+      "start": 304.212,
+      "end": 315.412,
+      "text": "One central lobby, repeated partitions and doors, and a reusable ceiling module.",
+      "reading_seconds": 8.75,
+      "voice": "67cbf17a7098619d"
+    }
+  ]
+}

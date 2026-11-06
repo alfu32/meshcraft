@@ -1,5 +1,9 @@
 # Dashboard
 
+**0.56.0 office floor tutorial:** [tutorial 7](docs/tutorials/videos/07-office-floor.mp4) drafts a
+27 × 15 m floor around one central circulation lobby, with repeated partitions, doors and ceiling
+panels. A ground-depth fix keeps floors opaque during orbit. [evidence](docs/rewrite/handoffs/T78.md).
+
 **0.55.0 textures:** a material can show an image, picked with the system file dialog and sized in model units as
 width × height, with a colorization amount. Edit Texture Position shows one tile on a face; dragging its corners or
 middle resizes or moves the image for every face using the material. [evidence](docs/rewrite/handoffs/T77.md).

@@ -78,6 +78,11 @@ Details that matter:
   `voice.py` resumes. Leave unused clips in place.
 - **Long commands:** run recording and voice generation in the background.
 
+If a GPU-related reboot interrupts speech generation, first check which cached clips survived.
+Resume with `TTS_DEVICE=CPU QWEN_CODEC_CPU=1 python3 scripts/video/voice.py` to use the same local
+Ryan model entirely on the CPU. The script generates only missing lines. This recovery path
+completed the last five lines of tutorial 7 after a reboot; do not start recording until it exits.
+
 ## Starting a recipe
 
 Copy this. It passes a dry run as written, and it is the smallest complete pattern.

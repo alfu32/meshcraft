@@ -1,0 +1,30 @@
+{
+  "video": "docs/tutorials/videos/06-curtain-wall.mp4",
+  "duration_seconds": 177.633333,
+  "bytes": 14258371,
+  "cues": 20,
+  "app_version": "0.56.0",
+  "codecs": [
+    "h264",
+    "aac",
+    "mov_text"
+  ],
+  "speech_rate_cps": {
+    "min": 8.217592592592592,
+    "median": 12.072649572649572,
+    "max": 14.791666666666668
+  },
+  "loudness": "Integrated loudness:\n    I:         -16.1 LUFS\n    Threshold: -27.0 LUFS\n\n  Loudness range:\n    LRA:         8.2 LU\n    Threshold: -38.2 LUFS\n    LRA low:   -23.0 LUFS\n    LRA high:  -14.8 LUFS",
+  "player_subtitles": [
+    "\u25cb Subs   --sid=1  --slang=eng  (mov_text) [default]",
+    "\u25cf Subs   --sid=2               'srt' (subrip) [external]",
+    "\u25cb Subs   --sid=3               'vtt' (webvtt) [external]"
+  ],
+  "frame_times": {
+    "opening": 1.5,
+    "final": 170.371,
+    "closing": 175.633
+  },
+  "personal_path_scan": "passed",
+  "audio_listened_to": false
+}

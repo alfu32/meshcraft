@@ -12,6 +12,7 @@ MAX_LINES = 2
 SPOKEN = (
     ("Push/Pull", "push pull"),
     ("30 x11", "thirty, times eleven"),
+    ("2 x39", "two, times thirty nine"),
     ("$NUMBER", "dollar number"),
     ("$HOTSPOT", "dollar hotspot"),
     (" cm", " centimetres"),

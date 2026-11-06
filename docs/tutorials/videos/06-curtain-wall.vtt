@@ -1,76 +1,76 @@
 WEBVTT
 
-00:00:03.648 --> 00:00:06.908
+00:00:03.636 --> 00:00:06.896
 Start with the Architecture template.
 
-00:00:06.958 --> 00:00:19.390
+00:00:06.946 --> 00:00:18.063
 Draw a wall to hold the panel while we build it.
 
-00:00:19.440 --> 00:00:26.137
+00:00:18.113 --> 00:00:24.404
 Place axis helpers at the base,
 one at each side of the panel.
 
-00:00:26.187 --> 00:00:35.489
+00:00:24.454 --> 00:00:33.636
 The Window tool gives us a frame and glass in two clicks.
 
-00:00:35.539 --> 00:00:43.039
+00:00:33.686 --> 00:00:41.187
 Good. Explode turns the window into
 plain geometry that hotspots can drive.
 
-00:00:43.089 --> 00:00:51.361
+00:00:41.237 --> 00:00:49.629
 Delete the wall and clear the helpers,
 and we're left with the panel.
 
-00:00:51.411 --> 00:01:07.801
+00:00:49.679 --> 00:01:05.758
 Make Object, then Edit Prototype.
 Hotspots are defined inside the object.
 
-00:01:09.218 --> 00:01:16.719
+00:01:05.808 --> 00:01:13.308
 First the size handle. Place Hotspot on
 the panel's right corner, set to Stretch.
 
-00:01:16.769 --> 00:01:25.229
+00:01:13.358 --> 00:01:21.819
 Now the multiplier: another hotspot on the grid
 in front, named Count, set to Multiply Linear.
 
-00:01:25.279 --> 00:01:35.349
+00:01:21.869 --> 00:01:30.058
 Window-select the whole panel and
 attach it. This is what gets copied.
 
-00:01:35.399 --> 00:01:42.420
+00:01:30.108 --> 00:01:37.128
 Pick Reference, one panel width back.
 That distance is the step between copies.
 
-00:01:42.470 --> 00:01:53.170
+00:01:37.178 --> 00:01:45.956
 Back to Size: select the panel's right side
 and the Count hotspot too, then attach them.
 
-00:01:53.220 --> 00:01:58.641
+00:01:46.006 --> 00:01:51.428
 Attaching Count means the copies will
 follow when the panel gets wider.
 
-00:01:58.691 --> 00:02:07.631
+00:01:51.478 --> 00:02:00.418
 Nice. Finish Editing. That's the
 whole definition, with no code at all.
 
-00:02:07.681 --> 00:02:16.472
+00:02:00.468 --> 00:02:08.469
 Select the panel, and both handles
 appear. Drag Size to make it wider.
 
-00:02:16.522 --> 00:02:26.037
+00:02:08.519 --> 00:02:16.959
 Now pull back to see more, and drag Count
 along the grid. Each panel width adds a panel.
 
-00:02:26.087 --> 00:02:30.387
+00:02:17.009 --> 00:02:21.309
 Wow! A whole curtain wall from one drag.
 
-00:02:30.437 --> 00:02:45.336
+00:02:21.359 --> 00:02:33.912
 Move Copy it, and each copy keeps its own size and count.
 
-00:02:45.386 --> 00:02:54.978
+00:02:33.962 --> 00:02:42.361
 Drag this one back to three
 panels. The first doesn't change.
 
-00:02:55.028 --> 00:03:03.989
+00:02:42.411 --> 00:02:51.371
 That's a dynamic object with no code:
 one size handle and one multiply handle.

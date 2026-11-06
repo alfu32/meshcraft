@@ -10,6 +10,7 @@ Short tutorials recorded from the real application at a pace a person can follow
 | 4 | [A parametric bookcase](videos/04-parametric-bookcase.mp4) | Script objects, a grid helper on a face, dragging a hotspot along it, instance parameters |
 | 5 | [A round pavilion](videos/05-round-pavilion.mp4) | Circle, axis helpers, Rotate Copy with a repeat count, shared definitions |
 | 6 | [A curtain wall with no code](videos/06-curtain-wall.mp4) | A dynamic object from hotspots alone: a Stretch handle for size and a Multiply Linear handle that lays out the wall |
+| 7 | [An office floor: 27 × 15 m](videos/07-office-floor.mp4) | One central circulation lobby, repeated partition bays and doors, a ceiling panel object and repeat counts |
 
 Each video has narration and a selectable English subtitle track; `.srt` and `.vtt` copies sit beside
 it. Subtitles are never burned in. A player that auto-loads the sidecar still shows only one set.
