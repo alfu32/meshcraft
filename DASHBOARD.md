@@ -1,6 +1,6 @@
 # Dashboard
 
-**0.57.2 tutorial 7 in two parts:** [Part 1](docs/tutorials/videos/07-office-floor-part-1.mp4)
+**0.57.3 tutorial 7 in two parts:** [Part 1](docs/tutorials/videos/07-office-floor-part-1.mp4)
 (14:44) and [Part 2](docs/tutorials/videos/07-office-floor-part-2.mp4) (13:33) retain the
 existing narration and picture, with part cards and retimed selectable subtitles.
 The original full video is preserved. [evidence](docs/rewrite/handoffs/T81.md).
