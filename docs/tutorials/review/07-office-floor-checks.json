@@ -1,9 +1,9 @@
 {
   "video": "docs/tutorials/videos/07-office-floor.mp4",
-  "duration_seconds": 1708.233333,
-  "bytes": 100562687,
+  "duration_seconds": 1689.1,
+  "bytes": 101066494,
   "cues": 47,
-  "app_version": "0.57.0",
+  "app_version": "0.57.1",
   "codecs": [
     "h264",
     "aac",
@@ -14,7 +14,7 @@
     "median": 12.12686567164179,
     "max": 15.953947368421053
   },
-  "loudness": "Integrated loudness:\n    I:         -16.1 LUFS\n    Threshold: -26.8 LUFS\n\n  Loudness range:\n    LRA:         9.6 LU\n    Threshold: -38.1 LUFS\n    LRA low:   -24.4 LUFS\n    LRA high:  -14.8 LUFS",
+  "loudness": "Integrated loudness:\n    I:         -16.1 LUFS\n    Threshold: -26.8 LUFS\n\n  Loudness range:\n    LRA:         9.5 LU\n    Threshold: -38.1 LUFS\n    LRA low:   -24.3 LUFS\n    LRA high:  -14.8 LUFS",
   "player_subtitles": [
     "\u25cb Subs   --sid=1  --slang=eng  (mov_text) [default]",
     "\u25cf Subs   --sid=2               'srt' (subrip) [external]",
@@ -22,35 +22,38 @@
   ],
   "frame_times": {
     "opening": 1.5,
-    "final": 1701.032,
-    "closing": 1706.233,
-    "structure": 265.428,
-    "stairs": 389.831,
-    "partitions": 450.524,
-    "openings": 789.372,
-    "doors": 995.659,
-    "meeting-entrance": 1145.176,
-    "plan": 1432.433,
-    "facade-panel": 1512.797,
-    "facades": 1600.726,
-    "ceiling-module": 1620.442,
-    "ceiling-repeat": 1655.549,
-    "ceiling-height": 1677.475
+    "final": 1681.573,
+    "closing": 1687.1,
+    "structure": 255.227,
+    "stairs": 384.151,
+    "stair-return": 361.086,
+    "stair-entry": 879.735,
+    "partitions": 445.073,
+    "openings": 776.806,
+    "doors": 974.214,
+    "meeting-entrance": 1126.87,
+    "plan": 1413.7,
+    "facade-panel": 1493.841,
+    "facades": 1581.243,
+    "ceiling-module": 1600.562,
+    "ceiling-repeat": 1635.581,
+    "ceiling-height": 1657.738
   },
   "personal_path_scan": "passed",
   "audio_listened_to": false,
   "visual_review": {
     "contact_sheet": "inspected",
     "full_size_frames": [
-      "structure",
-      "stairs",
-      "doors",
+      "stair-return",
+      "stair-entry",
       "plan",
-      "facade-panel",
-      "ceiling-repeat",
-      "final",
-      "closing"
+      "closing",
+      "final"
     ],
-    "result": "Model remains framed; core, glazing, repeated elements and closing card visible; title has no personal path."
+    "result": "Opposite-rising flights meet the full-width landing; clear approaches and relocated doors are visible. Model and closing card remain framed.",
+    "saved_model_views": [
+      "stair-plan",
+      "stair-junction"
+    ]
   }
 }

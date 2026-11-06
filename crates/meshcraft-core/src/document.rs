@@ -3143,8 +3143,15 @@ fn insert_line_geometry(
                 .iter()
                 .find(|piece| !piece.legacy_aliases.is_empty())
                 .map_or_else(Vec::new, |piece| piece.legacy_aliases.clone());
-            let start_position = cluster.offset + cluster.axis * low;
-            let end_position = cluster.offset + cluster.axis * high;
+            // Clustering uses a canonical axis, but path consumers need the authored direction.
+            // Preserve the retained source's orientation, including every split fragment.
+            let (start, end) = if (color_source.end - color_source.start).dot(cluster.axis) < 0. {
+                (high, low)
+            } else {
+                (low, high)
+            };
+            let start_position = cluster.offset + cluster.axis * start;
+            let end_position = cluster.offset + cluster.axis * end;
             let start_id = vertex_for_line_point(&mut output, start_position, epsilon, next_id);
             let end_id = vertex_for_line_point(&mut output, end_position, epsilon, next_id);
             output.segments.insert(
@@ -4271,6 +4278,40 @@ mod tests {
                 .is_err()
         );
         assert_eq!(revision, document.revision());
+        assert!(document.validate().is_ok());
+    }
+
+    #[test]
+    fn drawn_line_preserves_direction_through_overlap_and_splitting() {
+        let mut document = Document::new();
+        document
+            .append_line_segment_to_scene_root(Vec3::Z * 12., Vec3::ZERO)
+            .unwrap();
+        let assert_descending = |document: &Document| {
+            let geometry = document
+                .effective_geometry(&OccurrenceRef::scene_root())
+                .unwrap();
+            for segment in geometry.segments.values() {
+                let [a, b] = segment
+                    .endpoints
+                    .map(|p| geometry.vertex_position(p).unwrap());
+                if (a.x - b.x).abs() < 1e-9 {
+                    assert!(
+                        a.z > b.z,
+                        "drawn descending path was reversed: {a:?} -> {b:?}"
+                    );
+                }
+            }
+        };
+        assert_descending(&document);
+        document
+            .append_line_segment_to_scene_root(Vec3::Z * 4., Vec3::Z * 14.)
+            .unwrap();
+        assert_descending(&document);
+        document
+            .append_line_segment_to_scene_root(Vec3::new(-2., 0., 6.), Vec3::new(2., 0., 6.))
+            .unwrap();
+        assert_descending(&document);
         assert!(document.validate().is_ok());
     }
 

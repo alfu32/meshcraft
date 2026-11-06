@@ -1,5 +1,10 @@
 # Dashboard
 
+**0.57.1 office stair correction:** tutorial 7 now connects each return flight to its mid-landing and
+leaves 1.35 m of clear approach, with stair doors opening into that space. Drawn lines preserve their
+orientation through overlap consolidation and splits. Existing narration is retained.
+[evidence](docs/rewrite/handoffs/T80.md).
+
 **0.57.0 modular office tutorial:** [tutorial 7](docs/tutorials/videos/07-office-floor.mp4) now drafts a
 42 × 18 m floor using a 7 × 3 structural hotspot array, two stairs, four lifts and repeating glazed
 facades, doors and ceiling panels. Numeric settings remain readable and retain edits across focus changes.

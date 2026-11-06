@@ -52,3 +52,32 @@ Curtain wall also dynamic object defined by user with hotspots - repatable frame
 partition walls are 1/2 units (15 cm)
 
 side walls are plain 1 unit walls, no windows.
+
+
+## Stair correction from owner review
+
+~~~text
++-------------------------+
+|                         |
+|                         |
+|                         |
++----------+---+          |
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++----------+   +----------+
+|          |   |          |
++          +---+----------+
+|                         |
+|                         |
+|                         |
++-------------------------+
+~~~

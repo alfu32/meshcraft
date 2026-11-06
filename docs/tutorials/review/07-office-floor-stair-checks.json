@@ -1,0 +1,47 @@
+{
+  "stairs": [
+    {
+      "x": 48.0,
+      "inner_wall_face_z": 20.5,
+      "entrance_clearance_m": 1.35,
+      "flight_run_m": 3.15,
+      "ascending_z": [
+        9.5,
+        -9.500000000000004
+      ],
+      "landing_depth_m": 1.35,
+      "mesh_contacts_at_landing": [
+        true,
+        true
+      ],
+      "connected": true
+    },
+    {
+      "x": 81.0,
+      "inner_wall_face_z": 20.5,
+      "entrance_clearance_m": 1.35,
+      "flight_run_m": 3.15,
+      "ascending_z": [
+        9.5,
+        -9.500000000000004
+      ],
+      "landing_depth_m": 1.35,
+      "mesh_contacts_at_landing": [
+        true,
+        true
+      ],
+      "connected": true
+    }
+  ],
+  "entrance_doors": [
+    {
+      "x": 45.5,
+      "opens_into_clear_approach": true
+    },
+    {
+      "x": 94,
+      "opens_into_clear_approach": true
+    }
+  ],
+  "failures": []
+}

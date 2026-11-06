@@ -1,188 +1,188 @@
 WEBVTT
 
-00:00:03.680 --> 00:00:13.501
+00:00:03.644 --> 00:00:13.465
 Start with Architecture: one unit is 30 centimetres.
 Use a half-unit grid for the partitions.
 
-00:00:13.551 --> 00:00:28.157
+00:00:13.515 --> 00:00:27.507
 Draw the slab, forty-two by
 eighteen metres: 140 by 60 units.
 
-00:00:28.207 --> 00:00:47.157
+00:00:27.557 --> 00:00:46.507
 Build one six metre square frame. Four corner
 columns come first, using Cuboid and axis helpers.
 
-00:01:45.993 --> 00:02:03.503
+00:01:42.379 --> 00:01:59.889
 Nice. Add the beams at the column tops. Twelve
 units overall gives a height of 3.6 metres.
 
-00:03:20.846 --> 00:03:36.916
+00:03:13.373 --> 00:03:29.443
 Window-select the frame and Make Object. Then
 Edit Prototype to define its array handle.
 
-00:03:40.537 --> 00:03:49.800
+00:03:32.079 --> 00:03:40.769
 Place the hotspot above the second grid diagonal,
 on an axis helper. Choose Multiply Volumetric.
 
-00:03:49.850 --> 00:04:01.511
+00:03:40.819 --> 00:03:51.768
 Attach every beam and column. Pick Reference
 at the far corner of the first six metre bay.
 
-00:04:01.561 --> 00:04:16.537
+00:03:51.818 --> 00:04:06.337
 Good. Select the instance and drag its
 hotspot to the opposite corner of the slab.
 
-00:04:16.587 --> 00:04:25.928
+00:04:06.387 --> 00:04:15.727
 Twenty-one structural modules: seven across and
 three deep, all driven by one instance hotspot.
 
-00:04:29.578 --> 00:04:35.799
+00:04:19.378 --> 00:04:25.598
 For the core stairs, set flight height to
 six units and the step count to twelve.
 
-00:04:35.849 --> 00:04:49.181
+00:04:25.648 --> 00:04:38.087
 Draw a rectangular contour C and Make Object,
 so the same outline can define both flights.
 
-00:04:49.231 --> 00:05:05.861
+00:04:38.137 --> 00:04:54.767
 Add helpers for the contour copy and the landing.
 Copy the contour six units across and up.
 
-00:05:13.542 --> 00:05:32.172
+00:05:08.411 --> 00:05:27.041
 Nice. Draw walking path P in the lower outline.
 Set C, then P, to create twelve risers.
 
-00:05:33.939 --> 00:05:47.129
+00:05:28.156 --> 00:05:41.961
 Use the landing helpers at six units:
 half the 3.6 metre storey height.
 
-00:05:47.179 --> 00:06:04.129
+00:05:42.011 --> 00:05:58.961
 Reverse the walking path in the upper contour,
 then set C and P for the return flight.
 
-00:06:07.555 --> 00:06:14.833
+00:06:01.786 --> 00:06:09.065
 Hide Objects in the selection filters while drafting
 the core, to keep the floor grid accessible.
 
-00:06:14.883 --> 00:06:30.481
+00:06:09.115 --> 00:06:24.801
 Select both flights and the landing. Move Copy
 places the second evacuation stair in the east bay.
 
-00:06:30.531 --> 00:06:38.351
+00:06:24.851 --> 00:06:32.671
 Set partition thickness to half a unit: fifteen
 centimetres. The offset is a quarter unit.
 
-00:06:38.401 --> 00:06:53.111
+00:06:32.721 --> 00:06:47.431
 Draw the two lift cases on the
 left of the central lift hall.
 
-00:07:15.249 --> 00:07:31.174
+00:07:09.540 --> 00:07:25.690
 Move Copy repeats the partition assembly on the
 right: four lift cases around one shared hall.
 
-00:07:31.224 --> 00:07:46.624
+00:07:25.773 --> 00:07:41.173
 Good. Parallel partitions separate the stair
 enclosures from their outer side halls.
 
-00:08:26.618 --> 00:08:45.088
+00:08:19.587 --> 00:08:38.057
 Enclose the stair bays at north and south.
 The middle hall remains open at both ends.
 
-00:09:20.720 --> 00:09:36.977
+00:09:11.838 --> 00:09:28.096
 To the west, divide the service bay into women's
 and men's toilets, accessed from the side hall.
 
-00:10:14.673 --> 00:10:30.787
+00:10:06.201 --> 00:10:22.315
 To the east, put storage and copying north of
 the kitchen, then a meeting room in the end bay.
 
-00:11:25.919 --> 00:11:42.789
+00:11:15.520 --> 00:11:32.390
 Cut the lift openings on the wall faces.
 Axis helpers carry their 2.1 metre heads.
 
-00:13:10.072 --> 00:13:24.142
+00:12:57.506 --> 00:13:11.576
 Give each toilet its own door from the west side hall.
 
-00:14:07.641 --> 00:14:23.311
+00:13:48.646 --> 00:14:04.316
 Good. Add doors between the side halls and
 the two protected staircase enclosures.
 
-00:15:01.445 --> 00:15:17.435
+00:14:40.435 --> 00:14:56.425
 Storage and kitchen open from the east hall;
 the copier room connects through storage.
 
-00:16:20.752 --> 00:16:36.309
+00:16:00.004 --> 00:16:14.864
 Door fits the first lift opening: ninety
 centimetres wide and 2.1 metres high.
 
-00:16:36.359 --> 00:16:54.189
+00:16:14.914 --> 00:16:32.744
 Move Copy repeats that door. Use matching
 floor-grid references in the clear open space.
 
-00:18:28.228 --> 00:18:42.938
+00:18:06.612 --> 00:18:21.322
 The meeting room gets a wider
 entrance from the north open space.
 
-00:19:05.876 --> 00:19:22.666
+00:18:47.570 --> 00:19:04.360
 The east and west sides are plain walls, one
 unit thick: thirty centimetres, with no windows.
 
-00:19:31.314 --> 00:19:52.024
+00:19:12.961 --> 00:19:33.671
 Label axes A to H and rows one to
 four. Each bay is six metres square.
 
-00:20:47.631 --> 00:21:06.341
+00:20:29.252 --> 00:20:47.962
 Mark the lift and stair enclosures FR90,
 and the side halls FR30, following the plan.
 
-00:23:50.933 --> 00:23:57.793
+00:23:32.200 --> 00:23:39.060
 Keep the north and south bands as open offices,
 connected around this central service core.
 
-00:24:01.443 --> 00:24:18.393
+00:23:42.711 --> 00:23:59.661
 Show Objects and lock the labels. On a quarter-unit
 grid, build two mullions with no top rail.
 
-00:24:46.077 --> 00:25:01.406
+00:24:26.667 --> 00:24:41.996
 Join their inner corners with a closed
 Polyline. The glazing fills the full height.
 
-00:25:13.497 --> 00:25:30.978
+00:24:54.541 --> 00:25:11.929
 Make Object, and Edit Prototype. This
 panel is one and a half metres wide.
 
-00:25:31.028 --> 00:25:47.818
+00:25:11.979 --> 00:25:28.769
 Add a Multiply Linear hotspot, attach the panel,
 and pick a reference one panel width back.
 
-00:25:48.796 --> 00:25:58.908
+00:25:29.389 --> 00:25:39.399
 Nice. Drag the instance handle across
 the frontage: twenty-eight glazed panels.
 
-00:25:58.958 --> 00:26:15.028
+00:25:39.449 --> 00:25:55.519
 Move the assembled curtain wall onto the
 south edge, using its corner and a helper.
 
-00:26:18.878 --> 00:26:37.668
+00:25:59.704 --> 00:26:18.494
 Copy the wall to the north edge. Both facades
 share one definition. Then unlock the labels.
 
-00:26:45.026 --> 00:27:01.092
+00:26:25.543 --> 00:26:41.212
 For the ceiling, make one reusable sixty
 centimetre square panel in the open office zone.
 
-00:27:01.142 --> 00:27:17.452
+00:26:41.262 --> 00:26:57.572
 Edit Prototype. A volumetric array hotspot
 repeats the panel in both plan directions.
 
-00:27:19.934 --> 00:27:36.644
+00:27:00.125 --> 00:27:16.835
 Drag the instance handle to form two rows of
 twenty panels, then lift the assembly on a helper.
 
-00:27:55.975 --> 00:28:09.046
+00:27:36.238 --> 00:27:49.630
 Good. Seven by three structural bays, four lifts, two
 staircases and open offices around one central core.
 
-00:28:09.096 --> 00:28:22.032
+00:27:49.680 --> 00:28:02.573
 The partial ceiling leaves the layout visible. The
 structural and facade grids remain hotspot-driven.

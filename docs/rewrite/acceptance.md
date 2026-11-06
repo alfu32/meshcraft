@@ -487,3 +487,18 @@ regenerates 2,016 structural triangles, 728 per facade and 80 ceiling triangles,
 with 29 walls, 12 door frames, four stair flights, three slabs and all 31 labels.
 Panel window selection must preserve annotations in the document; lock labels
 while making the facade object and restore their editability afterwards.
+
+## C53 — Office stair route and authored path direction
+
+**Tasks:** T80. **Requirements:** F04, R01, R04.
+
+Draw a descending line and verify its orientation survives overlap consolidation
+and crossing splits. Use it as walking path P: the return flight must ascend in
+the opposite plan direction to the lower flight.
+
+Replay tutorial 7 and reopen its saved model. Each stair has a clear floor-level
+approach of at least 1.2 m, with its entrance door opening into that clear area.
+Both generated flight meshes meet the same mid-landing at the 1.8 m elevation;
+the lower flight reaches it and the upper flight leaves it towards the entry end.
+Inspect a plan and an oblique view. Preserve the existing narration clips,
+re-record the corrected actions and downstream model, review and release.

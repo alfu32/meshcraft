@@ -1,335 +1,335 @@
 {
   "video": "07-office-floor.mp4",
-  "app_version": "0.57.0",
+  "app_version": "0.57.1",
   "recipe": "docs/tutorials/recipes/07-office-floor.py",
-  "duration": 1708.233,
+  "duration": 1689.1,
   "chars_per_second": 14.0,
   "cues": [
     {
-      "start": 3.68,
-      "end": 13.501,
+      "start": 3.644,
+      "end": 13.465,
       "text": "Start with Architecture: one unit is 30 centimetres. Use a half-unit grid for the partitions.",
       "reading_seconds": 9.87,
       "voice": "d75112edde720f39"
     },
     {
-      "start": 13.551,
-      "end": 28.157,
+      "start": 13.515,
+      "end": 27.507,
       "text": "Draw the slab, forty-two by eighteen metres: 140 by 60 units.",
       "reading_seconds": 6.83,
       "voice": "ad321f19f363036b"
     },
     {
-      "start": 28.207,
-      "end": 47.157,
+      "start": 27.557,
+      "end": 46.507,
       "text": "Build one six metre square frame. Four corner columns come first, using Cuboid and axis helpers.",
       "reading_seconds": 9.95,
       "voice": "3800d626340e78e6"
     },
     {
-      "start": 105.993,
-      "end": 123.503,
+      "start": 102.379,
+      "end": 119.889,
       "text": "Nice. Add the beams at the column tops. Twelve units overall gives a height of 3.6 metres.",
       "reading_seconds": 8.51,
       "voice": "acfcf26b7f1bbd3c"
     },
     {
-      "start": 200.846,
-      "end": 216.916,
+      "start": 193.373,
+      "end": 209.443,
       "text": "Window-select the frame and Make Object. Then Edit Prototype to define its array handle.",
       "reading_seconds": 7.07,
       "voice": "8e03995badc33ac8"
     },
     {
-      "start": 220.537,
-      "end": 229.8,
+      "start": 212.079,
+      "end": 220.769,
       "text": "Place the hotspot above the second grid diagonal, on an axis helper. Choose Multiply Volumetric.",
       "reading_seconds": 8.43,
       "voice": "a085d1aef8760690"
     },
     {
-      "start": 229.85,
-      "end": 241.511,
+      "start": 220.819,
+      "end": 231.768,
       "text": "Attach every beam and column. Pick Reference at the far corner of the first six metre bay.",
       "reading_seconds": 8.03,
       "voice": "306d1f114d65581d"
     },
     {
-      "start": 241.561,
-      "end": 256.537,
+      "start": 231.818,
+      "end": 246.337,
       "text": "Good. Select the instance and drag its hotspot to the opposite corner of the slab.",
       "reading_seconds": 6.51,
       "voice": "97c3e4447b861c73"
     },
     {
-      "start": 256.587,
-      "end": 265.928,
+      "start": 246.387,
+      "end": 255.727,
       "text": "Twenty-one structural modules: seven across and three deep, all driven by one instance hotspot.",
       "reading_seconds": 9.39,
       "voice": "4f6a81818f86f6ec"
     },
     {
-      "start": 269.578,
-      "end": 275.799,
+      "start": 259.378,
+      "end": 265.598,
       "text": "For the core stairs, set flight height to six units and the step count to twelve.",
       "reading_seconds": 6.27,
       "voice": "c996f11f238f402e"
     },
     {
-      "start": 275.849,
-      "end": 289.181,
+      "start": 265.648,
+      "end": 278.087,
       "text": "Draw a rectangular contour C and Make Object, so the same outline can define both flights.",
       "reading_seconds": 10.19,
       "voice": "3839919d0617c206"
     },
     {
-      "start": 289.231,
-      "end": 305.861,
+      "start": 278.137,
+      "end": 294.767,
       "text": "Add helpers for the contour copy and the landing. Copy the contour six units across and up.",
       "reading_seconds": 7.63,
       "voice": "6f13b9186edcd151"
     },
     {
-      "start": 313.542,
-      "end": 332.172,
+      "start": 308.411,
+      "end": 327.041,
       "text": "Nice. Draw walking path P in the lower outline. Set C, then P, to create twelve risers.",
       "reading_seconds": 9.63,
       "voice": "cd373e89c28f912b"
     },
     {
-      "start": 333.939,
-      "end": 347.129,
+      "start": 328.156,
+      "end": 341.961,
       "text": "Use the landing helpers at six units: half the 3.6 metre storey height.",
       "reading_seconds": 7.15,
       "voice": "67f9d2dc03f33557"
     },
     {
-      "start": 347.179,
-      "end": 364.129,
+      "start": 342.011,
+      "end": 358.961,
       "text": "Reverse the walking path in the upper contour, then set C and P for the return flight.",
       "reading_seconds": 7.95,
       "voice": "1146e625ca3ed531"
     },
     {
-      "start": 367.555,
-      "end": 374.833,
+      "start": 361.786,
+      "end": 369.065,
       "text": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible.",
       "reading_seconds": 7.329,
       "voice": "7f281afd3af0c516"
     },
     {
-      "start": 374.883,
-      "end": 390.481,
+      "start": 369.115,
+      "end": 384.801,
       "text": "Select both flights and the landing. Move Copy places the second evacuation stair in the east bay.",
       "reading_seconds": 8.43,
       "voice": "3161e61b17a04b6e"
     },
     {
-      "start": 390.531,
-      "end": 398.351,
+      "start": 384.851,
+      "end": 392.671,
       "text": "Set partition thickness to half a unit: fifteen centimetres. The offset is a quarter unit.",
       "reading_seconds": 7.87,
       "voice": "b687fbed4c5c7938"
     },
     {
-      "start": 398.401,
-      "end": 413.111,
+      "start": 392.721,
+      "end": 407.431,
       "text": "Draw the two lift cases on the left of the central lift hall.",
       "reading_seconds": 5.71,
       "voice": "61f4dbc1a2a0c91f"
     },
     {
-      "start": 435.249,
-      "end": 451.174,
+      "start": 429.54,
+      "end": 445.69,
       "text": "Move Copy repeats the partition assembly on the right: four lift cases around one shared hall.",
       "reading_seconds": 7.15,
       "voice": "de884d1dc97942ca"
     },
     {
-      "start": 451.224,
-      "end": 466.624,
+      "start": 445.773,
+      "end": 461.173,
       "text": "Good. Parallel partitions separate the stair enclosures from their outer side halls.",
       "reading_seconds": 6.4,
       "voice": "506ed1a0cecfb654"
     },
     {
-      "start": 506.618,
-      "end": 525.088,
+      "start": 499.587,
+      "end": 518.057,
       "text": "Enclose the stair bays at north and south. The middle hall remains open at both ends.",
       "reading_seconds": 9.47,
       "voice": "5c07a41a48aefc9d"
     },
     {
-      "start": 560.72,
-      "end": 576.977,
+      "start": 551.838,
+      "end": 568.096,
       "text": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall.",
       "reading_seconds": 7.257,
       "voice": "9c7ded3f8c1df8ec"
     },
     {
-      "start": 614.673,
-      "end": 630.787,
+      "start": 606.201,
+      "end": 622.315,
       "text": "To the east, put storage and copying north of the kitchen, then a meeting room in the end bay.",
       "reading_seconds": 7.114,
       "voice": "14f393095bf152c4"
     },
     {
-      "start": 685.919,
-      "end": 702.789,
+      "start": 675.52,
+      "end": 692.39,
       "text": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads.",
       "reading_seconds": 7.87,
       "voice": "0cd0c4358e4bddec"
     },
     {
-      "start": 790.072,
-      "end": 804.142,
+      "start": 777.506,
+      "end": 791.576,
       "text": "Give each toilet its own door from the west side hall.",
       "reading_seconds": 5.07,
       "voice": "0037591c7eb78577"
     },
     {
-      "start": 847.641,
-      "end": 863.311,
+      "start": 828.646,
+      "end": 844.316,
       "text": "Good. Add doors between the side halls and the two protected staircase enclosures.",
       "reading_seconds": 6.67,
       "voice": "46f26cf6003e9933"
     },
     {
-      "start": 901.445,
-      "end": 917.435,
+      "start": 880.435,
+      "end": 896.425,
       "text": "Storage and kitchen open from the east hall; the copier room connects through storage.",
       "reading_seconds": 6.99,
       "voice": "74f3c2d96dd9a8aa"
     },
     {
-      "start": 980.752,
-      "end": 996.309,
+      "start": 960.004,
+      "end": 974.864,
       "text": "Door fits the first lift opening: ninety centimetres wide and 2.1 metres high.",
       "reading_seconds": 6.91,
       "voice": "b6d3b65ee1f9f6a0"
     },
     {
-      "start": 996.359,
-      "end": 1014.189,
+      "start": 974.914,
+      "end": 992.744,
       "text": "Move Copy repeats that door. Use matching floor-grid references in the clear open space.",
       "reading_seconds": 8.83,
       "voice": "a84daf7485a95c8a"
     },
     {
-      "start": 1108.228,
-      "end": 1122.938,
+      "start": 1086.612,
+      "end": 1101.322,
       "text": "The meeting room gets a wider entrance from the north open space.",
       "reading_seconds": 5.71,
       "voice": "16644fa0dbf7d0ba"
     },
     {
-      "start": 1145.876,
-      "end": 1162.666,
+      "start": 1127.57,
+      "end": 1144.36,
       "text": "The east and west sides are plain walls, one unit thick: thirty centimetres, with no windows.",
       "reading_seconds": 7.79,
       "voice": "9a7285a1583d7ebd"
     },
     {
-      "start": 1171.314,
-      "end": 1192.024,
+      "start": 1152.961,
+      "end": 1173.671,
       "text": "Label axes A to H and rows one to four. Each bay is six metres square.",
       "reading_seconds": 11.71,
       "voice": "35a52d8fa0214ed3"
     },
     {
-      "start": 1247.631,
-      "end": 1266.341,
+      "start": 1229.252,
+      "end": 1247.962,
       "text": "Mark the lift and stair enclosures FR90, and the side halls FR30, following the plan.",
       "reading_seconds": 9.71,
       "voice": "77af1ff2b71a4539"
     },
     {
-      "start": 1430.933,
-      "end": 1437.793,
+      "start": 1412.2,
+      "end": 1419.06,
       "text": "Keep the north and south bands as open offices, connected around this central service core.",
       "reading_seconds": 6.91,
       "voice": "7d78b86b1a0bb082"
     },
     {
-      "start": 1441.443,
-      "end": 1458.393,
+      "start": 1422.711,
+      "end": 1439.661,
       "text": "Show Objects and lock the labels. On a quarter-unit grid, build two mullions with no top rail.",
       "reading_seconds": 7.95,
       "voice": "68e7a37a42490005"
     },
     {
-      "start": 1486.077,
-      "end": 1501.406,
+      "start": 1466.667,
+      "end": 1481.996,
       "text": "Join their inner corners with a closed Polyline. The glazing fills the full height.",
       "reading_seconds": 6.329,
       "voice": "c15402dfda19f1d7"
     },
     {
-      "start": 1513.497,
-      "end": 1530.978,
+      "start": 1494.541,
+      "end": 1511.929,
       "text": "Make Object, and Edit Prototype. This panel is one and a half metres wide.",
       "reading_seconds": 8.67,
       "voice": "f13465c8c1bdff14"
     },
     {
-      "start": 1531.028,
-      "end": 1547.818,
+      "start": 1511.979,
+      "end": 1528.769,
       "text": "Add a Multiply Linear hotspot, attach the panel, and pick a reference one panel width back.",
       "reading_seconds": 7.79,
       "voice": "71fc144141a5681e"
     },
     {
-      "start": 1548.796,
-      "end": 1558.908,
+      "start": 1529.389,
+      "end": 1539.399,
       "text": "Nice. Drag the instance handle across the frontage: twenty-eight glazed panels.",
       "reading_seconds": 6.67,
       "voice": "dfbe45dd34cb363e"
     },
     {
-      "start": 1558.958,
-      "end": 1575.028,
+      "start": 1539.449,
+      "end": 1555.519,
       "text": "Move the assembled curtain wall onto the south edge, using its corner and a helper.",
       "reading_seconds": 7.07,
       "voice": "cfed0c0db721f906"
     },
     {
-      "start": 1578.878,
-      "end": 1597.668,
+      "start": 1559.704,
+      "end": 1578.494,
       "text": "Copy the wall to the north edge. Both facades share one definition. Then unlock the labels.",
       "reading_seconds": 9.79,
       "voice": "b4ac74e8cbaf829a"
     },
     {
-      "start": 1605.026,
-      "end": 1621.092,
+      "start": 1585.543,
+      "end": 1601.212,
       "text": "For the ceiling, make one reusable sixty centimetre square panel in the open office zone.",
       "reading_seconds": 7.87,
       "voice": "4be10d744f87ebe5"
     },
     {
-      "start": 1621.142,
-      "end": 1637.452,
+      "start": 1601.262,
+      "end": 1617.572,
       "text": "Edit Prototype. A volumetric array hotspot repeats the panel in both plan directions.",
       "reading_seconds": 7.31,
       "voice": "fc9e77be45c0bd60"
     },
     {
-      "start": 1639.934,
-      "end": 1656.644,
+      "start": 1620.125,
+      "end": 1636.835,
       "text": "Drag the instance handle to form two rows of twenty panels, then lift the assembly on a helper.",
       "reading_seconds": 7.71,
       "voice": "dd208bf7cd56d6ac"
     },
     {
-      "start": 1675.975,
-      "end": 1689.046,
+      "start": 1656.238,
+      "end": 1669.63,
       "text": "Good. Seven by three structural bays, four lifts, two staircases and open offices around one central core.",
       "reading_seconds": 8.67,
       "voice": "1f848a34cb003e8c"
     },
     {
-      "start": 1689.096,
-      "end": 1702.032,
+      "start": 1669.68,
+      "end": 1682.573,
       "text": "The partial ceiling leaves the layout visible. The structural and facade grids remain hotspot-driven.",
       "reading_seconds": 8.19,
       "voice": "f23a88787bdbb334"

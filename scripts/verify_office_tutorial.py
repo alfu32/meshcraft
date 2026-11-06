@@ -55,6 +55,9 @@ def main():
                       "saved volumetric reference preserves all three steps")
             counts = Counter(o["target"]["semantic_kind"] for o in recipe.owners(d))
             d.require(counts == dict(wall=29, frame=12, stair=4, slab=3), "saved core, doors, stairs and slabs")
+            stair_report = recipe.stair_geometry_report(d)
+            (output / "07-office-floor-stair-checks.json").write_text(json.dumps(stair_report, indent=2) + "\n")
+            d.require(not stair_report["failures"], str(stair_report))
             saved_annotations = recipe.geometry(d, d.root()["path"])[0]["annotations"]
             d.require(len(saved_annotations) == 31, "saved grid and room labels")
             settings = d.scene()["settings"]
@@ -72,9 +75,11 @@ def main():
             shot("07-office-floor-preview.png", (180, 180, 190), (70, 3, 30))
             d.command("selection.update_display", kind="object", property="display", enabled=False)
             shot("07-office-floor-preview-core.png", (80, 180, 30.5), (80, 0, 30))
+            shot("07-office-floor-stair-plan.png", (53, 55, 30.5), (53, 0, 30))
+            shot("07-office-floor-stair-junction.png", (58, 32, 28), (53, 4, 34))
             report = dict(app_version=rpc.status()["version"], source_model=args.project.name,
                           sha256=hashlib.sha256(args.project.read_bytes()).hexdigest(),
-                          architecture=dict(counts), annotations=31, frame_triangles=2016,
+                          stairs=stair_report, architecture=dict(counts), annotations=31, frame_triangles=2016,
                           facade_triangles=[728, 728], ceiling_triangles=80, volumetric_step=step,
                           method="Saved model reopened in the native app on private Linux Xvfb/Mesa", passed=True)
             (output / "07-office-floor-model-checks.json").write_text(json.dumps(report, indent=2) + "\n")

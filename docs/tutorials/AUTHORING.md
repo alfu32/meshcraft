@@ -319,6 +319,8 @@ Look for:
 - The model stays in frame and isn't covered by a panel.
 - The 3D cursor and snap label show at each pick, and helpers and selection windows are visible.
 - Geometry looks right after every operation: gaps, parts left behind, frames away from walls.
+- Stairs need a clear approach at floor level and connected flights/landings. Check the actual
+  generated tread elevations at their shared edge; matching object counts or base heights is insufficient.
 - Keycaps teach the right thing, and the title bar shows no home path.
 - Previews land before each click, and the ending has its card.
 - The final frame shows the finished model.

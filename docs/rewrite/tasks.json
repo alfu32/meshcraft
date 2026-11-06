@@ -3754,6 +3754,47 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T80",
+      "title": "Correct tutorial 7 stair access and preserve drawn walking-path direction",
+      "phase": "desktop",
+      "dependencies": [
+        "T79"
+      ],
+      "requirements": [
+        "F04",
+        "R01",
+        "R04"
+      ],
+      "acceptance": [
+        "C53"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document.rs",
+        "docs/tutorials/recipes/07-office-floor.py",
+        "scripts/verify_office_tutorial.py",
+        "docs/tutorials/README.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/AUTHORING.md",
+        "docs/rewrite/spec/modeling.md",
+        "docs/rewrite/handoffs/T80.md"
+      ],
+      "slices": [
+        "Preserve authored line orientation through normalization, overlap consolidation and splitting, backed by a failing test.",
+        "Provide clear entry landings, relocate stair doors and connect opposite-rising flights to their shared mid-landing.",
+        "Verify actual generated flight contacts and approach clearance, retain cached narration, re-record and release tutorial 7."
+      ],
+      "done": [
+        "C53 passes with native before/after evidence and corrected tutorial media."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

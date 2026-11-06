@@ -182,33 +182,35 @@ def stairs(d):
               stair_left=False, stair_right=False)
     d.say("Draw a rectangular contour C and Make Object, so the same outline can define both flights.")
     d.tool("tool.builtin.rectangle")
-    d.pick((48, 0, 22))
-    d.pick((52, 0, 34))
+    d.pick((48, 0, 25))
+    d.pick((52, 0, 35.5))
     d.escape()
     d.tool("object.create_from_selection", tab=OBJECTS, name="Stair contour C")
     lower_c = d.selected()
     d.say("Add helpers for the contour copy and the landing. Copy the contour six units across and up.")
-    d.helper((54, 0, 22))
-    d.helper((48, 0, 38))
-    d.helper((58, 0, 34))
+    d.helper((54, 0, 25))
+    d.helper((46, 0, 40))
+    d.fly((66, 45, 32), (60, 0, 32))
+    d.helper((61, 0, 35.5))
+    d.fly((53, 60, 30.5), (53, 0, 30))
     d.select(lower_c, around=(50, 0, 28))
     d.tool("tool.move_copy")
-    d.pick((48, 0, 22), CORNER)
-    d.pick((54, 6, 22), UP)
+    d.pick((48, 0, 25), CORNER)
+    d.pick((54, 6, 25), UP)
     d.escape()
     upper_c = d.selected()
     d.require(upper_c != lower_c and len(upper_c) == 1, "independent elevated contour instance")
     d.say("Nice. Draw walking path P in the lower outline. Set C, then P, to create twelve risers.")
-    lower = flight_from_contour(d, lower_c, ((50, 0, 22.5), (50, 0, 33.5)))
+    lower = flight_from_contour(d, lower_c, ((50, 0, 25.5), (50, 0, 35)))
     d.say("Use the landing helpers at six units: half the 3.6 metre storey height.")
     d.tool("tool.builtin.arch_slab", tab=CIVIL)
-    d.pick((48, 6, 38), UP)
-    d.pick((58, 6, 34), CORNER + UP)
+    d.pick((46, 6, 40), UP)
+    d.pick((61, 6, 35.5), CORNER + UP)
     landing = d.selected()[0]
     d.escape()
     d.tool("view.guides.clear")
     d.say("Reverse the walking path in the upper contour, then set C and P for the return flight.")
-    upper = flight_from_contour(d, upper_c, ((56, 6, 33.5), (56, 6, 22.5)))
+    upper = flight_from_contour(d, upper_c, ((56, 6, 35), (56, 6, 25.5)))
     d.select(lower_c + upper_c)
     d.command("edit.delete_selection")
     flights = [o["record"] for o in owners(d) if "walkingPath" in o["record"]]
@@ -225,13 +227,86 @@ def stairs(d):
     d.select([lower, upper, landing], around=(53, 6, 30))
     d.tool("tool.move_copy")
     d.pick((46, 0, 22), GRID)
-    d.pick((81, 0, 22), GRID)
+    d.pick((79, 0, 22), GRID)
     d.escape()
     flights = [o["record"] for o in owners(d) if "walkingPath" in o["record"]]
     d.require(len(flights) == 4, "two complete two-flight evacuation staircases")
-    d.require(sorted(round(min(p["x"] for p in o["contour"])) for o in flights) == [48, 54, 83, 89],
+    d.require(sorted(round(min(p["x"] for p in o["contour"])) for o in flights) == [48, 54, 81, 87],
               "stairs occupy the C–D and E–F bays")
     d.rpc.select([])
+
+
+
+def stair_geometry_report(d):
+    """Check the physical route, including generated flight/landing junctions."""
+    page, primitives, vertices = geometry(d, d.root()["path"])
+    points = {v["id"]: v["position"] for v in vertices}
+    flights = sorted((o for o in page["architecture"] if "walkingPath" in o["record"]),
+                     key=lambda o: min(p["x"] for p in o["record"]["contour"]))
+    landings = [o["record"] for o in page["architecture"] if o["target"]["semantic_kind"] == "slab"
+                and abs(o["record"]["contour"][0]["y"] - 6) < 1e-5]
+    def owner_points(owner):
+        result = []
+        for primitive in primitives:
+            if primitive["target"] != owner["target"]:
+                continue
+            for vertex in primitive["record"].get("vertices", []):
+                pt = points[vertex["id"]]
+                offset = vertex.get("position_offset", {})
+                result.append({k: pt[k] + offset.get(k, 0) for k in "xyz"})
+        return result
+
+    failures, pairs, entrances = [], [], []
+    for lower, upper in zip(flights[::2], flights[1::2]):
+        lo, hi = lower["record"], upper["record"]
+        x = min(p["x"] for p in lo["contour"])
+        landing = next(l for l in landings if min(p["x"] for p in l["contour"]) <= x
+                       and max(p["x"] for p in l["contour"]) >= x + 10)
+        entry = min(p["z"] for p in lo["contour"])
+        join = max(p["z"] for p in lo["contour"])
+        front_wall = next(o for o in page["architecture"]
+                          if o["target"]["semantic_kind"] == "wall"
+                          and abs(o["record"]["start"]["z"] - o["record"]["end"]["z"]) < 1e-5
+                          and min(o["record"]["start"]["x"], o["record"]["end"]["x"]) < x
+                          < max(o["record"]["start"]["x"], o["record"]["end"]["x"])
+                          and o["record"]["start"]["z"] < entry)
+        # Measure generated wall faces, including axis offset and join geometry.
+        inner_face = max(p["z"] for p in owner_points(front_wall))
+        clearance = entry - inner_face
+        ascent = [r["walkingPath"][-1]["z"] - r["walkingPath"][0]["z"] for r in (lo, hi)]
+        contacts = []
+        for owner, expected in ((lower, 6), (upper, 6)):
+            edge_y = [p["y"] for p in owner_points(owner) if abs(p["z"] - join) < 1e-5]
+            contacts.append(bool(edge_y) and min(edge_y) <= expected + 1e-5
+                            and max(edge_y) >= expected - 1e-5)
+        landing_depth = max(p["z"] for p in landing["contour"]) - min(p["z"] for p in landing["contour"])
+        connected = abs(min(p["z"] for p in landing["contour"]) - join) < 1e-5 and all(contacts)
+        enclosure_min = min(front_wall["record"]["start"]["x"], front_wall["record"]["end"]["x"])
+        enclosure_max = max(front_wall["record"]["start"]["x"], front_wall["record"]["end"]["x"])
+        if (min(p["x"] for p in landing["contour"]) < enclosure_min - 1e-5
+                or max(p["x"] for p in landing["contour"]) > enclosure_max + 1e-5):
+            failures.append(f"stair at x={x}: landing projects outside its enclosure")
+        if not (ascent[0] > 0 > ascent[1]):
+            failures.append(f"stair at x={x}: return flight must rise opposite to the lower flight")
+        if clearance < 4 - 1e-5:
+            failures.append(f"stair at x={x}: entry clearance {clearance * .3:.3f} m is below 1.2 m")
+        if not connected or landing_depth < 4 - 1e-5:
+            failures.append(f"stair at x={x}: both generated flights must meet the 1.2 m mid-landing")
+        pairs.append(dict(x=x, inner_wall_face_z=inner_face, entrance_clearance_m=round(clearance * .3, 3),
+                          flight_run_m=round((join - entry) * .3, 3),
+                          ascending_z=ascent, landing_depth_m=round(landing_depth * .3, 3),
+                          mesh_contacts_at_landing=contacts, connected=connected))
+    for x in (45.5, 94):
+        frames = [o["record"] for o in page["architecture"]
+                  if o["target"]["semantic_kind"] == "frame"
+                  and all(abs(p["x"] - x) < 1e-5 for p in o["record"]["contour"])]
+        clear = len(frames) == 1 and all(20.5 < p["z"] < 25 for p in frames[0]["contour"])
+        if not clear:
+            failures.append(f"stair entrance at x={x}: door must open into the clear approach")
+        entrances.append(dict(x=x, opens_into_clear_approach=clear))
+    if len(pairs) != 2:
+        failures.append("expected two complete stair pairs")
+    return dict(stairs=pairs, entrance_doors=entrances, failures=failures)
 
 
 def walls(d):
@@ -254,31 +329,31 @@ def core(d):
     d.command("architecture.settings", wall_height=12, wall_thickness=.5, wall_offset=.25)
     d.say("Draw the two lift cases on the left of the central lift hall.")
     chain(d, [(61, 30), (67, 30)])
-    chain(d, [(61, 21), (67, 21), (67, 39), (61, 39), (61, 21)])
+    chain(d, [(61, 20), (67, 20), (67, 40), (61, 40), (61, 20)])
     bank = [o["target"] for o in walls(d)]
     d.require(len(bank) == 5, "one divided two-lift bank")
     d.say("Move Copy repeats the partition assembly on the right: four lift cases around one shared hall.")
     d.fly((70, 90, 30.5), (70, 0, 30))
     d.select(bank, around=(64, 5, 30))
     d.tool("tool.move_copy")
-    d.pick((64, 0, 18), GRID)
-    d.pick((76, 0, 18), GRID)
+    d.pick((64, 0, 14), GRID)
+    d.pick((76, 0, 14), GRID)
     d.escape()
     d.require(len(walls(d)) == 10, "two matching lift banks, five partition pieces each")
     d.say("Good. Parallel partitions separate the stair enclosures from their outer side halls.")
     for x in (46, 94, 41, 99):
-        chain(d, [(x, 21), (x, 39)])
+        chain(d, [(x, 20), (x, 40)])
     d.say("Enclose the stair bays at north and south. The middle hall remains open at both ends.")
-    for points in ([(46, 21), (61, 21)], [(46, 39), (61, 39)],
-                   [(79, 21), (94, 21)], [(79, 39), (94, 39)]):
+    for points in ([(46, 20), (61, 20)], [(46, 40), (61, 40)],
+                   [(79, 20), (94, 20)], [(79, 40), (94, 40)]):
         chain(d, points)
     d.say("To the west, divide the service bay into women's and men's toilets, accessed from the side hall.")
-    for points in ([(21, 30), (41, 30)], [(21, 21), (41, 21)],
-                   [(21, 39), (41, 39)], [(21, 21), (21, 39)]):
+    for points in ([(21, 30), (41, 30)], [(21, 20), (41, 20)],
+                   [(21, 40), (41, 40)], [(21, 20), (21, 40)]):
         chain(d, points)
     d.say("To the east, put storage and copying north of the kitchen, then a meeting room in the end bay.")
-    for points in ([(99, 30), (121, 30)], [(110, 21), (110, 30)],
-                   [(121, 21), (121, 39)], [(99, 21), (139, 21)], [(99, 39), (139, 39)]):
+    for points in ([(99, 30), (121, 30)], [(110, 20), (110, 30)],
+                   [(121, 20), (121, 40)], [(99, 20), (139, 20)], [(99, 40), (139, 40)]):
         chain(d, points)
     d.require(len(walls(d)) == 27 and all(o["record"]["thickness"] == .5 for o in walls(d)),
               "27 core partition pieces, all 15 cm thick")
@@ -308,8 +383,8 @@ def doors(d):
         positions.append((41, z, 1))
     d.say("Good. Add doors between the side halls and the two protected staircase enclosures.")
     for x, side in ((45.5, -1), (94, 1)):
-        vertical_opening(d, x, 24, side)
-        positions.append((x, 24, side))
+        vertical_opening(d, x, 21, side)
+        positions.append((x, 21, side))
     d.say("Storage and kitchen open from the east hall; the copier room connects through storage.")
     for x, z, side in ((98.5, 24, -1), (98.5, 33, -1), (109.5, 24, -1)):
         vertical_opening(d, x, z, side)
@@ -337,17 +412,17 @@ def doors(d):
                   - min(p["z"] for p in o["contour"]) - 3) < 1e-6 for o in repeated),
               "eleven matching 900 mm door frames")
     d.say("The meeting room gets a wider entrance from the north open space.")
-    d.fly((130, 28, 15), (130, 4, 21))
+    d.fly((130, 28, 15), (130, 4, 20))
     for x in (128, 134):
-        d.helper((x, 0, 21))
+        d.helper((x, 0, 20))
     d.tool("tool.builtin.arch_add_hole", tab=CIVIL)
-    d.pick((134, 7, 21), UP)
-    d.pick((128, 0, 21))
+    d.pick((134, 7, 20), UP)
+    d.pick((128, 0, 20))
     d.escape()
     d.tool("view.guides.clear")
     d.tool("tool.builtin.arch_door_frame", tab=CIVIL)
-    d.pick((134, 7, 21), CORNER)
-    d.pick((128, 0, 21), CORNER)
+    d.pick((134, 7, 20), CORNER)
+    d.pick((128, 0, 20), CORNER)
     d.escape()
     d.require(sum(len(o["record"]["holes"]) for o in walls(d)) == 12
               and len([o for o in owners(d) if o["record"].get("kind") == "DOOR"]) == 12,
@@ -469,7 +544,7 @@ def labels(d):
     rooms = [("WC Women", (30, 0, 25)), ("WC Men", (30, 0, 35)),
              ("H FR30", (43.5, 0, 31.5)), ("St FR90", (53, 0, 29)),
              ("L1", (64, 0, 25)), ("L2", (64, 0, 35)), ("HL FR90", (70, 0, 30)),
-             ("L4", (76, 0, 25)), ("L3", (76, 0, 35)), ("St FR90", (88, 0, 29)),
+             ("L4", (76, 0, 25)), ("L3", (76, 0, 35)), ("St FR90", (86, 0, 29)),
              ("H FR30", (97, 0, 31.5)), ("Storage", (104.5, 0, 25)),
              ("Copier", (115, 0, 25)), ("Kitchen", (110, 0, 35)), ("Meeting", (130, 0, 30)),
              ("Open office", (70, 0, 10)), ("Open office", (70, 0, 50)),
@@ -553,6 +628,8 @@ def record(d):
     stairs(d)
     core(d)
     doors(d)
+    report = stair_geometry_report(d)
+    d.require(not report["failures"], str(report))
     side_walls(d)
     labels(d)
     d.title("The repeating curtain walls", "A user-defined glazed panel")

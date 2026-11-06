@@ -1,0 +1,60 @@
+{
+  "stairs": [
+    {
+      "x": 48.0,
+      "inner_wall_face_z": 21.5,
+      "entrance_clearance_m": 0.15,
+      "flight_run_m": 3.6,
+      "ascending_z": [
+        11.0,
+        10.999999999999996
+      ],
+      "landing_depth_m": 1.2,
+      "mesh_contacts_at_landing": [
+        true,
+        false
+      ],
+      "connected": false
+    },
+    {
+      "x": 83.0,
+      "inner_wall_face_z": 21.5,
+      "entrance_clearance_m": 0.15,
+      "flight_run_m": 3.6,
+      "ascending_z": [
+        11.0,
+        10.999999999999996
+      ],
+      "landing_depth_m": 1.2,
+      "mesh_contacts_at_landing": [
+        true,
+        false
+      ],
+      "connected": false
+    }
+  ],
+  "entrance_doors": [
+    {
+      "x": 45.5,
+      "opens_into_clear_approach": false
+    },
+    {
+      "x": 94,
+      "opens_into_clear_approach": false
+    }
+  ],
+  "failures": [
+    "stair at x=48.0: return flight must rise opposite to the lower flight",
+    "stair at x=48.0: entry clearance 0.150 m is below 1.2 m",
+    "stair at x=48.0: both generated flights must meet the 1.2 m mid-landing",
+    "stair at x=83.0: return flight must rise opposite to the lower flight",
+    "stair at x=83.0: entry clearance 0.150 m is below 1.2 m",
+    "stair at x=83.0: both generated flights must meet the 1.2 m mid-landing",
+    "stair entrance at x=45.5: door must open into the clear approach",
+    "stair entrance at x=94: door must open into the clear approach"
+  ],
+  "source_tag": "0.57.0",
+  "app_version": "0.57.1",
+  "source_sha256": "a6bf50d2d586969097fd94d3fa52d1deb7feaaebb378036ac96ab9ed077c27f5",
+  "method": "Published model reopened in the native app; measurements from generated wall and flight meshes."
+}

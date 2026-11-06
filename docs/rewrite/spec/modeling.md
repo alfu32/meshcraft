@@ -16,6 +16,12 @@ Keep pick sequences explicit: two points for line/circle/rectangle/dimension/mov
 
 Line edits use local coordinates and a shared transaction. Cover endpoint-on-edge, interior segment intersection, collinear touching/overlap, zero-length rejection, cancellation and exact distance input. Test that a line drawn on a face currently adds a line without silently changing face topology. The explicit cutter's infinite-line behavior is tested through the operations that call it. A chain's undo grouping must be specified by T13.
 
+**Direction preservation (T80).** Clustering uses a canonical axis for overlap
+and intersection calculations, but emitted segments keep the retained source
+orientation (or the newly drawn orientation for a new segment). Every split
+fragment follows that orientation. Drawing a descending walking path must not
+reverse its ascent when it becomes a stair.
+
 Source: `K/tools/{LineTool,ConstructionLineTool}.kt`, line/face stores. Acceptance: C02, C13.
 
 ### D02 Planar shapes
