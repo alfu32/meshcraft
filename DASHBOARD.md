@@ -1,6 +1,11 @@
 # Dashboard
 
-**0.56.0 office floor tutorial:** [tutorial 7](docs/tutorials/videos/07-office-floor.mp4) drafts a
+**0.57.0 modular office tutorial:** [tutorial 7](docs/tutorials/videos/07-office-floor.mp4) now drafts a
+42 × 18 m floor using a 7 × 3 structural hotspot array, two stairs, four lifts and repeating glazed
+facades, doors and ceiling panels. Numeric settings remain readable and retain edits across focus changes.
+[evidence](docs/rewrite/handoffs/T79.md).
+
+**0.56.0 office floor tutorial:** [tutorial 7](https://github.com/alfu32/meshcraft/releases/download/0.56.0/07-office-floor.mp4) drafts a
 27 × 15 m floor around one central circulation lobby, with repeated partitions, doors and ceiling
 panels. A ground-depth fix keeps floors opaque during orbit. [evidence](docs/rewrite/handoffs/T78.md).
 

@@ -1,4 +1,10 @@
 {
+ "0037591c7eb78577": {
+  "seconds": 4.72,
+  "speaker": "ryan",
+  "spoken": "Give each toilet its own door from the west side hall.",
+  "text": "Give each toilet its own door from the west side hall."
+ },
  "025d555ad7c23c4e": {
   "seconds": 6.4,
   "speaker": "ryan",
@@ -16,6 +22,18 @@
   "speaker": "ryan",
   "spoken": "Nice. Finish Editing. That's the whole definition, with no code at all.",
   "text": "Nice. Finish Editing. That's the whole definition, with no code at all."
+ },
+ "0cd0c4358e4bddec": {
+  "seconds": 7.52,
+  "speaker": "ryan",
+  "spoken": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads.",
+  "text": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads."
+ },
+ "1146e625ca3ed531": {
+  "seconds": 7.6,
+  "speaker": "ryan",
+  "spoken": "Reverse the walking path in the upper contour, then set C and P for the return flight.",
+  "text": "Reverse the walking path in the upper contour, then set C and P for the return flight."
  },
  "12c520f4e16b97ea": {
   "seconds": 6.32,
@@ -35,11 +53,23 @@
   "spoken": "Add Hole: click two metres up one helper, then the base of the other.",
   "text": "Add Hole: click two metres up one helper, then the base of the other."
  },
+ "14f393095bf152c4": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "To the east, put storage and copying north of the kitchen, then a meeting room in the end bay.",
+  "text": "To the east, put storage and copying north of the kitchen, then a meeting room in the end bay."
+ },
  "15e58c8ef5547eba": {
   "seconds": 4.88,
   "speaker": "ryan",
   "spoken": "On the Materials tab, New Wood opens a procedural wood material.",
   "text": "On the Materials tab, New Wood opens a procedural wood material."
+ },
+ "16644fa0dbf7d0ba": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "The meeting room gets a wider entrance from the north open space.",
+  "text": "The meeting room gets a wider entrance from the north open space."
  },
  "1793260688534a38": {
   "seconds": 6.8,
@@ -52,6 +82,12 @@
   "speaker": "ryan",
   "spoken": "Set the blade height and density here, then Save.",
   "text": "Set the blade height and density here, then Save."
+ },
+ "1f848a34cb003e8c": {
+  "seconds": 8.32,
+  "speaker": "ryan",
+  "spoken": "Good. Seven by three structural bays, four lifts, two staircases and open offices around one central core.",
+  "text": "Good. Seven by three structural bays, four lifts, two staircases and open offices around one central core."
  },
  "2068f09ea7605e48": {
   "seconds": 6.96,
@@ -95,6 +131,12 @@
   "spoken": "Press T on the edge for a helper, then push pull three metres up it.",
   "text": "Press T on the edge for a helper, then Push/Pull three metres up it."
  },
+ "306d1f114d65581d": {
+  "seconds": 7.68,
+  "speaker": "ryan",
+  "spoken": "Attach every beam and column. Pick Reference at the far corner of the first six metre bay.",
+  "text": "Attach every beam and column. Pick Reference at the far corner of the first six metre bay."
+ },
  "30bd2f82fab98e2b": {
   "seconds": 7.12,
   "speaker": "ryan",
@@ -106,6 +148,12 @@
   "speaker": "ryan",
   "spoken": "Niiiice! Clear Guides removes the helper once it has done its job.",
   "text": "Niiiice! Clear Guides removes the helper once it has done its job."
+ },
+ "3161e61b17a04b6e": {
+  "seconds": 8.08,
+  "speaker": "ryan",
+  "spoken": "Select both flights and the landing. Move Copy places the second evacuation stair in the east bay.",
+  "text": "Select both flights and the landing. Move Copy places the second evacuation stair in the east bay."
  },
  "32e1237028c01f65": {
   "seconds": 6.48,
@@ -124,6 +172,24 @@
   "speaker": "ryan",
   "spoken": "Nice. A helper at ceiling level gives the horizontal pitch for Move Copy.",
   "text": "Nice. A helper at ceiling level gives the horizontal pitch for Move Copy."
+ },
+ "35a52d8fa0214ed3": {
+  "seconds": 11.36,
+  "speaker": "ryan",
+  "spoken": "Label axes A to H and rows one to four. Each bay is six metres square.",
+  "text": "Label axes A to H and rows one to four. Each bay is six metres square."
+ },
+ "3800d626340e78e6": {
+  "seconds": 9.6,
+  "speaker": "ryan",
+  "spoken": "Build one six metre square frame. Four corner columns come first, using Cuboid and axis helpers.",
+  "text": "Build one six metre square frame. Four corner columns come first, using Cuboid and axis helpers."
+ },
+ "3839919d0617c206": {
+  "seconds": 9.84,
+  "speaker": "ryan",
+  "spoken": "Draw a rectangular contour C and Make Object, so the same outline can define both flights.",
+  "text": "Draw a rectangular contour C and Make Object, so the same outline can define both flights."
  },
  "3b6a216fc577dffe": {
   "seconds": 6.8,
@@ -167,6 +233,18 @@
   "spoken": "Right-drag to orbit and check the result from another side.",
   "text": "Right-drag to orbit and check the result from another side."
  },
+ "46f26cf6003e9933": {
+  "seconds": 6.32,
+  "speaker": "ryan",
+  "spoken": "Good. Add doors between the side halls and the two protected staircase enclosures.",
+  "text": "Good. Add doors between the side halls and the two protected staircase enclosures."
+ },
+ "4be10d744f87ebe5": {
+  "seconds": 7.52,
+  "speaker": "ryan",
+  "spoken": "For the ceiling, make one reusable sixty centimetre square panel in the open office zone.",
+  "text": "For the ceiling, make one reusable sixty centimetre square panel in the open office zone."
+ },
  "4ceab12483f12b19": {
   "seconds": 8.16,
   "speaker": "ryan",
@@ -185,11 +263,23 @@
   "spoken": "Cool. Copy both partitions to the south office zone, using the same grid spacing.",
   "text": "Cool. Copy both partitions to the south office zone, using the same grid spacing."
  },
+ "4f6a81818f86f6ec": {
+  "seconds": 9.04,
+  "speaker": "ryan",
+  "spoken": "Twenty-one structural modules: seven across and three deep, all driven by one instance hotspot.",
+  "text": "Twenty-one structural modules: seven across and three deep, all driven by one instance hotspot."
+ },
  "4fd60be7ad38ed57": {
   "seconds": 7.44,
   "speaker": "ryan",
   "spoken": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 centimetres along.",
   "text": "Move Copy repeats it. Pick the leg's corner, then a grid point 55 cm along."
+ },
+ "506ed1a0cecfb654": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "Good. Parallel partitions separate the stair enclosures from their outer side halls.",
+  "text": "Good. Parallel partitions separate the stair enclosures from their outer side halls."
  },
  "5082a3e2159491ca": {
   "seconds": 6.0,
@@ -239,6 +329,12 @@
   "spoken": "Repeat for the entrance. Copy the component instead of drawing each door again.",
   "text": "Repeat for the entrance. Copy the component instead of drawing each door again."
  },
+ "5c07a41a48aefc9d": {
+  "seconds": 9.12,
+  "speaker": "ryan",
+  "spoken": "Enclose the stair bays at north and south. The middle hall remains open at both ends.",
+  "text": "Enclose the stair bays at north and south. The middle hall remains open at both ends."
+ },
  "5e02adcf424194b0": {
   "seconds": 5.68,
   "speaker": "ryan",
@@ -256,6 +352,12 @@
   "speaker": "ryan",
   "spoken": "The Window tool gives us a frame and glass in two clicks.",
   "text": "The Window tool gives us a frame and glass in two clicks."
+ },
+ "61f4dbc1a2a0c91f": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Draw the two lift cases on the left of the central lift hall.",
+  "text": "Draw the two lift cases on the left of the central lift hall."
  },
  "64fec0f278947779": {
   "seconds": 5.36,
@@ -281,11 +383,23 @@
   "spoken": "One central lobby, repeated partitions and doors, and a reusable ceiling module.",
   "text": "One central lobby, repeated partitions and doors, and a reusable ceiling module."
  },
+ "67f9d2dc03f33557": {
+  "seconds": 6.8,
+  "speaker": "ryan",
+  "spoken": "Use the landing helpers at six units: half the 3.6 metre storey height.",
+  "text": "Use the landing helpers at six units: half the 3.6 metre storey height."
+ },
  "685db5885fc5fc89": {
   "seconds": 7.04,
   "speaker": "ryan",
   "spoken": "Make Object, then Edit Prototype. Hotspots are defined inside the object.",
   "text": "Make Object, then Edit Prototype. Hotspots are defined inside the object."
+ },
+ "68e7a37a42490005": {
+  "seconds": 7.6,
+  "speaker": "ryan",
+  "spoken": "Show Objects and lock the labels. On a quarter-unit grid, build two mullions with no top rail.",
+  "text": "Show Objects and lock the labels. On a quarter-unit grid, build two mullions with no top rail."
  },
  "69a4bada0c3aaff5": {
   "seconds": 7.28,
@@ -311,6 +425,36 @@
   "spoken": "Wooow! One script, two independent bookcases, both still adjustable.",
   "text": "Wooow! One script, two independent bookcases, both still adjustable."
  },
+ "6f13b9186edcd151": {
+  "seconds": 7.28,
+  "speaker": "ryan",
+  "spoken": "Add helpers for the contour copy and the landing. Copy the contour six units across and up.",
+  "text": "Add helpers for the contour copy and the landing. Copy the contour six units across and up."
+ },
+ "71fc144141a5681e": {
+  "seconds": 7.44,
+  "speaker": "ryan",
+  "spoken": "Add a Multiply Linear hotspot, attach the panel, and pick a reference one panel width back.",
+  "text": "Add a Multiply Linear hotspot, attach the panel, and pick a reference one panel width back."
+ },
+ "74f3c2d96dd9a8aa": {
+  "seconds": 6.64,
+  "speaker": "ryan",
+  "spoken": "Storage and kitchen open from the east hall; the copier room connects through storage.",
+  "text": "Storage and kitchen open from the east hall; the copier room connects through storage."
+ },
+ "77af1ff2b71a4539": {
+  "seconds": 9.36,
+  "speaker": "ryan",
+  "spoken": "Mark the lift and stair enclosures F R ninety, and the side halls F R thirty, following the plan.",
+  "text": "Mark the lift and stair enclosures FR90, and the side halls FR30, following the plan."
+ },
+ "7d78b86b1a0bb082": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "Keep the north and south bands as open offices, connected around this central service core.",
+  "text": "Keep the north and south bands as open offices, connected around this central service core."
+ },
  "7eb80a215aa4cc87": {
   "seconds": 2.08,
   "speaker": "ryan",
@@ -322,6 +466,12 @@
   "speaker": "ryan",
   "spoken": "Uh oh, nothing to snap to up in the air. Press T to add an axis helper.",
   "text": "Uh oh, nothing to snap to up in the air. Press T to add an axis helper."
+ },
+ "7f281afd3af0c516": {
+  "seconds": 6.08,
+  "speaker": "ryan",
+  "spoken": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible.",
+  "text": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible."
  },
  "834767a2b696e3c4": {
   "seconds": 8.4,
@@ -371,6 +521,18 @@
   "spoken": "Now a ceiling module. Zoom in and draw a 60 centimetre square on the floor.",
   "text": "Now a ceiling module. Zoom in and draw a 60 centimetre square on the floor."
  },
+ "8e03995badc33ac8": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "Window-select the frame and Make Object. Then Edit Prototype to define its array handle.",
+  "text": "Window-select the frame and Make Object. Then Edit Prototype to define its array handle."
+ },
+ "8e38e35e548e0f22": {
+  "seconds": 8.64,
+  "speaker": "ryan",
+  "spoken": "Move Copy places the same dynamic object on the north edge. Both facades share one definition.",
+  "text": "Move Copy places the same dynamic object on the north edge. Both facades share one definition."
+ },
  "8f29d398a784c68a": {
   "seconds": 6.16,
   "speaker": "ryan",
@@ -413,6 +575,30 @@
   "spoken": "Finish with a roof: one more slab, snapped to the top corners of the walls.",
   "text": "Finish with a roof: one more slab, snapped to the top corners of the walls."
  },
+ "97c3e4447b861c73": {
+  "seconds": 6.16,
+  "speaker": "ryan",
+  "spoken": "Good. Select the instance and drag its hotspot to the opposite corner of the slab.",
+  "text": "Good. Select the instance and drag its hotspot to the opposite corner of the slab."
+ },
+ "9a7285a1583d7ebd": {
+  "seconds": 7.44,
+  "speaker": "ryan",
+  "spoken": "The east and west sides are plain walls, one unit thick: thirty centimetres, with no windows.",
+  "text": "The east and west sides are plain walls, one unit thick: thirty centimetres, with no windows."
+ },
+ "9c7ded3f8c1df8ec": {
+  "seconds": 6.64,
+  "speaker": "ryan",
+  "spoken": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall.",
+  "text": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall."
+ },
+ "a085d1aef8760690": {
+  "seconds": 8.08,
+  "speaker": "ryan",
+  "spoken": "Place the hotspot above the second grid diagonal, on an axis helper. Choose Multiply Volumetric.",
+  "text": "Place the hotspot above the second grid diagonal, on an axis helper. Choose Multiply Volumetric."
+ },
  "a1c88810828ff4fb": {
   "seconds": 5.76,
   "speaker": "ryan",
@@ -430,6 +616,12 @@
   "speaker": "ryan",
   "spoken": "Goooood. Next, one leg: a small square under the corner of the top.",
   "text": "Goooood. Next, one leg: a small square under the corner of the top."
+ },
+ "a84daf7485a95c8a": {
+  "seconds": 8.48,
+  "speaker": "ryan",
+  "spoken": "Move Copy repeats that door. Use matching floor-grid references in the clear open space.",
+  "text": "Move Copy repeats that door. Use matching floor-grid references in the clear open space."
  },
  "a8565e91012f9860": {
   "seconds": 2.8,
@@ -449,6 +641,12 @@
   "spoken": "Start with the Architecture template.",
   "text": "Start with the Architecture template."
  },
+ "acfcf26b7f1bbd3c": {
+  "seconds": 8.16,
+  "speaker": "ryan",
+  "spoken": "Nice. Add the beams at the column tops. Twelve units overall gives a height of 3.6 metres.",
+  "text": "Nice. Add the beams at the column tops. Twelve units overall gives a height of 3.6 metres."
+ },
  "ad193874b5ad3281": {
   "seconds": 5.12,
   "speaker": "ryan",
@@ -460,6 +658,12 @@
   "speaker": "ryan",
   "spoken": "Now lift the top. Move: pick its corner, then a point up the helper.",
   "text": "Now lift the top. Move: pick its corner, then a point up the helper."
+ },
+ "ad321f19f363036b": {
+  "seconds": 6.48,
+  "speaker": "ryan",
+  "spoken": "Draw the slab, forty-two by eighteen metres: 140 by 60 units.",
+  "text": "Draw the slab, forty-two by eighteen metres: 140 by 60 units."
  },
  "ad51a6465458fa43": {
   "seconds": 3.84,
@@ -497,11 +701,29 @@
   "spoken": "Attaching Count means the copies will follow when the panel gets wider.",
   "text": "Attaching Count means the copies will follow when the panel gets wider."
  },
+ "b4ac74e8cbaf829a": {
+  "seconds": 9.44,
+  "speaker": "ryan",
+  "spoken": "Copy the wall to the north edge. Both facades share one definition. Then unlock the labels.",
+  "text": "Copy the wall to the north edge. Both facades share one definition. Then unlock the labels."
+ },
  "b54d1dec39b99235": {
   "seconds": 6.72,
   "speaker": "ryan",
   "spoken": "Wooow, real grass! Materials are saved with the project, editable at any time.",
   "text": "Wooow, real grass! Materials are saved with the project, editable at any time."
+ },
+ "b687fbed4c5c7938": {
+  "seconds": 7.52,
+  "speaker": "ryan",
+  "spoken": "Set partition thickness to half a unit: fifteen centimetres. The offset is a quarter unit.",
+  "text": "Set partition thickness to half a unit: fifteen centimetres. The offset is a quarter unit."
+ },
+ "b6d3b65ee1f9f6a0": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "Door fits the first lift opening: ninety centimetres wide and 2.1 metres high.",
+  "text": "Door fits the first lift opening: ninety centimetres wide and 2.1 metres high."
  },
  "b6f9075e7e1ce263": {
   "seconds": 5.52,
@@ -527,6 +749,12 @@
   "spoken": "Wall draws the perimeter as a chain. Enter finishes it.",
   "text": "Wall draws the perimeter as a chain. Enter finishes it."
  },
+ "c15402dfda19f1d7": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "Join their inner corners with a closed Polyline. The glazing fills the full height.",
+  "text": "Join their inner corners with a closed Polyline. The glazing fills the full height."
+ },
  "c1b80c300bb82c5b": {
   "seconds": 5.36,
   "speaker": "ryan",
@@ -551,6 +779,12 @@
   "spoken": "Pull it up until the cursor snaps to the corner underneath the top.",
   "text": "Pull it up until the cursor snaps to the corner underneath the top."
  },
+ "c996f11f238f402e": {
+  "seconds": 5.92,
+  "speaker": "ryan",
+  "spoken": "For the core stairs, set flight height to six units and the step count to twelve.",
+  "text": "For the core stairs, set flight height to six units and the step count to twelve."
+ },
  "c9c68c917fc9a27d": {
   "seconds": 6.4,
   "speaker": "ryan",
@@ -569,6 +803,18 @@
   "spoken": "push pull: pick the corner, then a point one step up the helper.",
   "text": "Push/Pull: pick the corner, then a point one step up the helper."
  },
+ "cd373e89c28f912b": {
+  "seconds": 9.28,
+  "speaker": "ryan",
+  "spoken": "Nice. Draw walking path P in the lower outline. Set C, then P, to create twelve risers.",
+  "text": "Nice. Draw walking path P in the lower outline. Set C, then P, to create twelve risers."
+ },
+ "cfed0c0db721f906": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "Move the assembled curtain wall onto the south edge, using its corner and a helper.",
+  "text": "Move the assembled curtain wall onto the south edge, using its corner and a helper."
+ },
  "d314bad632ee0940": {
   "seconds": 4.96,
   "speaker": "ryan",
@@ -580,6 +826,12 @@
   "speaker": "ryan",
   "spoken": "Aim roughly around, then type an angle and a count: thirty, times eleven adds eleven.",
   "text": "Aim roughly around, then type an angle and a count: 30 x11 adds eleven."
+ },
+ "d75112edde720f39": {
+  "seconds": 9.52,
+  "speaker": "ryan",
+  "spoken": "Start with Architecture: one unit is 30 centimetres. Use a half-unit grid for the partitions.",
+  "text": "Start with Architecture: one unit is 30 centimetres. Use a half-unit grid for the partitions."
  },
  "d7dd84a078b67618": {
   "seconds": 3.68,
@@ -610,6 +862,24 @@
   "speaker": "ryan",
   "spoken": "Its blue axis points straight up and snaps at every grid step.",
   "text": "Its blue axis points straight up and snaps at every grid step."
+ },
+ "dd208bf7cd56d6ac": {
+  "seconds": 7.36,
+  "speaker": "ryan",
+  "spoken": "Drag the instance handle to form two rows of twenty panels, then lift the assembly on a helper.",
+  "text": "Drag the instance handle to form two rows of twenty panels, then lift the assembly on a helper."
+ },
+ "de884d1dc97942ca": {
+  "seconds": 6.8,
+  "speaker": "ryan",
+  "spoken": "Move Copy repeats the partition assembly on the right: four lift cases around one shared hall.",
+  "text": "Move Copy repeats the partition assembly on the right: four lift cases around one shared hall."
+ },
+ "dfbe45dd34cb363e": {
+  "seconds": 6.32,
+  "speaker": "ryan",
+  "spoken": "Nice. Drag the instance handle across the frontage: twenty-eight glazed panels.",
+  "text": "Nice. Drag the instance handle across the frontage: twenty-eight glazed panels."
  },
  "e09d0b848ddbefdc": {
   "seconds": 5.84,
@@ -665,6 +935,12 @@
   "spoken": "Start with Architecture. One unit is 30 centimetres, so our floor is 90 by 50 units.",
   "text": "Start with Architecture. One unit is 30 cm, so our floor is 90 by 50 units."
  },
+ "ebc10bc2d8251460": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "Show Objects again. Use a quarter-unit grid for a panel with two mullions and no top rail.",
+  "text": "Show Objects again. Use a quarter-unit grid for a panel with two mullions and no top rail."
+ },
  "ee3a87bbe0a52715": {
   "seconds": 6.24,
   "speaker": "ryan",
@@ -676,6 +952,18 @@
   "speaker": "ryan",
   "spoken": "Start with the table top. Choose Rectangle.",
   "text": "Start with the table top. Choose Rectangle."
+ },
+ "f13465c8c1bdff14": {
+  "seconds": 8.32,
+  "speaker": "ryan",
+  "spoken": "Make Object, and Edit Prototype. This panel is one and a half metres wide.",
+  "text": "Make Object, and Edit Prototype. This panel is one and a half metres wide."
+ },
+ "f23a88787bdbb334": {
+  "seconds": 7.84,
+  "speaker": "ryan",
+  "spoken": "The partial ceiling leaves the layout visible. The structural and facade grids remain hotspot-driven.",
+  "text": "The partial ceiling leaves the layout visible. The structural and facade grids remain hotspot-driven."
  },
  "f4fa1bb1c9bb3702": {
   "seconds": 5.04,
@@ -700,6 +988,12 @@
   "speaker": "ryan",
   "spoken": "Now the walls. The Wall tool draws a connected chain.",
   "text": "Now the walls. The Wall tool draws a connected chain."
+ },
+ "fc9e77be45c0bd60": {
+  "seconds": 6.96,
+  "speaker": "ryan",
+  "spoken": "Edit Prototype. A volumetric array hotspot repeats the panel in both plan directions.",
+  "text": "Edit Prototype. A volumetric array hotspot repeats the panel in both plan directions."
  },
  "fd049962ea972436": {
   "seconds": 5.68,

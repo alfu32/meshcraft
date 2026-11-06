@@ -442,4 +442,7 @@ read-only observations of the actual rendered controls, not command replacements
 is the orbit distance; together with the camera pose they let a driver project a world point to the screen.
 `cursorSnap` reports the current snapped point, surface normal and snap kind (`Grid`, `Axis guide`, ...), and
 `constructionGuides` the number of placed guides, so a driver using real pointer input can check where it landed.
-`setting/<label>` controls, such as `setting/Grid size`, are the settings fields last drawn; they are valid while their panel is open.
+`setting/<label>` identifies the complete setting row, including labels and hints.
+Standard text, numeric and select editors also expose `setting-input/<label>`, such as
+`setting-input/Grid size`. Use the editor bounds centre for typing. These are the
+last drawn bounds and are valid while the corresponding panel is open.

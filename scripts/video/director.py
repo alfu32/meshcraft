@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts/video"))
 import subtitles  # noqa: E402
 
 
-NUDGES = [(dx, dy) for radius in (2, 4, 7, 10)
+NUDGES = [(dx, dy) for radius in (1, 2, 4, 7, 10)
           for dx, dy in ((radius, 0), (-radius, 0), (0, radius), (0, -radius),
                          (radius, radius), (-radius, radius), (radius, -radius), (-radius, -radius))]
 
@@ -30,6 +30,7 @@ class Director:
     def __init__(self, rpc, env, fast=False, voices=None):
         self.rpc, self.env, self.fast = rpc, env, fast
         self.voices = voices or {}
+        self.video_crf = 23
         self.origin = None
         self.cues, self.clicks, self.titles, self.keys, self.snaps = [], [], [], [], []
         self.cue_ready_at = 0.0
@@ -308,19 +309,22 @@ class Director:
 
     def field(self, label, text):
         """Type into a real settings field, then leave it so the value commits."""
-        self.glide(*self.control("setting/" + label))
-        self.wait(0.2)
+        # Settings use real X input; retain human delays even during a dry run.
+        pause = time.sleep
+        pause(.3)
+        self.glide(*self.control("setting-input/" + label))
+        pause(0.2)
         self._ring()
         self._xdo("click", 1)
-        self.wait(0.25)
+        pause(0.25)
         self._xdo("key", "ctrl+a")
-        self.wait(0.15)
+        pause(0.15)
         for character in text:
             self._xdo("type", character)
-            self.wait(0.14)
-        self.wait(0.3)
+            pause(0.14)
+        pause(0.3)
         self._xdo("key", "Tab")
-        self.wait(0.4)
+        pause(0.4)
 
     def _key(self, text, start):
         self.keys.append(dict(start=start, end=self.clock() + 0.5, text=text))
@@ -469,14 +473,20 @@ class Recorder:
             raise RuntimeError(f"Capture failed: {self.log.read_text()[-400:]}")
 
 
-def render(raw, script, subtitle_track, output, duration):
+def media_duration(path):
+    return float(subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        text=True))
+
+
+def render(raw, script, subtitle_track, output, duration, crf=23):
     """Rings, keycaps and title cards go in the picture; subtitles stay a selectable track."""
     filter_path = str(script).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     subprocess.run(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(raw), "-i", str(subtitle_track),
          "-map", "0:v", "-map", "1:s", "-t", f"{duration:.3f}",
          "-vf", f"ass='{filter_path}',format=yuv420p", "-c:v", "libx264", "-preset", "slow",
-         "-crf", "23", "-r", "30", "-g", "150", "-c:s", "mov_text",
+         "-crf", str(crf), "-r", "30", "-g", "150", "-c:s", "mov_text",
          "-metadata:s:s:0", "language=eng", "-disposition:s:0", "default",
          "-movflags", "+faststart", "-an", str(output)],
         check=True,
@@ -497,7 +507,9 @@ def write_outputs(director, raw, directory, name, viewport, recipe, version):
     raw.with_suffix(".timeline.json").write_text(json.dumps(
         dict(clicks=director.clicks, keys=director.keys, titles=director.titles, snaps=director.snaps), indent=1))
     duration = director.clock()
-    render(raw, script, directory / f"{name}.srt", directory / f"{name}.mp4", duration)
+    render(raw, script, directory / f"{name}.srt", directory / f"{name}.mp4", duration,
+           crf=director.video_crf)
+    duration = media_duration(directory / f"{name}.mp4")
     (directory / f"{name}.cues.json").write_text(json.dumps(dict(
         video=f"{name}.mp4", app_version=version, recipe=recipe, duration=round(duration, 3),
         chars_per_second=subtitles.CHARS_PER_SECOND, cues=cues), indent=2) + "\n")

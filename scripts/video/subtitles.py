@@ -13,6 +13,8 @@ SPOKEN = (
     ("Push/Pull", "push pull"),
     ("30 x11", "thirty, times eleven"),
     ("2 x39", "two, times thirty nine"),
+    ("FR90", "F R ninety"),
+    ("FR30", "F R thirty"),
     ("$NUMBER", "dollar number"),
     ("$HOTSPOT", "dollar hotspot"),
     (" cm", " centimetres"),

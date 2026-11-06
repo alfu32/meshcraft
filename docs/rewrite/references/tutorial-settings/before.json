@@ -1,0 +1,32 @@
+{
+  "version": "0.57.0",
+  "cases": [
+    {
+      "cycle": 1,
+      "requested": 0.25,
+      "actual": 0.25,
+      "passed": true,
+      "container": {
+        "x": 1591.0,
+        "y": 355.0,
+        "width": 108.0,
+        "height": 66.0
+      },
+      "editor": null
+    },
+    {
+      "cycle": 1,
+      "requested": 0.5,
+      "actual": 0.35,
+      "passed": false,
+      "container": {
+        "x": 1591.0,
+        "y": 355.0,
+        "width": 114.0,
+        "height": 66.0
+      },
+      "editor": null
+    }
+  ],
+  "passed": false
+}

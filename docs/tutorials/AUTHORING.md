@@ -77,6 +77,8 @@ Details that matter:
 - **Clips are cached by what is said** in `docs/tutorials/voice`. Re-recording doesn't regenerate them, and an interrupted
   `voice.py` resumes. Leave unused clips in place.
 - **Long commands:** run recording and voice generation in the background.
+- **Large exports:** a long recipe can set `d.video_crf = 24` in `setup` (the default is 23).
+  Keep 1080p/30 fps and review text and thin lines after encoding. Cue metadata uses the exported media duration.
 
 If a GPU-related reboot interrupts speech generation, first check which cached clips survived.
 Resume with `TTS_DEVICE=CPU QWEN_CODEC_CPU=1 python3 scripts/video/voice.py` to use the same local

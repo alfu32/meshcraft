@@ -412,7 +412,9 @@ pub(super) fn prepare(
                     InputEvent::PressEnter { .. } | InputEvent::Blur => {
                         let text = input.read(cx).value().to_string();
                         commit(this, field, &text);
-                        this.settings.active = None;
+                        if this.settings.active == Some(field.key) {
+                            this.settings.active = None;
+                        }
                         if matches!(event, InputEvent::PressEnter { .. }) {
                             window.focus(&this.focus);
                         }
@@ -597,6 +599,22 @@ fn architecture_label(key: &str) -> &'static str {
     }
 }
 
+fn measured_input(
+    shell: &MeshcraftShell,
+    label: &'static str,
+    editor: gpui::AnyElement,
+) -> gpui::AnyElement {
+    div()
+        .relative()
+        .w_full()
+        .child(editor)
+        .child(super::workspace_controls::bounds_probe(
+            shell,
+            format!("setting-input/{label}"),
+        ))
+        .into_any_element()
+}
+
 pub(super) fn render_field(
     shell: &MeshcraftShell,
     label: &'static str,
@@ -614,10 +632,11 @@ pub(super) fn render_field(
         .iter()
         .any(|f| f.label == label && f.group == "arch" && f.key != "architecture_name");
     let body = if let Some(key) = key {
-        Select::new(shell.settings.selects.get(key)?)
+        let editor = Select::new(shell.settings.selects.get(key)?)
             .small()
             .w_full()
-            .into_any_element()
+            .into_any_element();
+        measured_input(shell, label, editor)
     } else {
         let field = FIELDS.iter().find(|f| f.label == label)?;
         let input = shell.settings.inputs.get(field.key)?;
@@ -626,6 +645,7 @@ pub(super) fn render_field(
         } else {
             NumberInput::new(input).small().w_full().into_any_element()
         };
+        let editor = measured_input(shell, label, editor);
         let mut row = div().flex().items_center().gap(px(6.)).min_w(px(0.));
         if inline {
             row = row.child(

@@ -1,0 +1,25 @@
+{
+  "app_version": "0.57.0",
+  "source_model": "07-office-floor.octd",
+  "sha256": "a6bf50d2d586969097fd94d3fa52d1deb7feaaebb378036ac96ab9ed077c27f5",
+  "architecture": {
+    "wall": 29,
+    "slab": 3,
+    "frame": 12,
+    "stair": 4
+  },
+  "annotations": 31,
+  "frame_triangles": 2016,
+  "facade_triangles": [
+    728,
+    728
+  ],
+  "ceiling_triangles": 80,
+  "volumetric_step": {
+    "x": 20.0,
+    "y": 12.0,
+    "z": 20.0
+  },
+  "method": "Saved model reopened in the native app on private Linux Xvfb/Mesa",
+  "passed": true
+}

@@ -12,6 +12,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from director import media_duration
+
 ROOT = Path(__file__).resolve().parents[2]
 TUTORIALS = ROOT / "docs/tutorials"
 WORK = ROOT / "target/tutorial-work"
@@ -115,6 +117,8 @@ def main():
         WORK.joinpath(name).mkdir(parents=True, exist_ok=True)
         assemble(source, cues, output, WORK / name / f"{name}.fcproj")
         output.replace(source)
+        data["duration"] = round(media_duration(source), 3)
+        path.write_text(json.dumps(data, indent=2) + "\n")
         print(f"{name}: {len(cues)} clips, {source.stat().st_size / 1e6:.1f} MB", flush=True)
 
 

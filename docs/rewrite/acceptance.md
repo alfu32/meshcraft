@@ -433,6 +433,8 @@ A material given an image shows it on every face it is applied to, upright, one 
 
 ## C51 — Office floor tutorial with repeated components
 
+This is the historical T78 workflow at tag 0.56.0. The revised tutorial follows C52.
+
 Tutorial 7 starts from Architecture at 30 cm per unit and drafts a 90 × 50 unit slab
 (27 × 15 m). One central 9 × 6 m circulation lobby connects north, south, east and west
 office zones. Snap every point through the native cursor. Create real wall openings and
@@ -447,3 +449,41 @@ At architectural camera distances, an opaque floor at Y = 0 must not show the
 synthetic ground through it as the camera orbits. The native rendering regression
 `office_floor_stays_opaque_above_the_ground_while_orbiting` must pass, together
 with the existing shadow alignment and black-line composition checks.
+
+## C52 — Modular structure and protected office core tutorial
+
+Tutorial 7 follows the owner's revised [plan](../tutorials/tutorial-07-plan.md),
+using Architecture at 30 cm per unit. A four-column, four-beam prototype has a
+6 × 6 m plan module and a 3.6 m height. Attach all its members to a Multiply
+Volumetric hotspot with 6 m X/Z and 3.6 m Y reference steps. Drag the instance
+handle to the opposite corner of the 42 × 18 m slab: exactly seven by three
+modules result, with no additional vertical storey.
+
+The middle three bays contain four lift cases, two on each side of a shared
+lift hall, plus two two-flight evacuation stairs and their side halls. Annotate
+stair/lift enclosures FR90 and side halls FR30 as the owner's design intent.
+Draft the toilet groups, storage, copier, kitchen and meeting room according to
+the recorded interpretation in the [revision notes](../tutorials/tutorial-07-revision.md).
+All core partitions are 15 cm thick; the two plain side walls are 30 cm thick,
+with no openings. Copy the lift partition assembly and standard door component.
+Door frames occupy real openings cut on wall faces.
+
+The north and south curtain walls share a user-defined repeating glazed panel
+with left/right vertical framing and no top rail. Each frontage has 28 panels
+at a 1.5 m pitch, controlled by an instance Multiply Linear hotspot. A partial
+600 mm ceiling grid repeats with its own hotspot and moves up an axis helper.
+
+Verify native snaps and actual geometry throughout. Deliver the saved model,
+recipe, narrated recording, selectable subtitles, measured media checks and
+review frames. Keep the released 0.56.0 example accessible as historical evidence.
+
+Run `python3 scripts/verify_tutorial_fields.py`: eight native edits alternate a
+0.25 and 0.5 unit grid across ribbon/focus changes, using measured
+`setting-input/Grid size` bounds. Unit hints and numeric step buttons must not
+capture the typing target; the Architecture scale remains 30 cm per unit.
+
+After saving, run `python3 scripts/verify_office_tutorial.py`. The reopened model
+regenerates 2,016 structural triangles, 728 per facade and 80 ceiling triangles,
+with 29 walls, 12 door frames, four stair flights, three slabs and all 31 labels.
+Panel window selection must preserve annotations in the document; lock labels
+while making the facade object and restore their editability afterwards.

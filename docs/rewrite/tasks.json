@@ -2968,7 +2968,8 @@
       "status": "in_progress",
       "design_docs": [
         "docs/decisions/ADR-06-gpui-raylib.md",
-        "docs/UI-3D_renderer.md"
+        "docs/UI-3D_renderer.md",
+        "docs/rewrite/feature-backlog.md"
       ]
     },
     {
@@ -3698,6 +3699,58 @@
       ],
       "done": [
         "Tutorial 7 checks the footprint and repeated components, and ships with narration and selectable subtitles."
+      ],
+      "tool_ids": [],
+      "status": "complete"
+    },
+    {
+      "id": "T79",
+      "title": "Revise tutorial 7 around a volumetric structural grid and protected office core",
+      "phase": "desktop",
+      "dependencies": [
+        "T76",
+        "T78"
+      ],
+      "requirements": [
+        "F04",
+        "R01",
+        "R04"
+      ],
+      "acceptance": [
+        "C52"
+      ],
+      "targets": [
+        "docs/tutorials/recipes/07-office-floor.py",
+        "docs/tutorials/tutorial-07-plan.md",
+        "docs/tutorials/tutorial-07-revision.md",
+        "docs/tutorials/README.md",
+        "scripts/video/director.py",
+        "scripts/video/subtitles.py",
+        "apps/desktop/src/gpui_settings.rs",
+        "apps/desktop/src/gpui_workspace_controls.rs",
+        "scripts/verify_tutorial_fields.py",
+        "apps/desktop/src/gpui_layout.rs",
+        "scripts/verify_office_tutorial.py",
+        "scripts/video/assemble.py"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/AUTHORING.md",
+        "docs/rewrite/handoffs/T79.md",
+        "docs/rewrite/spec/interface.md",
+        "docs/mcp.md"
+      ],
+      "slices": [
+        "Build a four-column 6 × 6 × 3.6 m prototype and drag its Multiply Volumetric instance hotspot to fill a 7 × 3 bay floor.",
+        "Draft the protected central core with four lifts, two evacuation stairs, service rooms, copied partitions and doors, and partial repeated ceiling panels.",
+        "Author north and south curtain walls from a user-defined panel with only vertical framing and glazing, then record, narrate, review and release the revised tutorial.",
+        "Publish measured settings-editor bounds and verify native quarter/half-unit entry across inspector focus changes, correcting the field-row centre ambiguity found by the tutorial."
+      ],
+      "done": [
+        "The new tutorial checks the 42 × 18 m floor, native hotspot arrays, core layout and repeated components, and ships with narration and selectable subtitles."
       ],
       "tool_ids": [],
       "status": "complete"

@@ -519,3 +519,19 @@ instances. Recompute after geometry/catalog changes. Primitive painting within
 prototype edit mode retains face/edge scope. Store and copy instance finishes,
 remap their catalog IDs on import, and protect referenced materials from deletion.
 See [native and automated evidence](../references/workspace-controls/README.md).
+
+### Settings editor bounds (T79)
+
+Native workspace observations distinguish a complete setting row, keyed
+`setting/<label>`, from its editable widget, keyed `setting-input/<label>`.
+Standard text, numeric and select settings publish the editor bounds separately
+from labels, unit hints and explanatory text. Native typing uses the editor's
+centre, which must focus the input. Repeated quarter-unit and half-unit grid
+edits survive focus and ribbon changes without activating numeric step buttons.
+
+Paired settings fields share the available inspector width so the numeric text
+entry remains visible between decrement and increment controls.
+
+A settings field losing focus commits its draft and clears active editing state
+only when that same field is still active. A late blur from the previous field
+must preserve the newly focused field and its draft.

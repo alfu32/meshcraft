@@ -1,76 +1,188 @@
 WEBVTT
 
-00:00:03.641 --> 00:00:11.381
-Start with Architecture. One unit is
-30 cm, so our floor is 90 by 50 units.
+00:00:03.680 --> 00:00:13.501
+Start with Architecture: one unit is 30 centimetres.
+Use a half-unit grid for the partitions.
 
-00:00:11.431 --> 00:00:20.758
-Choose Rectangular Slab, and snap
-out the 27 by 15 metre footprint.
+00:00:13.551 --> 00:00:28.157
+Draw the slab, forty-two by
+eighteen metres: 140 by 60 units.
 
-00:00:20.808 --> 00:00:35.678
-Wall draws the perimeter as a chain. Enter finishes it.
+00:00:28.207 --> 00:00:47.157
+Build one six metre square frame. Four corner
+columns come first, using Cuboid and axis helpers.
 
-00:00:40.243 --> 00:00:57.993
-Nice. Two cross walls mark the north and
-south sides of a single central lobby.
+00:01:45.993 --> 00:02:03.503
+Nice. Add the beams at the column tops. Twelve
+units overall gives a height of 3.6 metres.
 
-00:00:59.208 --> 00:01:14.558
-Leave side passages in the lobby walls.
-All four office zones lead to this node.
+00:03:20.846 --> 00:03:36.916
+Window-select the frame and Make Object. Then
+Edit Prototype to define its array handle.
 
-00:01:39.864 --> 00:01:46.565
-Door openings need helpers. Press
-T on the wall base at each jamb.
+00:03:40.537 --> 00:03:49.800
+Place the hotspot above the second grid diagonal,
+on an axis helper. Choose Multiply Volumetric.
 
-00:01:46.615 --> 00:02:01.725
-Add Hole: pick the top of one helper,
-then the opposite base on the wall.
+00:03:49.850 --> 00:04:01.511
+Attach every beam and column. Pick Reference
+at the far corner of the first six metre bay.
 
-00:02:44.076 --> 00:02:53.861
-Good. Door fits the first opening.
-These are 1.8 metres wide and 2.1 high.
+00:04:01.561 --> 00:04:16.537
+Good. Select the instance and drag its
+hotspot to the opposite corner of the slab.
 
-00:02:53.911 --> 00:03:06.048
-Select the door, then Move Copy between
-matching corners of the next opening.
+00:04:16.587 --> 00:04:25.928
+Twenty-one structural modules: seven across and
+three deep, all driven by one instance hotspot.
 
-00:03:06.098 --> 00:03:20.044
-Repeat for the entrance. Copy the component
-instead of drawing each door again.
+00:04:29.578 --> 00:04:35.799
+For the core stairs, set flight height to
+six units and the step count to twelve.
 
-00:03:20.094 --> 00:03:30.746
-For repeatable office bays, draw one short
-partition, leaving a shared access strip.
+00:04:35.849 --> 00:04:49.181
+Draw a rectangular contour C and Make Object,
+so the same outline can define both flights.
 
-00:03:30.796 --> 00:03:42.775
-Move Copy repeats the partition
-nine metres along the floor grid.
+00:04:49.231 --> 00:05:05.861
+Add helpers for the contour copy and the landing.
+Copy the contour six units across and up.
 
-00:03:42.825 --> 00:03:53.694
-Cool. Copy both partitions to the south
-office zone, using the same grid spacing.
+00:05:13.542 --> 00:05:32.172
+Nice. Draw walking path P in the lower outline.
+Set C, then P, to create twelve risers.
 
-00:03:53.744 --> 00:04:09.014
-Now a ceiling module. Zoom in and draw
-a 60 centimetre square on the floor.
+00:05:33.939 --> 00:05:47.129
+Use the landing helpers at six units:
+half the 3.6 metre storey height.
 
-00:04:16.647 --> 00:04:32.237
-Press T at its corner. Move the panel up
-the helper to the 2.7 metre wall height.
+00:05:47.179 --> 00:06:04.129
+Reverse the walking path in the upper contour,
+then set C and P for the return flight.
 
-00:04:33.807 --> 00:04:48.517
-Nice. A helper at ceiling level gives
-the horizontal pitch for Move Copy.
+00:06:07.555 --> 00:06:14.833
+Hide Objects in the selection filters while drafting
+the core, to keep the floor grid accessible.
 
-00:04:48.679 --> 00:04:58.052
-For a long repeat, type 2 x39:
-thirty-nine more panels, two units apart.
+00:06:14.883 --> 00:06:30.481
+Select both flights and the landing. Move Copy
+places the second evacuation stair in the east bay.
 
-00:04:58.102 --> 00:05:04.162
-We leave the ceiling partial so the
-office layout stays visible below it.
+00:06:30.531 --> 00:06:38.351
+Set partition thickness to half a unit: fifteen
+centimetres. The offset is a quarter unit.
 
-00:05:04.212 --> 00:05:15.412
-One central lobby, repeated partitions
-and doors, and a reusable ceiling module.
+00:06:38.401 --> 00:06:53.111
+Draw the two lift cases on the
+left of the central lift hall.
+
+00:07:15.249 --> 00:07:31.174
+Move Copy repeats the partition assembly on the
+right: four lift cases around one shared hall.
+
+00:07:31.224 --> 00:07:46.624
+Good. Parallel partitions separate the stair
+enclosures from their outer side halls.
+
+00:08:26.618 --> 00:08:45.088
+Enclose the stair bays at north and south.
+The middle hall remains open at both ends.
+
+00:09:20.720 --> 00:09:36.977
+To the west, divide the service bay into women's
+and men's toilets, accessed from the side hall.
+
+00:10:14.673 --> 00:10:30.787
+To the east, put storage and copying north of
+the kitchen, then a meeting room in the end bay.
+
+00:11:25.919 --> 00:11:42.789
+Cut the lift openings on the wall faces.
+Axis helpers carry their 2.1 metre heads.
+
+00:13:10.072 --> 00:13:24.142
+Give each toilet its own door from the west side hall.
+
+00:14:07.641 --> 00:14:23.311
+Good. Add doors between the side halls and
+the two protected staircase enclosures.
+
+00:15:01.445 --> 00:15:17.435
+Storage and kitchen open from the east hall;
+the copier room connects through storage.
+
+00:16:20.752 --> 00:16:36.309
+Door fits the first lift opening: ninety
+centimetres wide and 2.1 metres high.
+
+00:16:36.359 --> 00:16:54.189
+Move Copy repeats that door. Use matching
+floor-grid references in the clear open space.
+
+00:18:28.228 --> 00:18:42.938
+The meeting room gets a wider
+entrance from the north open space.
+
+00:19:05.876 --> 00:19:22.666
+The east and west sides are plain walls, one
+unit thick: thirty centimetres, with no windows.
+
+00:19:31.314 --> 00:19:52.024
+Label axes A to H and rows one to
+four. Each bay is six metres square.
+
+00:20:47.631 --> 00:21:06.341
+Mark the lift and stair enclosures FR90,
+and the side halls FR30, following the plan.
+
+00:23:50.933 --> 00:23:57.793
+Keep the north and south bands as open offices,
+connected around this central service core.
+
+00:24:01.443 --> 00:24:18.393
+Show Objects and lock the labels. On a quarter-unit
+grid, build two mullions with no top rail.
+
+00:24:46.077 --> 00:25:01.406
+Join their inner corners with a closed
+Polyline. The glazing fills the full height.
+
+00:25:13.497 --> 00:25:30.978
+Make Object, and Edit Prototype. This
+panel is one and a half metres wide.
+
+00:25:31.028 --> 00:25:47.818
+Add a Multiply Linear hotspot, attach the panel,
+and pick a reference one panel width back.
+
+00:25:48.796 --> 00:25:58.908
+Nice. Drag the instance handle across
+the frontage: twenty-eight glazed panels.
+
+00:25:58.958 --> 00:26:15.028
+Move the assembled curtain wall onto the
+south edge, using its corner and a helper.
+
+00:26:18.878 --> 00:26:37.668
+Copy the wall to the north edge. Both facades
+share one definition. Then unlock the labels.
+
+00:26:45.026 --> 00:27:01.092
+For the ceiling, make one reusable sixty
+centimetre square panel in the open office zone.
+
+00:27:01.142 --> 00:27:17.452
+Edit Prototype. A volumetric array hotspot
+repeats the panel in both plan directions.
+
+00:27:19.934 --> 00:27:36.644
+Drag the instance handle to form two rows of
+twenty panels, then lift the assembly on a helper.
+
+00:27:55.975 --> 00:28:09.046
+Good. Seven by three structural bays, four lifts, two
+staircases and open offices around one central core.
+
+00:28:09.096 --> 00:28:22.032
+The partial ceiling leaves the layout visible. The
+structural and facade grids remain hotspot-driven.

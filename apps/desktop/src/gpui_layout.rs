@@ -903,8 +903,17 @@ fn setting_pair(
     (div()
         .flex()
         .gap(px(8.))
-        .child(setting_field(left_label, left_value, bindings))
-        .child(setting_field(right_label, right_value, bindings)))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(setting_field(left_label, left_value, bindings)),
+        )
+        .child(div().flex_1().min_w(px(0.)).child(setting_field(
+            right_label,
+            right_value,
+            bindings,
+        ))))
     .into_any_element()
 }
 
