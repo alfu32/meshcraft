@@ -80,9 +80,13 @@ external scenes can supply referenced prototypes. A selected hotspot shows its
 reference point and attached geometry. Hotspots transform, copy, explode and join
 Make Object selections like the content beside them.
 
-**Bake to Shader** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
+**Shader objects can be written from scratch.** Objects › New Shader Object opens
+the shader editor on a blank object whose geometry is one GLSL function; its Full
+Source tab shows every line compiled around it. [Shader objects](docs/shader-objects.md).
+
+**Bake to GPU Mesh** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
 turns frozen or shader-generated objects into editable edges and faces, with Undo.
-[Object conversion details](docs/rewrite/spec/objects.md#bake-to-shader-and-bake-to-mesh).
+[Object conversion details](docs/rewrite/spec/objects.md#bake-to-gpu-mesh-and-bake-to-mesh).
 
 ![Fitted kitchen using configurable cabinet instances with independent sizes and finishes](docs/screenshots/dynamic-object-instances.png)
 

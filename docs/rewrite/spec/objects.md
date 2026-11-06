@@ -231,16 +231,16 @@ must not block on JavaScript or allow late preview results into the document.
 Authoring-mode marker repositioning also stays non-mutating until release; it
 moves the marker without repeatedly rebuilding its prototype or the drawing.
 
-## Bake to Shader and Bake to Mesh
+## Bake to GPU Mesh and Bake to Mesh
 
-The Objects menu and Object Instance panel expose **Bake to Shader**
-(`object.bake_to_shader`) and **Bake to Mesh** (`object.bake_to_mesh`). These are
+The Objects menu and Object Instance panel expose **Bake to GPU Mesh**
+(`object.bake_to_shader`; named Bake to Shader before 0.58.0, ID unchanged) and **Bake to Mesh** (`object.bake_to_mesh`). These are
 explicit, undoable conversions of selected instances. Unselected instances and
 source prototypes retain their current behavior. Parent and child transforms,
 material assignments, segment direction, face winding and IFC data survive the
 conversion. Nested geometry is flattened in the selected object's local frame.
 
-Bake to Shader freezes the currently evaluated graphical/scripted object into a
+Bake to GPU Mesh freezes the currently evaluated graphical/scripted object into a
 static GPU mesh prototype, marked **GPU mesh** in the prototype browser. It uses
 the existing retained OpenGL surface/line shaders and shared mesh buffers; it does
 not generate a large GLSL source file or run its former script each frame. Source
@@ -249,7 +249,7 @@ mesh/GPU round trip. Mesh editing requires Bake to Mesh first. This is a snapsho
 of geometry, not a promise that an arbitrary object becomes a procedural generator.
 
 Bake to Mesh converts a frozen GPU mesh back to editable lines and triangles.
-For shader-generated objects (currently trees), capture the actual vertex shader
+For shader-generated objects (trees, branching and custom objects), capture the actual vertex shader
 output on the graphics owner with transform feedback at the current animation
 time, at full configured detail within the configured instance budget. Weld equal
 positions, retain face orientation and produce directed mesh edges. Do not use a

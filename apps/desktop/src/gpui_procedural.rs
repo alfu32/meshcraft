@@ -150,10 +150,14 @@ fn shader_sources(p: &Program) -> (String, String) {
             ));
         }
     }
-    let object = p.is_object_generator();
+    // Tree engines are host code; custom objects only receive their counts.
+    let object = matches!(p.generation.as_str(), "tree" | "branching");
+    let custom = p.generation == "custom";
     let branching = p.generation == "branching";
     let mut prelude = if object {
         "uniform int treeBranches; uniform int treeLeafCount; flat out float treePart; flat out float treeKey; void treeVertex(out vec3 p,out vec3 normal,out vec2 uv);".to_owned()
+    } else if custom {
+        "uniform int customVertexCount; uniform int customInstanceCount;".to_owned()
     } else {
         String::new()
     };
@@ -185,12 +189,14 @@ fn shader_sources(p: &Program) -> (String, String) {
                 },
             )
             .replace("/*PARAMETERS*/", &declarations)
-            .replace("/*VERTEX*/", &p.vertex)
+            .replace("/*VERTEX*/", &vertex_hooks(p))
             .replace("/*TREE*/", &prelude)
             .replace(
                 "/*TREE_BRANCH*/",
                 if object {
                     "if(generation==2){treeVertex(position,normal,uv);}else"
+                } else if custom {
+                    "if(generation==5){customVertex(gl_VertexID,gl_InstanceID,position,normal,uv);materialUv=uv;}else"
                 } else {
                     ""
                 },
@@ -206,19 +212,50 @@ fn shader_sources(p: &Program) -> (String, String) {
                     ""
                 },
             )
-            .replace(
-                "/*FRAGMENT*/",
-                &format!(
-                    "{}\n{}",
-                    if p.fragment.contains("vec3 proceduralShadingNormal(") {
-                        ""
-                    } else {
-                        "vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){return n;}"
-                    },
-                    p.fragment
-                ),
-            ),
+            .replace("/*FRAGMENT*/", &fragment_hooks(p)),
     )
+}
+/// Author vertex code, with a no-op deformation hook when the author omits it.
+fn vertex_hooks(p: &Program) -> String {
+    if p.vertex.contains("proceduralVertex(") {
+        p.vertex.clone()
+    } else {
+        format!(
+            "{}\nvoid proceduralVertex(inout vec3 position,inout vec3 normal,vec2 uv){{}}",
+            p.vertex
+        )
+    }
+}
+/// Author fragment code, with pass-through hooks for any the author omits.
+pub(super) fn fragment_hooks(p: &Program) -> String {
+    let mut hooks = String::new();
+    if !p.fragment.contains("vec3 proceduralShadingNormal(") {
+        hooks.push_str("vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){return n;}\n");
+    }
+    if !p.fragment.contains("proceduralColor(") {
+        hooks.push_str(
+            "vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv){return color;}\n",
+        );
+    }
+    hooks + &p.fragment
+}
+/// The exact viewport vertex and fragment shaders, for reading in the shader editor.
+pub(in crate::gpui_app) fn full_source(program: &Program) -> String {
+    let (vertex, fragment) = render_shader_sources(program);
+    let mut text = format!(
+        "// Read-only: the complete code Meshcraft compiles for the viewport.\n\
+         // Your Vertex and Fragment tab code is inserted into this host template,\n\
+         // which adds the camera, lighting, shadows and parameter uniforms.\n\
+         \n// ===== Vertex shader =====\n{vertex}\n\n// ===== Fragment shader =====\n{fragment}\n"
+    );
+    if program.generation == "branching" {
+        text.push_str(
+            "\n// ===== Branch state pass =====\n// Branching programs also run the vertex \
+             shader above once per branch with transform feedback, replacing main() with one \
+             that calls branchEvaluate() and records the branch states read by this shader.\n",
+        );
+    }
+    text
 }
 fn render_shader_sources(program: &Program) -> (String, String) {
     let (vertex, fragment) = shader_sources(program);
@@ -788,6 +825,7 @@ impl Renderer {
                     "foliage" => 4,
                     "tree" | "branching" => 2,
                     "surface_grid" => 3,
+                    "custom" => 5,
                     _ => 0,
                 },
             );
@@ -969,6 +1007,18 @@ impl Renderer {
                     let max = (config.max_instances as usize / domain.data.len()).max(1);
                     let n = n.min((max as f64).sqrt() as usize).max(1);
                     n * n
+                } else if program.generation == "custom" {
+                    let instances =
+                        program.custom_draw_instances(&batch.values, config.max_instances);
+                    shader.set_shader_value(
+                        shader.get_shader_location("customVertexCount"),
+                        program.vertex_count as i32,
+                    );
+                    shader.set_shader_value(
+                        shader.get_shader_location("customInstanceCount"),
+                        instances as i32,
+                    );
+                    instances
                 } else if program.is_object_generator() {
                     let branches = object_branch_count(program, &batch.values);
                     let leaves = (object_leaf_count(program, &batch.values) as f64 * lod) as usize;
@@ -986,6 +1036,10 @@ impl Renderer {
                 } else {
                     1
                 };
+                if per == 0 {
+                    // A zero divisor would read past the one-entry object domain.
+                    continue;
+                }
                 shader.set_shader_value_matrix(shader.get_shader_location("model"), matrix(*model));
                 shader
                     .set_shader_value(shader.get_shader_location("bladesPerTriangle"), per as i32);
@@ -1028,7 +1082,13 @@ impl Renderer {
                     for i in 0..4 {
                         raylib::ffi::rlSetVertexAttributeDivisor(i, per as i32);
                     }
-                    if program.is_object_generator() {
+                    if program.generation == "custom" {
+                        raylib::ffi::rlDrawVertexArrayInstanced(
+                            0,
+                            program.vertex_count as i32,
+                            per as i32,
+                        );
+                    } else if program.is_object_generator() {
                         let branches = object_branch_count(program, &batch.values).min(per);
                         shader.set_shader_value(shader.get_shader_location("treePass"), 0i32);
                         raylib::ffi::rlDrawVertexArrayInstanced(
@@ -1076,6 +1136,7 @@ impl Renderer {
                     self.animated |= program.animated && animation_active(program, &batch.values);
                     self.candidates += domain.data.len() * per;
                     self.draw_calls += if program.is_object_generator()
+                        && program.generation != "custom"
                         && per > object_branch_count(program, &batch.values)
                     {
                         2
@@ -1687,6 +1748,38 @@ mod tests {
             Affine3::from_translation(Vec3::X * 5.),
             identity
         ));
+    }
+    #[test]
+    fn custom_objects_call_only_their_own_vertex_code_and_show_it_in_full() {
+        let program = meshcraft_core::document::procedural::blank_object_program();
+        let (vertex, fragment) = render_shader_sources(&program);
+        assert!(vertex.contains(&program.vertex));
+        assert!(vertex.contains("customVertex(gl_VertexID,gl_InstanceID,position,normal,uv)"));
+        assert!(vertex.contains("uniform int customVertexCount;"));
+        assert!(vertex.contains("uniform vec3 u_size;"));
+        // No tree engine or tree outputs are compiled into a custom object.
+        assert!(!vertex.contains("treeVertex(") && !vertex.contains("treePart"));
+        assert!(!fragment.contains("treePart"));
+        // Omitted hooks get exactly one pass-through definition each.
+        assert_eq!(vertex.matches("void proceduralVertex(").count(), 1);
+        let mut bare = program.clone();
+        bare.fragment.clear();
+        let (_, fragment) = render_shader_sources(&bare);
+        assert_eq!(fragment.matches("vec4 proceduralColor(").count(), 1);
+        assert_eq!(fragment.matches("vec3 proceduralShadingNormal(").count(), 1);
+        let full = full_source(&program);
+        assert!(full.contains(&vertex) && full.contains("// ===== Fragment shader ====="));
+        // Other kinds keep their earlier sources.
+        let grass = meshcraft_core::document::procedural::grass_program();
+        assert!(!shader_sources(&grass).0.contains("customVertex"));
+        let tree = meshcraft_core::document::procedural::tree_program();
+        assert!(
+            shader_sources(&tree)
+                .0
+                .contains("if(generation==2){treeVertex")
+        );
+        let branching = meshcraft_core::document::procedural::branching_program();
+        assert!(full_source(&branching).contains("Branch state pass"));
     }
     #[test]
     #[ignore = "requires private X11/OpenGL 3.3; exercises actual GPU generation and fallback"]

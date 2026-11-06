@@ -8,6 +8,7 @@ enum Tab {
     Definition,
     Vertex,
     Fragment,
+    Full,
 }
 impl Tab {
     fn label(self) -> &'static str {
@@ -15,15 +16,32 @@ impl Tab {
             Self::Definition => "Definition · JSON",
             Self::Vertex => "Vertex · GLSL",
             Self::Fragment => "Fragment · GLSL",
+            Self::Full => "Full Source",
         }
     }
+}
+
+/// How the editor was opened: editing an existing program, or starting a new one.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Mode {
+    Edit,
+    /// Materials › New Shader: saving stores the program only.
+    NewProgram,
+    /// Objects › New Shader Object: saving an object program also creates the object.
+    NewObject,
 }
 
 pub(super) struct Editor {
     code: Entity<InputState>,
     vertex: Entity<InputState>,
     fragment: Entity<InputState>,
+    full: Entity<InputState>,
     tab: Tab,
+    mode: Mode,
+    starter: Option<Entity<SelectState<Vec<String>>>>,
+    starters: Vec<Program>,
+    /// Whether the last parsed draft generates an independent object.
+    object: bool,
     _subscriptions: Vec<gpui::Subscription>,
     material: Material,
     base: Option<Material>,
@@ -48,6 +66,75 @@ fn parse_program(metadata: &str, vertex: &str, fragment: &str) -> Result<Program
     program.validate()?;
     Ok(program)
 }
+/// Definition tab text: the program without its two GLSL sources.
+fn definition_json(program: &Program) -> String {
+    let mut metadata = serde_json::to_value(program).unwrap();
+    metadata.as_object_mut().unwrap().remove("vertex");
+    metadata.as_object_mut().unwrap().remove("fragment");
+    serde_json::to_string_pretty(&metadata).unwrap()
+}
+
+/// An unused `custom.<stem>.<n>` program ID, skipping `taken` as well.
+fn unused_id(
+    document: &Document,
+    taken: &std::collections::BTreeSet<String>,
+    stem: &str,
+) -> String {
+    let existing = document.procedural_programs();
+    (1..)
+        .map(|n| format!("custom.{stem}.{n}"))
+        .find(|id| !taken.contains(id) && !existing.iter().any(|p| &p.id == id))
+        .unwrap()
+}
+
+/// Starting points for a new program. The blank starters get unused custom IDs;
+/// built-ins are offered as themselves, so an unchanged built-in object reuses the
+/// built-in program, and an edited one is saved as a copy (see `as_saved`).
+pub(super) fn starters(document: &Document, object: bool) -> Vec<(String, Program)> {
+    let mut taken = std::collections::BTreeSet::new();
+    let mut blank_object = procedural::blank_object_program();
+    blank_object.id = unused_id(document, &taken, "object");
+    taken.insert(blank_object.id.clone());
+    let blank_object = (
+        "Blank object · write the geometry yourself".to_owned(),
+        blank_object,
+    );
+    let blank_surface = (
+        "Blank surface · deform and colour faces".to_owned(),
+        Program {
+            id: unused_id(document, &taken, "surface"),
+            name: "Custom surface".into(),
+            ..Default::default()
+        },
+    );
+    let mut list = if object {
+        vec![blank_object, blank_surface]
+    } else {
+        vec![blank_surface, blank_object]
+    };
+    let mut builtins = procedural::builtin_programs();
+    builtins.sort_by_key(|p| p.is_object_generator() != object);
+    list.extend(
+        builtins
+            .into_iter()
+            .map(|p| (format!("{} · built-in {}", p.name, p.generation), p)),
+    );
+    list
+}
+
+/// The program as it will be stored. Built-ins are read-only, so an edited
+/// built-in becomes a custom copy; an unchanged one is returned as is.
+fn as_saved(document: &Document, mut program: Program) -> Program {
+    let builtin = procedural::builtin_programs()
+        .into_iter()
+        .find(|b| b.id == program.id);
+    if builtin.is_some_and(|b| b != program) {
+        program.id = unused_id(document, &Default::default(), &program.generation);
+        program.name = format!("Custom {}", program.name.to_lowercase());
+    }
+    program
+}
+
 fn program(editor: &Editor, cx: &Context<MeshcraftShell>) -> Result<Program, String> {
     parse_program(
         &editor.code.read(cx).value(),
@@ -149,9 +236,34 @@ pub(super) fn preview_document(
     Ok(document)
 }
 
+/// Opens the editor on a new program, with a choice of starting point.
+pub(super) fn open_new(
+    shell: &mut MeshcraftShell,
+    object: bool,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let starters = starters(&shell.cached_document, object);
+    let first = starters[0].1.clone();
+    open(
+        shell,
+        first,
+        if object {
+            Mode::NewObject
+        } else {
+            Mode::NewProgram
+        },
+        starters,
+        window,
+        cx,
+    );
+}
+
 pub(super) fn open(
     shell: &mut MeshcraftShell,
     source: Program,
+    mode: Mode,
+    starters: Vec<(String, Program)>,
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
@@ -160,13 +272,22 @@ pub(super) fn open(
         let theme = cx.global_mut::<Theme>();
         theme.highlight_theme = Arc::new(scripts::language::theme(&theme.highlight_theme));
     }
-    let mut metadata = serde_json::to_value(&source).unwrap();
-    metadata.as_object_mut().unwrap().remove("vertex");
-    metadata.as_object_mut().unwrap().remove("fragment");
     let code = cx.new(|cx| {
         InputState::new(window, cx)
             .code_editor("json")
-            .default_value(serde_json::to_string_pretty(&metadata).unwrap())
+            .default_value(definition_json(&source))
+    });
+    let full = cx.new(|cx| InputState::new(window, cx).code_editor(language::NAME));
+    let (labels, starters): (Vec<_>, Vec<_>) = starters.into_iter().unzip();
+    let starter = (!labels.is_empty()).then(|| {
+        cx.new(|cx| {
+            SelectState::new(
+                labels,
+                Some(gpui_component::IndexPath::default().row(0)),
+                window,
+                cx,
+            )
+        })
     });
     let vertex = cx.new(|cx| {
         InputState::new(window, cx)
@@ -178,7 +299,7 @@ pub(super) fn open(
             .code_editor(language::NAME)
             .default_value(source.fragment.clone())
     });
-    let subscriptions = [&code, &vertex, &fragment]
+    let mut subscriptions: Vec<gpui::Subscription> = [&code, &vertex, &fragment]
         .into_iter()
         .map(|input| {
             cx.subscribe_in(input, window, |this, _, event: &InputEvent, _, cx| {
@@ -194,6 +315,18 @@ pub(super) fn open(
             })
         })
         .collect();
+    if let Some(select) = &starter {
+        subscriptions.push(cx.subscribe_in(
+            select,
+            window,
+            |this, state, _: &SelectEvent<Vec<String>>, window, cx| {
+                let index = state.read(cx).selected_index(cx).map(|i| i.row);
+                if let Some(index) = index {
+                    choose_starter(this, index, window, cx);
+                }
+            },
+        ));
+    }
     let mut material = shell
         .materials
         .editor
@@ -234,11 +367,20 @@ pub(super) fn open(
         frame_watch_started: false,
         presented_image: None,
     });
+    if mode == Mode::NewObject {
+        // A new object starts neutral rather than inheriting the white default.
+        material.color = Rgba8::new(176, 190, 205, 255);
+    }
     shell.materials.program_editor = Some(Editor {
         code: code.clone(),
         vertex,
         fragment,
+        full,
         tab: Tab::Definition,
+        mode,
+        starter,
+        starters,
+        object: source.is_object_generator(),
         _subscriptions: subscriptions,
         material,
         base,
@@ -259,6 +401,52 @@ pub(super) fn open(
     shell.open_menu = None;
     code.update(cx, |input, cx| input.focus(window, cx));
     cx.notify();
+}
+
+/// Replaces the draft with a starting point. Only offered for new programs.
+fn choose_starter(
+    shell: &mut MeshcraftShell,
+    index: usize,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let Some(editor) = shell.materials.program_editor.as_mut() else {
+        return;
+    };
+    let Some(program) = editor.starters.get(index).cloned() else {
+        return;
+    };
+    editor.code.update(cx, |i, cx| {
+        i.set_value(definition_json(&program), window, cx)
+    });
+    editor
+        .vertex
+        .update(cx, |i, cx| i.set_value(program.vertex.clone(), window, cx));
+    editor.fragment.update(cx, |i, cx| {
+        i.set_value(program.fragment.clone(), window, cx)
+    });
+    // A different kind keeps only the parameter values the new schema accepts.
+    editor.material = configure(&editor.material, &program);
+    editor.object = program.is_object_generator();
+    if editor.tab == Tab::Full {
+        refresh_full_source(editor, window, cx);
+    }
+    evaluate(shell, cx, true);
+    cx.notify();
+}
+
+/// Fills the read-only tab with the complete code compiled for the current draft.
+fn refresh_full_source(editor: &Editor, window: &mut Window, cx: &mut Context<MeshcraftShell>) {
+    let text = match program(editor, cx) {
+        Ok(p) => crate::gpui_app::procedural::full_source(&p),
+        Err(e) => format!(
+            "// The draft doesn't parse yet, so there is no full source to show.\n// {}\n",
+            e.replace('\n', "\n// ")
+        ),
+    };
+    editor
+        .full
+        .update(cx, |i, cx| i.set_value(text, window, cx));
 }
 
 pub(super) fn close(
@@ -283,8 +471,10 @@ fn evaluate(shell: &mut MeshcraftShell, cx: &Context<MeshcraftShell>, fit: bool)
     editor.due = None;
     editor.valid = false;
     editor.pending = None;
-    let result = program(editor, cx)
-        .and_then(|p| preview_document(&p, &editor.material, editor.base.as_ref()));
+    let result = program(editor, cx).and_then(|p| {
+        editor.object = p.is_object_generator();
+        preview_document(&p, &editor.material, editor.base.as_ref())
+    });
     match result {
         Ok(document) => {
             if fit {
@@ -341,7 +531,32 @@ fn save(shell: &mut MeshcraftShell, window: &mut Window, cx: &mut Context<Meshcr
     if !editor.valid || editor.due.is_some() || editor.pending.is_some() {
         return;
     }
+    if editor.mode == Mode::NewObject && editor.object {
+        let result = program(editor, cx).and_then(|p| {
+            let p = as_saved(&shell.cached_document, p);
+            let mut settings = configure(&editor.material, &p);
+            settings.name = p.name.clone();
+            shell.session.create_native_shader_object(p, settings)
+        });
+        match result {
+            Ok(_) => {
+                close(shell, window, cx);
+                shell.refresh_scene();
+            }
+            Err(error) => {
+                shell.materials.program_editor.as_mut().unwrap().error = Some(error);
+                cx.notify();
+            }
+        }
+        return;
+    }
     let result = program(editor, cx).and_then(|p| {
+        // Saving an unchanged built-in from New Shader stores a copy to start from.
+        let mut p = as_saved(&shell.cached_document, p);
+        if procedural::is_builtin(&p.id) {
+            p.id = unused_id(&shell.cached_document, &Default::default(), &p.generation);
+            p.name = format!("Custom {}", p.name.to_lowercase());
+        }
         shell.session.save_native_procedural_program(p.clone())?;
         Ok(p)
     });
@@ -375,8 +590,8 @@ pub(super) fn overlay(
     cx: &mut Context<MeshcraftShell>,
 ) -> Option<gpui::AnyElement> {
     let editor = shell.materials.program_editor.as_ref()?;
-    let tabs = div().flex().gap(px(6.)).children(
-        [Tab::Definition, Tab::Vertex, Tab::Fragment]
+    let tabs = div().flex().flex_wrap().gap(px(6.)).children(
+        [Tab::Definition, Tab::Vertex, Tab::Fragment, Tab::Full]
             .into_iter()
             .map(|tab| {
                 Button::new(tab.label())
@@ -385,10 +600,14 @@ pub(super) fn overlay(
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(e) = this.materials.program_editor.as_mut() {
                             e.tab = tab;
+                            if tab == Tab::Full {
+                                refresh_full_source(e, window, cx);
+                            }
                             let input = match tab {
                                 Tab::Definition => &e.code,
                                 Tab::Vertex => &e.vertex,
                                 Tab::Fragment => &e.fragment,
+                                Tab::Full => &e.full,
                             };
                             input.update(cx, |i, cx| i.focus(window, cx));
                         }
@@ -400,6 +619,7 @@ pub(super) fn overlay(
         Tab::Definition => &editor.code,
         Tab::Vertex => &editor.vertex,
         Tab::Fragment => &editor.fragment,
+        Tab::Full => &editor.full,
     };
     let code = div()
         .flex_1()
@@ -412,6 +632,7 @@ pub(super) fn overlay(
         .child(
             div().flex_1().min_h(px(0.)).child(
                 Input::new(input)
+                    .disabled(editor.tab == Tab::Full)
                     .size_full()
                     .font_family(cx.global::<Theme>().mono_font_family.clone())
                     .text_size(px(14.)),
@@ -525,19 +746,106 @@ pub(super) fn overlay(
     } else {
         "Fix the draft to preview"
     };
-    Some(div().id("program/modal").absolute().inset_0().top(px(layout::TITLE_BAR_HEIGHT)).occlude().p(px(24.)).flex().flex_col().gap(px(10.)).bg(rgb(0x1b222b))
-        .on_scroll_wheel(|_,_,cx| cx.stop_propagation())
-        .child(div().text_lg().child("Shader Editor"))
-        .child(div().text_sm().child("GLSL 330 · Parameters: u_<id> · time: seconds. Preview: right-drag orbit · Shift+right / middle-drag pan · wheel zoom."))
-        .child(div().flex().flex_1().min_h(px(0.)).gap(px(12.)).child(code).child(preview))
-        .when_some(editor.error.clone(), |row, error| row.child(div().id("program/errors").max_h(px(100.)).overflow_y_scroll().text_sm().text_color(rgb(0xff9999)).child(error)))
-        .child(div().flex().items_center().justify_between()
-            .child(div().text_sm().child(status))
-            .child(div().flex().gap(px(8.))
-                .child(Button::new("program/cancel").label("Cancel").on_click(cx.listener(|this,_,window,cx| close(this,window,cx))))
-                .child(Button::new("program/preview").label("Preview").on_click(cx.listener(|this,_,_,cx| {evaluate(this,cx,false);cx.notify();})))
-                .child(Button::new("program/save").label("Save Program").primary().disabled(!editor.valid || editor.due.is_some() || editor.pending.is_some()).on_click(cx.listener(|this,_,window,cx| save(this,window,cx))))))
-        .into_any_element())
+    let creates = editor.mode == Mode::NewObject && editor.object;
+    let title = match editor.mode {
+        Mode::NewObject => "New Shader Object",
+        Mode::NewProgram => "New Shader",
+        Mode::Edit => "Shader Editor",
+    };
+    let header = div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .child(div().text_lg().child(title))
+        .when_some(editor.starter.clone(), |row, starter| {
+            row.child(div().text_sm().child("Start from"))
+                .child(div().w(px(380.)).child(Select::new(&starter)))
+        });
+    let help = if editor.object {
+        "Object programs: customVertex(vertexId, instanceId, …) writes every vertex, or a tree engine does. GLSL 330 · Parameters: u_<id> · time: seconds. Full Source shows everything that is compiled."
+    } else {
+        "Surface programs: proceduralVertex/proceduralColor run on existing faces. GLSL 330 · Parameters: u_<id> · time: seconds. Full Source shows everything that is compiled."
+    };
+    Some(
+        div()
+            .id("program/modal")
+            .absolute()
+            .inset_0()
+            .top(px(layout::TITLE_BAR_HEIGHT))
+            .occlude()
+            .p(px(24.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .bg(rgb(0x1b222b))
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .child(header)
+            .child(div().text_sm().child(help))
+            .child(
+                div().text_xs().text_color(rgb(0xa9b7c5)).child(
+                    "Preview: right-drag orbit · Shift+right / middle-drag pan · wheel zoom.",
+                ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .gap(px(12.))
+                    .child(code)
+                    .child(preview),
+            )
+            .when_some(editor.error.clone(), |row, error| {
+                row.child(
+                    div()
+                        .id("program/errors")
+                        .max_h(px(100.))
+                        .overflow_y_scroll()
+                        .text_sm()
+                        .text_color(rgb(0xff9999))
+                        .child(error),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_sm().child(status))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(Button::new("program/cancel").label("Cancel").on_click(
+                                cx.listener(|this, _, window, cx| close(this, window, cx)),
+                            ))
+                            .child(Button::new("program/preview").label("Preview").on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    evaluate(this, cx, false);
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(
+                                Button::new("program/save")
+                                    .label(if creates {
+                                        "Create Object"
+                                    } else {
+                                        "Save Program"
+                                    })
+                                    .primary()
+                                    .disabled(
+                                        !editor.valid
+                                            || editor.due.is_some()
+                                            || editor.pending.is_some(),
+                                    )
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| save(this, window, cx)),
+                                    ),
+                            ),
+                    ),
+            )
+            .into_any_element(),
+    )
 }
 
 #[cfg(test)]
@@ -592,6 +900,53 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn new_programs_start_blank_with_unique_ids_and_round_trip_the_tabs() {
+        let mut document = Document::new();
+        let objects = starters(&document, true);
+        let surfaces = starters(&document, false);
+        assert_eq!(objects[0].1.generation, "custom");
+        assert_eq!(surfaces[0].1.generation, "surface");
+        // Every built-in is offered as a copy, after the two blank starters.
+        assert_eq!(objects.len(), 2 + procedural::builtin_programs().len());
+        let mut ids = std::collections::BTreeSet::new();
+        for (label, p) in &objects {
+            assert!(!label.is_empty());
+            assert!(ids.insert(p.id.clone()), "duplicate {}", p.id);
+            p.validate().unwrap();
+            let parsed = parse_program(&definition_json(p), &p.vertex, &p.fragment).unwrap();
+            assert_eq!(&parsed, p);
+            preview_document(p, &Material::default(), None).unwrap();
+        }
+        // Object starters list object programs before surface programs.
+        let first_surface = objects[2..]
+            .iter()
+            .position(|(_, p)| !p.is_object_generator())
+            .unwrap();
+        assert!(
+            objects[2..][first_surface..]
+                .iter()
+                .all(|(_, p)| !p.is_object_generator())
+        );
+        // Built-ins are offered unchanged; the blank starters never reuse a saved ID.
+        assert!(
+            objects[2..]
+                .iter()
+                .all(|(_, p)| procedural::is_builtin(&p.id))
+        );
+        document
+            .put_procedural_program(objects[0].1.clone())
+            .unwrap();
+        assert_ne!(starters(&document, true)[0].1.id, objects[0].1.id);
+        // An unchanged built-in is stored as itself; an edited one becomes a copy.
+        let tree = procedural::branching_program();
+        assert_eq!(as_saved(&document, tree.clone()), tree);
+        let mut edited = tree.clone();
+        edited.vertex.push_str("\n// edited");
+        let copy = as_saved(&document, edited);
+        assert_eq!(copy.id, "custom.branching.1");
+        assert!(!procedural::is_builtin(&copy.id) && copy.name.starts_with("Custom "));
     }
     #[test]
     fn schema_changes_preserve_compatible_material_values() {

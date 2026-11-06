@@ -1,6 +1,7 @@
 # Branching shaders — #29 / #31
 
-**New Tree** uses `meshcraft.branching.v1`, a single GLSL branching engine with
+**Objects › New Shader Object**, starting from **Branching fractal**, creates a
+tree with `meshcraft.branching.v1`, a single GLSL branching engine with
 Broadleaf, Conifer, Weeping, Shrub, Coral and Roots rule families. Pick **Form** in
 the procedural object editor; its right-hand preview shows the effective draft.
 All families share one evaluator. Old `meshcraft.tree.v1` objects retain their

@@ -3162,7 +3162,7 @@ impl Render for MeshcraftShell {
         }
         if let Some(panel) = self.session.native_take_panel_focus() {
             if panel == "material_program_new" {
-                materials::new_program(self, window, cx);
+                materials::new_program(self, false, window, cx);
             }
             if panel == "script_new" || panel == "script_edit" {
                 scripts::edit(self, panel == "script_new", window, cx);

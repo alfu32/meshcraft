@@ -1,0 +1,82 @@
+{
+  "checks": {
+    "catalog labels renamed, command IDs kept": true,
+    "New Shader Object previews the blank object on the GPU": true,
+    "Full Source copies the complete compiled code, with the blank object inside": true,
+    "Full Source is read-only and keeps the preview valid": true,
+    "choosing the built-in Tree replaces the draft with a tree program": true,
+    "choosing Blank object again restores the blank draft": true,
+    "drafts never change the drawing": true,
+    "Create Object saves the program and the object as one Undo step": true,
+    "the saved program is a custom object with no tree engine": true,
+    "Create Object starts placement: one click places an instance": true,
+    "the placed object draws with no diagnostics": true,
+    "Bake to Mesh turns the custom box into 12 editable triangles": true,
+    "Undo restores the shader object": true,
+    "Bake to GPU Mesh freezes it as a 12-triangle GPU mesh": true,
+    "a parameter-counted custom object is placed": true,
+    "instances follow the count parameter": true,
+    "bounds follow the count, so Fit Model frames the whole stack": true,
+    "Materials > New Shader starts from a blank surface and previews it": true,
+    "Escape closes New Shader without changing the drawing": true,
+    "an unchanged built-in tree uses the built-in program, without a copy": true,
+    "creating and placing it takes two Undo steps": true,
+    "the built-in tree draws beside the custom objects": true,
+    "the application is still running": true
+  },
+  "observations": {
+    "labels": {
+      "object.new_tree": "New Shader Object",
+      "object.edit_tree": "Shader Object Settings",
+      "object.bake_to_shader": "Bake to GPU Mesh",
+      "material.new_shader": "New Shader"
+    },
+    "created": {
+      "program": "custom.object.1",
+      "prototype": 2,
+      "history": {
+        "before": [
+          0,
+          0
+        ],
+        "after": [
+          1,
+          1
+        ]
+      }
+    },
+    "bakes": {
+      "mesh": [
+        0,
+        12
+      ],
+      "gpu": [
+        {
+          "vertices": 8,
+          "segments": 18,
+          "triangles": 12
+        }
+      ]
+    },
+    "stack": {
+      "bounds": {
+        "min": {
+          "x": 3.5,
+          "y": 0.0,
+          "z": -0.5
+        },
+        "max": {
+          "x": 4.5,
+          "y": 5.0,
+          "z": 0.5
+        }
+      },
+      "frame": {
+        "diagnostics": [],
+        "candidateInstances": 6,
+        "drawCalls": 2
+      }
+    }
+  },
+  "passed": true
+}

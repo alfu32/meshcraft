@@ -774,6 +774,31 @@ impl MeshcraftApp {
         }
         Ok(id)
     }
+    /// Saves a shader program and creates an object from it as one Undo step,
+    /// then starts placing the new object.
+    pub fn create_native_shader_object(
+        &mut self,
+        program: meshcraft_core::document::procedural::Program,
+        settings: meshcraft_core::document::materials::Material,
+    ) -> Result<DefinitionId, String> {
+        if !program.is_object_generator() {
+            return Err("Choose an object program to create a shader object".into());
+        }
+        let id = self.commit_global_document_edit("New shader object", |d| {
+            // An unchanged built-in is used as is; built-ins can't be stored again.
+            let builtin =
+                meshcraft_core::document::procedural::builtin_programs().contains(&program);
+            if !builtin {
+                d.put_procedural_program(program)?;
+            }
+            let id = d.create_procedural_tree()?;
+            d.set_procedural_object(id, None, settings)?;
+            Ok(id)
+        })?;
+        self.select_native_prototype(id);
+        self.begin_placing_definition(id);
+        Ok(id)
+    }
     pub fn select_native_prototype(&mut self, id: DefinitionId) {
         if self.document.definition(id).is_some() && !self.document.is_frame_definition(id) {
             self.object_browser_selection = Some(id);
@@ -1560,7 +1585,7 @@ impl MeshcraftApp {
     ) -> CommandResult {
         match self.commit_document_edit(
             if to_shader {
-                "Bake to Shader"
+                "Bake to GPU Mesh"
             } else {
                 "Bake to Mesh"
             },

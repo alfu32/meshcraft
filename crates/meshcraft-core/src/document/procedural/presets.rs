@@ -592,3 +592,36 @@ pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) 
         ..Default::default()
     });
 }
+
+/// Starting point for a shader object written from scratch. It is not a built-in:
+/// the editor gives it a unique ID, and nothing else is injected into its code.
+pub fn blank_object_program() -> Program {
+    Program {
+        id: "custom.object".into(),
+        name: "Custom object".into(),
+        generation: "custom".into(),
+        parameters: vec![Parameter {
+            id: "size".into(),
+            kind: "vec3".into(),
+            default: serde_json::json!([1.0, 1.0, 1.0]),
+            label: "Size".into(),
+            description: "Box width, height and depth in model units.".into(),
+            unit: String::new(),
+            min: Some(0.001),
+            max: Some(1000.),
+            step: None,
+            options: BTreeMap::new(),
+            extensions: BTreeMap::new(),
+        }],
+        vertex: include_str!("blank_object.vs").into(),
+        fragment: include_str!("blank_object.fs").into(),
+        vertex_count: 36,
+        instances: Some(InstanceCount::Fixed(1)),
+        // Bounds follow the size parameter, so picking and Fit Model match the box.
+        object_bounds: Some(ObjectBounds {
+            min: ["-size.x / 2".into(), 0.0.into(), "-size.z / 2".into()],
+            max: ["size.x / 2".into(), "size.y".into(), "size.z / 2".into()],
+        }),
+        ..Default::default()
+    }
+}

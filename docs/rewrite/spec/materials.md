@@ -236,3 +236,30 @@ schema-17 save/open and material-ID remapping on subscene import. Their material
 cannot be deleted while referenced. Generated script updates retain the finish.
 Within prototype editing, direct face/edge painting still edits that authored
 geometry. Architectural owners update their surface slots; hotspots keep colors.
+
+### Shader objects from scratch — T82
+
+Objects › New Shader Object (`object.new_tree`, ID unchanged) opens the shader
+editor on a blank `custom` object program rather than a tree preset. A **Start
+from** list offers the blank object, a blank surface and every built-in. An
+unchanged built-in object program is used as is; an edited built-in is saved under
+an unused `custom.<kind>.<n>` ID, so built-ins are never replaced. Saving an object
+program in this mode stores the program (when new) and a new prototype as one Undo
+step and starts placement (**Create Object**); a surface program is only saved.
+Materials › New Shader opens the same editor starting from a blank surface.
+
+A `custom` program defines `void customVertex(int vertexId, int instanceId, out vec3
+position, out vec3 normal, out vec2 uv)`, called `vertexCount` times (a multiple of
+3, at most 65,536) for each instance. `instances` is a fixed count or an integer or
+unsigned parameter. `objectBounds` is required: each corner coordinate is a number or
+an arithmetic expression over parameter values, evaluated on the CPU for culling,
+picking, selection and Fit Model. No tree engine, branch state or tree output is
+compiled into a custom program, and omitted `proceduralVertex`/`proceduralColor`
+hooks get pass-through defaults. Instances drawn are limited by the object's
+candidate budget and 6,000,000 vertices. Bake to Mesh and Bake to GPU Mesh capture
+custom objects from the same shader; a zero count reports an error.
+
+A read-only **Full Source** tab shows the exact vertex and fragment shaders compiled
+for the viewport, including the host template and, for branching programs, a note on
+the transform-feedback state pass. Its text can be selected and copied.
+See [Shader objects](../../shader-objects.md).

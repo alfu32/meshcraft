@@ -518,3 +518,27 @@ Retain all 47 existing narration lines and voice keys, retime each part's
 selectable English subtitle track and sidecars, and inspect opening/ending and
 join frames. Verify codecs, durations, subtitle selection and decoded video
 continuity; publish both parts alongside the original.
+
+## C55 — Shader objects from scratch
+
+**Tasks:** T82. **Requirements:** P07.
+
+Objects › New Shader Object opens the shader editor on a blank `custom` object:
+a box in one `customVertex` function, previewed on the GPU with no diagnostics,
+without changing the drawing. Start from replaces the draft with a blank surface or
+any built-in; switching back restores the blank object. The read-only Full Source
+tab shows and copies the complete compiled vertex and fragment shaders containing
+the author's code and no tree engine, and typing into it changes nothing. Create
+Object stores the program and a prototype as one Undo step and starts placement.
+An unchanged built-in creates an object that uses the built-in program, with no
+copy; an edited built-in is saved under a custom ID.
+
+A custom object counted by an integer parameter draws that many instances, and
+bounds written as expressions over its parameters let Fit Model frame all of them.
+Bake to Mesh captures its triangles with outward winding; Bake to GPU Mesh
+(formerly Bake to Shader, ID `object.bake_to_shader`) freezes it; Undo restores the
+shader object. Materials › New Shader starts from a blank surface and Escape leaves
+the drawing unchanged. The command catalog shows New Shader Object, Shader Object
+Settings and Bake to GPU Mesh with their original IDs. Run
+`python3 scripts/verify_shader_objects.py`.
+

@@ -6,6 +6,8 @@ mod objects;
 pub use objects::*;
 mod presets;
 pub use presets::*;
+mod bounds;
+pub use bounds::*;
 pub const PROGRAMS_KEY: &str = "k3d.meshcraftProceduralPrograms";
 pub const OVERRIDES_KEY: &str = "k3d.meshcraftProceduralParameters";
 pub const GRASS: &str = "meshcraft.grass.v1";
@@ -89,6 +91,22 @@ impl Parameter {
     }
 }
 
+/// Vertices per instance and total vertices a custom object may emit per draw.
+pub const CUSTOM_MAX_VERTICES_PER_INSTANCE: u32 = 65_536;
+pub const CUSTOM_MAX_VERTICES: usize = 6_000_000;
+
+/// Instances drawn by a custom object: a fixed count or an integer parameter's value.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum InstanceCount {
+    Fixed(u32),
+    Parameter(String),
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Program {
@@ -104,12 +122,22 @@ pub struct Program {
     pub bounds_expansion: f64,
     pub animated: bool,
     pub transparent: bool,
+    /// `custom` only: vertices emitted per instance by `customVertex`, a multiple of three.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub vertex_count: u32,
+    /// `custom` only: instance count, fixed or read from an integer parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instances: Option<InstanceCount>,
+    /// `custom` only: local bounds of everything emitted, as numbers or expressions
+    /// over parameters, padded by `boundsExpansion`. Used for culling and picking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_bounds: Option<ObjectBounds>,
     #[serde(default, flatten)]
     pub extensions: BTreeMap<String, Value>,
 }
 impl Default for Program {
     fn default() -> Self {
-        Self {id:String::new(),name:String::new(),generation:"surface".into(),backend:"vertex_instancing_gl33".into(),parameters:vec![],vertex:"void proceduralVertex(inout vec3 position, inout vec3 normal, vec2 uv) {}".into(),fragment:"vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv) { return color; }".into(),bounds_expansion:0.,animated:false,transparent:false,extensions:BTreeMap::new()}
+        Self {id:String::new(),name:String::new(),generation:"surface".into(),backend:"vertex_instancing_gl33".into(),parameters:vec![],vertex:"void proceduralVertex(inout vec3 position, inout vec3 normal, vec2 uv) {}".into(),fragment:"vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv) { return color; }".into(),bounds_expansion:0.,animated:false,transparent:false,vertex_count:0,instances:None,object_bounds:None,extensions:BTreeMap::new()}
     }
 }
 impl Program {
@@ -159,7 +187,94 @@ impl Program {
             }
             p.validate_value(&p.default)?;
         }
+        if self.generation == "custom" {
+            self.validate_custom()?;
+        }
         Ok(())
+    }
+    fn validate_custom(&self) -> Result<(), String> {
+        if self.vertex_count == 0
+            || !self.vertex_count.is_multiple_of(3)
+            || self.vertex_count > CUSTOM_MAX_VERTICES_PER_INSTANCE
+        {
+            return Err(format!(
+                "Custom objects need vertexCount: a multiple of 3 from 3 to {CUSTOM_MAX_VERTICES_PER_INSTANCE}"
+            ));
+        }
+        let parameter_kind = |id: &str| {
+            self.parameters
+                .iter()
+                .find(|p| p.id == id)
+                .map(|p| p.kind.as_str())
+        };
+        match &self.instances {
+            None => {}
+            Some(InstanceCount::Fixed(n)) if (1..=1_000_000).contains(n) => {}
+            Some(InstanceCount::Fixed(_)) => {
+                return Err("Custom object instances must be from 1 to 1000000".into());
+            }
+            Some(InstanceCount::Parameter(id))
+                if matches!(parameter_kind(id), Some("integer" | "unsigned")) => {}
+            Some(InstanceCount::Parameter(id)) => {
+                return Err(format!(
+                    "instances names {id}, which must be an integer or unsigned parameter"
+                ));
+            }
+        }
+        let b = self
+            .object_bounds
+            .as_ref()
+            .ok_or("Custom objects need objectBounds: {\"min\":[x,y,z],\"max\":[x,y,z]}")?;
+        for v in b.min.iter().chain(&b.max) {
+            v.check(&self.parameters)?;
+        }
+        // The defaults must give a real box; other values are ordered when used.
+        let defaults = self.resolve(&BTreeMap::new(), &BTreeMap::new())?;
+        for axis in 0..3 {
+            if b.min[axis].evaluate(&defaults)? > b.max[axis].evaluate(&defaults)? {
+                return Err("objectBounds min must not exceed max for the default values".into());
+            }
+        }
+        Ok(())
+    }
+    /// Requested instances of a custom object, before the material budget.
+    pub fn custom_instances(&self, values: &BTreeMap<String, Value>) -> usize {
+        match &self.instances {
+            None => 1,
+            Some(InstanceCount::Fixed(n)) => *n as usize,
+            Some(InstanceCount::Parameter(id)) => values
+                .get(id)
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+                .clamp(0, 1_000_000) as usize,
+        }
+    }
+    /// Instances actually drawn: limited by the candidate budget and the vertex cap.
+    pub fn custom_draw_instances(&self, values: &BTreeMap<String, Value>, budget: u32) -> usize {
+        self.custom_instances(values)
+            .min(budget as usize)
+            .min(CUSTOM_MAX_VERTICES / (self.vertex_count.max(1) as usize))
+    }
+    /// Local bounds of a custom object for the given parameter values. An
+    /// expression that can't be evaluated for these values gives the unit box.
+    pub fn custom_bounds(&self, values: &BTreeMap<String, Value>) -> crate::geometry::Aabb3 {
+        use crate::geometry::{Aabb3, Vec3};
+        let corners = self.object_bounds.as_ref().and_then(|b| {
+            let corner = |c: &[BoundValue; 3]| -> Option<Vec3> {
+                let v = c
+                    .iter()
+                    .map(|v| v.evaluate(values).ok())
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Vec3::new(v[0], v[1], v[2]))
+            };
+            Some((corner(&b.min)?, corner(&b.max)?))
+        });
+        let (a, c) = corners.unwrap_or((Vec3::new(-0.5, 0., -0.5), Vec3::new(0.5, 1., 0.5)));
+        let pad = self.bounds_expansion;
+        Aabb3 {
+            min: Vec3::new(a.x.min(c.x) - pad, a.y.min(c.y) - pad, a.z.min(c.z) - pad),
+            max: Vec3::new(a.x.max(c.x) + pad, a.y.max(c.y) + pad, a.z.max(c.z) + pad),
+        }
     }
     pub fn resolve(
         &self,
@@ -186,7 +301,7 @@ impl Program {
         self.backend == "vertex_instancing_gl33"
             && matches!(
                 self.generation.as_str(),
-                "surface" | "blades" | "foliage" | "surface_grid" | "tree" | "branching"
+                "surface" | "blades" | "foliage" | "surface_grid" | "tree" | "branching" | "custom"
             )
             && self.parameters.iter().all(|p| {
                 matches!(
@@ -208,7 +323,7 @@ impl Program {
     }
     /// Independent GPU owners, rather than details attached to a mesh surface.
     pub fn is_object_generator(&self) -> bool {
-        matches!(self.generation.as_str(), "tree" | "branching")
+        matches!(self.generation.as_str(), "tree" | "branching" | "custom")
     }
 }
 

@@ -3837,6 +3837,55 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T82",
+      "title": "Shader objects from scratch: blank custom programs, Full Source and Bake to GPU Mesh",
+      "phase": "desktop",
+      "dependencies": [
+        "T66",
+        "T64"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C55"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/procedural.rs",
+        "crates/meshcraft-core/src/document/procedural/bounds.rs",
+        "crates/meshcraft-core/src/document/procedural/presets.rs",
+        "crates/meshcraft-core/src/document/procedural/objects.rs",
+        "apps/desktop/src/gpui_procedural.rs",
+        "apps/desktop/src/gpui_object_bake.rs",
+        "apps/desktop/src/gpui_shader_editor.rs",
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/object_workflow.rs",
+        "apps/desktop/src/app.rs",
+        "scripts/verify_shader_objects.py",
+        "docs/shader-objects.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/rewrite/spec/objects.md",
+        "docs/shader-objects.md",
+        "docs/rewrite/handoffs/T82.md"
+      ],
+      "slices": [
+        "Add the custom object kind: customVertex per vertex and instance, vertex and instance counts, and objectBounds whose coordinates may be expressions over parameters.",
+        "Draw and bake custom objects from the same shader, with no tree engine compiled in, within the candidate budget and a 6,000,000 vertex cap.",
+        "Open New Shader Object and New Shader on blank programs with a Start from list, a read-only Full Source tab and Create Object as one Undo step; rename Bake to Shader to Bake to GPU Mesh with unchanged command IDs."
+      ],
+      "done": [
+        "C55 passes in the native app, GPU bake tests pass under software GL and the release gate is green."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

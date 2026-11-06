@@ -1165,7 +1165,7 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
                         ("object.explode_selection", "Explode"),
                         ("script.edit", "Edit Script"),
                         ("object.edit_tree", "Shader Settings"),
-                        ("object.bake_to_shader", "Bake to Shader"),
+                        ("object.bake_to_shader", "Bake to GPU Mesh"),
                         ("object.bake_to_mesh", "Bake to Mesh"),
                     ],
                     bindings,

@@ -182,6 +182,9 @@ fn object_bounds(settings: &Material, programs: &[Program]) -> Aabb3 {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or(fallback);
     };
+    if let Some(p) = program.filter(|p| p.generation == "custom") {
+        return p.custom_bounds(&values);
+    }
     let n = |id: &str| values.get(id).and_then(Value::as_f64).unwrap_or(0.);
     let h = n("height");
     let pad = n("leafSize") * 3.
@@ -417,5 +420,170 @@ mod branching_tests {
         let before = document.clone();
         assert!(document.set_procedural_object(id, None, settings).is_err());
         assert_eq!(document, before);
+    }
+}
+
+#[cfg(test)]
+mod custom_tests {
+    use super::*;
+    use crate::{operations::objects::place_definition, selection::EditContext};
+    use serde_json::json;
+    #[test]
+    fn custom_programs_validate_counts_bounds_and_round_trip() {
+        let program = blank_object_program();
+        program.validate().unwrap();
+        assert!(program.supported() && program.is_object_generator());
+        assert!(!is_builtin(&program.id));
+        let values = program.resolve(&BTreeMap::new(), &BTreeMap::new()).unwrap();
+        assert_eq!(program.custom_instances(&values), 1);
+        let b = program.custom_bounds(&values);
+        assert_eq!(
+            (b.min, b.max),
+            (Vec3::new(-0.5, 0., -0.5), Vec3::new(0.5, 1., 0.5))
+        );
+        let wide = BTreeMap::from([("size".to_owned(), json!([4.0, 2.0, 1.0]))]);
+        assert_eq!(program.custom_bounds(&wide).max, Vec3::new(2., 2., 0.5));
+        for broken in [
+            Program {
+                vertex_count: 0,
+                ..program.clone()
+            },
+            Program {
+                vertex_count: 35,
+                ..program.clone()
+            },
+            Program {
+                vertex_count: CUSTOM_MAX_VERTICES_PER_INSTANCE + 3,
+                ..program.clone()
+            },
+            Program {
+                object_bounds: None,
+                ..program.clone()
+            },
+            Program {
+                object_bounds: Some(ObjectBounds {
+                    min: [1.0.into(), 0.0.into(), 0.0.into()],
+                    max: [0.0.into(), 1.0.into(), 1.0.into()],
+                }),
+                ..program.clone()
+            },
+            Program {
+                object_bounds: Some(ObjectBounds {
+                    min: ["missing".into(), 0.0.into(), 0.0.into()],
+                    max: [1.0.into(), 1.0.into(), 1.0.into()],
+                }),
+                ..program.clone()
+            },
+            Program {
+                instances: Some(InstanceCount::Fixed(0)),
+                ..program.clone()
+            },
+            Program {
+                instances: Some(InstanceCount::Parameter("size".into())),
+                ..program.clone()
+            },
+            Program {
+                instances: Some(InstanceCount::Parameter("missing".into())),
+                ..program.clone()
+            },
+        ] {
+            assert!(broken.validate().is_err(), "{broken:?}");
+        }
+        // Counts may come from an integer parameter; drawing respects both limits.
+        let mut counted = program.clone();
+        counted.parameters.push(Parameter {
+            id: "count".into(),
+            kind: "integer".into(),
+            default: json!(4),
+            label: String::new(),
+            description: String::new(),
+            unit: String::new(),
+            min: Some(0.),
+            max: None,
+            step: None,
+            options: BTreeMap::new(),
+            extensions: BTreeMap::new(),
+        });
+        counted.instances = Some(InstanceCount::Parameter("count".into()));
+        // Bounds may grow with the count, so a stack stays pickable and framed.
+        counted.object_bounds.as_mut().unwrap().max[1] = "count * size.y".into();
+        counted.validate().unwrap();
+        let tall = BTreeMap::from([
+            ("size".to_owned(), json!([1.0, 2.0, 1.0])),
+            ("count".to_owned(), json!(5)),
+        ]);
+        assert_eq!(counted.custom_bounds(&tall).max.y, 10.);
+        let values = counted.resolve(&BTreeMap::new(), &BTreeMap::new()).unwrap();
+        assert_eq!(counted.custom_draw_instances(&values, 50_000), 4);
+        assert_eq!(counted.custom_draw_instances(&values, 3), 3);
+        let many = BTreeMap::from([("count".to_owned(), json!(1_000_000))]);
+        assert_eq!(
+            counted.custom_draw_instances(&many, 1_000_000),
+            CUSTOM_MAX_VERTICES / 36
+        );
+        // Serialized programs keep the custom fields; others don't gain them.
+        let text = serde_json::to_value(&counted).unwrap();
+        assert_eq!(text["vertexCount"], 36);
+        assert_eq!(text["instances"], "count");
+        assert_eq!(
+            text["objectBounds"]["max"],
+            json!(["size.x / 2", "count * size.y", "size.z / 2"])
+        );
+        let restored: Program = serde_json::from_value(text).unwrap();
+        assert_eq!(restored, counted);
+        let grass = serde_json::to_value(grass_program()).unwrap();
+        for key in ["vertexCount", "instances", "objectBounds"] {
+            assert!(grass.get(key).is_none(), "{key}");
+        }
+    }
+    #[test]
+    fn custom_objects_are_mesh_free_owners_with_declared_bounds() {
+        let mut d = Document::new();
+        let mut program = blank_object_program();
+        program.id = "custom.object.1".into();
+        d.put_procedural_program(program.clone()).unwrap();
+        let id = d.create_procedural_tree().unwrap();
+        let settings = Material {
+            name: "Crate".into(),
+            procedural: Some(ProceduralMaterial {
+                program: program.id.clone(),
+                parameters: BTreeMap::from([("size".into(), json!([2.0, 3.0, 2.0]))]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        d.set_procedural_object(id, None, settings).unwrap();
+        assert_eq!(d.definition(id).unwrap().name, "Crate");
+        let path = place_definition(
+            &mut d,
+            &EditContext::Document,
+            id,
+            Vec3::X * 5.,
+            None,
+            false,
+        )
+        .unwrap();
+        let local = d.procedural_object_local_bounds(&path).unwrap();
+        assert_eq!(
+            (local.min, local.max),
+            (Vec3::new(-1., 0., -1.), Vec3::new(1., 3., 1.))
+        );
+        let world = d.procedural_object_world_bounds(&path).unwrap();
+        assert_eq!(world.min.x, 4.);
+        assert!(d.definition(id).unwrap().geometry.is_empty());
+        d.validate().unwrap();
+        let reopened =
+            crate::legacy::import_current_value(&crate::legacy::export_current_value(&d).unwrap())
+                .unwrap();
+        assert!(reopened.procedural_programs().contains(&program));
+        let objects = |doc: &Document| {
+            doc.scene_geometry_refs()
+                .unwrap()
+                .iter()
+                .filter_map(|p| doc.procedural_object(p))
+                .map(|m| m.procedural)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(objects(&reopened), objects(&d));
     }
 }

@@ -1087,24 +1087,18 @@ fn procedural_fields(
         )
         .into_any_element()
 }
+/// Materials › New Shader and Objects › New Shader Object. Both open the shader
+/// editor on a blank program with a choice of starting point; only the object
+/// command creates and places an object when an object program is saved.
 pub(super) fn new_program(
     shell: &mut MeshcraftShell,
+    object: bool,
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
-    open_program(
-        shell,
-        Program {
-            id: format!(
-                "custom.surface.{}",
-                shell.cached_document.procedural_programs().len()
-            ),
-            name: "Custom surface".into(),
-            ..Default::default()
-        },
-        window,
-        cx,
-    );
+    object_preview::detach(shell);
+    shell.materials.editor = None;
+    shader_editor::open_new(shell, object, window, cx);
 }
 
 fn open_program(
@@ -1113,7 +1107,14 @@ fn open_program(
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
-    shader_editor::open(shell, program, window, cx);
+    shader_editor::open(
+        shell,
+        program,
+        shader_editor::Mode::Edit,
+        vec![],
+        window,
+        cx,
+    );
 }
 fn program_overlay(
     shell: &MeshcraftShell,
@@ -1252,6 +1253,10 @@ pub(super) fn edit_tree(
     window: &mut Window,
     cx: &mut Context<MeshcraftShell>,
 ) {
+    if new {
+        new_program(shell, true, window, cx);
+        return;
+    }
     let path = if instance {
         shell
             .session
@@ -1262,29 +1267,21 @@ pub(super) fn edit_tree(
     } else {
         None
     };
-    let definition = if new {
-        None
-    } else {
-        path.as_ref()
-            .and_then(|p| {
-                shell
-                    .cached_document
-                    .resolve_occurrence(p)
-                    .map(|r| r.definition.id)
-            })
-            .or_else(|| shell.session.native_selected_prototype())
-    };
-    let settings = if new {
-        let mut m = Material::default();
-        procedural::apply_preset(&mut m, procedural::BRANCHING);
-        Some(m)
-    } else {
-        path.as_ref()
-            .and_then(|p| shell.cached_document.procedural_object(p))
-            .or_else(|| {
-                definition.and_then(|id| shell.cached_document.procedural_object_definition(id))
-            })
-    };
+    let definition = path
+        .as_ref()
+        .and_then(|p| {
+            shell
+                .cached_document
+                .resolve_occurrence(p)
+                .map(|r| r.definition.id)
+        })
+        .or_else(|| shell.session.native_selected_prototype());
+    let settings = path
+        .as_ref()
+        .and_then(|p| shell.cached_document.procedural_object(p))
+        .or_else(|| {
+            definition.and_then(|id| shell.cached_document.procedural_object_definition(id))
+        });
     if let Some(m) = settings {
         edit(shell, m, window, cx);
         shell.materials.editor.as_mut().unwrap().object = Some(ObjectEdit {
@@ -1302,6 +1299,6 @@ pub(super) fn edit_tree(
     } else {
         shell
             .session
-            .set_native_status("Select a procedural tree first".into());
+            .set_native_status("Select a shader object or its prototype first".into());
     }
 }

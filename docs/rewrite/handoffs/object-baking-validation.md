@@ -2,7 +2,7 @@
 
 Implemented 2026-10-28. The Objects menu and Object Instance inspector expose
 Bake to Shader and Bake to Mesh; MCP discovers the same registered commands.
-[Behavior and limits](../spec/objects.md#bake-to-shader-and-bake-to-mesh).
+[Behavior and limits](../spec/objects.md#bake-to-gpu-mesh-and-bake-to-mesh).
 
 Bake to Shader freezes evaluated mesh/script/subscene content as an immutable GPU
 mesh using the existing retained OpenGL meshes and shared surface/line shaders.

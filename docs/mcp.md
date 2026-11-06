@@ -402,6 +402,13 @@ mesh triangles. Select/copy/transform their occurrence targets; generated leaves
 and branches cannot be individually snapped, exported or Explode-baked.
 See [preset workflow and limitations](procedural-presets.md).
 
+`generation:"custom"` programs write the geometry themselves with
+`customVertex(int vertexId,int instanceId,out vec3 position,out vec3 normal,out vec2 uv)`,
+declaring `vertexCount`, `instances` (a number or an integer parameter ID) and
+`objectBounds` whose coordinates may be expressions such as `"count * size.y"`.
+Save one with `material.program`, then pass its ID as `settings.procedural.program`
+to `object.configure_procedural`. See [Shader objects](shader-objects.md).
+
 
 `meshcraft.foliage.v1` uses GPU `foliage` generation on source triangles. The
 published schema includes density, size, width, height, spread, tilt, curl, wind,

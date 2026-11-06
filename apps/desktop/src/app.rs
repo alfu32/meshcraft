@@ -1638,12 +1638,13 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
-        for (id, label, to_shader) in [("object.bake_to_shader", "Bake to Shader", true), ("object.bake_to_mesh", "Bake to Mesh", false)] {
+        for (id, label, to_shader) in [("object.bake_to_shader", "Bake to GPU Mesh", true), ("object.bake_to_mesh", "Bake to Mesh", false)] {
             register_shell_command(&mut registry,id,&format!("Objects> {label}"),"Objects","bake freeze convert gpu shader editable mesh",Some("object"),ShellAction::BakeObjects(to_shader));
         }
         register_shell_command(&mut registry,"object.configure_procedural","Objects> Configure Procedural Object","Objects","tree gpu parameters prototype instance",Some("object"),ShellAction::MaterialAction("object"));
-        for (id,name,panel) in [("object.new_tree","Objects> New Procedural Tree","tree_new"),("object.edit_tree","Objects> Edit Procedural Tree","tree_edit"),("script.new","Objects> New Scripted Object","script_new"),("script.edit","Objects> Edit Prototype Script","script_edit")] {
-            register_shell_command(&mut registry,id,name,"Objects","javascript script prototype editor preview",Some("object"),ShellAction::OpenPanel(panel));
+        // Command IDs keep their original names so MCP clients and saved scripts still work.
+        for (id,name,panel,keywords) in [("object.new_tree","Objects> New Shader Object","tree_new","shader glsl gpu custom object generator editor preview"),("object.edit_tree","Objects> Shader Object Settings","tree_edit","shader glsl gpu object parameters settings preview"),("script.new","Objects> New Scripted Object","script_new","javascript script prototype editor preview"),("script.edit","Objects> Edit Prototype Script","script_edit","javascript script prototype editor preview")] {
+            register_shell_command(&mut registry,id,name,"Objects",keywords,Some("object"),ShellAction::OpenPanel(panel));
         }
         for (toolbar_id, label) in LEGACY_TOOLBARS {
             let Some(stem) = toolbar_id.strip_prefix("builtin_toolbar_") else {

@@ -64,13 +64,15 @@ Broadleaf, Conifer, Weeping, Shrub, Coral and Roots forms, curved inherited fram
 growth/pruning controls and an editable GLSL rule hook. Existing `meshcraft.tree.v1`
 objects keep their original program. The legacy tree behavior is described below.
 
-In **Object Prototypes**, choose **New Tree**. Set its shape, foliage, colors,
-seed and wind, then **Save** and pick an insertion point. The placement phantom
+Choose **Objects › New Shader Object**, pick **Branching fractal** (or the legacy
+**Tree**) under **Start from**, and press **Create Object**, then pick an insertion
+point. Set its shape, foliage, colors, seed and wind afterwards in **Shader Object
+Settings**. The placement phantom
 shows the owner's conservative bounding box. Double-click its prototype entry
 to place another instance.
 
-Use **Edit Tree** in Object Prototypes for shared defaults. Select one placed
-tree and use **Edit Procedural Tree** in Object Instance (or double-click it)
+Use **Shader Settings** in Object Prototypes for shared defaults. Select one placed
+tree and use **Shader Object Settings** in Object Instance (or double-click it)
 for private instance settings. A private settings record is a complete snapshot;
 it keeps its values when the prototype defaults later change. Copies retain
 those settings. **Apply** commits without closing; **Cancel** discards only

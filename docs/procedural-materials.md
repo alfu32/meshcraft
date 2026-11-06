@@ -60,9 +60,12 @@ directory. Missing textures use a white fallback with a diagnostic.
 ## Custom programs
 
 Use **New Shader**, or **Edit Program / Parameter Schema** in the material editor.
-The shader editor fills the same area as the object script editor. The left half
-has three monospace code tabs: **Definition · JSON**, **Vertex · GLSL** and
-**Fragment · GLSL**, each with syntax highlighting. Switching tabs preserves your
+New Shader starts from a blank surface; **Start from** also offers a blank object
+and the built-ins, which are saved as custom copies. The shader editor fills the same area as the object
+script editor. The left half has monospace code tabs: **Definition · JSON**,
+**Vertex · GLSL** and **Fragment · GLSL**, each with syntax highlighting, and a
+read-only **Full Source** tab with the complete compiled shaders. Objects written
+from scratch are described in [Shader objects](shader-objects.md). Switching tabs preserves your
 text and editing position. The right half renders your draft on the GPU. Surface
 shaders use a cube; Water, Grass and Foliage use a plane; tree programs preview
 an independent tree.

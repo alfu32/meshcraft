@@ -332,7 +332,7 @@ pub(crate) const SECTIONS: &[Section] = &[
             ("edit.copy_as_script", "Copy as Script"),
             ("object.new_tree", "New Shader Object"),
             ("object.edit_tree", "Shader Object Settings"),
-            ("object.bake_to_shader", "Bake to Shader"),
+            ("object.bake_to_shader", "Bake to GPU Mesh"),
             ("object.bake_to_mesh", "Bake to Mesh"),
         ],
     },

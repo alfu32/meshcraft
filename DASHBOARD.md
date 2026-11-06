@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.58.0 shader objects from scratch:** Objects › New Shader Object now opens the shader editor on a
+blank object whose geometry is one GLSL function, with counts and bounds driven by parameters. A
+read-only Full Source tab shows everything compiled around your code. Built-ins remain one choice
+away, and Bake to Shader is now Bake to GPU Mesh. [guide](docs/shader-objects.md) ·
+[evidence](docs/rewrite/handoffs/T82.md).
+
 **0.57.4 tutorial 7 in two parts:** [Part 1](docs/tutorials/videos/07-office-floor-part-1.mp4)
 (14:44) and [Part 2](docs/tutorials/videos/07-office-floor-part-2.mp4) (13:33) retain the
 existing narration and picture, with part cards and retimed selectable subtitles.
