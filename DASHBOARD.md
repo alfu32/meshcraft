@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.59.0 standard shaders:** Emboss (rough texture, tiling, rough tiling), polished metal with
+hard reflections, glass and Perlin noise are built in, and curved surfaces now shade smoothly
+under shaders. New Material picks any shader from its Program list, with New Shader… beside it;
+the separate New Grass/Wood/… buttons are gone. A Shader Programs panel edits and deletes
+programs. [guide](docs/standard-shaders.md) · [evidence](docs/rewrite/handoffs/T83.md).
+
 **0.58.0 shader objects from scratch:** Objects › New Shader Object now opens the shader editor on a
 blank object whose geometry is one GLSL function, with counts and bounds driven by parameters. A
 read-only Full Source tab shows everything compiled around your code. Built-ins remain one choice

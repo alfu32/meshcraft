@@ -74,6 +74,7 @@ void main() {
         vec3 diffuseColor=(1.0-fresnel)*(1.0-metallic)*c.rgb/PI;
         lit=c.rgb*ambient+(diffuseColor+reflected)*PI*directional*nl*visible;
     }
+    lit=proceduralLighting(lit,c,worldPosition,normal);
     if(externalGeometry!=0) lit=mix(lit,vec3(0.65,0.76,0.86),0.6);
     finalColor=vec4(clamp(lit,0.0,1.0),c.a);
 }

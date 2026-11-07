@@ -4,6 +4,10 @@ layout(location=0) in vec3 domainA;
 layout(location=1) in vec3 domainB;
 layout(location=2) in vec3 domainC;
 layout(location=3) in vec2 domainSeed;
+// Smooth corner normals of a surface triangle; zero where the face shades flat.
+layout(location=4) in vec3 normalA;
+layout(location=5) in vec3 normalB;
+layout(location=6) in vec3 normalC;
 uniform mat4 viewProjection;
 uniform mat4 model;
 uniform int bladesPerTriangle;
@@ -78,6 +82,7 @@ void main() {
 #endif
     } else {
         position=gl_VertexID==0?domainA:(gl_VertexID==1?domainB:domainC);
+        vec3 corner=gl_VertexID==0?vec3(1,0,0):(gl_VertexID==1?vec3(0,1,0):vec3(0,0,1));
         if(generation==3) {
             int n=int(round(sqrt(float(bladesPerTriangle)))),k=gl_InstanceID%bladesPerTriangle,row=0;
             for(int i=0;i<64;i++){int cells=2*(n-i)-1;if(k<cells){row=i;break;}k-=cells;}
@@ -85,9 +90,12 @@ void main() {
             if(!flip)q+=gl_VertexID==0?vec2(0):gl_VertexID==1?vec2(1,0):vec2(0,1);
             else q+=gl_VertexID==0?vec2(1,0):gl_VertexID==1?vec2(1,1):vec2(0,1);
             q/=float(n);position=domainA+(domainB-domainA)*q.x+(domainC-domainA)*q.y;
+            corner=vec3(1.0-q.x-q.y,q.x,q.y);
         }
         uv=gl_VertexID==0?vec2(0,0):(gl_VertexID==1?vec2(1,0):vec2(0,1));
         vec3 tangent=normalize(domainB-domainA);materialUv=vec2(dot(position-domainA,tangent),dot(position-domainA,cross(normal,tangent)));
+        vec3 smoothNormal=normalA*corner.x+normalB*corner.y+normalC*corner.z;
+        if(dot(smoothNormal,smoothNormal)>1e-12) normal=normalize(smoothNormal);
     }
     localPosition=position;
     proceduralVertex(position,normal,uv);

@@ -186,6 +186,11 @@ def recipe(command):
             "material",
             "Create/edit/apply the actual material or open its intended editor",
         )
+    if key.startswith("program."):
+        return Recipe(
+            "material",
+            "Delete a saved custom shader program, or open one in the shader editor",
+        )
     if key == "selection.update_display":
         return Recipe("session", "Update actual per-type selection display policy")
     if (
@@ -1032,6 +1037,15 @@ class Exercise:
             if frame["procedural"]["diagnostics"]:
                 raise Failure(str(frame["procedural"]["diagnostics"]))
             self.timed("commit_ms",subprocess.run,["xdotool","key","Escape"],env=self.env,check=True)
+        elif key == "program.delete":
+            self.setup(self.material, "material.program")
+            self.mutate(key, dict(id="benchmark-program"))
+        elif key == "program.edit":
+            self.cmd(key, dict(id="metal.polished"), "start_ms")
+            frame = self.timed("preview_ms", self.rpc.frame, True)
+            if frame["procedural"]["diagnostics"]:
+                raise Failure(str(frame["procedural"]["diagnostics"]))
+            self.timed("commit_ms", subprocess.run, ["xdotool", "key", "Escape"], env=self.env, check=True)
         elif key == "material.program":
             program = self.scene()["proceduralPrograms"][0]
             program["id"] = "benchmark-program"

@@ -9,8 +9,9 @@ generated blades never become editable mesh triangles.
 
 ## Create grass
 
-1. Draw or select a surface. In **Materials**, choose **New Grass**.
-2. Set the name/color and grass parameters, then Save.
+1. Draw or select a surface. Choose **Materials › New Material** and pick
+   **Grass** in the **Program** list.
+2. Adjust the name/color and grass parameters, then Save.
 3. Select the material and choose **Apply to Selection**.
 4. Double-click its material entry to adjust density, height, width, curvature,
    variation, seed or wind. **Apply** commits and keeps the dialog open; **Save**
@@ -56,6 +57,18 @@ and metallic (0–1). Procedural shading uses GGX lighting for PBR bases. Existi
 conventional viewport rendering retains its previous behavior. Texture dimensions
 are sizes in model units; texture paths are absolute or relative to the working
 directory. Missing textures use a white fallback with a diagnostic.
+
+## One New Material for every shader
+
+Since 0.59.0 there is a single **New Material** command. Its **Program** list
+offers *Conventional · no shader* and every surface program by name: the
+built-ins and your own. Choosing a built-in for a new material also takes its
+suggested name, colour and PBR settings. **New Shader…** next to the list opens
+the shader editor on a blank surface; **Save Program** returns to the material
+with the new program chosen, and **Cancel** returns unchanged. The standard
+emboss, metal, glass and Perlin shaders are described in
+[Standard shaders](standard-shaders.md); stored programs are managed in the
+**Shader Programs** panel.
 
 ## Custom programs
 

@@ -409,6 +409,13 @@ declaring `vertexCount`, `instances` (a number or an integer parameter ID) and
 Save one with `material.program`, then pass its ID as `settings.procedural.program`
 to `object.configure_procedural`. See [Shader objects](shader-objects.md).
 
+Standard surface shaders are built-ins: `emboss.rough_texture`, `emboss.tiling`,
+`emboss.rough_tiling`, `metal.polished`, `glass.clear` and `noise.perlin`; use them
+as `procedural.program` in `material.save`. `program.edit {"id": …}` opens a program
+in the shader editor and `program.delete {"id": …}` deletes a custom one, turning
+the materials that used it conventional (built-ins and programs that shader
+objects still use are refused). See [Standard shaders](standard-shaders.md).
+
 
 `meshcraft.foliage.v1` uses GPU `foliage` generation on source triangles. The
 published schema includes density, size, width, height, spread, tilt, curl, wind,

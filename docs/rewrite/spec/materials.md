@@ -263,3 +263,36 @@ A read-only **Full Source** tab shows the exact vertex and fragment shaders comp
 for the viewport, including the host template and, for branching programs, a note on
 the transform-feedback state pass. Its text can be selected and copied.
 See [Shader objects](../../shader-objects.md).
+
+### Standard shaders and shader program management — T83
+
+Built-in surface programs (read-only, like the presets): `emboss.rough_texture`
+(fractal noise relief), `emboss.tiling` (raised, bevelled tiles on each face's
+dominant plane), `emboss.rough_tiling` (both), `metal.polished` (mirror reflection of
+a procedural studio environment tinted by the material colour, with Fresnel),
+`glass.clear` (transparent, Fresnel opacity and reflection) and `noise.perlin`
+(fractal classic Perlin noise between two colours, optional relief). Relief is
+shading only. Patterns are sampled in local coordinates.
+
+Fragment programs may define `vec3 proceduralLighting(vec3 lit, vec4 color, vec3
+position, vec3 normal)`, called after scene lighting and shadows to return the final
+colour; it defaults to returning `lit`. Surface programs receive smooth corner
+normals: each corner averages the area-weighted normals of faces around its position
+within 40° of its own face, so curved meshes shade smoothly and sharper edges stay
+crisp. Bake capture evaluates colour hooks per vertex with derivatives reading as
+zero, so fragment-style code still bakes.
+
+There is one **New Material** command. Its Program list names *Conventional · no
+shader* and every surface program; choosing a built-in for an unsaved material also
+applies its suggested name (while the name is untouched), colour and PBR settings.
+**New Shader…** beside the list opens the shader editor on surface starters and
+returns to the material with the saved program chosen. The dedicated New Grass,
+Foliage, Water, Brick and Wood buttons are removed from menus and panels; their
+command IDs stay registered for MCP and scripts.
+
+The **Shader Programs** panel lists custom programs, then built-ins, with ID, kind
+and users. `program.edit {id}` opens a program in the shader editor (built-ins
+unchanged; saving stores a copy). `program.delete {id}` removes a custom program as
+one Undo step and makes materials that used it conventional, keeping their colour,
+texture and PBR settings. Built-ins and programs that shader objects use are refused.
+See [Standard shaders](../../standard-shaders.md).

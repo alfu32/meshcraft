@@ -16,13 +16,17 @@ use meshcraft_core::{
 use raylib::prelude::{RaylibShader, Shader};
 use std::collections::{BTreeSet, HashMap};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 struct Domain {
     a: [f32; 3],
     b: [f32; 3],
     c: [f32; 3],
     seed: [f32; 2],
+    /// Smooth corner normals for surface shading; zero means use the face normal.
+    na: [f32; 3],
+    nb: [f32; 3],
+    nc: [f32; 3],
 }
 struct DomainGpu {
     vao: u32,
@@ -39,6 +43,52 @@ impl Drop for DomainGpu {
         }
     }
 }
+/// Edges between faces meeting at less than this angle are shaded smooth.
+const SMOOTH_CREASE_DEGREES: f64 = 40.;
+
+/// Per-corner normals for surface shaders: each corner averages the area-weighted
+/// normals of the faces around its vertex that lie within the crease angle of its
+/// own face, so curved meshes shade smoothly and sharp edges stay sharp.
+fn smooth_corner_normals(
+    g: &meshcraft_core::document::GeometryBundle,
+) -> HashMap<meshcraft_core::document::TriangleId, [Vec3; 3]> {
+    let faces = g
+        .triangles
+        .values()
+        .filter_map(|f| {
+            let [Some(a), Some(b), Some(c)] = f.vertices.map(|v| g.vertex_position(v)) else {
+                return None;
+            };
+            let weighted = (b - a).cross(c - a);
+            let unit = weighted.try_normalized(1e-12)?;
+            // Corners meet where their positions match, whatever vertex records hold them.
+            let key = |p: Vec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+            Some((f.id, [key(a), key(b), key(c)], weighted, unit))
+        })
+        .collect::<Vec<_>>();
+    let mut around = HashMap::<_, Vec<(Vec3, Vec3)>>::new();
+    for (_, corners, weighted, unit) in &faces {
+        for corner in corners {
+            around.entry(*corner).or_default().push((*weighted, *unit));
+        }
+    }
+    let limit = SMOOTH_CREASE_DEGREES.to_radians().cos();
+    faces
+        .iter()
+        .map(|(id, corners, _, unit)| {
+            let corners = corners.map(|corner| {
+                around[&corner]
+                    .iter()
+                    .filter(|(_, other)| other.dot(*unit) >= limit)
+                    .fold(Vec3::ZERO, |sum, (weighted, _)| sum + *weighted)
+                    .try_normalized(1e-12)
+                    .unwrap_or(*unit)
+            });
+            (*id, corners)
+        })
+        .collect()
+}
+
 impl DomainGpu {
     fn new(data: Vec<Domain>) -> Self {
         let bounds = Aabb3::from_points(
@@ -56,13 +106,21 @@ impl DomainGpu {
             );
             raylib::ffi::rlEnableVertexArray(vao);
             raylib::ffi::rlEnableVertexBuffer(vbo);
-            for (i, n, offset) in [(0, 3, 0), (1, 3, 12), (2, 3, 24), (3, 2, 36)] {
+            for (i, n, offset) in [
+                (0, 3, 0),
+                (1, 3, 12),
+                (2, 3, 24),
+                (3, 2, 36),
+                (4, 3, 44),
+                (5, 3, 56),
+                (6, 3, 68),
+            ] {
                 raylib::ffi::rlSetVertexAttribute(
                     i,
                     n,
                     raylib::ffi::RL_FLOAT as i32,
                     false,
-                    44,
+                    std::mem::size_of::<Domain>() as i32,
                     offset,
                 );
                 raylib::ffi::rlEnableVertexAttribute(i);
@@ -235,6 +293,11 @@ pub(super) fn fragment_hooks(p: &Program) -> String {
     if !p.fragment.contains("proceduralColor(") {
         hooks.push_str(
             "vec4 proceduralColor(vec4 color,vec3 position,vec3 normal,vec2 uv){return color;}\n",
+        );
+    }
+    if !p.fragment.contains("vec3 proceduralLighting(") {
+        hooks.push_str(
+            "vec3 proceduralLighting(vec3 lit,vec4 color,vec3 position,vec3 normal){return lit;}\n",
         );
     }
     hooks + &p.fragment
@@ -483,8 +546,7 @@ impl Renderer {
                         let data = vec![Domain {
                             a: [b.min.x as f32, b.min.y as f32, b.min.z as f32],
                             b: [b.max.x as f32, b.max.y as f32, b.max.z as f32],
-                            c: [0., 0., 0.],
-                            seed: [0., 0.],
+                            ..Default::default()
                         }];
                         let domain = self
                             .domains
@@ -540,6 +602,7 @@ impl Renderer {
             }
             let mut local =
                 BTreeMap::<(String, String), (Vec<Domain>, BTreeMap<String, Value>)>::new();
+            let corner_normals = smooth_corner_normals(g);
             for face in g.triangles.values() {
                 let entity =
                     meshcraft_core::document::architecture::semantic_entity(&face.extensions)
@@ -594,11 +657,18 @@ impl Renderer {
                 }
                 let xyz = |p: Vec3| [p.x as f32, p.y as f32, p.z as f32];
                 let seed = domain_seed([a, b, c]);
+                let [na, nb, nc] = corner_normals
+                    .get(&face.id)
+                    .map(|n| n.map(xyz))
+                    .unwrap_or_default();
                 entry.0.push(Domain {
                     a: xyz(a),
                     b: xyz(b),
                     c: xyz(c),
                     seed: [(seed & 65535) as f32, (seed >> 16) as f32],
+                    na,
+                    nb,
+                    nc,
                 });
             }
             local_cache.insert(source_key, local.keys().cloned().collect());
@@ -1079,7 +1149,7 @@ impl Renderer {
                         raylib::ffi::rlDisableDepthMask();
                     }
                     raylib::ffi::rlEnableVertexArray(domain.vao);
-                    for i in 0..4 {
+                    for i in 0..7 {
                         raylib::ffi::rlSetVertexAttributeDivisor(i, per as i32);
                     }
                     if program.generation == "custom" {
@@ -1748,6 +1818,71 @@ mod tests {
             Affine3::from_translation(Vec3::X * 5.),
             identity
         ));
+    }
+    /// A shallow fold (20°) shades smooth across the shared edge; a box edge (90°)
+    /// stays sharp, so each face keeps its own normal there.
+    #[test]
+    fn surface_corner_normals_smooth_shallow_folds_and_keep_sharp_edges() {
+        let mut d = Document::new();
+        let fold = 20f64.to_radians();
+        // Two strips meeting along x = 0, the right one tilted up by 20 degrees.
+        let (_, faces) = d
+            .append_planar_mesh_to_scene_root(
+                vec![
+                    Vec3::new(-1., 0., 0.),
+                    Vec3::new(0., 0., 0.),
+                    Vec3::new(0., 0., 1.),
+                    Vec3::new(-1., 0., 1.),
+                    Vec3::new(fold.cos(), fold.sin(), 0.),
+                    Vec3::new(fold.cos(), fold.sin(), 1.),
+                ],
+                vec![[0, 1], [1, 2], [2, 3], [3, 0], [1, 4], [4, 5], [5, 2]],
+                vec![[0, 2, 1], [0, 3, 2], [1, 5, 4], [1, 2, 5]],
+            )
+            .unwrap();
+        let occurrence = d.scene_geometry_refs().unwrap().remove(0);
+        let g = d.effective_geometry(&occurrence).unwrap();
+        let normals = smooth_corner_normals(g);
+        let flat = |id| {
+            let f = &g.triangles[&id];
+            let [a, b, c] = f.vertices.map(|v| g.vertex_position(v).unwrap());
+            (b - a).cross(c - a).try_normalized(1e-12).unwrap()
+        };
+        let shared = |id| {
+            let f = &g.triangles[&id];
+            f.vertices
+                .iter()
+                .position(|v| g.vertex_position(*v).unwrap() == Vec3::new(0., 0., 0.))
+                .map(|i| normals[&id][i])
+        };
+        // Corners on the fold blend both strips; the far corners keep their face normal.
+        let left = shared(faces[0]).unwrap();
+        let right = shared(faces[2]).unwrap();
+        assert!((left - right).length() < 1e-9, "{left:?} {right:?}");
+        assert!(left.dot(flat(faces[0])) < 0.999 && left.dot(flat(faces[2])) < 0.999);
+        let far = g.triangles[&faces[1]]
+            .vertices
+            .iter()
+            .position(|v| g.vertex_position(*v).unwrap() == Vec3::new(-1., 0., 1.))
+            .unwrap();
+        assert!((normals[&faces[1]][far] - flat(faces[1])).length() < 1e-9);
+
+        let mut d = Document::new();
+        let occurrence = d
+            .add_cuboid("Box", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let g = d.effective_geometry(&occurrence).unwrap();
+        for (id, corners) in smooth_corner_normals(g) {
+            let f = &g.triangles[&id];
+            let [a, b, c] = f.vertices.map(|v| g.vertex_position(v).unwrap());
+            let n = (b - a).cross(c - a).try_normalized(1e-12).unwrap();
+            for corner in corners {
+                assert!(
+                    (corner - n).length() < 1e-9,
+                    "box edge smoothed: {corner:?} {n:?}"
+                );
+            }
+        }
     }
     #[test]
     fn custom_objects_call_only_their_own_vertex_code_and_show_it_in_full() {

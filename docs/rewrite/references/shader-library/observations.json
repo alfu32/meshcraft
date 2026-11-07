@@ -1,0 +1,128 @@
+{
+  "checks": {
+    "the dedicated New Grass/Foliage/Water/Brick/Wood buttons left the menus": true,
+    "their command IDs remain for MCP clients and scripts": true,
+    "Materials \u203a Shader Programs lists the panel, New Shader, Edit and Delete": true,
+    "the six standard shaders are built-ins": true,
+    "all six shaders compile and draw with no diagnostics": true,
+    "polished metal shows hard bright reflections and a dark mirrored ground": true,
+    "New Material \u203a Program \u203a Polished metal saves a metal material": true,
+    "choosing the built-in also takes its name, colour and PBR settings": true,
+    "Save Program stores the new program": true,
+    "the material editor returns with the new program chosen": true,
+    "Edit opens a built-in in the shader editor with a working preview": true,
+    "cancelling leaves the built-in unchanged": true,
+    "deleting a program removes it and makes its material conventional": true,
+    "the status names the materials that changed": true,
+    "a single Undo restores the program and the material that used it": true,
+    "built-in programs cannot be deleted": true,
+    "a program used by a shader object is kept, with the reason": true,
+    "the application is still running": true
+  },
+  "observations": {
+    "retired_menu_paths": {
+      "material.new_grass": [],
+      "material.new_foliage": [],
+      "material.new_water": [],
+      "material.new_brick": [],
+      "material.new_wood": []
+    },
+    "program_menu_paths": {
+      "program.edit": [
+        "Materials",
+        "Shader Programs"
+      ],
+      "program.delete": [
+        "Materials",
+        "Shader Programs"
+      ],
+      "view.panel.programs.toggle": [
+        "Materials",
+        "Shader Programs"
+      ],
+      "material.new_shader": [
+        "Materials",
+        "Shader Programs"
+      ]
+    },
+    "library_frame": {
+      "diagnostics": [],
+      "candidateInstances": 3240,
+      "drawCalls": 12
+    },
+    "metal_sphere": {
+      "bright": 0.064,
+      "dark": 0.483
+    },
+    "picked_material": [
+      {
+        "id": "material-1",
+        "name": "Polished metal",
+        "color": {
+          "red": 205,
+          "green": 210,
+          "blue": 216,
+          "alpha": 255
+        },
+        "shadingType": "phong",
+        "texturePath": null,
+        "textureScaleU": 1.0,
+        "textureScaleV": 1.0,
+        "procedural": {
+          "program": "metal.polished",
+          "parameters": {
+            "groundColor": [
+              0.46,
+              0.43,
+              0.4,
+              1.0
+            ],
+            "polish": 0.85,
+            "reflectivity": 0.9,
+            "skyColor": [
+              0.62,
+              0.74,
+              0.88,
+              1.0
+            ]
+          },
+          "baseMaterial": null,
+          "lodDistance": 100.0,
+          "maxInstances": 50000,
+          "showBounds": false
+        },
+        "pbr": {
+          "roughness": 0.12,
+          "metallic": 1.0
+        }
+      }
+    ],
+    "material_with_new_shader": [
+      {
+        "id": "material-2",
+        "name": "Material 2",
+        "color": {
+          "red": 184,
+          "green": 200,
+          "blue": 214,
+          "alpha": 255
+        },
+        "shadingType": "phong",
+        "texturePath": null,
+        "textureScaleU": 1.0,
+        "textureScaleV": 1.0,
+        "procedural": {
+          "program": "custom.surface.1",
+          "parameters": {},
+          "baseMaterial": null,
+          "lodDistance": 100.0,
+          "maxInstances": 50000,
+          "showBounds": false
+        }
+      }
+    ],
+    "delete_status": "Deleted shader program custom.surface.1; Material 2 now uses conventional shading.",
+    "object_program_refusal": "transaction operation failed: 1 shader object still uses custom.cube; delete or bake it first"
+  },
+  "passed": true
+}

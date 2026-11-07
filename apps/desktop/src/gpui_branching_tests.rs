@@ -183,6 +183,7 @@ fn branching_shader_path_identity_is_independent_of_draw_ordinals() {
         b: [1.; 3],
         c: [0.; 3],
         seed: [0.; 2],
+        ..Default::default()
     }]);
     let mut values = program.resolve(&BTreeMap::new(), &BTreeMap::new()).unwrap();
     values.insert("branches".into(), json!(4));
@@ -249,6 +250,7 @@ fn branching_gpu_state_reuse_matches_direct_shader_vertices() {
         b: [1.; 3],
         c: [0.; 3],
         seed: [0.; 2],
+        ..Default::default()
     }]);
     let mut values = program.resolve(&BTreeMap::new(), &BTreeMap::new()).unwrap();
     values.extend([

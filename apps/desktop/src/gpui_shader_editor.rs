@@ -259,6 +259,21 @@ pub(super) fn open_new(
     );
 }
 
+/// Opens the editor on a new surface program over the material editor. Saving
+/// returns to the material with the new program chosen; Cancel returns unchanged.
+pub(super) fn open_new_for_material(
+    shell: &mut MeshcraftShell,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let starters = starters(&shell.cached_document, false)
+        .into_iter()
+        .filter(|(_, p)| !p.is_object_generator())
+        .collect::<Vec<_>>();
+    let first = starters[0].1.clone();
+    open(shell, first, Mode::NewProgram, starters, window, cx);
+}
+
 pub(super) fn open(
     shell: &mut MeshcraftShell,
     source: Program,
@@ -764,7 +779,7 @@ pub(super) fn overlay(
     let help = if editor.object {
         "Object programs: customVertex(vertexId, instanceId, …) writes every vertex, or a tree engine does. GLSL 330 · Parameters: u_<id> · time: seconds. Full Source shows everything that is compiled."
     } else {
-        "Surface programs: proceduralVertex/proceduralColor run on existing faces. GLSL 330 · Parameters: u_<id> · time: seconds. Full Source shows everything that is compiled."
+        "Surface programs run on existing faces: proceduralVertex moves vertices; proceduralShadingNormal, proceduralColor and proceduralLighting shade. GLSL 330 · Parameters: u_<id> · time: seconds. Full Source shows everything that is compiled."
     };
     Some(
         div()

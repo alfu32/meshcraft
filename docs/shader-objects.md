@@ -58,11 +58,16 @@ instance, and `instanceId` from 0 to the instance count minus one. Positions and
 normals are in the object's local space, in model units.
 
 Also available: `u_<id>` for each parameter, `time` in seconds,
-`customVertexCount` and `customInstanceCount`. Two optional hooks run after it:
+`customVertexCount` and `customInstanceCount`. Optional hooks run after it:
 `proceduralVertex(inout vec3 position, inout vec3 normal, vec2 uv)` in the Vertex
-tab, and `vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv)` in
-the Fragment tab, where `color` is the object's material colour and position and
-normal are in world space. Leave either out to keep the defaults.
+tab, and in the Fragment tab `vec3 proceduralShadingNormal(vec3 n, vec3 p, vec2 uv)`
+for relief, `vec4 proceduralColor(vec4 color, vec3 position, vec3 normal, vec2 uv)`,
+where `color` is the object's material colour and position and normal are in
+world space, and `vec3 proceduralLighting(vec3 lit, vec4 color, vec3 position,
+vec3 normal)` for the final colour after scene lighting (see
+[Standard shaders](standard-shaders.md#writing-your-own-lighting-procedurallighting)).
+Leave any of them out to keep the defaults. Bake to Mesh evaluates colours per
+vertex, so derivative functions such as `dFdx` read as zero there.
 
 ## The definition
 

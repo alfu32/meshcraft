@@ -3886,6 +3886,56 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T83",
+      "title": "Standard shaders, one New Material for every shader and the Shader Programs panel",
+      "phase": "desktop",
+      "dependencies": [
+        "T82"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C56"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/procedural/library.rs",
+        "crates/meshcraft-core/src/document/procedural/management.rs",
+        "crates/meshcraft-core/src/document/procedural/presets.rs",
+        "assets/shaders/procedural.vs",
+        "assets/shaders/procedural.fs",
+        "apps/desktop/src/gpui_procedural.rs",
+        "apps/desktop/src/gpui_object_bake.rs",
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/gpui_shader_editor.rs",
+        "apps/desktop/src/gpui_layout.rs",
+        "apps/desktop/src/functional_ui.rs",
+        "apps/desktop/src/materials_workflow.rs",
+        "apps/desktop/src/app.rs",
+        "scripts/verify_shader_library.py",
+        "docs/standard-shaders.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/standard-shaders.md",
+        "docs/rewrite/handoffs/T83.md"
+      ],
+      "slices": [
+        "Add built-in surface shaders emboss.rough_texture, emboss.tiling, emboss.rough_tiling, metal.polished, glass.clear and noise.perlin, with a proceduralLighting hook after scene lighting and smooth corner normals across edges under 40 degrees.",
+        "Replace the New Grass/Foliage/Water/Brick/Wood buttons with New Material's Program list, which applies a built-in's suggested look, and a New Shader button that returns to the material with the saved program.",
+        "Add the Shader Programs panel with program.edit and program.delete; deleting a custom program makes its materials conventional in one Undo step and refuses built-ins and programs used by shader objects."
+      ],
+      "done": [
+        "C56 passes in the native app, GPU bake tests pass under software GL and the release gate is green."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

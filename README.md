@@ -84,6 +84,11 @@ Make Object selections like the content beside them.
 the shader editor on a blank object whose geometry is one GLSL function; its Full
 Source tab shows every line compiled around it. [Shader objects](docs/shader-objects.md).
 
+**Standard shaders.** Emboss (rough texture, tiling, rough tiling), polished
+metal with hard reflections, glass and Perlin noise are built in. One New Material
+command offers every shader in its Program list, with New Shader… beside it, and
+the Shader Programs panel edits and deletes programs. [Standard shaders](docs/standard-shaders.md).
+
 **Bake to GPU Mesh** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
 turns frozen or shader-generated objects into editable edges and faces, with Undo.
 [Object conversion details](docs/rewrite/spec/objects.md#bake-to-gpu-mesh-and-bake-to-mesh).

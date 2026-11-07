@@ -160,7 +160,7 @@ pub(super) unsafe fn capture(
         }
         bind_base(0x8c8e, 0, buffer);
         raylib::ffi::rlEnableVertexArray(vao);
-        for i in 0..4 {
+        for i in 0..7 {
             raylib::ffi::rlSetVertexAttributeDivisor(i, instances);
         }
         enable(0x8c89);

@@ -377,6 +377,14 @@
       "symbol": "material",
       "overlay": "picker"
     },
+    "program.delete": {
+      "symbol": "shader",
+      "overlay": "delete"
+    },
+    "program.edit": {
+      "symbol": "shader",
+      "overlay": "edit"
+    },
     "render.global_illumination": {
       "symbol": "illumination",
       "overlay": null
@@ -968,6 +976,10 @@
     "view.panel.profile.toggle": {
       "symbol": "hybrid",
       "overlay": null
+    },
+    "view.panel.programs.toggle": {
+      "symbol": "shader",
+      "overlay": "list"
     },
     "view.panel.random.toggle": {
       "symbol": "random",

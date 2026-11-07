@@ -542,3 +542,21 @@ the drawing unchanged. The command catalog shows New Shader Object, Shader Objec
 Settings and Bake to GPU Mesh with their original IDs. Run
 `python3 scripts/verify_shader_objects.py`.
 
+## C56 — Standard shaders and shader program management
+
+**Tasks:** T83. **Requirements:** P07.
+
+The built-in surface programs include `emboss.rough_texture`, `emboss.tiling`,
+`emboss.rough_tiling`, `metal.polished`, `glass.clear` and `noise.perlin`. Applied
+to boxes and spheres they compile and draw with no diagnostics; polished metal shows
+hard bright reflections and a dark mirrored ground, shaded smoothly across a
+sphere's shallow edges while box edges stay sharp. The New Grass, Foliage, Water,
+Brick and Wood buttons are gone from the menus and panels; their command IDs remain.
+Materials › New Material lists every surface program by name, and choosing Polished
+metal for a new material saves it with that program, name, colour and metallic PBR.
+New Shader… in the material editor opens the shader editor; Save Program returns to
+the material with the new program chosen. Materials › Shader Programs opens the
+panel; Edit opens a built-in in the shader editor and Escape leaves it unchanged.
+Deleting a custom program makes its materials conventional and names them, and a
+single Undo restores both; built-ins and programs used by a shader object are
+refused with a reason. Run `python3 scripts/verify_shader_library.py`.

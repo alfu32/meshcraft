@@ -71,7 +71,12 @@ pub(in crate::gpui_app) fn capture(
         let (mut vertex, _) = shader_sources(&program);
         // Fragment color is sampled at the emitted triangle vertices. Discard is a
         // raster mask rather than topology; leaf cards remain cards in a mesh bake.
-        let colors = fragment_hooks(&program).replace("discard;", ";");
+        // The colour hooks run per vertex here, so fragment-only derivatives read
+        // as flat and the fragment stage's view and light uniforms are declared.
+        let colors = format!(
+            "#define dFdx(x) ((x)*0.0)\n#define dFdy(x) ((x)*0.0)\n#define fwidth(x) ((x)*0.0)\nuniform vec3 eye;uniform vec3 towardLight;\n{}",
+            fragment_hooks(&program).replace("discard;", ";")
+        );
         vertex = vertex.replace(
             "void main() {",
             "out vec3 bakePosition; out vec4 bakeColor;\nvoid bakeMain() {",
@@ -132,6 +137,7 @@ pub(in crate::gpui_app) fn capture(
             ],
             c: [0., 0., 0.],
             seed: [0., 0.],
+            ..Default::default()
         }]);
         let captured = (|| unsafe {
             raylib::ffi::rlEnableShader(shader.id);
@@ -430,5 +436,53 @@ mod tests {
             .insert("count".into(), 0.into());
         d.set_procedural_object(id, Some(&path), none).unwrap();
         assert!(capture(&d, &[path], 0.).is_err());
+    }
+
+    /// Fragment code with derivatives, view and light uniforms (bump mapping,
+    /// reflections) still bakes: colour hooks run per vertex in the capture.
+    #[test]
+    #[ignore = "requires an OpenGL 3.3 context"]
+    fn gpu_bake_custom_object_with_fragment_only_code() {
+        use meshcraft_core::{
+            document::procedural::blank_object_program, operations::objects::place_definition,
+            selection::EditContext,
+        };
+        let (_rl, _thread) = raylib::init()
+            .size(64, 64)
+            .hidden()
+            .title("GPU custom bake fragment code")
+            .log_level(TraceLogLevel::LOG_WARNING)
+            .build();
+        let mut d = Document::new();
+        let mut program = blank_object_program();
+        program.id = "custom.object.1".into();
+        program.fragment = "float bumps(){return fract(localPosition.x*7.0);}
+vec3 proceduralShadingNormal(vec3 n,vec3 p,vec2 uv){
+    float h=bumps()*0.05;vec3 dx=dFdx(p),dy=dFdy(p);
+    return normalize(n-dFdx(h)*cross(dy,n)-dFdy(h)*cross(n,dx)+fwidth(h));
+}
+vec4 proceduralColor(vec4 c,vec3 p,vec3 n,vec2 uv){
+    float facing=max(dot(normalize(eye-p),n),0.0)+dot(towardLight,n)*0.0;
+    return vec4(c.rgb*(0.5+0.5*bumps())+facing*0.0,c.a);
+}"
+        .into();
+        d.put_procedural_program(program.clone()).unwrap();
+        let id = d.create_procedural_tree().unwrap();
+        let settings = Material {
+            procedural: Some(meshcraft_core::document::procedural::ProceduralMaterial {
+                program: program.id.clone(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        d.set_procedural_object(id, None, settings).unwrap();
+        let path =
+            place_definition(&mut d, &EditContext::Document, id, Vec3::ZERO, None, false).unwrap();
+        let mesh = capture(&d, std::slice::from_ref(&path), 0.)
+            .unwrap()
+            .remove(&path)
+            .unwrap();
+        mesh.validate().unwrap();
+        assert_eq!(mesh.triangles.len(), 12);
     }
 }

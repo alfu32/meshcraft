@@ -12,7 +12,7 @@ pub fn is_builtin(id: &str) -> bool {
     matches!(
         id,
         GRASS | WATER | BRICK | WOOD | TREE | FOLIAGE | BRANCHING
-    )
+    ) || super::library::LIBRARY.contains(&id)
 }
 pub fn builtin_programs() -> Vec<Program> {
     vec![
@@ -24,8 +24,18 @@ pub fn builtin_programs() -> Vec<Program> {
         tree_program(),
         branching_program(),
     ]
+    .into_iter()
+    .chain(super::library::library_programs())
+    .collect()
 }
-fn scalar(id: &str, label: &str, value: f64, min: f64, max: f64, description: &str) -> Parameter {
+pub(super) fn scalar(
+    id: &str,
+    label: &str,
+    value: f64,
+    min: f64,
+    max: f64,
+    description: &str,
+) -> Parameter {
     Parameter {
         id: id.into(),
         label: label.into(),
@@ -40,7 +50,7 @@ fn scalar(id: &str, label: &str, value: f64, min: f64, max: f64, description: &s
         extensions: BTreeMap::new(),
     }
 }
-fn integer(id: &str, label: &str, value: u32, min: f64, max: f64) -> Parameter {
+pub(super) fn integer(id: &str, label: &str, value: u32, min: f64, max: f64) -> Parameter {
     Parameter {
         kind: "integer".into(),
         default: value.into(),
@@ -54,7 +64,7 @@ fn integer(id: &str, label: &str, value: u32, min: f64, max: f64) -> Parameter {
         )
     }
 }
-fn color(id: &str, label: &str, rgba: [f64; 4]) -> Parameter {
+pub(super) fn color(id: &str, label: &str, rgba: [f64; 4]) -> Parameter {
     Parameter {
         kind: "color".into(),
         default: serde_json::json!(rgba),
@@ -68,7 +78,7 @@ fn color(id: &str, label: &str, rgba: [f64; 4]) -> Parameter {
         )
     }
 }
-fn seed() -> Parameter {
+pub(super) fn seed() -> Parameter {
     Parameter {
         kind: "seed".into(),
         default: 1u32.into(),
@@ -563,29 +573,36 @@ pub fn branching_program() -> Program {
     });
     program
 }
+/// Suggested name, colour, PBR roughness and metallic for a material that uses a
+/// built-in program; `None` for other programs.
+pub fn preset_look(id: &str) -> Option<(&'static str, Rgba8, f64, f64)> {
+    use super::library::*;
+    Some(match id {
+        GRASS => ("Grass", Rgba8::new(65, 130, 35, 255), 0.72, 0.),
+        WATER => ("Water", Rgba8::new(12, 95, 130, 185), 0.16, 0.),
+        BRICK => ("Brick", Rgba8::new(148, 48, 23, 255), 0.72, 0.),
+        WOOD => ("Wood", Rgba8::new(171, 99, 41, 255), 0.72, 0.),
+        TREE | BRANCHING => ("Tree", Rgba8::new(65, 130, 35, 255), 0.72, 0.),
+        FOLIAGE => ("Foliage", Rgba8::new(44, 115, 20, 255), 0.72, 0.),
+        EMBOSS_ROUGH => ("Rough texture", Rgba8::new(186, 176, 160, 255), 0.85, 0.),
+        EMBOSS_TILING => ("Tiles", Rgba8::new(214, 208, 196, 255), 0.45, 0.),
+        EMBOSS_ROUGH_TILING => ("Rough tiles", Rgba8::new(176, 120, 92, 255), 0.85, 0.),
+        METAL => ("Polished metal", Rgba8::new(205, 210, 216, 255), 0.12, 1.),
+        GLASS => ("Glass", Rgba8::new(205, 228, 236, 255), 0.05, 0.),
+        PERLIN => ("Perlin noise", Rgba8::new(255, 255, 255, 255), 0.7, 0.),
+        _ => return None,
+    })
+}
 /// Set sensible shading defaults while preserving the caller's unique material ID.
 pub fn apply_preset(material: &mut super::super::materials::Material, id: &str) {
     use super::super::materials::Pbr;
-    material.name = match id {
-        WATER => "Water",
-        BRICK => "Brick",
-        WOOD => "Wood",
-        TREE => "Tree",
-        BRANCHING => "Tree",
-        FOLIAGE => "Foliage",
-        _ => "Grass",
-    }
-    .into();
-    material.color = match id {
-        WATER => Rgba8::new(12, 95, 130, 185),
-        BRICK => Rgba8::new(148, 48, 23, 255),
-        WOOD => Rgba8::new(171, 99, 41, 255),
-        FOLIAGE => Rgba8::new(44, 115, 20, 255),
-        _ => Rgba8::new(65, 130, 35, 255),
-    };
+    let (name, color, roughness, metallic) =
+        preset_look(id).unwrap_or(("Grass", Rgba8::new(65, 130, 35, 255), 0.72, 0.));
+    material.name = name.into();
+    material.color = color;
     material.pbr = Some(Pbr {
-        roughness: if id == WATER { 0.16 } else { 0.72 },
-        metallic: 0.,
+        roughness,
+        metallic,
     });
     material.procedural = Some(ProceduralMaterial {
         program: id.into(),

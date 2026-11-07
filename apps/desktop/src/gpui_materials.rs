@@ -19,6 +19,8 @@ use meshcraft_core::document::{
 #[derive(Default)]
 pub(super) struct MaterialsUi {
     pub selected: Option<String>,
+    /// The program selected in the Shader Programs panel.
+    pub program: Option<String>,
     pub editor: Option<Editor>,
     program_editor: Option<shader_editor::Editor>,
 }
@@ -63,7 +65,9 @@ pub(super) struct Editor {
     shading: Entity<SelectState<Vec<String>>>,
     roughness: Entity<InputState>,
     metallic: Entity<InputState>,
-    program: Entity<SelectState<Vec<String>>>,
+    program: Entity<SelectState<Vec<ParameterChoice>>>,
+    /// The name the draft opened with, while it is a new, unsaved material.
+    auto_name: Option<String>,
     parameters: Vec<ParameterField>,
     base: Entity<SelectState<Vec<String>>>,
     lod: Entity<InputState>,
@@ -165,26 +169,18 @@ pub(super) fn edit(
     let roughness =
         cx.new(|cx| InputState::new(window, cx).default_value(pbr.roughness.to_string()));
     let metallic = cx.new(|cx| InputState::new(window, cx).default_value(pbr.metallic.to_string()));
-    let ids = (if is_object {
-        None
-    } else {
-        Some("Conventional".to_owned())
-    })
-    .into_iter()
-    .chain(
-        shell
-            .cached_document
-            .procedural_programs()
-            .into_iter()
-            .filter(|p| (p.is_object_generator()) == is_object)
-            .map(|p| p.id),
-    )
-    .collect::<Vec<_>>();
+    let ids = program_choices(&shell.cached_document, is_object);
     let selected = material
         .procedural
         .as_ref()
-        .and_then(|p| ids.iter().position(|id| id == &p.program))
+        .and_then(|p| ids.iter().position(|c| c.key == p.program))
         .unwrap_or(0);
+    let auto_name = (!shell
+        .cached_document
+        .materials()
+        .iter()
+        .any(|m| m.id == material.id))
+    .then(|| material.name.clone());
     let program = cx.new(|cx| {
         SelectState::new(
             ids,
@@ -228,6 +224,7 @@ pub(super) fn edit(
         window,
         |this, state, _: &SelectEvent<_>, window, cx| {
             let id = state.read(cx).selected_value().cloned().unwrap_or_default();
+            apply_program_look(this, &id, window, cx);
             if let Some(editor) = this.materials.editor.as_mut() {
                 editor.material.procedural = if id == "Conventional" {
                     None
@@ -270,6 +267,7 @@ pub(super) fn edit(
         roughness,
         metallic,
         program,
+        auto_name,
         parameters,
         base,
         lod,
@@ -414,7 +412,19 @@ pub(super) fn overlay(
                 .items_center()
                 .gap(px(8.))
                 .child("Program")
-                .child(Select::new(&editor.program).w_full()),
+                .child(div().flex_1().child(Select::new(&editor.program).w_full()))
+                .when(editor.object.is_none(), |row| {
+                    row.child(
+                        Button::new("material/new-shader")
+                            .small()
+                            .label("New Shader…")
+                            .tooltip("Write a new shader program; saving it selects it for this material")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                shader_editor::open_new_for_material(this, window, cx);
+                                cx.notify();
+                            })),
+                    )
+                }),
         )
         .child(procedural_fields(shell, editor, cx))
         .child(
@@ -1087,6 +1097,189 @@ fn procedural_fields(
         )
         .into_any_element()
 }
+/// Program picker entries: "Conventional" (no shader) for materials, then every
+/// program of the matching kind, labelled by name with the ID for reference.
+fn program_choices(
+    document: &meshcraft_core::document::Document,
+    is_object: bool,
+) -> Vec<ParameterChoice> {
+    (!is_object)
+        .then(|| ParameterChoice {
+            key: "Conventional".into(),
+            label: "Conventional · no shader".into(),
+        })
+        .into_iter()
+        .chain(
+            document
+                .procedural_programs()
+                .into_iter()
+                .filter(|p| p.is_object_generator() == is_object)
+                .map(|p| ParameterChoice {
+                    label: format!("{} · {}", p.name, p.id),
+                    key: p.id,
+                }),
+        )
+        .collect()
+}
+
+/// Choosing a built-in program for a new material also takes the built-in's
+/// suggested colour and PBR settings, and its name while the name is untouched.
+fn apply_program_look(
+    shell: &mut MeshcraftShell,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let Some(editor) = shell.materials.editor.as_mut() else {
+        return;
+    };
+    let Some(auto_name) = editor.auto_name.clone() else {
+        return;
+    };
+    if editor.object.is_some() {
+        return;
+    }
+    let Some((name, color, roughness, metallic)) = procedural::preset_look(id) else {
+        return;
+    };
+    if editor.name.read(cx).value().as_ref() == auto_name {
+        editor
+            .name
+            .update(cx, |field, cx| field.set_value(name, window, cx));
+        editor.auto_name = Some(name.into());
+    }
+    editor
+        .color
+        .update(cx, |field, cx| field.set_value(hex(color), window, cx));
+    if let Ok(value) = gpui::Hsla::parse_hex(&hex(color)) {
+        editor
+            .picker
+            .update(cx, |picker, cx| picker.set_value(value, window, cx));
+    }
+    editor.material.pbr = Some(meshcraft_core::document::materials::Pbr {
+        roughness,
+        metallic,
+    });
+    editor.roughness.update(cx, |field, cx| {
+        field.set_value(roughness.to_string(), window, cx)
+    });
+    editor.metallic.update(cx, |field, cx| {
+        field.set_value(metallic.to_string(), window, cx)
+    });
+}
+
+/// Opens a stored program in the shader editor. Built-ins open unchanged; saving
+/// one stores a custom copy, so built-ins never change.
+pub(super) fn edit_program(
+    shell: &mut MeshcraftShell,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<MeshcraftShell>,
+) {
+    let Some(program) = shell
+        .cached_document
+        .procedural_programs()
+        .into_iter()
+        .find(|p| p.id == id)
+    else {
+        return;
+    };
+    object_preview::detach(shell);
+    shell.materials.editor = None;
+    open_program(shell, program, window, cx);
+}
+
+/// The Shader Programs panel: every program with its kind and users.
+pub(super) fn programs_panel(
+    shell: &MeshcraftShell,
+    cx: &mut Context<MeshcraftShell>,
+    actions: gpui::AnyElement,
+) -> gpui::AnyElement {
+    let document = &shell.cached_document;
+    let mut programs = document.procedural_programs();
+    programs.sort_by_key(|p| procedural::is_builtin(&p.id));
+    let selected = shell.materials.program.clone();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(5.))
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .child(
+            div()
+                .id("programs/list")
+                .max_h(px(260.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .children(programs.into_iter().map(|program| {
+                    let usage = document.procedural_program_usage(&program.id);
+                    let builtin = procedural::is_builtin(&program.id);
+                    let kind = if program.is_object_generator() {
+                        "object"
+                    } else {
+                        "surface"
+                    };
+                    let mut users = Vec::new();
+                    if !usage.materials.is_empty() {
+                        users.push(format!(
+                            "{} material{}",
+                            usage.materials.len(),
+                            if usage.materials.len() == 1 { "" } else { "s" }
+                        ));
+                    }
+                    if usage.objects > 0 {
+                        users.push(format!(
+                            "{} object{}",
+                            usage.objects,
+                            if usage.objects == 1 { "" } else { "s" }
+                        ));
+                    }
+                    let detail = format!(
+                        "{} · {} {kind}{}",
+                        program.id,
+                        if builtin { "built-in" } else { "custom" },
+                        if users.is_empty() {
+                            " · unused".to_owned()
+                        } else {
+                            format!(" · {}", users.join(", "))
+                        }
+                    );
+                    let active = selected.as_deref() == Some(program.id.as_str());
+                    let id = program.id.clone();
+                    Button::new(SharedString::from(format!("program/{}", program.id)))
+                        .ghost()
+                        .w_full()
+                        .h(px(42.))
+                        .flex_shrink_0()
+                        .justify_start()
+                        .child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .items_start()
+                                .child(program.name.clone())
+                                .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(detail)),
+                        )
+                        .when(active, |button| button.bg(rgb(0x35516a)))
+                        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            this.materials.program = Some(id.clone());
+                            let _ = this.session.choose_native_program(&id);
+                            if event.click_count() == 2 {
+                                edit_program(this, &id, window, cx);
+                            }
+                            cx.notify();
+                        }))
+                })),
+        )
+        .child(actions)
+        .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(
+            "Double-click to open in the shader editor. Built-ins are read-only: saving one stores a copy. Deleting a program turns its materials into conventional ones.",
+        ))
+        .into_any_element()
+}
+
 /// Materials › New Shader and Objects › New Shader Object. Both open the shader
 /// editor on a blank program with a choice of starting point; only the object
 /// command creates and places an object when an object program is saved.

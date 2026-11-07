@@ -66,7 +66,7 @@ do not change the drawing or history. Buttons keep their usual availability.
 | Construction | Construct, Advanced, Modify, Arrays |
 | Solids | Primitives, Booleans & Sections, Mechanical, Voxels |
 | Civil | Architecture, Stair Inputs, HVAC, Settings |
-| Materials | Catalog, Procedural, Rendering, material picker |
+| Materials | Catalog, Shader Programs, Rendering, material picker |
 | Objects & Hotspots | Prototypes, Instances & Groups; Scripts & GPU; External Prototypes; Hotspots |
 | Settings | Input & Settings, Model & Interface, Camera, Workspace Profiles, Automation & Help |
 

@@ -1119,12 +1119,16 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
             ("material.delete", "Delete Unused"),
             ("material.apply", "Apply to Selection"),
             ("material.edit_texture", "Edit Texture Position"),
+        ],
+        bindings,
+    );
+    let program_actions = command_row(
+        "panel/programs/functional",
+        &[
             ("material.new_shader", "New Shader"),
-            ("material.new_grass", "New Grass"),
-            ("material.new_foliage", "New Foliage"),
-            ("material.new_water", "New Water"),
-            ("material.new_brick", "New Brick"),
-            ("material.new_wood", "New Wood"),
+            ("object.new_tree", "New Shader Object"),
+            ("program.edit", "Edit"),
+            ("program.delete", "Delete"),
         ],
         bindings,
     );
@@ -1209,6 +1213,11 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         .child(setting_section(
             "Materials",
             super::materials::panel(bindings.shell, bindings.cx, material_actions),
+            bindings,
+        ))
+        .child(setting_section(
+            "Shader Programs",
+            super::materials::programs_panel(bindings.shell, bindings.cx, program_actions),
             bindings,
         ))
         .child(setting_section(
@@ -1542,21 +1551,22 @@ pub(super) fn panel_location(id: &str) -> Option<(usize, &'static str)> {
         "object" => (1, "Object Instance"),
         "objects" => (2, "Object Prototypes"),
         "materials" => (3, "Materials"),
-        "annotations" => (4, "Annotations"),
-        "model_settings" => (5, "Model Settings"),
-        "ui_settings" | "profile" => (6, "UI Settings"),
-        "polyline" | "vector_text" => (7, "Polyline & Vector Text"),
+        "programs" => (4, "Shader Programs"),
+        "annotations" => (5, "Annotations"),
+        "model_settings" => (6, "Model Settings"),
+        "ui_settings" | "profile" => (7, "UI Settings"),
+        "polyline" | "vector_text" => (8, "Polyline & Vector Text"),
         "architecture_walls"
         | "architecture_slabs"
         | "architecture_stairs"
-        | "architecture_frames" => (8, "Architecture — Walls / Slabs / Stairs / Frames"),
-        "hvac" => (9, "HVAC Settings"),
-        "hotspots" => (10, "Hotspot Settings"),
-        "random" => (11, "Random Tools & Surface Remesh"),
-        "tutorials" => (12, "Tutorials"),
-        "shaders" => (13, "Shader Settings"),
-        "mcp" => (14, "MCP Server"),
-        "help" => (15, "Help / About"),
+        | "architecture_frames" => (9, "Architecture — Walls / Slabs / Stairs / Frames"),
+        "hvac" => (10, "HVAC Settings"),
+        "hotspots" => (11, "Hotspot Settings"),
+        "random" => (12, "Random Tools & Surface Remesh"),
+        "tutorials" => (13, "Tutorials"),
+        "shaders" => (14, "Shader Settings"),
+        "mcp" => (15, "MCP Server"),
+        "help" => (16, "Help / About"),
         _ => return None,
     })
 }

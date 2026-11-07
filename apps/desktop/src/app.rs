@@ -201,6 +201,7 @@ const INSPECTOR_PANELS: &[(&str, &str)] = &[
     ("object", "Object"),
     ("objects", "Objects"),
     ("materials", "Materials"),
+    ("programs", "Shader Programs"),
     ("model_settings", "Model Settings"),
     ("profile", "Workspace Profile"),
     ("ui_settings", "UI Settings"),
@@ -1638,6 +1639,12 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
+        for (id, label, keywords, action) in [
+            ("edit", "Edit Shader Program", "shader program glsl edit view source", ShellAction::MaterialAction("program_edit")),
+            ("delete", "Delete Shader Program", "shader program glsl delete remove conventional", ShellAction::MaterialAction("program_delete")),
+        ] {
+            register_shell_command(&mut registry, &format!("program.{id}"), &format!("Objects> Materials> {label}"), "Materials", keywords, Some("paint"), action);
+        }
         for (id, label, to_shader) in [("object.bake_to_shader", "Bake to GPU Mesh", true), ("object.bake_to_mesh", "Bake to Mesh", false)] {
             register_shell_command(&mut registry,id,&format!("Objects> {label}"),"Objects","bake freeze convert gpu shader editable mesh",Some("object"),ShellAction::BakeObjects(to_shader));
         }
@@ -1950,7 +1957,9 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
-        "material.apply" | "material.delete" => &[("id", CommandValueType::String)],
+        "material.apply" | "material.delete" | "program.edit" | "program.delete" => {
+            &[("id", CommandValueType::String)]
+        }
         "material.program" => &[("program", CommandValueType::Object)],
         "material.parameters" => &[
             ("id", CommandValueType::String),
@@ -2426,6 +2435,8 @@ pub struct MeshcraftApp {
     rotational_array_tool_state: RotationalArrayToolState,
     current_paint_color: Rgba8,
     current_paint_material: Option<String>,
+    /// The shader program last chosen in the Shader Programs panel or by `program.edit`.
+    current_program: Option<String>,
     array_count: usize,
     array_spacing: f64,
     array_preview: bool,
@@ -3573,6 +3584,7 @@ impl MeshcraftApp {
             rotational_array_tool_state: RotationalArrayToolState::default(),
             current_paint_color: Rgba8::ANSI_GREY,
             current_paint_material: None,
+            current_program: None,
             array_count: 12,
             array_spacing: 3.0,
             array_preview: false,
@@ -6617,6 +6629,19 @@ impl MeshcraftApp {
                         .and_then(serde_json::Value::as_str)
                         .ok_or_else(|| "Material ID required".to_owned())
                         .and_then(|id| self.delete_native_material(id)),
+                    "program_delete" => payload
+                        .values
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| "Shader program ID required".to_owned())
+                        .and_then(|id| self.delete_native_procedural_program(id)),
+                    "program_edit" => payload
+                        .values
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| "Shader program ID required".to_owned())
+                        .and_then(|id| self.choose_native_program(id))
+                        .map(|_| self.open_panels(&["program_editor"])),
                     "save" => match payload.values.get("material") {
                         Some(value) => serde_json::from_value(value.clone())
                             .map_err(|e| e.to_string())
@@ -13415,6 +13440,7 @@ mod tests {
             rotational_array_tool_state: super::RotationalArrayToolState::default(),
             current_paint_color: Rgba8::ANSI_GREY,
             current_paint_material: None,
+            current_program: None,
             array_count: 12,
             array_spacing: 3.0,
             array_preview: false,
@@ -14320,7 +14346,7 @@ mod tests {
             ("Meshing", "geometry.fill_loops"),
             ("Solids", "tool.builtin.mesh_intersection"),
             ("Civil", "tool.builtin.arch_wall"),
-            ("Materials", "material.new_wood"),
+            ("Materials", "material.new"),
             ("Materials", "material.new_shader"),
             ("Objects", "object.delete_definition"),
             ("Objects", "object.bake_to_shader"),

@@ -1729,6 +1729,14 @@ impl MeshcraftShell {
             }
         } else if id == "ui.update_preferences" {
             self.session.native_ui_preferences_payload()
+        } else if matches!(id, "program.edit" | "program.delete") {
+            let mut payload = CommandPayload::default();
+            if let Some(program) = self.materials.program.clone() {
+                payload
+                    .values
+                    .insert("id".into(), serde_json::Value::String(program));
+            }
+            payload
         } else if matches!(id, "material.apply" | "material.delete") {
             let mut payload = CommandPayload::default();
             payload.values.insert(
@@ -3163,6 +3171,12 @@ impl Render for MeshcraftShell {
         if let Some(panel) = self.session.native_take_panel_focus() {
             if panel == "material_program_new" {
                 materials::new_program(self, false, window, cx);
+            }
+            if panel == "program_editor"
+                && let Some(id) = self.session.native_current_program()
+            {
+                self.materials.program = Some(id.clone());
+                materials::edit_program(self, &id, window, cx);
             }
             if panel == "script_new" || panel == "script_edit" {
                 scripts::edit(self, panel == "script_new", window, cx);

@@ -14,8 +14,11 @@ materials and two tree instances with different settings.
 
 ## Foliage, water, brick and wood
 
-In **Materials**, choose **New Foliage**, **New Water**, **New Brick** or **New Wood**, adjust its
-parameters, Save, select the source geometry and **Apply to Selection**.
+Choose **Materials › New Material** and pick **Foliage**, **Water**, **Brick** or
+**Wood** in its **Program** list; the material takes the preset's name, colour and
+PBR settings. Adjust its parameters, Save, select the source geometry and
+**Apply to Selection**. (The separate New Foliage/Water/Brick/Wood buttons were
+removed in 0.59.0; their command IDs still work over MCP.)
 Double-click the material to edit shared defaults. The existing **Apply Values
 to Selection** action changes only the selected assignments.
 

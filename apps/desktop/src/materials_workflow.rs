@@ -201,6 +201,40 @@ impl MeshcraftApp {
             d.put_procedural_program(program)
         })
     }
+    /// The shader program last chosen in the Shader Programs panel or by `program.edit`.
+    pub fn native_current_program(&self) -> Option<String> {
+        self.current_program.clone()
+    }
+    pub fn choose_native_program(&mut self, id: &str) -> Result<(), String> {
+        let program = self
+            .document
+            .procedural_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| format!("Shader program {id} doesn't exist"))?;
+        self.current_program = Some(program.id);
+        self.status = format!("Current shader program: {}", program.name);
+        Ok(())
+    }
+    /// Deletes a stored program as one Undo step; materials using it become
+    /// conventional materials.
+    pub fn delete_native_procedural_program(&mut self, id: &str) -> Result<(), String> {
+        let reset = self.commit_global_document_edit("Delete shader program", |d| {
+            d.remove_procedural_program(id)
+        })?;
+        if self.current_program.as_deref() == Some(id) {
+            self.current_program = None;
+        }
+        self.status = match reset.len() {
+            0 => format!("Deleted shader program {id}."),
+            _ => format!(
+                "Deleted shader program {id}; {} now use{} conventional shading.",
+                reset.join(", "),
+                if reset.len() == 1 { "s" } else { "" }
+            ),
+        };
+        Ok(())
+    }
     pub fn assign_native_material(&mut self, id: &str) -> Result<(), String> {
         self.assign_native_material_parameters(id, None)
     }

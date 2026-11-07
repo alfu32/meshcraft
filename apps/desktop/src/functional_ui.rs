@@ -277,7 +277,6 @@ pub(crate) const SECTIONS: &[Section] = &[
         commands: &[
             ("view.panel.materials.toggle", "Material Manager"),
             ("material.new", "New Material"),
-            ("material.new_shader", "New Shader"),
             ("material.edit", "Edit Material"),
             ("material.apply", "Apply Material"),
             ("material.edit_texture", "Edit Texture Position"),
@@ -287,13 +286,12 @@ pub(crate) const SECTIONS: &[Section] = &[
     },
     Section {
         root: "Materials",
-        title: "Procedural",
+        title: "Shader Programs",
         commands: &[
-            ("material.new_grass", "New Grass"),
-            ("material.new_foliage", "New Foliage"),
-            ("material.new_water", "New Water"),
-            ("material.new_brick", "New Brick"),
-            ("material.new_wood", "New Wood"),
+            ("view.panel.programs.toggle", "Shader Programs"),
+            ("material.new_shader", "New Shader"),
+            ("program.edit", "Edit Shader Program"),
+            ("program.delete", "Delete Shader Program"),
         ],
     },
     Section {
