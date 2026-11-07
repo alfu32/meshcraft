@@ -1,0 +1,219 @@
+{
+  "video": "08-materials-library.mp4",
+  "app_version": "0.61.0",
+  "recipe": "docs/tutorials/recipes/08-materials-library.py",
+  "duration": 285.733,
+  "chars_per_second": 14.0,
+  "cues": [
+    {
+      "start": 3.664,
+      "end": 10.684,
+      "text": "This continues the cabin from tutorial 2, so the units are set. Let's dress it up.",
+      "reading_seconds": 7.07,
+      "voice": "f7aa422d1bcb275c"
+    },
+    {
+      "start": 10.734,
+      "end": 15.114,
+      "text": "On the Materials tab, open the Material Manager.",
+      "reading_seconds": 4.43,
+      "voice": "dae99d2a60dacb37"
+    },
+    {
+      "start": 15.164,
+      "end": 21.229,
+      "text": "Each material is now a little sphere wearing it, rendered with the real shaders.",
+      "reading_seconds": 6.114,
+      "voice": "3c55f6ae8a6410ae"
+    },
+    {
+      "start": 21.279,
+      "end": 29.739,
+      "text": "The Model tab holds this model's materials. The Library tab holds ready-made ones.",
+      "reading_seconds": 8.51,
+      "voice": "87c88cfcb72bb65c"
+    },
+    {
+      "start": 29.789,
+      "end": 45.175,
+      "text": "Plain colors first, then vegetation, then construction: brick, tiles, stone, glass, metal.",
+      "reading_seconds": 8.91,
+      "voice": "4f44f3047a8a6e60"
+    },
+    {
+      "start": 45.225,
+      "end": 49.18,
+      "text": "Select the four walls.",
+      "reading_seconds": 3.79,
+      "voice": "64ebb92bcc324666"
+    },
+    {
+      "start": 49.23,
+      "end": 56.33,
+      "text": "Pick Red brick, then Apply to Selection. That adds it to the model and paints the walls.",
+      "reading_seconds": 7.15,
+      "voice": "613bce959f7920df"
+    },
+    {
+      "start": 56.38,
+      "end": 62.36,
+      "text": "Ooh, real bricks. The tick marks library materials already in the model.",
+      "reading_seconds": 6.03,
+      "voice": "0fc319cdb8b9c59a"
+    },
+    {
+      "start": 62.41,
+      "end": 69.91,
+      "text": "Now a texture for the roof. Back on the Model tab, choose New Material.",
+      "reading_seconds": 7.55,
+      "voice": "43ad345e82d901e4"
+    },
+    {
+      "start": 69.96,
+      "end": 86.483,
+      "text": "Name it, then give it an image. Browse opens a file dialog; typing the path works too.",
+      "reading_seconds": 7.87,
+      "voice": "c576bead6a97c0e2"
+    },
+    {
+      "start": 86.533,
+      "end": 96.792,
+      "text": "The image covers 4 by 4 units. That's 1.2 metres in this model.",
+      "reading_seconds": 6.59,
+      "voice": "a020cea2bd12d5eb"
+    },
+    {
+      "start": 96.842,
+      "end": 109.552,
+      "text": "Select the roof, then Apply to Selection.",
+      "reading_seconds": 3.71,
+      "voice": "674b2fee95af9bfc"
+    },
+    {
+      "start": 115.124,
+      "end": 123.344,
+      "text": "Hmm, the boards are narrow. Choose Edit Texture Position, then click the roof.",
+      "reading_seconds": 8.27,
+      "voice": "871de9f7552feec5"
+    },
+    {
+      "start": 123.394,
+      "end": 129.294,
+      "text": "Drag a corner to size the image. The opposite corner stays put.",
+      "reading_seconds": 5.95,
+      "voice": "0fca804dfb640ce8"
+    },
+    {
+      "start": 129.344,
+      "end": 137.221,
+      "text": "Nice, wider boards. The drag is saved to the material, and Undo takes it back.",
+      "reading_seconds": 6.99,
+      "voice": "7a35226074d2fc89"
+    },
+    {
+      "start": 137.271,
+      "end": 144.131,
+      "text": "Next, something shiny on the lawn. Press T on the grid for a helper.",
+      "reading_seconds": 6.91,
+      "voice": "c8c81a73df5f2399"
+    },
+    {
+      "start": 144.181,
+      "end": 158.539,
+      "text": "Sphere: pick a centre up the helper, then a point above it for the radius.",
+      "reading_seconds": 6.67,
+      "voice": "c8dfdcc0c3dc652d"
+    },
+    {
+      "start": 158.589,
+      "end": 166.576,
+      "text": "New Material now lists every shader in one place. Open the Program list.",
+      "reading_seconds": 6.35,
+      "voice": "b8351c09e86bad0a"
+    },
+    {
+      "start": 166.626,
+      "end": 178.19,
+      "text": "Emboss tiling, rough stone, metal, glass and Perlin noise. Pick Polished metal.",
+      "reading_seconds": 8.91,
+      "voice": "0e7d681984e40da7"
+    },
+    {
+      "start": 178.24,
+      "end": 186.206,
+      "text": "The sphere is still selected, so Apply to Selection.",
+      "reading_seconds": 6.35,
+      "voice": "c82c1ce1a5218bd9"
+    },
+    {
+      "start": 186.256,
+      "end": 193.916,
+      "text": "Look, a mirror. Metal reflects a studio sky with hard highlights.",
+      "reading_seconds": 7.71,
+      "voice": "805a5f5d361d92ce"
+    },
+    {
+      "start": 193.966,
+      "end": 199.626,
+      "text": "Shader Programs lists every program and what uses it.",
+      "reading_seconds": 5.71,
+      "voice": "c75da6be2acac671"
+    },
+    {
+      "start": 199.676,
+      "end": 205.576,
+      "text": "Deleting a custom program turns its materials back into plain ones.",
+      "reading_seconds": 5.95,
+      "voice": "3e7902bdc4ef4faa"
+    },
+    {
+      "start": 205.626,
+      "end": 212.096,
+      "text": "New Shader opens the shader editor. Full Source shows exactly what gets compiled.",
+      "reading_seconds": 6.35,
+      "voice": "b02c3fa26ece1a27"
+    },
+    {
+      "start": 212.146,
+      "end": 217.166,
+      "text": "No hidden layers. We won't write one today, so Cancel.",
+      "reading_seconds": 5.07,
+      "voice": "9e44a9cc12a6acdc"
+    },
+    {
+      "start": 217.216,
+      "end": 230.44,
+      "text": "Last, the lawn. Rectangle, and click two grid points around the cabin.",
+      "reading_seconds": 7.23,
+      "voice": "b951491953201d13"
+    },
+    {
+      "start": 230.49,
+      "end": 245.36,
+      "text": "In the Library, double-click Grass. It joins the model with a tick.",
+      "reading_seconds": 5.87,
+      "voice": "90f11c0a78bb435f"
+    },
+    {
+      "start": 249.807,
+      "end": 255.793,
+      "text": "Then Apply to Selection.",
+      "reading_seconds": 2.75,
+      "voice": "20d0b01dae6c80c5"
+    },
+    {
+      "start": 255.843,
+      "end": 268.461,
+      "text": "Wooow. Every material is saved with the project, and stays editable.",
+      "reading_seconds": 6.91,
+      "voice": "44ee20bca98df1bd"
+    },
+    {
+      "start": 268.511,
+      "end": 279.142,
+      "text": "And the Model tab now shows them all: brick, decking, metal and grass.",
+      "reading_seconds": 8.03,
+      "voice": "4b75a80b4ca6182a"
+    }
+  ]
+}

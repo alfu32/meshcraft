@@ -774,11 +774,21 @@ fn command_row(
         .flex_wrap()
         .items_center()
         .gap(px(4.))
-        .children(
-            commands
-                .iter()
-                .map(|(command, label)| bindings.button(namespace, command, label)),
-        ))
+        .children(commands.iter().map(|(command, label)| {
+            let button = bindings.button(namespace, command, label);
+            if !namespace.starts_with("panel/") {
+                return button.into_any_element();
+            }
+            // Panel buttons are measured so automation can travel to them, as ribbon tools are.
+            div()
+                .relative()
+                .child(button)
+                .child(super::workspace_controls::bounds_probe(
+                    bindings.shell,
+                    format!("panel/button/{command}"),
+                ))
+                .into_any_element()
+        })))
     .into_any_element()
 }
 

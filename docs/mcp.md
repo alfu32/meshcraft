@@ -466,3 +466,9 @@ is the orbit distance; together with the camera pose they let a driver project a
 Standard text, numeric and select editors also expose `setting-input/<label>`, such as
 `setting-input/Grid size`. Use the editor bounds centre for typing. These are the
 last drawn bounds and are valid while the corresponding panel is open.
+Panel controls drawn in the last frame use `panel/` keys and disappear when their panel
+closes or their tab is hidden: `panel/materials/tab/model` and `panel/materials/tab/library`,
+model tiles `panel/materials/material/<id>`, library tiles `panel/materials/library/<id>`,
+`panel/materials/scroll` (the visible part of the scrolling tile list; a tile outside it
+needs the wheel first), Shader Programs rows `panel/programs/<id>`, and panel buttons
+`panel/button/<command>` such as `panel/button/material.apply_from_library`.

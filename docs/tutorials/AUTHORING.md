@@ -239,6 +239,11 @@ Every item here cost a failed run or a bad recording. The app's own status text 
 - **Wall faces:** with the template's offset 0.5, the chain line is the wall's outer face. A wall drawn in +X has that
   face looking to −Z, and one drawn in −X looks to +Z, so draw walls so the outer face looks at the camera.
 - **Material editors are modal.** Save with `material.save`, then `d.close_modal()`. The ribbon is blocked until it closes.
+- **Panels report their controls.** The Materials and Shader Programs panels publish `panel/` keys (tabs, tiles, rows,
+  buttons and `panel/materials/scroll`, the visible part of the tile list) while drawn; `08-materials-library.py` clicks
+  them for real and wheels a tile into view first. Positions come from the last painted frame, so wait for them to settle.
+- **Type slowly into editor fields.** Under software rendering each frame of the window takes a few tenths of a second,
+  and keys sent faster pile up until the field shows them all at once. `type_into` in recipe 8 waits about 0.3 s per key.
 - **Materials belong to each instance,** so they don't reach copies. Definitions are shared, and instance values are not.
 - **The script editor preview** opens close up. Zoom with `d.wheel`, and check it on a frame, because too many clicks leave it blank.
 - **Esc over MCP clears the 3D cursor** until the next hover, which `d.aim` does anyway.

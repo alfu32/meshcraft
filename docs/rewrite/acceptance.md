@@ -577,3 +577,23 @@ marks it ✓. Apply to Selection adds a library material and paints the selectio
 a single Undo removes both. Materials › Library lists Add and Apply Library Material;
 with no library material chosen they open the Library tab. Run
 `python3 scripts/verify_materials_panel.py`.
+
+## C58 — Tutorial 8: materials from 0.55 to 0.60
+
+**Tasks:** T85. **Requirements:** P07, R01, R04.
+
+Tutorial 8 continues the tutorial 2 cabin (30 cm per unit) and says so in its first
+line. It opens the Material Manager from the Materials ribbon, shows the sphere
+previews, switches to the Library tab and skims its sections with the wheel. The four
+walls take Red brick through Apply to Selection, which adds it to the model and marks
+it ✓. New Material saves a Decking material with `textures/decking.png` at 4 × 4 units,
+applied to the roof slab; Edit Texture Position outlines its tile on a click and a
+corner drag doubles it to 8 × 8 with the opposite corner fixed. A sphere picked up an
+axis helper takes a New Material whose Program is Polished metal. Shader Programs shows
+the program in use, and New Shader opens the shader editor on its Full Source tab before
+Cancel. A lawn rectangle snapped to the grid takes library Grass by double-click and
+Apply to Selection. Every claim is checked against the model (`selectionMaterials`, the
+saved material records, the texture tile corners), the frames are reviewed, and the
+video has narration, one selectable English subtitle track and a closing card. Panel
+controls are reported as `panel/` keys only while drawn. Run
+`python3 scripts/video/build.py --only 08 --dry-run`.

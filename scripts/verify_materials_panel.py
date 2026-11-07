@@ -131,6 +131,15 @@ def library_tab(run):
     run.expect('Library tab opens on plain colors with rendered spheres',
                red and not red.get('failed'), red)
     run.shot('03-library-plain-colors')
+    controls = run.rpc.status()['workspace']['controls']
+    keys = sorted(k for k in controls if k.startswith('panel/'))
+    tile = controls.get('panel/materials/library/library.color.red-50')
+    run.observations['panel_controls'] = dict(count=len(keys), red_50=tile)
+    run.expect('panel tabs, library tiles and buttons are measured, and model tiles are not',
+               'panel/materials/tab/library' in keys and 'panel/materials/scroll' in keys
+               and 'panel/button/material.apply_from_library' in keys and tile is not None
+               and abs(tile['x'] + tile['width'] / 2 - COLUMNS[1]) < 12
+               and not any(k.startswith('panel/materials/material/') for k in keys), keys)
 
     run.click((COLUMNS[1], FIRST_ROW), count=2, settle=1.5)
     added = 'library.color.red-50' in run.material_ids()
@@ -179,6 +188,12 @@ def menu_fallback(run):
     run.observations['menu_fallback'] = dict(message=message, library_tab_pixel=tab)
     run.expect('a library command with nothing chosen opens the Library tab',
                'Library' in message and tab[0] > 0x26, run.observations['menu_fallback'])
+    # Accordion panels: opening Model Settings collapses Materials.
+    run.rpc.command('view.model_settings')
+    time.sleep(1.5)
+    left = [k for k in run.rpc.status()['workspace']['controls'] if k.startswith('panel/materials/')]
+    run.shot('08-panel-collapsed')
+    run.expect('collapsing the panel removes its measured controls', not left, left[:5])
 
 
 def main():

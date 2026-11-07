@@ -29,6 +29,24 @@
   "spoken": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads.",
   "text": "Cut the lift openings on the wall faces. Axis helpers carry their 2.1 metre heads."
  },
+ "0e7d681984e40da7": {
+  "seconds": 8.56,
+  "speaker": "ryan",
+  "spoken": "Emboss tiling, rough stone, metal, glass and Perlin noise. Pick Polished metal.",
+  "text": "Emboss tiling, rough stone, metal, glass and Perlin noise. Pick Polished metal."
+ },
+ "0fc319cdb8b9c59a": {
+  "seconds": 5.68,
+  "speaker": "ryan",
+  "spoken": "Ooh, real bricks. The tick marks library materials already in the model.",
+  "text": "Ooh, real bricks. The tick marks library materials already in the model."
+ },
+ "0fca804dfb640ce8": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Drag a corner to size the image. The opposite corner stays put.",
+  "text": "Drag a corner to size the image. The opposite corner stays put."
+ },
  "1146e625ca3ed531": {
   "seconds": 7.6,
   "speaker": "ryan",
@@ -95,6 +113,12 @@
   "spoken": "Awesome. Move Copy it: pick its corner, then a grid point further along.",
   "text": "Awesome. Move Copy it: pick its corner, then a grid point further along."
  },
+ "20d0b01dae6c80c5": {
+  "seconds": 2.4,
+  "speaker": "ryan",
+  "spoken": "Then Apply to Selection.",
+  "text": "Then Apply to Selection."
+ },
  "2303d9ca103de5f1": {
   "seconds": 3.12,
   "speaker": "ryan",
@@ -112,6 +136,12 @@
   "speaker": "ryan",
   "spoken": "Unit size says how long one model unit is. One unit, one centimetre.",
   "text": "Unit size says how long one model unit is. One unit, one centimetre."
+ },
+ "2b2fb6f489a420bb": {
+  "seconds": 10.4,
+  "speaker": "ryan",
+  "spoken": "Wow, a mirror! Metal reflects a studio sky with hard highlights.",
+  "text": "Wow, a mirror! Metal reflects a studio sky with hard highlights."
  },
  "2cb8cd1e08c87a3c": {
   "seconds": 5.12,
@@ -197,6 +227,12 @@
   "spoken": "Parameters sit in the Object Instance panel. Set this one to 5 shelves.",
   "text": "Parameters sit in the Object Instance panel. Set this one to 5 shelves."
  },
+ "3c55f6ae8a6410ae": {
+  "seconds": 5.68,
+  "speaker": "ryan",
+  "spoken": "Each material is now a little sphere wearing it, rendered with the real shaders.",
+  "text": "Each material is now a little sphere wearing it, rendered with the real shaders."
+ },
  "3d3f7f52a80ca18f": {
   "seconds": 5.44,
   "speaker": "ryan",
@@ -209,6 +245,12 @@
   "spoken": "Same again: a helper on its edge, push pull up one grid step.",
   "text": "Same again: a helper on its edge, Push/Pull up one grid step."
  },
+ "3e7902bdc4ef4faa": {
+  "seconds": 5.6,
+  "speaker": "ryan",
+  "spoken": "Deleting a custom program turns its materials back into plain ones.",
+  "text": "Deleting a custom program turns its materials back into plain ones."
+ },
  "4095b296edf00b08": {
   "seconds": 5.92,
   "speaker": "ryan",
@@ -220,6 +262,18 @@
   "speaker": "ryan",
   "spoken": "Make the copy shorter, on that same grid helper. The first stays as it was.",
   "text": "Make the copy shorter, on that same grid helper. The first stays as it was."
+ },
+ "43ad345e82d901e4": {
+  "seconds": 7.2,
+  "speaker": "ryan",
+  "spoken": "Now a texture for the roof. Back on the Model tab, choose New Material.",
+  "text": "Now a texture for the roof. Back on the Model tab, choose New Material."
+ },
+ "44ee20bca98df1bd": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "Wooow. Every material is saved with the project, and stays editable.",
+  "text": "Wooow. Every material is saved with the project, and stays editable."
  },
  "46a5bc8ac9cf81bc": {
   "seconds": 8.08,
@@ -238,6 +292,12 @@
   "speaker": "ryan",
   "spoken": "Good. Add doors between the side halls and the two protected staircase enclosures.",
   "text": "Good. Add doors between the side halls and the two protected staircase enclosures."
+ },
+ "4b75a80b4ca6182a": {
+  "seconds": 7.68,
+  "speaker": "ryan",
+  "spoken": "And the Model tab now shows them all: brick, decking, metal and grass.",
+  "text": "And the Model tab now shows them all: brick, decking, metal and grass."
  },
  "4be10d744f87ebe5": {
   "seconds": 7.52,
@@ -262,6 +322,12 @@
   "speaker": "ryan",
   "spoken": "Cool. Copy both partitions to the south office zone, using the same grid spacing.",
   "text": "Cool. Copy both partitions to the south office zone, using the same grid spacing."
+ },
+ "4f44f3047a8a6e60": {
+  "seconds": 8.56,
+  "speaker": "ryan",
+  "spoken": "Plain colors first, then vegetation, then construction: brick, tiles, stone, glass, metal.",
+  "text": "Plain colors first, then vegetation, then construction: brick, tiles, stone, glass, metal."
  },
  "4f6a81818f86f6ec": {
   "seconds": 9.04,
@@ -353,11 +419,23 @@
   "spoken": "The Window tool gives us a frame and glass in two clicks.",
   "text": "The Window tool gives us a frame and glass in two clicks."
  },
+ "613bce959f7920df": {
+  "seconds": 6.8,
+  "speaker": "ryan",
+  "spoken": "Pick Red brick, then Apply to Selection. That adds it to the model and paints the walls.",
+  "text": "Pick Red brick, then Apply to Selection. That adds it to the model and paints the walls."
+ },
  "61f4dbc1a2a0c91f": {
   "seconds": 5.36,
   "speaker": "ryan",
   "spoken": "Draw the two lift cases on the left of the central lift hall.",
   "text": "Draw the two lift cases on the left of the central lift hall."
+ },
+ "64ebb92bcc324666": {
+  "seconds": 3.44,
+  "speaker": "ryan",
+  "spoken": "Select the four walls.",
+  "text": "Select the four walls."
  },
  "64fec0f278947779": {
   "seconds": 5.36,
@@ -376,6 +454,12 @@
   "speaker": "ryan",
   "spoken": "Ooh, nice. Now the same with the Window tool.",
   "text": "Ooh, nice. Now the same with the Window tool."
+ },
+ "674b2fee95af9bfc": {
+  "seconds": 3.36,
+  "speaker": "ryan",
+  "spoken": "Select the roof, then Apply to Selection.",
+  "text": "Select the roof, then Apply to Selection."
  },
  "67cbf17a7098619d": {
   "seconds": 8.4,
@@ -449,6 +533,12 @@
   "spoken": "Mark the lift and stair enclosures F R ninety, and the side halls F R thirty, following the plan.",
   "text": "Mark the lift and stair enclosures FR90, and the side halls FR30, following the plan."
  },
+ "7a35226074d2fc89": {
+  "seconds": 6.64,
+  "speaker": "ryan",
+  "spoken": "Nice, wider boards. The drag is saved to the material, and Undo takes it back.",
+  "text": "Nice, wider boards. The drag is saved to the material, and Undo takes it back."
+ },
  "7d78b86b1a0bb082": {
   "seconds": 6.56,
   "speaker": "ryan",
@@ -472,6 +562,12 @@
   "speaker": "ryan",
   "spoken": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible.",
   "text": "Hide Objects in the selection filters while drafting the core, to keep the floor grid accessible."
+ },
+ "805a5f5d361d92ce": {
+  "seconds": 7.36,
+  "speaker": "ryan",
+  "spoken": "Look, a mirror. Metal reflects a studio sky with hard highlights.",
+  "text": "Look, a mirror. Metal reflects a studio sky with hard highlights."
  },
  "834767a2b696e3c4": {
   "seconds": 8.4,
@@ -497,11 +593,23 @@
   "spoken": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion.",
   "text": "Ok! Repeating parts is where modeling gets quick. Let's build a pavilion."
  },
+ "871de9f7552feec5": {
+  "seconds": 7.92,
+  "speaker": "ryan",
+  "spoken": "Hmm, the boards are narrow. Choose Edit Texture Position, then click the roof.",
+  "text": "Hmm, the boards are narrow. Choose Edit Texture Position, then click the roof."
+ },
  "874591f821f340b1": {
   "seconds": 7.2,
   "speaker": "ryan",
   "spoken": "First the size handle. Place Hotspot on the panel's right corner, set to Stretch.",
   "text": "First the size handle. Place Hotspot on the panel's right corner, set to Stretch."
+ },
+ "87c88cfcb72bb65c": {
+  "seconds": 8.16,
+  "speaker": "ryan",
+  "spoken": "The Model tab holds this model's materials. The Library tab holds ready-made ones.",
+  "text": "The Model tab holds this model's materials. The Library tab holds ready-made ones."
  },
  "8953d4825f664c4e": {
   "seconds": 6.56,
@@ -538,6 +646,12 @@
   "speaker": "ryan",
   "spoken": "That's a dynamic object with no code: one size handle and one multiply handle.",
   "text": "That's a dynamic object with no code: one size handle and one multiply handle."
+ },
+ "90f11c0a78bb435f": {
+  "seconds": 5.52,
+  "speaker": "ryan",
+  "spoken": "In the Library, double-click Grass. It joins the model with a tick.",
+  "text": "In the Library, double-click Grass. It joins the model with a tick."
  },
  "9142d97c19a9090a": {
   "seconds": 8.4,
@@ -592,6 +706,18 @@
   "speaker": "ryan",
   "spoken": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall.",
   "text": "To the west, divide the service bay into women's and men's toilets, accessed from the side hall."
+ },
+ "9e44a9cc12a6acdc": {
+  "seconds": 4.72,
+  "speaker": "ryan",
+  "spoken": "No hidden layers. We won't write one today, so Cancel.",
+  "text": "No hidden layers. We won't write one today, so Cancel."
+ },
+ "a020cea2bd12d5eb": {
+  "seconds": 6.24,
+  "speaker": "ryan",
+  "spoken": "The image covers 4 by 4 units. That's 1.2 metres in this model.",
+  "text": "The image covers 4 by 4 units. That's 1.2 metres in this model."
  },
  "a085d1aef8760690": {
   "seconds": 8.08,
@@ -683,6 +809,12 @@
   "spoken": "Good. Now move over the grid. The coloured axes on the cursor show where it snaps.",
   "text": "Good. Now move over the grid. The coloured axes on the cursor show where it snaps."
  },
+ "b02c3fa26ece1a27": {
+  "seconds": 6.0,
+  "speaker": "ryan",
+  "spoken": "New Shader opens the shader editor. Full Source shows exactly what gets compiled.",
+  "text": "New Shader opens the shader editor. Full Source shows exactly what gets compiled."
+ },
  "b198f6858b13fbd1": {
   "seconds": 4.8,
   "speaker": "ryan",
@@ -731,6 +863,18 @@
   "spoken": "Good. Make it an object. That's what the copies will share.",
   "text": "Good. Make it an object. That's what the copies will share."
  },
+ "b8351c09e86bad0a": {
+  "seconds": 6.0,
+  "speaker": "ryan",
+  "spoken": "New Material now lists every shader in one place. Open the Program list.",
+  "text": "New Material now lists every shader in one place. Open the Program list."
+ },
+ "b951491953201d13": {
+  "seconds": 6.88,
+  "speaker": "ryan",
+  "spoken": "Last, the lawn. Rectangle, and click two grid points around the cabin.",
+  "text": "Last, the lawn. Rectangle, and click two grid points around the cabin."
+ },
  "b9e4ddb8445c25bd": {
   "seconds": 4.72,
   "speaker": "ryan",
@@ -778,6 +922,36 @@
   "speaker": "ryan",
   "spoken": "Pull it up until the cursor snaps to the corner underneath the top.",
   "text": "Pull it up until the cursor snaps to the corner underneath the top."
+ },
+ "c576bead6a97c0e2": {
+  "seconds": 7.52,
+  "speaker": "ryan",
+  "spoken": "Name it, then give it an image. Browse opens a file dialog; typing the path works too.",
+  "text": "Name it, then give it an image. Browse opens a file dialog; typing the path works too."
+ },
+ "c75da6be2acac671": {
+  "seconds": 5.36,
+  "speaker": "ryan",
+  "spoken": "Shader Programs lists every program and what uses it.",
+  "text": "Shader Programs lists every program and what uses it."
+ },
+ "c82c1ce1a5218bd9": {
+  "seconds": 6.0,
+  "speaker": "ryan",
+  "spoken": "The sphere is still selected, so Apply to Selection.",
+  "text": "The sphere is still selected, so Apply to Selection."
+ },
+ "c8c81a73df5f2399": {
+  "seconds": 6.56,
+  "speaker": "ryan",
+  "spoken": "Next, something shiny on the lawn. Press T on the grid for a helper.",
+  "text": "Next, something shiny on the lawn. Press T on the grid for a helper."
+ },
+ "c8dfdcc0c3dc652d": {
+  "seconds": 6.32,
+  "speaker": "ryan",
+  "spoken": "Sphere: pick a centre up the helper, then a point above it for the radius.",
+  "text": "Sphere: pick a centre up the helper, then a point above it for the radius."
  },
  "c996f11f238f402e": {
   "seconds": 5.92,
@@ -862,6 +1036,12 @@
   "speaker": "ryan",
   "spoken": "Its blue axis points straight up and snaps at every grid step.",
   "text": "Its blue axis points straight up and snaps at every grid step."
+ },
+ "dae99d2a60dacb37": {
+  "seconds": 4.08,
+  "speaker": "ryan",
+  "spoken": "On the Materials tab, open the Material Manager.",
+  "text": "On the Materials tab, open the Material Manager."
  },
  "dd208bf7cd56d6ac": {
   "seconds": 7.36,
@@ -976,6 +1156,12 @@
   "speaker": "ryan",
   "spoken": "Now drag the hotspot along that grid. The bookcase is rebuilt as it moves.",
   "text": "Now drag the hotspot along that grid. The bookcase is rebuilt as it moves."
+ },
+ "f7aa422d1bcb275c": {
+  "seconds": 6.72,
+  "speaker": "ryan",
+  "spoken": "This continues the cabin from tutorial 2, so the units are set. Let's dress it up.",
+  "text": "This continues the cabin from tutorial 2, so the units are set. Let's dress it up."
  },
  "faf44358d918fbfe": {
   "seconds": 5.92,

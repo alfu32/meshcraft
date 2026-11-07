@@ -3982,6 +3982,55 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T85",
+      "title": "Tutorial 8: the materials features from 0.55 to 0.60 on the tutorial 2 cabin",
+      "phase": "desktop",
+      "dependencies": [
+        "T77",
+        "T82",
+        "T83",
+        "T84"
+      ],
+      "requirements": [
+        "P07",
+        "R01",
+        "R04"
+      ],
+      "acceptance": [
+        "C58"
+      ],
+      "targets": [
+        "docs/tutorials/recipes/08-materials-library.py",
+        "docs/tutorials/videos/08-materials-library.mp4",
+        "docs/tutorials/projects/08-materials-library.octd",
+        "docs/tutorials/projects/textures/decking.png",
+        "scripts/video/make_decking.py",
+        "docs/tutorials/README.md",
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/gpui_layout.rs",
+        "apps/desktop/src/gpui_workspace_controls.rs"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/tutorial/TutorialManager.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/tutorials/AUTHORING.md",
+        "docs/rewrite/handoffs/T85.md",
+        "docs/mcp.md"
+      ],
+      "slices": [
+        "Measure the Materials and Shader Programs panel controls (tabs, tiles, the visible scroll window, rows and buttons) as panel/ keys that vanish with their panel, so drivers travel to real controls.",
+        "Record a narrated tutorial on the tutorial 2 cabin: sphere previews, the Library tab, library brick applied to the walls, a textured decking roof sized with Edit Texture Position, New Material with Polished metal on a sphere, Shader Programs and Full Source, and library grass for the lawn.",
+        "Back every narrated claim with a model check and review the frames."
+      ],
+      "done": [
+        "C58 passes with the recorded video, selectable subtitles, saved project and reviewed frames."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }

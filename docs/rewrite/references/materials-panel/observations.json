@@ -4,11 +4,13 @@
     "Model tab shows each material as a rendered sphere": true,
     "editing a material renders its picture again": true,
     "Library tab opens on plain colors with rendered spheres": true,
+    "panel tabs, library tiles and buttons are measured, and model tiles are not": true,
     "double-clicking a library tile adds it to the model": true,
     "Apply to Selection adds the library material and paints the selection": true,
     "one Undo removes both the paint and the added material": true,
     "the viewport keeps drawing while library pictures render": true,
     "a library command with nothing chosen opens the Library tab": true,
+    "collapsing the panel removes its measured controls": true,
     "the application is still running": true
   },
   "observations": {
@@ -58,6 +60,15 @@
         26.0
       ]
     },
+    "panel_controls": {
+      "count": 63,
+      "red_50": {
+        "x": 1007.0,
+        "y": 306.0,
+        "width": 118.0,
+        "height": 130.0
+      }
+    },
     "box": {
       "dispatch": {
         "command_id": "geometry.add_cuboid",
@@ -87,7 +98,7 @@
           "cursor": 3,
           "entries": 3
         },
-        "version": "0.60.0",
+        "version": "0.61.0",
         "revision": 3,
         "generation": 0,
         "activeTool": "Select",
@@ -114,7 +125,7 @@
         }
       },
       "_timing": {
-        "ownerThreadMs": 1.505492
+        "ownerThreadMs": 1.683827
       }
     },
     "viewport_after_library": {

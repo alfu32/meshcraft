@@ -341,9 +341,11 @@ fn tile(
             .into_any_element(),
     };
     let backdrop = super::material_thumbnails::BACKDROP;
+    let probe = super::workspace_controls::bounds_probe(shell, format!("panel/materials/{id}"));
     div()
         .id(id)
         .relative()
+        .child(probe)
         .w(px(TILE_WIDTH))
         .flex_none()
         .flex()
@@ -400,6 +402,7 @@ fn grid(id: &'static str, tiles: Vec<gpui::AnyElement>) -> gpui::AnyElement {
 }
 
 fn tab_button(
+    shell: &MeshcraftShell,
     label: &'static str,
     tab: Tab,
     current: Tab,
@@ -411,6 +414,11 @@ fn tab_button(
             "materials/tab/{}",
             label.to_lowercase()
         )))
+        .relative()
+        .child(super::workspace_controls::bounds_probe(
+            shell,
+            format!("panel/materials/tab/{}", label.to_lowercase()),
+        ))
         .px(px(14.))
         .py(px(4.))
         .border_1()
@@ -444,8 +452,8 @@ pub(super) fn panel(
         .gap(px(2.))
         .border_b_1()
         .border_color(rgb(0x48525d))
-        .child(tab_button("Model", Tab::Model, tab, cx))
-        .child(tab_button("Library", Tab::Library, tab, cx));
+        .child(tab_button(shell, "Model", Tab::Model, tab, cx))
+        .child(tab_button(shell, "Library", Tab::Library, tab, cx));
     let (content, actions, hint) = match tab {
         Tab::Model => {
             let selected =
@@ -548,14 +556,23 @@ pub(super) fn panel(
         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
         .child(tabs)
         .child(
+            // The probe sits beside the scrolling list, so it measures the visible window.
             div()
-                .id(SharedString::from(match tab {
-                    Tab::Model => "materials/model-scroll",
-                    Tab::Library => "materials/library-scroll",
-                }))
-                .max_h(px(470.))
-                .overflow_y_scroll()
-                .child(content),
+                .relative()
+                .child(
+                    div()
+                        .id(SharedString::from(match tab {
+                            Tab::Model => "materials/model-scroll",
+                            Tab::Library => "materials/library-scroll",
+                        }))
+                        .max_h(px(470.))
+                        .overflow_y_scroll()
+                        .child(content),
+                )
+                .child(super::workspace_controls::bounds_probe(
+                    shell,
+                    "panel/materials/scroll".into(),
+                )),
         )
         .child(actions)
         .children(
@@ -1504,6 +1521,10 @@ pub(super) fn programs_panel(
                     );
                     let active = selected.as_deref() == Some(program.id.as_str());
                     let id = program.id.clone();
+                    let probe = super::workspace_controls::bounds_probe(
+                        shell,
+                        format!("panel/programs/{}", program.id),
+                    );
                     Button::new(SharedString::from(format!("program/{}", program.id)))
                         .ghost()
                         .w_full()
@@ -1519,6 +1540,7 @@ pub(super) fn programs_panel(
                                 .child(program.name.clone())
                                 .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(detail)),
                         )
+                        .child(probe)
                         .when(active, |button| button.bg(rgb(0x35516a)))
                         .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                             this.materials.program = Some(id.clone());

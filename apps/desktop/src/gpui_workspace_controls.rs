@@ -253,11 +253,18 @@ pub(super) fn bounds_probe(shell: &MeshcraftShell, key: String) -> gpui::AnyElem
     .size_full()
     .into_any_element()
 }
+/// Panel controls are measured each frame they are drawn. Forgetting them as a
+/// frame begins keeps closed panels and hidden tabs out of the status.
+pub(super) fn forget_panel_controls(shell: &MeshcraftShell) {
+    if let Ok(mut map) = shell.workspace_controls.bounds.lock() {
+        map.retain(|key, _| !key.starts_with("panel/"));
+    }
+}
 pub(super) fn status(shell: &MeshcraftShell) -> Value {
     let p = shell.session.native_ui_preferences();
     let title_tools = !shell.session.native_home_open();
     let controls=shell.workspace_controls.bounds.lock().map(|map|map.iter().filter(|(key,_)| {
-        key.as_str() == "window/title" || key.starts_with("setting/") || key.starts_with("setting-input/") || (key.starts_with("search/") && (key.as_str() != "search/list" || shell.command_palette_open)) || (title_tools && key.starts_with("title/")) || (p.left_panel_visible && key.starts_with("left/")) || (p.ribbon_visible && (key.starts_with("ribbon/") || key.strip_prefix("tool/").is_some_and(|rest| rest.strip_prefix(shell.active_ribbon_tab).is_some_and(|command| command.starts_with('/'))) || (shell.active_ribbon_tab=="Home" && key.starts_with("home/")) || (shell.active_ribbon_tab=="Materials" && key.starts_with("materials/"))))
+        key.as_str() == "window/title" || key.starts_with("panel/") || key.starts_with("setting/") || key.starts_with("setting-input/") || (key.starts_with("search/") && (key.as_str() != "search/list" || shell.command_palette_open)) || (title_tools && key.starts_with("title/")) || (p.left_panel_visible && key.starts_with("left/")) || (p.ribbon_visible && (key.starts_with("ribbon/") || key.strip_prefix("tool/").is_some_and(|rest| rest.strip_prefix(shell.active_ribbon_tab).is_some_and(|command| command.starts_with('/'))) || (shell.active_ribbon_tab=="Home" && key.starts_with("home/")) || (shell.active_ribbon_tab=="Materials" && key.starts_with("materials/"))))
     }).map(|(key,b)|(key.clone(),json!({"x":f32::from(b.origin.x),"y":f32::from(b.origin.y),"width":f32::from(b.size.width),"height":f32::from(b.size.height)}))).collect::<BTreeMap<_,_>>()).unwrap_or_default();
     json!({"titleToolsBlocked":super::title_tools::blocked(shell),"commandListOpen":shell.command_palette_open,"commandQuery":shell.palette_query,"ribbonTab":shell.active_ribbon_tab,"ribbonTabs":crate::functional_ui::RIBBON_TABS,"leftPanelWidth":shell.workspace_controls.width,"leftPanelQuery":shell.workspace_controls.query,"selectionMaterials":shell.workspace_controls.selected_materials,"controls":controls,"coordinateSpace":"window logical pixels"})
 }

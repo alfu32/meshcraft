@@ -1,0 +1,142 @@
+1
+00:00:03,664 --> 00:00:10,684
+This continues the cabin from tutorial 2,
+so the units are set. Let's dress it up.
+
+2
+00:00:10,734 --> 00:00:15,114
+On the Materials tab, open the Material Manager.
+
+3
+00:00:15,164 --> 00:00:21,229
+Each material is now a little sphere
+wearing it, rendered with the real shaders.
+
+4
+00:00:21,279 --> 00:00:29,739
+The Model tab holds this model's materials.
+The Library tab holds ready-made ones.
+
+5
+00:00:29,789 --> 00:00:45,175
+Plain colors first, then vegetation, then
+construction: brick, tiles, stone, glass, metal.
+
+6
+00:00:45,225 --> 00:00:49,180
+Select the four walls.
+
+7
+00:00:49,230 --> 00:00:56,330
+Pick Red brick, then Apply to Selection. That
+adds it to the model and paints the walls.
+
+8
+00:00:56,380 --> 00:01:02,360
+Ooh, real bricks. The tick marks
+library materials already in the model.
+
+9
+00:01:02,410 --> 00:01:09,910
+Now a texture for the roof. Back on
+the Model tab, choose New Material.
+
+10
+00:01:09,960 --> 00:01:26,483
+Name it, then give it an image. Browse opens
+a file dialog; typing the path works too.
+
+11
+00:01:26,533 --> 00:01:36,792
+The image covers 4 by 4 units.
+That's 1.2 metres in this model.
+
+12
+00:01:36,842 --> 00:01:49,552
+Select the roof, then Apply to Selection.
+
+13
+00:01:55,124 --> 00:02:03,344
+Hmm, the boards are narrow. Choose Edit
+Texture Position, then click the roof.
+
+14
+00:02:03,394 --> 00:02:09,294
+Drag a corner to size the image.
+The opposite corner stays put.
+
+15
+00:02:09,344 --> 00:02:17,221
+Nice, wider boards. The drag is saved
+to the material, and Undo takes it back.
+
+16
+00:02:17,271 --> 00:02:24,131
+Next, something shiny on the lawn.
+Press T on the grid for a helper.
+
+17
+00:02:24,181 --> 00:02:38,539
+Sphere: pick a centre up the helper,
+then a point above it for the radius.
+
+18
+00:02:38,589 --> 00:02:46,576
+New Material now lists every shader
+in one place. Open the Program list.
+
+19
+00:02:46,626 --> 00:02:58,190
+Emboss tiling, rough stone, metal, glass
+and Perlin noise. Pick Polished metal.
+
+20
+00:02:58,240 --> 00:03:06,206
+The sphere is still selected, so Apply to Selection.
+
+21
+00:03:06,256 --> 00:03:13,916
+Look, a mirror. Metal reflects a
+studio sky with hard highlights.
+
+22
+00:03:13,966 --> 00:03:19,626
+Shader Programs lists every program and what uses it.
+
+23
+00:03:19,676 --> 00:03:25,576
+Deleting a custom program turns
+its materials back into plain ones.
+
+24
+00:03:25,626 --> 00:03:32,096
+New Shader opens the shader editor. Full
+Source shows exactly what gets compiled.
+
+25
+00:03:32,146 --> 00:03:37,166
+No hidden layers. We won't write one today, so Cancel.
+
+26
+00:03:37,216 --> 00:03:50,440
+Last, the lawn. Rectangle, and click
+two grid points around the cabin.
+
+27
+00:03:50,490 --> 00:04:05,360
+In the Library, double-click Grass.
+It joins the model with a tick.
+
+28
+00:04:09,807 --> 00:04:15,793
+Then Apply to Selection.
+
+29
+00:04:15,843 --> 00:04:28,461
+Wooow. Every material is saved with
+the project, and stays editable.
+
+30
+00:04:28,511 --> 00:04:39,142
+And the Model tab now shows them
+all: brick, decking, metal and grass.

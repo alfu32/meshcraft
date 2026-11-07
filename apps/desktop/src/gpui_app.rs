@@ -3092,6 +3092,7 @@ fn ribbon_command_for_key<'a>(
 
 impl Render for MeshcraftShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        workspace_controls::forget_panel_controls(self);
         if let Some(text) = self.session.native_take_clipboard_write() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }

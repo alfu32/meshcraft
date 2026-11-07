@@ -13,6 +13,7 @@ Tutorials recorded from the real application at a pace a person can follow.
 | 7.1 | [Office floor — Part 1 · 14:44](videos/07-office-floor-part-1.mp4) | Structural frame and hotspot array, stairs, lifts, core partitions and initial openings |
 | 7.2 | [Office floor — Part 2 · 13:33](videos/07-office-floor-part-2.mp4) | Remaining door openings and frames, labels, repeating glazed facades and ceiling panels |
 | 7 | [Original full office floor · 28:09](videos/07-office-floor.mp4) | A 6 × 6 × 3.6 m frame and volumetric hotspot array, central stair/lift core with clear approaches and connected return flights, repeated partitions, doors, glazed facades and ceiling panels |
+| 8 | [Materials: previews, library and shaders](videos/08-materials-library.mp4) | The Material Manager's sphere previews and Library tab, Apply to Selection, a textured material and Edit Texture Position, New Material with Polished metal, Shader Programs and Full Source, library grass |
 
 Each video has narration and a selectable English subtitle track; `.srt` and `.vtt` copies sit beside
 it. Subtitles are never burned in. A player that auto-loads the sidecar still shows only one set.
@@ -78,8 +79,9 @@ badly, such as `Push/Pull`.
   pauses before each click so the preview lands first. A real GPU would not show this lag.
 - The cursor is an arrow in every state. Without a full cursor theme, Xvfb shows the root cursor, which the
   build sets to an arrow, so the videos do not show the crosshair a desktop shows during a tool.
-- The Save button in the material editor has no measured position, so `03-materials.py` holds a fixed
-  coordinate. The button position only aims the cursor, and the save itself goes through MCP.
+- The material and shader editors have no measured positions, so `03-materials.py` and
+  `08-materials-library.py` hold fixed coordinates for their fields and buttons, measured at 1920 × 1080.
+  In recipe 3 the Save position only aims the cursor and the save goes through MCP; recipe 8 clicks them for real.
 
 Tutorial 7 also has two editions under 15 minutes. Recreate them with
 `python3 scripts/video/split_office.py`; this preserves the original video and its sidecars,

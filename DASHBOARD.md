@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.61.0 tutorial 8, materials:** a narrated walkthrough of everything new in materials since
+0.55 on the tutorial 2 cabin: sphere previews and the Library tab, library brick through Apply to
+Selection, a textured decking roof sized with Edit Texture Position, New Material with Polished
+metal, Shader Programs and Full Source, and library grass.
+[video](docs/tutorials/videos/08-materials-library.mp4) · [evidence](docs/rewrite/handoffs/T85.md).
+
 **0.60.0 materials panel:** Materials show as sphere previews rendered with their real shaders,
 in a Model tab and a Library tab. The library ships plain colors (8 hues × 3 lightness steps and
 11 greys), grass and foliage variants, glass, brick, tiles, stone and metals; double-click to add
