@@ -249,9 +249,17 @@
       "symbol": "formats",
       "overlay": null
     },
+    "material.add_from_library": {
+      "symbol": "material",
+      "overlay": "library"
+    },
     "material.apply": {
       "symbol": "material",
       "overlay": "check"
+    },
+    "material.apply_from_library": {
+      "symbol": "material",
+      "overlay": "library_apply"
     },
     "material.delete": {
       "symbol": "material",

@@ -1028,6 +1028,11 @@ class Exercise:
             self.rpc.pointer("cancel")
             if abs(material["textureScaleU"] - 1) > 1e-6:
                 raise Failure(f"texture corner drag did not resize the material: {material}")
+        elif key == "material.add_from_library":
+            self.mutate(key, dict(id="library.metal.chrome"))
+        elif key == "material.apply_from_library":
+            self.sources()
+            self.mutate(key, dict(id="library.brick.red"))
         elif key == "material.delete":
             self.setup(self.material, "material.save")
             self.mutate(key, dict(id="benchmark"))

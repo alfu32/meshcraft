@@ -286,6 +286,14 @@ pub(crate) const SECTIONS: &[Section] = &[
     },
     Section {
         root: "Materials",
+        title: "Library",
+        commands: &[
+            ("material.add_from_library", "Add Library Material"),
+            ("material.apply_from_library", "Apply Library Material"),
+        ],
+    },
+    Section {
+        root: "Materials",
         title: "Shader Programs",
         commands: &[
             ("view.panel.programs.toggle", "Shader Programs"),

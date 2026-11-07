@@ -416,6 +416,12 @@ in the shader editor and `program.delete {"id": …}` deletes a custom one, turn
 the materials that used it conventional (built-ins and programs that shader
 objects still use are refused). See [Standard shaders](standard-shaders.md).
 
+The shipped material library is not part of a document until a material is added.
+`material.add_from_library {"id": "library.metal.chrome"}` adds one (keeping a copy
+already in the model) and makes it current; `material.apply_from_library {"id": …}`
+adds it if needed and applies it to the current selection as one Undo step. The IDs
+are listed in [Materials panel and material library](material-library.md).
+
 
 `meshcraft.foliage.v1` uses GPU `foliage` generation on source triangles. The
 published schema includes density, size, width, height, spread, tilt, curl, wind,

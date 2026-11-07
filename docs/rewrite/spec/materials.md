@@ -296,3 +296,27 @@ unchanged; saving stores a copy). `program.delete {id}` removes a custom program
 one Undo step and makes materials that used it conventional, keeping their colour,
 texture and PBR settings. Built-ins and programs that shader objects use are refused.
 See [Standard shaders](../../standard-shaders.md).
+
+### Materials panel previews and material library — T84
+
+The Materials panel shows materials as tiles: a sphere wearing the material,
+rendered with the viewport's shaders, and its name. The **Model** tab lists the
+document's materials (click makes current, double-click edits). The **Library** tab
+lists the shipped library in sections: Plain colors (HSL hues red 0°, orange 30°,
+yellow 60°, green 120°, cyan 180°, blue 240°, magenta 300°, fuchsia 330° at full
+saturation and 25/50/75% lightness, plus greys 0–100% in steps of 10%), Vegetation
+(grass and foliage, each normal, thick, tall, thick + tall) and Construction (blue
+and green glass, red/yellow/white brick, tiles of ½, 1, 1½ and 2 units, fine and
+rough stone, fine and rough 1-unit stone tiles, zinc and chrome).
+
+Library materials have stable `library.` IDs. `material.add_from_library {id}`
+copies one into the document and makes it current; when the ID is already present
+the existing copy is kept. `material.apply_from_library {id}` adds it when missing
+and assigns it to the selection in one Undo step. Without an ID the commands open
+the Library tab and fail with a reason.
+
+Previews are rendered off screen on the graphics owner with a second renderer, in
+slices of at most 40 ms between viewport frames, and cached by a hash of the
+material's appearance (material without ID and name, its custom program and base
+material, and the texture folder when textured). Only tiles on the visible tab are
+requested. See [Materials panel and material library](../../material-library.md).

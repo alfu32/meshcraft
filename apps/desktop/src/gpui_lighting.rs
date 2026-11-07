@@ -586,8 +586,11 @@ impl Renderer {
                 Vec3::new(extent, -0.01, extent),
                 Vec3::new(extent, -0.01, -extent),
             ];
-            triangle(&mut pass, [a, b, c], Color::new(188, 198, 208, 255));
-            triangle(&mut pass, [a, c, d], Color::new(188, 198, 208, 255));
+            // A still picture (a material thumbnail) has no ground.
+            if scene.backdrop.is_none() {
+                triangle(&mut pass, [a, b, c], Color::new(188, 198, 208, 255));
+                triangle(&mut pass, [a, c, d], Color::new(188, 198, 208, 255));
+            }
             // The ground is a top-facing receiver; authored open meshes remain two-sided.
             unsafe {
                 raylib::ffi::rlDrawRenderBatchActive();

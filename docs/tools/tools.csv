@@ -99,6 +99,8 @@ Hotspots,Pick Reference,hotspot.reference,hotspot.reference,document_mutation,co
 Hotspots,Place Hotspot,hotspot.begin_placement,hotspot.begin_placement,session_mutation,desktop,registered,Hotspots > Hotspots,,,Point Construction,,
 Hotspots,Select Attached,hotspot.select_attached,hotspot.select_attached,document_mutation,core,registered,Hotspots > Hotspots,,,Hotspots,,
 Hotspots,Update Properties,hotspot.update,hotspot.update,document_mutation,core,registered,,,,Hotspots,,
+Materials,Add Library Material,material.add_from_library,material.add_from_library,document_mutation,core,registered,Materials > Library,,,,,
+Materials,Apply Library Material,material.apply_from_library,material.apply_from_library,document_mutation,core,registered,Materials > Library,,,,,
 Materials,Apply Material,material.apply,material.apply,document_mutation,core,registered,Materials > Catalog,,,Materials,,
 Materials,Delete Shader Program,program.delete,program.delete,document_mutation,core,registered,Materials > Shader Programs,,,,,
 Materials,Delete Unused Material,material.delete,material.delete,document_mutation,core,registered,Materials > Catalog,,,Materials,,

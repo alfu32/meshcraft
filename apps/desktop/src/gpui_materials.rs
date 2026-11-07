@@ -16,9 +16,22 @@ use meshcraft_core::document::{
     procedural::{self, Parameter, ProceduralMaterial, Program},
 };
 
+/// The two tabs of the Materials panel.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum Tab {
+    /// Materials in the model.
+    #[default]
+    Model,
+    /// The material library that ships with Meshcraft.
+    Library,
+}
+
 #[derive(Default)]
 pub(super) struct MaterialsUi {
     pub selected: Option<String>,
+    pub tab: Tab,
+    /// The library material selected in the Library tab.
+    pub library: Option<String>,
     /// The program selected in the Shader Programs panel.
     pub program: Option<String>,
     pub editor: Option<Editor>,
@@ -295,34 +308,278 @@ pub(super) fn selected_material(
         .unwrap_or_default()
 }
 
+/// Width of one material tile; three fit across the settings panel.
+const TILE_WIDTH: f32 = 122.;
+const TILE_IMAGE: f32 = 96.;
+
+/// One material: its sphere preview (a colour swatch until the preview is
+/// rendered) with its name underneath.
+fn tile(
+    shell: &MeshcraftShell,
+    id: SharedString,
+    material: &Material,
+    active: bool,
+    in_model: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let color = material.color;
+    let swatch = gpui::rgba(u32::from_be_bytes([
+        color.red,
+        color.green,
+        color.blue,
+        color.alpha,
+    ]));
+    let picture = match super::material_thumbnails::image(shell, material) {
+        Some(image) => img(ImageSource::Render(image))
+            .size(px(TILE_IMAGE))
+            .into_any_element(),
+        None => div()
+            .size(px(TILE_IMAGE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(div().size(px(TILE_IMAGE * 0.72)).rounded_full().bg(swatch))
+            .into_any_element(),
+    };
+    let backdrop = super::material_thumbnails::BACKDROP;
+    div()
+        .id(id)
+        .relative()
+        .w(px(TILE_WIDTH))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(2.))
+        .pt(px(4.))
+        .pb(px(5.))
+        .px(px(4.))
+        .rounded(px(4.))
+        .border_2()
+        .bg(rgb(u32::from_be_bytes([
+            0,
+            backdrop.red,
+            backdrop.green,
+            backdrop.blue,
+        ])))
+        .border_color(if active { rgb(0x5aa7ec) } else { rgb(0x2b323b) })
+        .when(!active, |tile| {
+            tile.hover(|s| s.border_color(rgb(0x6b7c8e)))
+        })
+        .cursor_pointer()
+        .child(picture)
+        .child(
+            div()
+                .w_full()
+                .text_sm()
+                .text_center()
+                .truncate()
+                .child(material.name.clone()),
+        )
+        .when(in_model, |tile| {
+            tile.child(
+                div()
+                    .absolute()
+                    .top(px(4.))
+                    .right(px(6.))
+                    .text_xs()
+                    .text_color(rgb(0x8fd18b))
+                    .child("✓"),
+            )
+        })
+}
+
+fn grid(id: &'static str, tiles: Vec<gpui::AnyElement>) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .w_full()
+        .flex()
+        .flex_wrap()
+        .gap(px(6.))
+        .children(tiles)
+        .into_any_element()
+}
+
+fn tab_button(
+    label: &'static str,
+    tab: Tab,
+    current: Tab,
+    cx: &mut Context<MeshcraftShell>,
+) -> gpui::AnyElement {
+    let active = tab == current;
+    div()
+        .id(SharedString::from(format!(
+            "materials/tab/{}",
+            label.to_lowercase()
+        )))
+        .px(px(14.))
+        .py(px(4.))
+        .border_1()
+        .border_b_0()
+        .rounded_t(px(4.))
+        .border_color(if active { rgb(0xb7c4d2) } else { rgb(0x48525d) })
+        .bg(if active { rgb(0x2b323b) } else { rgb(0x1e242c) })
+        .text_color(if active { rgb(0xe8eef5) } else { rgb(0x8d99a6) })
+        .cursor_pointer()
+        .child(label)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.materials.tab = tab;
+            cx.notify();
+        }))
+        .into_any_element()
+}
+
+/// The Materials panel: a Model tab with the model's materials and a Library tab
+/// with the materials that ship with Meshcraft, each shown as a sphere preview.
 pub(super) fn panel(
     shell: &MeshcraftShell,
     cx: &mut Context<MeshcraftShell>,
-    actions: gpui::AnyElement,
+    model_actions: gpui::AnyElement,
+    library_actions: gpui::AnyElement,
 ) -> gpui::AnyElement {
+    let tab = shell.materials.tab;
     let materials = shell.cached_document.materials();
-    let selected =
-        selected_material(&shell.cached_document, shell.materials.selected.as_deref()).id;
-    div().flex().flex_col().gap(px(5.))
-        .on_scroll_wheel(|_,_,cx| cx.stop_propagation())
-        .child(div().id("materials/list").max_h(px(240.)).overflow_y_scroll().flex().flex_col().gap(px(3.))
-        .children(materials.into_iter().map(|material| {
-            let active = material.id == selected;
-            Button::new(SharedString::from(format!("material/{}",material.id))).ghost().w_full().flex_shrink_0().justify_start()
-                .child(div().w_full().flex().items_center().gap(px(8.))
-                    .child(div().size(px(23.)).border_1().border_color(rgb(0x8e9eae)).bg(gpui::rgba(u32::from_be_bytes([material.color.red,material.color.green,material.color.blue,material.color.alpha]))))
-                    .child(material.name.clone()))
-                .when(active,|button| button.bg(rgb(0x35516a)))
-                .on_click(cx.listener(move |this,event:&gpui::ClickEvent,window,cx| {
-                    this.materials.selected=Some(material.id.clone());let _=this.session.choose_native_material(&material.id);
-                    if event.click_count()==2 { edit(this,material.clone(),window,cx); }
-                    cx.notify();
+    let tabs = div()
+        .flex()
+        .items_end()
+        .gap(px(2.))
+        .border_b_1()
+        .border_color(rgb(0x48525d))
+        .child(tab_button("Model", Tab::Model, tab, cx))
+        .child(tab_button("Library", Tab::Library, tab, cx));
+    let (content, actions, hint) = match tab {
+        Tab::Model => {
+            let selected =
+                selected_material(&shell.cached_document, shell.materials.selected.as_deref()).id;
+            let tiles = materials
+                .iter()
+                .map(|material| {
+                    let id = material.id.clone();
+                    let edited = material.clone();
+                    tile(
+                        shell,
+                        SharedString::from(format!("material/{}", material.id)),
+                        material,
+                        material.id == selected,
+                        false,
+                    )
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            this.materials.selected = Some(id.clone());
+                            let _ = this.session.choose_native_material(&id);
+                            if event.click_count() == 2 {
+                                edit(this, edited.clone(), window, cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+                })
+                .collect();
+            (
+                grid("materials/list", tiles),
+                model_actions,
+                "Double-click to edit. Procedural details are visual; select and snap to the source surface.",
+            )
+        }
+        Tab::Library => {
+            let in_model = materials
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<std::collections::BTreeSet<_>>();
+            let selected = shell.materials.library.as_deref();
+            let sections = meshcraft_core::document::material_library::material_library()
+                .into_iter()
+                .map(|section| {
+                    let tiles = section
+                        .materials
+                        .iter()
+                        .map(|material| {
+                            let id = material.id.clone();
+                            tile(
+                                shell,
+                                SharedString::from(format!("library/{}", material.id)),
+                                material,
+                                selected == Some(material.id.as_str()),
+                                in_model.contains(material.id.as_str()),
+                            )
+                            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                                this.materials.library = Some(id.clone());
+                                if event.click_count() == 2 {
+                                    let mut payload = CommandPayload::default();
+                                    payload.values.insert("id".into(), json!(id.clone()));
+                                    this.dispatch_payload("material.add_from_library", &payload);
+                                    this.materials.selected = Some(id.clone());
+                                }
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                        })
+                        .collect();
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(5.))
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(rgb(0xc9d6e3))
+                                .child(section.title),
+                        )
+                        .child(grid(section.id, tiles))
+                })
+                .collect::<Vec<_>>();
+            (
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .children(sections)
+                    .into_any_element(),
+                library_actions,
+                "Double-click or Add to Model to copy a material into the model, where it can be edited. Apply to Selection adds it too. ✓ marks materials already in the model.",
+            )
+        }
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .child(tabs)
+        .child(
+            div()
+                .id(SharedString::from(match tab {
+                    Tab::Model => "materials/model-scroll",
+                    Tab::Library => "materials/library-scroll",
                 }))
-        })))
+                .max_h(px(470.))
+                .overflow_y_scroll()
+                .child(content),
+        )
         .child(actions)
-        .children(shell.bridge.latest_frame().into_iter().filter(|f|f.procedural_candidates>0).map(|f|div().text_xs().text_color(rgb(0xa9b7c5)).child(format!("Procedural GPU: {} candidates · {} draws",f.procedural_candidates,f.procedural_draw_calls))))
-        .children(shell.bridge.latest_frame().into_iter().flat_map(|f|f.procedural_diagnostics).map(|d|div().text_xs().text_color(rgb(0xffaa80)).child(d)))
-        .child(div().text_xs().text_color(rgb(0xa9b7c5)).child("Double-click to edit. Procedural details are visual; select and snap to the source surface."))
+        .children(
+            shell
+                .bridge
+                .latest_frame()
+                .into_iter()
+                .filter(|f| f.procedural_candidates > 0)
+                .map(|f| {
+                    div().text_xs().text_color(rgb(0xa9b7c5)).child(format!(
+                        "Procedural GPU: {} candidates · {} draws",
+                        f.procedural_candidates, f.procedural_draw_calls
+                    ))
+                }),
+        )
+        .children(
+            shell
+                .bridge
+                .latest_frame()
+                .into_iter()
+                .flat_map(|f| f.procedural_diagnostics)
+                .map(|d| div().text_xs().text_color(rgb(0xffaa80)).child(d)),
+        )
+        .child(div().text_xs().text_color(rgb(0xa9b7c5)).child(hint))
         .into_any_element()
 }
 

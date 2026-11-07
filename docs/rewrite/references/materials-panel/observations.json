@@ -1,0 +1,135 @@
+{
+  "checks": {
+    "Materials \u203a Library lists Add and Apply Library Material": true,
+    "Model tab shows each material as a rendered sphere": true,
+    "editing a material renders its picture again": true,
+    "Library tab opens on plain colors with rendered spheres": true,
+    "double-clicking a library tile adds it to the model": true,
+    "Apply to Selection adds the library material and paints the selection": true,
+    "one Undo removes both the paint and the added material": true,
+    "the viewport keeps drawing while library pictures render": true,
+    "a library command with nothing chosen opens the Library tab": true,
+    "the application is still running": true
+  },
+  "observations": {
+    "library_menu_paths": {
+      "material.add_from_library": [
+        "Materials",
+        "Library"
+      ],
+      "material.apply_from_library": [
+        "Materials",
+        "Library"
+      ]
+    },
+    "model_red_picture": {
+      "mean": [
+        122,
+        0,
+        0
+      ],
+      "stddev": [
+        23.4,
+        1.0,
+        1.0
+      ]
+    },
+    "model_recolored_picture": {
+      "mean": [
+        38,
+        86,
+        215
+      ],
+      "stddev": [
+        7.6,
+        16.5,
+        35.1
+      ]
+    },
+    "library_red_picture": {
+      "mean": [
+        194,
+        14,
+        16
+      ],
+      "stddev": [
+        92.6,
+        22.0,
+        26.0
+      ]
+    },
+    "box": {
+      "dispatch": {
+        "command_id": "geometry.add_cuboid",
+        "accepted": true,
+        "result": {
+          "completion": {
+            "state": "completed"
+          },
+          "document_revision": 3,
+          "outputs": {
+            "occurrences": [
+              {
+                "path": [
+                  36
+                ]
+              }
+            ]
+          },
+          "diagnostics": [],
+          "host_effects": []
+        }
+      },
+      "status": {
+        "prototypeDeletion": null,
+        "pendingDialog": null,
+        "history": {
+          "cursor": 3,
+          "entries": 3
+        },
+        "version": "0.60.0",
+        "revision": 3,
+        "generation": 0,
+        "activeTool": "Select",
+        "numericInput": "",
+        "toolInstructions": "",
+        "status": "Created a 2.00 \u00d7 2.00 \u00d7 2.00 cuboid.",
+        "editContext": {
+          "kind": "document"
+        },
+        "selection": [
+          {
+            "path": [
+              36
+            ],
+            "kind": "occurrence",
+            "id": null
+          }
+        ],
+        "projectPath": null,
+        "unsavedChanges": true,
+        "clipboard": {
+          "available": false,
+          "bytes": 0
+        }
+      },
+      "_timing": {
+        "ownerThreadMs": 1.505492
+      }
+    },
+    "viewport_after_library": {
+      "diagnostics": [],
+      "candidateInstances": 0,
+      "drawCalls": 0
+    },
+    "menu_fallback": {
+      "message": "Choose a material in Materials \u203a Library first.",
+      "library_tab_pixel": [
+        43,
+        50,
+        59
+      ]
+    }
+  },
+  "passed": true
+}

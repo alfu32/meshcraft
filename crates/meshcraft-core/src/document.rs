@@ -12,6 +12,7 @@ pub mod hotspots;
 pub mod ifc;
 mod insertion;
 pub mod instance_materials;
+pub mod material_library;
 pub mod materials;
 pub mod procedural;
 pub mod scripts;

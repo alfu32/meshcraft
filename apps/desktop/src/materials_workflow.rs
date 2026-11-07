@@ -3,6 +3,11 @@ use super::*;
 use meshcraft_core::document::materials::Material;
 use serde_json::Value;
 
+fn library_material(id: &str) -> Result<Material, String> {
+    meshcraft_core::document::material_library::library_material(id)
+        .ok_or_else(|| format!("No library material {id}"))
+}
+
 pub(crate) const TEXTURE_EDIT_HINT: &str = "Texture: click a textured face, then drag a corner to size the image or its middle to move it. The material changes everywhere it is used. Esc finishes.";
 
 impl MeshcraftApp {
@@ -179,6 +184,35 @@ impl MeshcraftApp {
         }
         self.status = format!("Saved material {name}.");
         Ok(())
+    }
+
+    /// Adds a library material to the model, or keeps the copy already there so
+    /// edits made to it are not overwritten, and makes it the current material.
+    pub fn add_native_library_material(&mut self, id: &str) -> Result<(), String> {
+        let material = library_material(id)?;
+        let name = material.name.clone();
+        if self.document.materials().iter().any(|m| m.id == id) {
+            self.choose_native_material(id)?;
+            self.status =
+                format!("{name} is already in the model; it is now the current material.");
+            return Ok(());
+        }
+        self.commit_global_document_edit("Add library material", |document| {
+            document.put_material(material)
+        })?;
+        self.choose_native_material(id)?;
+        self.status = format!("Added {name} to the model.");
+        Ok(())
+    }
+
+    /// Applies a library material to the selection, adding it to the model first
+    /// when needed, as one Undo step.
+    pub fn apply_native_library_material(&mut self, id: &str) -> Result<(), String> {
+        let material = library_material(id)?;
+        let present = self.document.materials().iter().any(|m| m.id == id);
+        let targets = self.selection.selected().iter().cloned().collect();
+        self.assign_material_targets_with_new(id, None, targets, (!present).then_some(material))?;
+        self.choose_native_material(id)
     }
 
     pub fn delete_native_material(&mut self, id: &str) -> Result<(), String> {
@@ -530,6 +564,95 @@ mod tests {
         assert!(app.document.instance_material(&a).is_none());
         assert_eq!(app.document.materials(), before.materials());
     }
+    #[test]
+    fn library_materials_are_added_once_and_applied_in_one_undo_step() {
+        let mut document = Document::new();
+        let cube = document
+            .add_cuboid("box", Vec3::new(1., 1., 1.), Vec3::ZERO)
+            .unwrap();
+        let mut app = MeshcraftApp::new_native_session(document, "Ready".into(), None);
+        let before = app.document.clone();
+        let mut payload = CommandPayload::default();
+        payload
+            .values
+            .insert("id".into(), "library.metal.chrome".into());
+        assert!(
+            app.dispatch_command("material.add_from_library", &payload)
+                .accepted
+        );
+        let added = app
+            .document
+            .materials()
+            .into_iter()
+            .find(|m| m.id == "library.metal.chrome")
+            .unwrap();
+        assert_eq!(added.name, "Chrome");
+        assert_eq!(
+            app.native_current_material().as_deref(),
+            Some("library.metal.chrome")
+        );
+        // An edited copy is kept when the same library material is added again.
+        let edited = meshcraft_core::document::materials::Material {
+            name: "My chrome".into(),
+            ..added
+        };
+        app.save_native_material(edited).unwrap();
+        assert!(
+            app.dispatch_command("material.add_from_library", &payload)
+                .accepted
+        );
+        assert!(
+            app.document
+                .materials()
+                .iter()
+                .any(|m| m.name == "My chrome")
+        );
+        app.undo_document();
+        app.undo_document();
+        assert_eq!(app.document.materials(), before.materials());
+
+        // Apply adds the material and paints the selection as one step.
+        app.selection.select(SelectionTarget {
+            occurrence: cube.clone(),
+            entity: SelectedEntity::Occurrence,
+        });
+        payload
+            .values
+            .insert("id".into(), "library.brick.red".into());
+        assert!(
+            app.dispatch_command("material.apply_from_library", &payload)
+                .accepted
+        );
+        let painted = |app: &MeshcraftApp| {
+            app.document
+                .effective_geometry(&cube)
+                .unwrap()
+                .triangles
+                .values()
+                .all(|f| {
+                    meshcraft_core::document::materials::material_id(&f.extensions)
+                        == Some("library.brick.red")
+                })
+        };
+        assert!(painted(&app));
+        app.undo_document();
+        assert!(!painted(&app));
+        assert_eq!(app.document.materials(), before.materials());
+
+        payload.values.insert("id".into(), "library.missing".into());
+        assert_eq!(
+            CommandCompletion::Failed,
+            app.dispatch_command("material.add_from_library", &payload)
+                .result
+                .completion
+        );
+        // From a menu, with no library material chosen, the library is shown.
+        let result =
+            app.dispatch_command("material.apply_from_library", &CommandPayload::default());
+        assert_eq!(CommandCompletion::Failed, result.result.completion);
+        assert_eq!(app.panel_focus.as_deref(), Some("material_library"));
+    }
+
     #[test]
     fn deleting_unused_materials_is_undoable_and_defaults_remain_available() {
         let mut app = MeshcraftApp::new_native_session(Document::new(), "Ready".into(), None);

@@ -1,5 +1,11 @@
 # Dashboard
 
+**0.60.0 materials panel:** Materials show as sphere previews rendered with their real shaders,
+in a Model tab and a Library tab. The library ships plain colors (8 hues × 3 lightness steps and
+11 greys), grass and foliage variants, glass, brick, tiles, stone and metals; double-click to add
+one, or Apply to Selection to add and paint in one step.
+[guide](docs/material-library.md) · [evidence](docs/rewrite/handoffs/T84.md).
+
 **0.59.0 standard shaders:** Emboss (rough texture, tiling, rough tiling), polished metal with
 hard reflections, glass and Perlin noise are built in, and curved surfaces now shade smoothly
 under shaders. New Material picks any shader from its Program list, with New Shader… beside it;

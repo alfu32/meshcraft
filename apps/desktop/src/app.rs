@@ -1636,6 +1636,8 @@ fn shell_commands() -> &'static CommandRegistry<ShellAction> {
             ("program", "Save Procedural Program", ShellAction::MaterialAction("program")),
             ("parameters", "Apply Procedural Parameters", ShellAction::MaterialAction("parameters")),
             ("delete", "Delete Unused Material", ShellAction::MaterialAction("delete")),
+            ("add_from_library", "Add Library Material to Model", ShellAction::MaterialAction("library_add")),
+            ("apply_from_library", "Apply Library Material to Selection", ShellAction::MaterialAction("library_apply")),
         ] {
             register_shell_command(&mut registry, &format!("material.{id}"), &format!("Objects> Materials> {label}"), "Materials", "color transparency texture shading material", Some("paint"), action);
         }
@@ -1957,9 +1959,12 @@ fn command_parameters(id: &str) -> Vec<CommandParameter> {
             ("count", CommandValueType::Integer),
             ("spacing", CommandValueType::Number),
         ],
-        "material.apply" | "material.delete" | "program.edit" | "program.delete" => {
-            &[("id", CommandValueType::String)]
-        }
+        "material.apply"
+        | "material.delete"
+        | "material.add_from_library"
+        | "material.apply_from_library"
+        | "program.edit"
+        | "program.delete" => &[("id", CommandValueType::String)],
         "material.program" => &[("program", CommandValueType::Object)],
         "material.parameters" => &[
             ("id", CommandValueType::String),
@@ -6629,6 +6634,22 @@ impl MeshcraftApp {
                         .and_then(serde_json::Value::as_str)
                         .ok_or_else(|| "Material ID required".to_owned())
                         .and_then(|id| self.delete_native_material(id)),
+                    "library_add" | "library_apply" => {
+                        match payload.values.get("id").and_then(serde_json::Value::as_str) {
+                            // From a menu with nothing chosen: show the library to choose from.
+                            None => {
+                                self.open_panels(&["material_library"]);
+                                Err("Choose a material in Materials › Library first.".to_owned())
+                            }
+                            Some(id) => {
+                                if action == "library_add" {
+                                    self.add_native_library_material(id)
+                                } else {
+                                    self.apply_native_library_material(id)
+                                }
+                            }
+                        }
+                    }
                     "program_delete" => payload
                         .values
                         .get("id")

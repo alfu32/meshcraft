@@ -1122,6 +1122,14 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         ],
         bindings,
     );
+    let library_actions = command_row(
+        "panel/materials-library/functional",
+        &[
+            ("material.add_from_library", "Add to Model"),
+            ("material.apply_from_library", "Apply to Selection"),
+        ],
+        bindings,
+    );
     let program_actions = command_row(
         "panel/programs/functional",
         &[
@@ -1212,7 +1220,12 @@ pub(super) fn right_settings_panel(bindings: &mut LayoutBindings<'_, '_, '_>) ->
         ))
         .child(setting_section(
             "Materials",
-            super::materials::panel(bindings.shell, bindings.cx, material_actions),
+            super::materials::panel(
+                bindings.shell,
+                bindings.cx,
+                material_actions,
+                library_actions,
+            ),
             bindings,
         ))
         .child(setting_section(

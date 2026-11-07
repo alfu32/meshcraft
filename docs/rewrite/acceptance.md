@@ -560,3 +560,20 @@ panel; Edit opens a built-in in the shader editor and Escape leaves it unchanged
 Deleting a custom program makes its materials conventional and names them, and a
 single Undo restores both; built-ins and programs used by a shader object are
 refused with a reason. Run `python3 scripts/verify_shader_library.py`.
+
+## C57 — Materials panel previews and material library
+
+**Tasks:** T84. **Requirements:** P07.
+
+The Materials panel has Model and Library tabs. The Model tab shows each model
+material as a tile with a rendered sphere preview and its name; saving a material
+with a new colour renders its tile again in that colour. The Library tab lists Plain
+colors (8 hues at 25, 50 and 75% lightness and greys every 10%), Vegetation (grass
+and foliage, each normal, thick, tall and thick + tall) and Construction (blue and
+green glass, red/yellow/white brick, tiles of ½, 1, 1½ and 2 units, fine and rough
+stone, fine and rough stone tiles, zinc and chrome), each rendered on a sphere while
+the viewport keeps drawing. Double-clicking a library tile adds it to the model and
+marks it ✓. Apply to Selection adds a library material and paints the selection, and
+a single Undo removes both. Materials › Library lists Add and Apply Library Material;
+with no library material chosen they open the Library tab. Run
+`python3 scripts/verify_materials_panel.py`.

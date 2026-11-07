@@ -45,6 +45,8 @@ mod ifc;
 mod layout;
 #[path = "gpui_lighting.rs"]
 mod lighting;
+#[path = "gpui_material_thumbnails.rs"]
+mod material_thumbnails;
 #[path = "gpui_materials.rs"]
 mod materials;
 #[path = "gpui_parameters.rs"]
@@ -274,6 +276,9 @@ struct RenderScene {
     thick_line_width: f32,
     antialiasing: postprocess::Antialiasing,
     lighting: lighting::Lighting,
+    /// A still picture, such as a material thumbnail: this background colour and
+    /// no camera target marker.
+    backdrop: Option<Rgba8>,
 }
 
 impl RenderScene {
@@ -317,6 +322,7 @@ impl RenderScene {
             && self.thick_line_width == other.thick_line_width
             && self.antialiasing == other.antialiasing
             && self.lighting == other.lighting
+            && self.backdrop == other.backdrop
     }
 }
 
@@ -350,6 +356,7 @@ impl Default for RenderScene {
             thick_line_width: 3.0,
             antialiasing: postprocess::Antialiasing::default(),
             lighting: lighting::Lighting::default(),
+            backdrop: None,
         }
     }
 }
@@ -374,6 +381,7 @@ struct ViewportBridge {
     redraw: Arc<(Mutex<u64>, Condvar)>,
     preview: Arc<Mutex<Option<ViewportBridge>>>,
     bakes: Arc<Mutex<Vec<crate::app::BakeCaptureRequest>>>,
+    material_thumbnails: Arc<Mutex<material_thumbnails::Queue>>,
     gpu_memory: Arc<Mutex<Option<crate::resource_stats::GpuMemory>>>,
 }
 
@@ -387,6 +395,7 @@ impl ViewportBridge {
             redraw: Arc::new((Mutex::new(1), Condvar::new())),
             preview: Arc::new(Mutex::new(None)),
             bakes: Arc::new(Mutex::new(Vec::new())),
+            material_thumbnails: Arc::default(),
             gpu_memory: Arc::new(Mutex::new(None)),
         }
     }
@@ -537,6 +546,7 @@ fn render_loop(
         raylib::consts::TextureFilter::TEXTURE_FILTER_BILINEAR,
     );
     let mut lighting = lighting::Renderer::new(&mut rl, &thread);
+    let mut thumbnail_renderer = None;
     let mut sequence = 0_u64;
     let mut rendered_revision = 0;
     let gpu_probe = resource_stats::GlMemoryProbe::new();
@@ -596,6 +606,14 @@ fn render_loop(
                 lighting.gpu.procedural.capture_time(),
             );
             let _ = request.reply.send(result);
+        }
+        if material_thumbnails::render_pending(
+            &mut rl,
+            &thread,
+            &bridge.material_thumbnails,
+            &mut thumbnail_renderer,
+        ) {
+            bridge.request_redraw();
         }
         let active_bridge = bridge
             .preview
@@ -704,7 +722,11 @@ fn draw_offscreen_scene(
         )
     };
     let mut drawing = rl.begin_texture_mode(thread, target);
-    drawing.clear_background(Color::new(224, 236, 247, 255));
+    drawing.clear_background(
+        scene_data
+            .backdrop
+            .map_or(Color::new(224, 236, 247, 255), ray_color),
+    );
     {
         let mut view = drawing.begin_mode3D(camera);
         lighting.draw(&mut view, scene_data, orbit, (target_width, target_height));
@@ -772,7 +794,9 @@ fn draw_offscreen_scene(
                 0,
             );
         }
-        helpers::draw_camera_target(&mut view, orbit, target_height);
+        if scene_data.backdrop.is_none() {
+            helpers::draw_camera_target(&mut view, orbit, target_height);
+        }
     }
     hotspots::draw(
         &mut drawing,
@@ -1217,6 +1241,7 @@ struct MeshcraftShell {
     parameters: parameters::Ui,
     ifc: ifc::Ui,
     thumbnails: thumbnails::Ui,
+    material_thumbnails: material_thumbnails::Cache,
     settings_scroll: gpui::ScrollHandle,
     open_settings_panel: Option<&'static str>,
     collapsed_settings_panels: std::collections::BTreeSet<&'static str>,
@@ -1291,6 +1316,7 @@ impl MeshcraftShell {
             parameters: parameters::Ui::default(),
             ifc: ifc::Ui::default(),
             thumbnails: thumbnails::Ui::default(),
+            material_thumbnails: material_thumbnails::Cache::default(),
             settings_scroll: gpui::ScrollHandle::new(),
             open_settings_panel: Some("UI Settings"),
             collapsed_settings_panels: Default::default(),
@@ -1617,6 +1643,7 @@ impl MeshcraftShell {
             thick_line_width: preferences.thick_grid_width,
             lighting: self.lighting,
             antialiasing: postprocess::Antialiasing::from_level(preferences.antialiasing_quality),
+            backdrop: None,
         });
     }
 
@@ -1735,6 +1762,17 @@ impl MeshcraftShell {
                 payload
                     .values
                     .insert("id".into(), serde_json::Value::String(program));
+            }
+            payload
+        } else if matches!(
+            id,
+            "material.add_from_library" | "material.apply_from_library"
+        ) {
+            let mut payload = CommandPayload::default();
+            if let Some(material) = self.materials.library.clone() {
+                payload
+                    .values
+                    .insert("id".into(), serde_json::Value::String(material));
             }
             payload
         } else if matches!(id, "material.apply" | "material.delete") {
@@ -3082,7 +3120,7 @@ impl Render for MeshcraftShell {
                                 cx.notify();
                             }
                             home::tick(this);
-                            if thumbnails::tick(this) {
+                            if thumbnails::tick(this) | material_thumbnails::tick(this) {
                                 cx.notify();
                             }
                             if materials::tick(this, cx) {
@@ -3213,6 +3251,13 @@ impl Render for MeshcraftShell {
                     self.materials.selected.as_deref(),
                 );
                 materials::edit(self, material, window, cx);
+            } else if panel == "material_library" {
+                self.materials.tab = materials::Tab::Library;
+                if let Some((index, title)) = layout::panel_location("materials") {
+                    self.open_settings_panel = Some(title);
+                    self.collapsed_settings_panels.remove(title);
+                    self.settings_scroll.scroll_to_top_of_item(index);
+                }
             } else if let Some((index, title)) = layout::panel_location(&panel) {
                 self.open_settings_panel = Some(title);
                 self.collapsed_settings_panels.remove(title);
@@ -3221,6 +3266,7 @@ impl Render for MeshcraftShell {
         }
         home::prepare(self, window);
         thumbnails::prepare(self, window, cx);
+        material_thumbnails::prepare(self, window);
         architecture::prepare(self, window, cx);
         settings::prepare(self, window, cx);
         parameters::prepare(self, window, cx);

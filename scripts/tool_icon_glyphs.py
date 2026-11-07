@@ -260,6 +260,8 @@ assign('material','material.new','plus')
 assign('material','material.edit','edit')
 assign('material','material.delete','delete')
 assign('material','material.apply paint.apply_selection','check')
+assign('material','material.add_from_library','library')
+assign('material','material.apply_from_library','library_apply')
 assign('material','paint.set_color','picker')
 assign('material','material.save','save')
 assign('texture','material.edit_texture','scale')
@@ -422,6 +424,9 @@ def glyph(spec):
         'hide':path('M20 29L30 20',ORANGE),
         'show':path('M20 25L24 29L31 21',GREEN),
         'cycle':path('M20 28A6 6 0 1 1 29 22M29 22V26H25',ORANGE),
+        # Book spines on a shelf: the material library.
+        'library':rect(19,20,3,10,BLUE)+rect(23,20,3,10,WHITE)+path('M27 21L30 20L31.5 29.5L28.5 30.5Z',ORANGE,ORANGE)+path('M18 31H32',WHITE),
+        'library_apply':rect(19,20,3,10,BLUE)+rect(23,20,3,10,WHITE)+path('M18 31H32',WHITE)+path('M26 26L28 28.5L32 21',GREEN),
     }
     if overlay in ['plus','minus','cross','check','arrow']:
         return base+badge(overlay,GREEN if overlay in ['plus','check'] else ORANGE)

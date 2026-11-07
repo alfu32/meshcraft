@@ -89,6 +89,11 @@ metal with hard reflections, glass and Perlin noise are built in. One New Materi
 command offers every shader in its Program list, with New Shader… beside it, and
 the Shader Programs panel edits and deletes programs. [Standard shaders](docs/standard-shaders.md).
 
+**Materials panel and library.** Materials appear as sphere previews rendered with
+their real shaders. The Library tab ships plain colors, grass and foliage, glass,
+brick, tiles, stone and metals; double-click one to add it to the model.
+[Materials panel and material library](docs/material-library.md).
+
 **Bake to GPU Mesh** freezes evaluated objects as static GPU meshes. **Bake to Mesh**
 turns frozen or shader-generated objects into editable edges and faces, with Undo.
 [Object conversion details](docs/rewrite/spec/objects.md#bake-to-gpu-mesh-and-bake-to-mesh).

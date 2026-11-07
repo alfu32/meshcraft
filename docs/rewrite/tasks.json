@@ -3936,6 +3936,52 @@
       ],
       "tool_ids": [],
       "status": "complete"
+    },
+    {
+      "id": "T84",
+      "title": "Materials panel with sphere previews, Model and Library tabs, and the shipped material library",
+      "phase": "desktop",
+      "dependencies": [
+        "T83"
+      ],
+      "requirements": [
+        "P07"
+      ],
+      "acceptance": [
+        "C57"
+      ],
+      "targets": [
+        "crates/meshcraft-core/src/document/material_library.rs",
+        "apps/desktop/src/gpui_material_thumbnails.rs",
+        "apps/desktop/src/gpui_materials.rs",
+        "apps/desktop/src/gpui_lighting.rs",
+        "apps/desktop/src/gpui_app.rs",
+        "apps/desktop/src/gpui_layout.rs",
+        "apps/desktop/src/functional_ui.rs",
+        "apps/desktop/src/materials_workflow.rs",
+        "apps/desktop/src/app.rs",
+        "scripts/verify_materials_panel.py",
+        "docs/material-library.md"
+      ],
+      "source_paths": [
+        "core/src/main/kotlin/com/github/alfu32/sketch/model/GroupScene.kt"
+      ],
+      "source_symbols": [],
+      "design_docs": [
+        "docs/rewrite/spec/materials.md",
+        "docs/material-library.md",
+        "docs/rewrite/handoffs/T84.md"
+      ],
+      "slices": [
+        "Show materials as tiles with GPU-rendered sphere previews, cached by look and rendered on the graphics owner between frames with a separate renderer.",
+        "Split the Materials panel into Model and Library tabs; the library ships plain colors, vegetation and construction sections.",
+        "Add material.add_from_library and material.apply_from_library; adding keeps an existing copy, applying adds and paints in one Undo step, and with nothing chosen the commands open the Library tab."
+      ],
+      "done": [
+        "C57 passes in the native app and the release gate is green."
+      ],
+      "tool_ids": [],
+      "status": "complete"
     }
   ]
 }
