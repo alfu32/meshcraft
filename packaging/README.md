@@ -199,6 +199,13 @@ for validation/reference; they are not extra AppxManifest elements. The desktop
 entry uses the Store name `Meshcraft-desktop`, registers `.octd` files and the
 `meshcraft.exe` execution alias.
 
+Release builds of `meshcraft.exe` use the Windows GUI subsystem, so starting the app
+from the Start menu, the MSIX, the MSI or the portable archive opens no console
+window. `--version`, `--help`, `--command-catalog` and argument errors attach to the
+terminal that started them, and redirected output (pipes, files, CI checks) works as
+before. Application logs written to stderr are not shown when no terminal is attached.
+Debug builds keep the console.
+
 Store packages need a positive major version and a zero fourth component. MSIX
 versions map app `major.minor.patch` to `(major + 1).minor.patch.0`: app `0.41.1`
 is MSIX `1.41.1.0`, and future app `1.0.0` is MSIX `2.0.0.0`. This keeps package

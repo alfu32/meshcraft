@@ -1,3 +1,11 @@
+// Windows release builds are GUI programs, so launching from the Start menu, an MSIX or
+// MSI install does not open a console window. Command-line output attaches to the calling
+// terminal instead (`attach_parent_console`). Debug builds keep the console for developers.
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 #[cfg(not(target_arch = "wasm32"))]
 use meshcraft_core::document::Document;
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,7 +54,11 @@ fn main() {
         meshcraft_desktop::script_engine::run_worker();
         return;
     }
-    let startup = match parse_startup_args(env::args_os().skip(1)) {
+    let command = parse_startup_args(env::args_os().skip(1));
+    if !matches!(command, Ok(StartupCommand::Run(_))) {
+        attach_parent_console();
+    }
+    let startup = match command {
         Ok(StartupCommand::Run(options)) => options,
         Ok(StartupCommand::Help) => {
             println!("{USAGE}");
@@ -129,6 +141,26 @@ fn main() {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {}
+
+/// Lets `--help`, `--version`, `--command-catalog` and argument errors print in the terminal
+/// that started a Windows GUI-subsystem build. Redirected output (a pipe or file) is already
+/// connected and is left alone.
+#[cfg(target_os = "windows")]
+fn attach_parent_console() {
+    use windows::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
+    };
+    // SAFETY: both calls only read or set this process's standard handles.
+    unsafe {
+        let connected = GetStdHandle(STD_OUTPUT_HANDLE).is_ok_and(|handle| !handle.is_invalid());
+        if !connected {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn attach_parent_console() {}
 
 fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> Result<StartupCommand, String> {
     let mut args = args.into_iter().peekable();
